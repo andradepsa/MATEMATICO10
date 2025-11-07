@@ -1,0 +1,607 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <script>
+(function() {
+    'use strict';
+    
+    // VERIFICAÇÃO ULTRA-RÁPIDA
+    let authenticated = false;
+    
+    try {
+        const session = localStorage.getItem('math10_session');
+        if (session) {
+            const data = JSON.parse(session);
+            const SESSION_MAX_AGE = 4 * 60 * 60 * 1000;
+            const elapsed = Date.now() - data.loginTime;
+            
+            if (data.authenticated && elapsed <= SESSION_MAX_AGE) {
+                authenticated = true;
+            } else {
+                localStorage.removeItem('math10_session');
+            }
+        }
+    } catch (e) {
+        localStorage.removeItem('math10_session');
+    }
+    
+    // SE NÃO AUTENTICADO - DESTRÓI E REDIRECIONA
+    if (!authenticated) {
+        // DESTRÓI TODO O CONTEÚDO DA PÁGINA
+        document.documentElement.innerHTML = '';
+        document.body.innerHTML = '';
+        
+        // REDIRECIONA IMEDIATAMENTE
+        window.location.href = 'https://matematico10.com.br/index.html';
+        return;
+    }
+    
+    // SE AUTENTICADO - PÁGINA CONTINUA NORMALMENTE
+    console.log('✅ Acesso autorizado via autenticação TOTP');
+})();
+</script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portal de Recursos Pedagógicos - Planejamentos Anuais</title>
+    <script>
+(function () {
+  "use strict";
+
+  const e = document.referrer.includes("index.html"),
+        t = sessionStorage.getItem("authorized") === "true",
+        n = sessionStorage.getItem("lastAccess");
+
+  // Se veio da index.html, marca como autorizado
+  if (e) {
+    sessionStorage.setItem("authorized", "true");
+    sessionStorage.setItem("lastAccess", Date.now());
+  }
+
+  // Se autorizado ou acesso recente (menos de 5 min), deixa continuar
+  if (t || (n && Date.now() - parseInt(n) < 300000)) {
+    sessionStorage.setItem("lastAccess", Date.now());
+    console.log("✅ Acesso permitido");
+    return;
+  }
+
+  // Caso contrário, redireciona para o login
+  console.warn("⛔ Acesso negado — redirecionando para login");
+  sessionStorage.removeItem("authorized");
+  sessionStorage.removeItem("lastAccess");
+
+  window.location.replace(
+    window.location.hostname === "matematico10.com.br"
+      ? "https://matematico10.com.br/index.html"
+      : "https://k10.netlify.app/index.html"
+  );
+})();
+</script>
+
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --primary-dark: #1d4ed8;
+            --secondary-color: #3b82f6;
+            --accent-color: #f97316;
+            --text-color: #1e293b;
+            --light-bg: #f8fafc;
+            --card-bg: #ffffff;
+            --border-color: #e2e8f0;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            
+            --math-color: #8b5cf6;
+            --languages-color: #10b981;
+            --art-color: #ec4899;
+            --english-color: #3b82f6;
+            --spanish-color: #06b6d4;
+            --phys-ed-color: #f97316;
+            --humanities-color: #14b8a6;
+            --history-color: #ef4444;
+            --philosophy-color: #8b5cf6;
+            --sciences-color: #f43f5e;
+            --physics-color: #0ea5e9;
+            --chemistry-color: #7c2d12;
+            --biology-color: #059669;
+            --religion-color: #0ea5e9;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        body {
+            background-color: var(--light-bg);
+            color: var(--text-color);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
+        header {
+            background-color: var(--primary-color);
+            color: white;
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+            box-shadow: var(--shadow);
+        }
+
+        .header-content {
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            font-weight: 700;
+        }
+
+        header p {
+            font-size: 1.25rem;
+            opacity: 0.9;
+        }
+
+        .section-heading {
+            font-size: 1.75rem;
+            color: var(--primary-color);
+            margin: 2rem 0 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 2px solid var(--primary-color);
+            font-weight: 600;
+        }
+
+        .subject-heading {
+            font-size: 1.5rem;
+            color: var(--text-color);
+            margin: 1.5rem 0 1rem;
+            font-weight: 600;
+        }
+
+        .grade-heading {
+            font-size: 1.1rem;
+            color: var(--text-color);
+            margin: 1rem 0 0.5rem;
+            text-align: left;
+            font-weight: 500;
+            background-color: #f1f5f9;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+        }
+
+        .subject-section {
+            background: var(--card-bg);
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: var(--shadow);
+            margin-bottom: 1.5rem;
+        }
+
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 12px;
+            margin: 1rem 0 1.5rem;
+        }
+
+        .download-button {
+            display: block;
+            text-decoration: none;
+            color: white;
+            font-weight: 500;
+            padding: 0.75rem 1rem;
+            border-radius: 6px;
+            text-align: center;
+            transition: all 0.2s ease;
+            border: none;
+        }
+
+        .download-button:hover {
+            filter: brightness(90%);
+            transform: translateY(-2px);
+        }
+
+        .math {
+            background-color: var(--math-color);
+        }
+
+        .languages {
+            background-color: var(--languages-color);
+        }
+
+        .art {
+            background-color: var(--art-color);
+        }
+
+        .english {
+            background-color: var(--english-color);
+        }
+
+        .spanish {
+            background-color: var(--spanish-color);
+        }
+
+        .phys-ed {
+            background-color: var(--phys-ed-color);
+        }
+
+        .humanities {
+            background-color: var(--humanities-color);
+        }
+
+        .history {
+            background-color: var(--history-color);
+        }
+
+        .philosophy {
+            background-color: var(--philosophy-color);
+        }
+
+        .sciences {
+            background-color: var(--sciences-color);
+        }
+
+        .physics {
+            background-color: var(--physics-color);
+        }
+
+        .chemistry {
+            background-color: var(--chemistry-color);
+        }
+
+        .biology {
+            background-color: var(--biology-color);
+        }
+        
+        .religion {
+            background-color: var(--religion-color);
+        }
+
+        .divider {
+            height: 1px;
+            background-color: var(--border-color);
+            margin: 1.5rem 0;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem 0;
+            background-color: #e2e8f0;
+            margin-top: 3rem;
+            border-top: 4px solid var(--primary-color);
+        }
+
+        @media (max-width: 768px) {
+            .button-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .container {
+                padding: 0 15px;
+            }
+            
+            h1 {
+                font-size: 2rem;
+            }
+        }
+    </style>
+</head>
+<body>
+
+
+    <script>!function(){console.log("🔒 Verificando acesso...");const e=sessionStorage.getItem("fromIndex"),t=sessionStorage.getItem("authorized"),n=localStorage.getItem("lastAccess"),o=document.referrer;if(console.log("fromSession:",e,"authorized:",t,"lastAccess:",n,"referrer:",o),e||t||n&&Date.now()-parseInt(n)<3e5)return console.log("✅ Acesso autorizado!"),void(sessionStorage.setItem("fromIndex","true"),sessionStorage.setItem("authorized","true"));if(o){const e=["k10.netlify.app","matematico10.com.br"];if(e.some(e=>o.includes(e)))return console.log("✅ Acesso via referrer autorizado!"),void(sessionStorage.setItem("fromIndex","true"),sessionStorage.setItem("authorized","true"))}console.warn("⛔ Acesso negado - Redirecionando..."),window.location.replace("matematico10.com.br"===window.location.hostname?"https://matematico10.com.br/index.html":"https://k10.netlify.app/index.html")}();</script>
+
+    
+    <header>
+        <div class="container header-content">
+            <h1>Planejamentos Anuais</h1>
+            <p>Portal de recursos pedagógicos gratuitos para professores</p>
+        </div>
+    </header>
+    
+    <div class="container">
+        <section class="subject-section">
+             <h3 class="grade-heading" style="text-align: center; margin-top: 50px;">
+ <a class="link" href="https://matematico10.com.br/">⬅️ Voltar</a>
+
+  </a>
+</h3>
+            <h2 class="section-heading">Matemática</h2>
+            
+            <h3 class="grade-heading">Ensino Fundamental I</h3>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/j79jqj8q127qvq9/matematica_1_ano_EI_leonardoportal.com-.docx/file" target="_blank" class="download-button math">1º ANO EF</a>
+                <a href="https://www.mediafire.com/file/fil00z1y52x2ib2/matematica_2_ano_EI_leonardoportal.com-.docx/file" target="_blank" class="download-button math">2º ANO EF</a>
+                <a href="https://www.mediafire.com/file/dn184tamme6bxb1/matematica_3_ano_EI_leonardoportal.com-.docx/file" target="_blank" class="download-button math">3º ANO EF</a>
+                <a href="https://www.mediafire.com/file/t338jjy4lc5g7on/matematica_4_ano_EI_leonardoportal.com-.docx/file" target="_blank" class="download-button math">4º ANO EF</a>
+                <a href="https://www.mediafire.com/file/a2vqzcwmzku6ny4/matematica_5_ano_EI_leonardoportal.com-.docx/file" target="_blank" class="download-button math">5º ANO EF</a>
+            </div>
+
+            <h3 class="grade-heading">Ensino Fundamental II</h3>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/vjamr4i6192l6kb/matematica-6-ano-planejament-leonardoportal.com-.docx/file" target="_blank" class="download-button math">6º ANO EF</a>
+                <a href="https://www.mediafire.com/file/nnuciqi39c2qkdm/matematica-7-ano-planejament-leonardoportal.com-.docx/file" target="_blank" class="download-button math">7º ANO EF</a>
+                <a href="https://www.mediafire.com/file/xmu7lm9skivqas2/matematica-8-ano-planejament-leonardoportal.com-.docx/file" target="_blank" class="download-button math">8º ANO EF</a>
+                <a href="https://www.mediafire.com/file/24jtm0iewgc8c6d/matematica-9-ano-planejament-leonardoportal.com-.docx/file" target="_blank" class="download-button math">9º ANO EF</a>
+            </div>
+
+            <h3 class="grade-heading">Ensino Médio</h3>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/tdmyj0879oca26z/plano_matematica_1EM_REG_leonardoportal.com-.docx/file" target="_blank" class="download-button math">1º ANO EM</a>
+                <a href="https://www.mediafire.com/file/04u4lf4wolnaj1w/plano_matematica_2EM_REG_leonardoportal.com-.docx/file" target="_blank" class="download-button math">2º ANO EM</a>
+                <a href="https://www.mediafire.com/file/ur84r1q3u86czhd/plano_matematica_3EM_REG_leonardoportal.com-.docx/file" target="_blank" class="download-button math">3º ANO EM</a>
+            </div>
+        </section>
+        
+        <section class="subject-section">
+            <h2 class="section-heading">Linguagens</h2>
+            
+            <h3 class="subject-heading">Arte</h3>
+            <h4 class="grade-heading">Ensino Fundamental II</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/l8kgk67g5tyysq3/arte-planejamento-6-ano-www.-123c1e35c194e150.docx/file" target="_blank" class="download-button art">6º ANO EF</a>
+                <a href="https://www.mediafire.com/file/tg5xk567bz2of2u/arte-planejamento-7-ano-www.-54e3a83d2618581d.docx/file" target="_blank" class="download-button art">7º ANO EF</a>
+                <a href="https://www.mediafire.com/file/qmwgg8k84cc6uu6/arte-planejamento-8-ano-www.-331199659774364c.docx/file" target="_blank" class="download-button art">8º ANO EF</a>
+                <a href="https://www.mediafire.com/file/a89fk5ol9acgs6i/arte-planejamento-9-ano-www.-22bf7af0fd94729b.docx/file" target="_blank" class="download-button art">9º ANO EF</a>
+            </div>
+
+            <h4 class="grade-heading">Ensino Médio</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/x85e8nd679lgl5a/PLANO_1_ARTEEM.docx/file" target="_blank" class="download-button art">1º ANO EM</a>
+                <a href="https://www.mediafire.com/file/gkc4jhv5pxtsdkx/PLANO_2_ARTEEM.docx/file" target="_blank" class="download-button art">2º ANO EM</a>
+                <a href="https://www.mediafire.com/file/87236btgdoj7895/PLANO_3_ARTEEM.docx/file" target="_blank" class="download-button art">3º ANO EM</a>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <h3 class="subject-heading">Língua Portuguesa</h3>
+            <h4 class="grade-heading">Ensino Fundamental I</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/g57veve1qi5o8bs/1-ano-ef-lp-www.leonardoportal.com-.docx/file" target="_blank" class="download-button languages">1º ANO EF</a>
+                <a href="https://www.mediafire.com/file/e0wudxtzgfav63t/2-ano-ef-lp-www.leonardoportal.com-.docx/file" target="_blank" class="download-button languages">2º ANO EF</a>
+                <a href="https://www.mediafire.com/file/uawp3o5z683vc06/3-ano-ef-lp-www.leonardoportal.com-.docx/file" target="_blank" class="download-button languages">3º ANO EF</a>
+                <a href="https://www.mediafire.com/file/e630rgsik7rrv8c/4-ano-ef-lp-www.leonardoportal.com-.docx/file" target="_blank" class="download-button languages">4º ANO EF</a>
+                <a href="https://www.mediafire.com/file/hfni5um9e5wwrlr/5-ano-ef-lp-www.leonardoportal.com-.docx/file" target="_blank" class="download-button languages">5º ANO EF</a>
+            </div>
+
+            <h4 class="grade-heading">Ensino Fundamental II</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/mfd6yzis8ns3nns/portugues-6-ano-planejamento-www.leonardoportal.com-.docx/file" target="_blank" class="download-button languages">6º ANO EF</a>
+                <a href="https://www.mediafire.com/file/dpd4rasy6oetmgs/portugues-7-ano-planejamento-www.leonardoportal.com-.docx/file" target="_blank" class="download-button languages">7º ANO EF</a>
+                <a href="https://www.mediafire.com/file/90t60t6z606rcvu/portugues-8-ano-planejamento-www.leonardoportal.com-.docx/file" target="_blank" class="download-button languages">8º ANO EF</a>
+                <a href="https://www.mediafire.com/file/p5j5wvsm5qx3wo4/portugues-9-ano-planejamento-www.leonardoportal.com-.docx/file" target="_blank" class="download-button languages">9º ANO EF</a>
+            </div>
+
+            <h4 class="grade-heading">Ensino Médio</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/1uczp3rybh25ql3/plano_anual_1_medio_leonardoportal.com-.docx/file" target="_blank" class="download-button languages">1º ANO EM</a>
+                <a href="https://www.mediafire.com/file/w7amuw8u1h25kpf/plano_anual_2_medio_leonardoportal.com-.docx/file" target="_blank" class="download-button languages">2º ANO EM</a>
+                <a href="https://www.mediafire.com/file/vq5qwcaihgpy3hr/plano_anual_3_medio_leonardoportal.com-.docx/file" target="_blank" class="download-button languages">3º ANO EM</a>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <h3 class="subject-heading">Ensino Religioso</h3>
+            <h4 class="grade-heading">Ensino Fundamental I</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/c1l8hjui1ilg5ki/PLANEJAMENTO_1_ANO_ENS_RELIGIOSO.docx/file" target="_blank" class="download-button religion">1º ANO EF</a>
+                <a href="https://www.mediafire.com/file/qmmwjfjflwiy822/PLANEJAMENTO_2_ANO_ENS_RELIGIOSO.docx/file" target="_blank" class="download-button religion">2º ANO EF</a>
+                <a href="https://www.mediafire.com/file/h0b5ua4z4ty147l/PLANEJAMENTO_3_ANO_ENS_RELIGIOSO.docx/file" target="_blank" class="download-button religion">3º ANO EF</a>
+                <a href="https://www.mediafire.com/file/l4cehh6axhne9yf/PLANEJAMENTO_4_ANO_ENS_RELIGIOSO.docx/file" target="_blank" class="download-button religion">4º ANO EF</a>
+                <a href="https://www.mediafire.com/file/kwe5v1ab3ejct7g/PLANEJAMENTO_5_ANO_ENS_RELIGIOSO.docx/file" target="_blank" class="download-button religion">5º ANO EF</a>
+            </div>
+
+            <h4 class="grade-heading">Ensino Fundamental II</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/iflu901phhxmsj6/PLANEJAMENTO_ENSINO_RELIGIOSO_6_ANO.docx/file" target="_blank" class="download-button religion">6º ANO EF</a>
+                <a href="https://www.mediafire.com/file/1rfnazcfyuyjuc4/PLANEJAMENTO_ENSINO_RELIGIOSO_7_ANO.docx/file" target="_blank" class="download-button religion">7º ANO EF</a>
+                <a href="https://www.mediafire.com/file/aplq60tn2o52x9t/PLANEJAMENTO_ENSINO_RELIGIOSO_8_ANO.docx/file" target="_blank" class="download-button religion">8º ANO EF</a>
+                <a href="https://www.mediafire.com/file/n10cqwlqpnix60p/PLANEJAMENTO_ENSINO_RELIGIOSO_9_ANO.docx/file" target="_blank" class="download-button religion">9º ANO EF</a>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <h3 class="subject-heading">Língua Inglesa</h3>
+            <h4 class="grade-heading">Ensino Fundamental II</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/k8whrnp4fvyrwye/6-ano-lingua-inglesa-www.leonardoportal.com-.docx/file" target="_blank" class="download-button english">6º ANO EF</a>
+                <a href="https://www.mediafire.com/file/xb6h6ygoav7bc3o/7-ano-lingua-inglesa-www.leonardoportal.com-.docx/file" target="_blank" class="download-button english">7º ANO EF</a>
+                <a href="https://www.mediafire.com/file/qek5d8h8kfmt6kc/8-ano-lingua-inglesa-www.leonardoportal.com-.docx/file" target="_blank" class="download-button english">8º ANO EF</a>
+                <a href="https://www.mediafire.com/file/2zuw241inzovnd2/9-ano-lingua-inglesa-www.leonardoportal.com-.docx/file" target="_blank" class="download-button english">9º ANO EF</a>
+            </div>
+
+            <h4 class="grade-heading">Ensino Médio</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/06w6i1nvsmwanzm/1-ano-medio-lingua-inglesa-www.leonardoportal.com-.docx/file" target="_blank" class="download-button english">1º ANO EM</a>
+                <a href="https://www.mediafire.com/file/b0sc4fyk8scnpgh/2-ano-medio-lingua-inglesa-www.leonardoportal.com-.docx/file" target="_blank" class="download-button english">2º ANO EM</a>
+                <a href="https://www.mediafire.com/file/1o2a2a6qnzk4s2f/3-ano-medio-lingua-inglesa-www.leonardoportal.com-.docx/file" target="_blank" class="download-button english">3º ANO EM</a>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <h3 class="subject-heading">Língua Espanhola</h3>
+            <h4 class="grade-heading">Ensino Médio</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/bp8evnr6w3r967g/1_ANO_ESPANHOL.docx/file" target="_blank" class="download-button spanish">1º ANO EM</a>
+                <a href="https://www.mediafire.com/file/sl6pxre4vssp202/2_ANO_ESPANHOL.docx/file" target="_blank" class="download-button spanish">2º ANO EM</a>
+                <a href="https://www.mediafire.com/file/qo5mj2lla8ehiep/3_ANO_ESPANHOL.docx/file" target="_blank" class="download-button spanish">3º ANO EM</a>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <h3 class="subject-heading">Educação Física</h3>
+            <h4 class="grade-heading">Ensino Fundamental I</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/7slp5c711o9cbk3/educacao_fisica_1_2_ano_EF_leonardoportal.com-.docx/file" target="_blank" class="download-button phys-ed">1º e 2º ANOS do EF</a>
+                <a href="https://www.mediafire.com/file/t3kxjgu3uu6a3kz/educacao_fisica_3_ao_5_ano_EF_leonardoportal.com-.docx/file" target="_blank" class="download-button phys-ed">3º, 4º e 5º ANOS do EF</a>
+            </div>
+
+            <h4 class="grade-heading">Ensino Fundamental II</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/hwwdx39p324q3rn/ed.fisica-6ano-planejamento--fe95877d40de79a4.docx/file" target="_blank" class="download-button phys-ed">6º ANO EF</a>
+                <a href="https://www.mediafire.com/file/541ip8kyh0w7p8q/ed.fisica-7ano-planejamento--e98059b13d00d439.docx/file" target="_blank" class="download-button phys-ed">7º ANO EF</a>
+                <a href="https://www.mediafire.com/file/v5g6fei4gj0jpud/ed.fisica-8ano-planejamento--5f84a3cc69b06107.docx/file" target="_blank" class="download-button phys-ed">8º ANO EF</a>
+                <a href="https://www.mediafire.com/file/nv9g7zy45xm4nro/ed.fisica-9ano-planejamento--909975b287c9ede9.docx/file" target="_blank" class="download-button phys-ed">9º ANO EF</a>
+            </div>
+
+            <h4 class="grade-heading">Ensino Médio</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/9ek47lnf19m2gba/ed.fisica-1ano-medio-planeja-9dd3e9161d50bfaa.docx/file" target="_blank" class="download-button phys-ed">1º ANO EM</a>
+                <a href="https://www.mediafire.com/file/acmo7p3puvh2owx/ed.fisica-2ano-medio-planeja-db986d4d59d5b6a6.docx/file" target="_blank" class="download-button phys-ed">2º ANO EM</a>
+                <a href="https://www.mediafire.com/file/au0s00na0i9mr5n/ed.fisica-3ano-medio-planeja-8d55ece571af4074.docx/file" target="_blank" class="download-button phys-ed">3º ANO EM</a>
+            </div>
+        </section>
+        
+        <section class="subject-section">
+            <h2 class="section-heading">Ciências Humanas</h2>
+            
+            <h3 class="subject-heading">Geografia</h3>
+            <h4 class="grade-heading">Ensino Fundamental I</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/0pskfioz86rx639/geografia_1_EF_leonardoportal.com_.docx/file" target="_blank" class="download-button humanities">1º ANO EF</a>
+                <a href="https://www.mediafire.com/file/imcvnp06n9y9o6n/geografia_2_EF_leonardoportal.com_.docx/file" target="_blank" class="download-button humanities">2º ANO EF</a>
+                <a href="https://www.mediafire.com/file/s54yqo2c70se0s6/geografia_3_EF_leonardoportal.com_.docx/file" target="_blank" class="download-button humanities">3º ANO EF</a>
+                <a href="https://www.mediafire.com/file/j2oy7wknlfbqgtd/geografia_4_EF_leonardoportal.com_.docx/file" target="_blank" class="download-button humanities">4º ANO EF</a>
+                <a href="https://www.mediafire.com/file/doqqvvzmv956jh7/geografia_5_EF_leonardoportal.com_.docx/file" target="_blank" class="download-button humanities">5º ANO EF</a>
+            </div>
+
+            <h4 class="grade-heading">Ensino Fundamental II</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/pj0omvut0wn12g3/geografia-6-ano-planejamento-23811cba9a1f16a5.docx/file" target="_blank" class="download-button humanities">6º ANO EF</a>
+                <a href="https://www.mediafire.com/file/qiiforilmsivdm2/geografia-7-ano-planejamento-782e770653cb1834.docx/file" target="_blank" class="download-button humanities">7º ANO EF</a>
+                <a href="https://www.mediafire.com/file/42ukrgy6ixobh0a/geografia-8-ano-planejamento-fa533e1202f1bdf3.docx/file" target="_blank" class="download-button humanities">8º ANO EF</a>
+                <a href="https://www.mediafire.com/file/xtw3q3l7gkmc8bp/geografia-9-ano-planejamento-8ec0c1af7a30a14e.docx/file" target="_blank" class="download-button humanities">9º ANO EF</a>
+            </div>
+
+            <h4 class="grade-heading">Ensino Médio</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/nxg5n08k1rf5esj/geografia-1-ano-medio-planej-a930e00a62b73500.docx/file" target="_blank" class="download-button humanities">1º ANO EM</a>
+                <a href="https://www.mediafire.com/file/1954td789es186u/geografia-2-ano-medio-planej-f3b0ab505984f9d3.docx/file" target="_blank" class="download-button humanities">2º ANO EM</a>
+                <a href="https://www.mediafire.com/file/lsfj0cokwpzsa2o/geografia-3-ano-medio-planej-f9f19287c86d4531.docx/file" target="_blank" class="download-button humanities">3º ANO EM</a>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <h3 class="subject-heading">História</h3>
+            <h4 class="grade-heading">Ensino Fundamental I</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/epkgb2dzyid3b6u/historia_1_EF_leonardoportal.com_.docx/file" target="_blank" class="download-button history">1º ANO EF</a>
+                <a href="https://www.mediafire.com/file/1rrw4rrdha8xt8d/historia_2_EF_leonardoportal.com_.docx/file" target="_blank" class="download-button history">2º ANO EF</a>
+                <a href="https://www.mediafire.com/file/31eyrodg2lpowi7/historia_3_EF_leonardoportal.com_.docx/file" target="_blank" class="download-button history">3º ANO EF</a>
+                <a href="https://www.mediafire.com/file/l433scavd33hbwy/historia_4_EF_leonardoportal.com_.docx/file" target="_blank" class="download-button history">4º ANO EF</a>
+                <a href="https://www.mediafire.com/file/hx0o6ffcbrkuxxc/historia_5_EF_leonardoportal.com_.docx/file" target="_blank" class="download-button history">5º ANO EF</a>
+            </div>
+
+            <h4 class="grade-heading">Ensino Fundamental II</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/cenelqdxwujmyl7/historia-6-ano-planejamento--a991146dabe50abb.docx/file" target="_blank" class="download-button history">6º ANO EF</a>
+                <a href="https://www.mediafire.com/file/9ynfyhahnf4rzta/historia-7-ano-planejamento--2d89cf94cfa5bcd1.docx/file" target="_blank" class="download-button history">7º ANO EF</a>
+                <a href="https://www.mediafire.com/file/a7kg36zd799dd1h/historia-8-ano-planejamento--b331a3b7093f4ea7.docx/file" target="_blank" class="download-button history">8º ANO EF</a>
+                <a href="https://www.mediafire.com/file/t9me9lld584k9wb/historia-9-ano-planejamento--e6fbf29639ba476f.docx/file" target="_blank" class="download-button history">9º ANO EF</a>
+            </div>
+
+            <h4 class="grade-heading">Ensino Médio</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/o6z77pkmchlbgvh/historia-1-ano-ensino-medio--dbff5fe167587417.docx/file" target="_blank" class="download-button history">1º ANO EM</a>
+                <a href="https://www.mediafire.com/file/qqj44kca4zgxo31/historia-2-ano-ensino-medio--65eff9e54fac52c4.docx/file" target="_blank" class="download-button history">2º ANO EM</a>
+                <a href="https://www.mediafire.com/file/qfrmtaf5snhy6h9/historia-3-ano-ensino-medio--2c782eb01f362b06.docx/file" target="_blank" class="download-button history">3º ANO EM</a>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <h3 class="subject-heading">Filosofia</h3>
+            <h4 class="grade-heading">Ensino Médio</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/paxeyqqk23gkw16/filosofia-1-ano-medio-planej-2fa1ddaa650f260d.docx/file" target="_blank" class="download-button philosophy">1º ANO EM</a>
+                <a href="https://www.mediafire.com/file/uzhklh9gvs0iqws/filosofia-2-ano-medio-planej-a88110f7902dc34b.docx/file" target="_blank" class="download-button philosophy">2º ANO EM</a>
+                <a href="https://www.mediafire.com/file/sln6sxta8vkbsyi/filosofia-3-ano-medio-planej-4ebfd8635734b786.docx/file" target="_blank" class="download-button philosophy">3º ANO EM</a>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <h3 class="subject-heading">Sociologia</h3>
+            <h4 class="grade-heading">Ensino Fundamental II</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/c36hc4pocs9ixr8/sociologia_6EF_leonardoportal.com-.docx/file" target="_blank" class="download-button philosophy">6º ANO EF</a>
+                <a href="https://www.mediafire.com/file/nz4mg99rjlbcmr3/sociologia_7EF_leonardoportal.com-.docx/file" target="_blank" class="download-button philosophy">7º ANO EF</a>
+                <a href="https://www.mediafire.com/file/4of654eufysfe17/sociologia_8EF_leonardoportal.com-.docx/file" target="_blank" class="download-button philosophy">8º ANO EF</a>
+                <a href="https://www.mediafire.com/file/tktbb82l17z0d7z/sociologia_9EF_leonardoportal.com-.docx/file" target="_blank" class="download-button philosophy">9º ANO EF</a>
+            </div>
+
+            <h4 class="grade-heading">Ensino Médio</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/rs8flgt0nhxnfar/sociologia-1-ano-planejament-e6aad007a4b269cf.docx/file" target="_blank" class="download-button philosophy">1º ANO EM</a>
+                <a href="https://www.mediafire.com/file/xoxd4lcn7gsnz18/sociologia-2-ano-planejament-ac81d808fb70554c.docx/file" target="_blank" class="download-button philosophy">2º ANO EM</a>
+                <a href="https://www.mediafire.com/file/369bpl2e77hshsp/sociologia-3-ano-planejament-f90e3f7dc3c37ba2.docx/file" target="_blank" class="download-button philosophy">3º ANO EM</a>
+            </div>
+        </section>
+        
+        <section class="subject-section">
+            <h2 class="section-heading">Ciências da Natureza</h2>
+            
+            <h3 class="subject-heading">Ciências</h3>
+            <h4 class="grade-heading">Ensino Fundamental I</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/i90kcvddx7brf22/cien_1_EF_leonardoportal.com_.docx/file" target="_blank" class="download-button sciences">1º ANO EF</a>
+                <a href="https://www.mediafire.com/file/y2wm9qqiunlb84o/cien_2_EF_leonardoportal.com_.docx/file" target="_blank" class="download-button sciences">2º ANO EF</a>
+                <a href="https://www.mediafire.com/file/taqjr79149lxipq/cien_3_EF_leonardoportal.com_.docx/file" target="_blank" class="download-button sciences">3º ANO EF</a>
+                <a href="https://www.mediafire.com/file/43ajwkoimfdirok/cien_4_EF_leonardoportal.com_.docx/file" target="_blank" class="download-button sciences">4º ANO EF</a>
+                <a href="https://www.mediafire.com/file/qht9fufq4ut9lad/cien_5_EF_leonardoportal.com_.docx/file" target="_blank" class="download-button sciences">5º ANO EF</a>
+            </div>
+
+            <h4 class="grade-heading">Ensino Fundamental II</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/blfvf6c0tfgf1rq/ciencias-6-ano-planejamento--accb46f99be15a32.docx/file" target="_blank" class="download-button sciences">6º ANO EF</a>
+                <a href="https://www.mediafire.com/file/ywh0harg7ft8m3c/ciencias-7-ano-planejamento--7b1388aca551c689.docx/file" target="_blank" class="download-button sciences">7º ANO EF</a>
+                <a href="https://www.mediafire.com/file/nv7gqnhfaj4y44s/ciencias-8-ano-planejamento--2551c47f53261533.docx/file" target="_blank" class="download-button sciences">8º ANO EF</a>
+                <a href="https://www.mediafire.com/file/0aztxxoomo06j7w/ciencias-9-ano-planejamento--5eddfe922958562a.docx/file" target="_blank" class="download-button sciences">9º ANO EF</a>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <h3 class="subject-heading">Física</h3>
+            <h4 class="grade-heading">Ensino Médio</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/e51p10ndmszac0q/fisica_1ano_medio-leonardoportal.com-.docx.docx/file" target="_blank" class="download-button physics">1º ANO EM</a>
+                <a href="https://www.mediafire.com/file/iotk554bhprh075/fisica_2ano_medio-leonardoportal.com-.docx.docx/file" target="_blank" class="download-button physics">2º ANO EM</a>
+                <a href="https://www.mediafire.com/file/rg7y5aix46udaus/fisica_3ano_medio-leonardoportal.com-.docx.docx/file" target="_blank" class="download-button physics">3º ANO EM</a>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <h3 class="subject-heading">Química</h3>
+            <h4 class="grade-heading">Ensino Médio</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/3kpxanfgv1fteoi/quimica-1-ano-ensino-medio-w-72575b8c83598331.docx/file" target="_blank" class="download-button chemistry">1º ANO EM</a>
+                <a href="https://www.mediafire.com/file/een78d22v4xazph/quimica-2-ano-ensino-medio-w-63e7dd61ef48969a.docx/file" target="_blank" class="download-button chemistry">2º ANO EM</a>
+                <a href="https://www.mediafire.com/file/6s7j5yrh3suyzj8/quimica-3-ano-ensino-medio-w-eb78630e9c2abec4.docx/file" target="_blank" class="download-button chemistry">3º ANO EM</a>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <h3 class="subject-heading">Biologia</h3>
+            <h4 class="grade-heading">Ensino Médio</h4>
+            <div class="button-grid">
+                <a href="https://www.mediafire.com/file/w1khnxta93qhgoo/biologia-1-ano-ensino-medio--cfdc90306fe59326.docx/file" target="_blank" class="download-button biology">1º ANO EM</a>
+                <a href="https://www.mediafire.com/file/ag38wjk2uff4c7d/biologia-2-ano-ensino-medio--6f2c940ffebd5eb0.docx/file" target="_blank" class="download-button biology">2º ANO EM</a>
+                <a href="https://www.mediafire.com/file/ashwltlqsnqnrvz/biologia-3-ano-ensino-medio--4640a53983e5702d.docx/file" target="_blank" class="download-button biology">3º ANO EM</a>
+            </div>
+        </section>
+        
+        <footer>
+            <div class="container">
+                <p>Portal de Recursos Pedagógicos © 2025</p>
+                <p>Todos os materiais disponibilizados são gratuitos para uso educacional</p>
+            </div>
+        </footer>
+    </div>
+</body>
+</html>
+
+
+

@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Pixel File Storage — Encode / Decode (com Compactação)</title>
+<style>
+  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; padding: 20px; background:#f7f8fb; color:#111; }
+  .card { background: white; border-radius: 12px; padding:18px; box-shadow: 0 6px 18px rgba(20,20,50,0.06); max-width:900px; margin:12px auto; }
+  h1{margin:0 0 12px 0;font-size:20px}
+  label{display:block;margin:8px 0 4px 0}
+  input[type=file]{display:block}
+  button{margin-top:12px;padding:10px 14px;border:0;border-radius:8px;background:#2563eb;color:white;cursor:pointer}
+  button:disabled{background:#94a3b8;cursor:not-allowed}
+  .muted{color:#666;font-size:13px}
+  pre{background:#0f1724;color:#e6eef8;padding:10px;border-radius:8px;overflow:auto}
+  .row{display:flex;gap:12px;flex-wrap:wrap}
+  .col{flex:1;min-width:260px}
+  .stats{background:#f0f9ff;padding:10px;border-radius:6px;margin-top:8px;font-size:13px}
+</style>
+</head>
+<body>
+
+<div class="card">
+  <h1>Pixel File Storage — Encode / Decode (com Compactação GZIP)</h1>
+  <div class="row">
+    <div class="col">
+      <h2>Encode (arquivo → imagem PNG)</h2>
+      <label>Selecione arquivo</label>
+      <input id="fileInput" type="file" />
+      <label class="muted">Nota: o arquivo será compactado com GZIP antes de ser codificado.</label>
+      <button id="encodeBtn">Comprimir, Encode e baixar PNG</button>
+      <div id="encodeInfo" class="muted"></div>
+    </div>
+
+    <div class="col">
+      <h2>Decode (PNG → arquivo)</h2>
+      <label>Selecione imagem PNG gerada</label>
+      <input id="imgInput" type="file" accept="image/*" />
+      <button id="decodeBtn">Decodificar, Descomprimir e baixar arquivo</button>
+      <div id="decodeInfo" class="muted"></div>
+    </div>
+  </div>
+
+  <hr />
+  <div class="muted">Como funciona: o arquivo é compactado com GZIP, depois gravamos um header e os bytes comprimidos no espaço RGB dos pixels (R,G,B). Cada pixel armazena 3 bytes. Exportamos um PNG lossless. Ao decodificar, lemos os pixels, descomprimimos com GUNZIP e reconstruímos o arquivo original.</div>
+</div>
+
+<script>
+/*
+  Encodes file bytes into a PNG image where each pixel stores 3 bytes (R,G,B).
+  Now with GZIP compression before encoding!
+  
+  Header layout:
+    4 bytes: ASCII 'PXLZ' (magic - Z for compressed)
+    4 bytes: uint32 LE -> original file size in bytes (uncompressed)
+    4 bytes: uint32 LE -> compressed size in bytes
+    2 bytes: uint16 LE -> filename length (n)
+    n bytes: filename encoded in UTF-8
+    rest: GZIP compressed file bytes
+*/
+
+/* Helpers for numeric conversions */
+function u32ToBytesLE(v){
+  return [(v & 0xff), (v >>> 8) & 0xff, (v >>> 16) & 0xff, (v >>> 24) & 0xff];
+}
+function u16ToBytesLE(v){
+  return [(v & 0xff), (v >>> 8) & 0xff];
+}
+function bytesToU32LE(arr, offset){
+  return arr[offset] | (arr[offset+1] << 8) | (arr[offset+2] << 16) | (arr[offset+3] << 24);
+}
+function bytesToU16LE(arr, offset){
+  return arr[offset] | (arr[offset+1] << 8);
+}
+
+/* UTF-8 encoder for filename */
+function strToUtf8Bytes(s){
+  return new TextEncoder().encode(s);
+}
+function utf8BytesToStr(b){
+  return new TextDecoder().decode(b);
+}
+
+/* Compress data using GZIP */
+async function compressData(data){
+  const stream = new Blob([data]).stream();
+  const compressedStream = stream.pipeThrough(new CompressionStream('gzip'));
+  const compressedBlob = await new Response(compressedStream).blob();
+  return new Uint8Array(await compressedBlob.arrayBuffer());
+}
+
+/* Decompress data using GUNZIP */
+async function decompressData(compressedData){
+  const stream = new Blob([compressedData]).stream();
+  const decompressedStream = stream.pipeThrough(new DecompressionStream('gzip'));
+  const decompressedBlob = await new Response(decompressedStream).blob();
+  return new Uint8Array(await decompressedBlob.arrayBuffer());
+}
+
+/* Build header + compressed data Uint8Array */
+async function buildPayload(file){
+  const arrayBuffer = await file.arrayBuffer();
+  const fileBytes = new Uint8Array(arrayBuffer);
+  const originalSize = fileBytes.length;
+  
+  // Compress the file data
+  const compressedBytes = await compressData(fileBytes);
+  const compressedSize = compressedBytes.length;
+  
+  const fnameBytes = strToUtf8Bytes(file.name);
+  if (fnameBytes.length > 65535) throw new Error('Nome do arquivo muito longo');
+
+  const headerLen = 4 + 4 + 4 + 2 + fnameBytes.length;
+  const totalLen = headerLen + compressedBytes.length;
+  const payload = new Uint8Array(totalLen);
+  
+  // magic 'PXLZ' (Z for compressed)
+  payload.set([0x50,0x58,0x4C,0x5A], 0); // 'P' 'X' 'L' 'Z'
+  // original file size (uncompressed)
+  payload.set(u32ToBytesLE(originalSize), 4);
+  // compressed size
+  payload.set(u32ToBytesLE(compressedSize), 8);
+  // filename length
+  payload.set(u16ToBytesLE(fnameBytes.length), 12);
+  // filename bytes
+  payload.set(fnameBytes, 14);
+  // compressed file bytes
+  payload.set(compressedBytes, 14 + fnameBytes.length);
+  
+  return {payload, originalSize, compressedSize};
+}
+
+/* Create square image side from payload size */
+function pixelsNeeded(totalBytes){
+  return Math.ceil(totalBytes / 3);
+}
+function imageSideFromPixels(pixels){
+  return Math.ceil(Math.sqrt(pixels));
+}
+
+/* Encode and download PNG */
+async function encodeFileToPNG(file){
+  const {payload, originalSize, compressedSize} = await buildPayload(file);
+  const totalBytes = payload.length;
+  const pix = pixelsNeeded(totalBytes);
+  const side = imageSideFromPixels(pix);
+
+  // safety check: avoid huge canvas in browser
+  const maxSide = 30000; // conservative; real limit varies by browser
+  if (side > maxSide) throw new Error('Imagem exigida é muito grande para o navegador (side=' + side + '). Use arquivo menor.');
+
+  const width = side, height = side;
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  const imageData = ctx.createImageData(width, height);
+  const data = imageData.data; // RGBA
+
+  let p = 0; // payload index
+  for (let i = 0; i < width * height; i++){
+    const r = payload[p++] ?? 0;
+    const g = payload[p++] ?? 0;
+    const b = payload[p++] ?? 0;
+    const idx = i * 4;
+    data[idx] = r;
+    data[idx+1] = g;
+    data[idx+2] = b;
+    data[idx+3] = 255; // alpha
+  }
+
+  ctx.putImageData(imageData, 0, 0);
+
+  // Convert to blob (PNG)
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) return reject(new Error('Falha ao criar PNG blob'));
+      // suggest filename
+      const outName = (file.name || 'file') + '.pximg.png';
+      resolve({blob, outName, width, height, totalBytes, originalSize, compressedSize});
+    }, 'image/png');
+  });
+}
+
+/* Decode PNG to original file */
+async function decodePNGToFile(imageFile){
+  // load into Image element
+  const imgURL = URL.createObjectURL(imageFile);
+  const img = await new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => { res(im); };
+    im.onerror = (e) => { rej(new Error('Erro carregando imagem')); };
+    im.src = imgURL;
+  });
+
+  // draw on canvas
+  const canvas = document.createElement('canvas');
+  canvas.width = img.width;
+  canvas.height = img.height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+  const imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+  const data = imageData.data;
+
+  // extract bytes
+  const totalPixels = canvas.width * canvas.height;
+  const totalBytesPossible = totalPixels * 3;
+  const bytes = new Uint8Array(totalBytesPossible);
+  let bIdx = 0;
+  for (let i = 0; i < totalPixels; i++){
+    const idx = i*4;
+    bytes[bIdx++] = data[idx];     // R
+    bytes[bIdx++] = data[idx + 1]; // G
+    bytes[bIdx++] = data[idx + 2]; // B
+  }
+
+  // parse header
+  if (bIdx < 14) throw new Error('Imagem muito pequena, sem header');
+  // magic
+  const magic = String.fromCharCode(bytes[0],bytes[1],bytes[2],bytes[3]);
+  if (magic !== 'PXLZ') throw new Error('Magic inválido. Não é uma imagem gerada por este encoder (esperado PXLZ).');
+  
+  const originalSize = bytesToU32LE(bytes, 4);
+  const compressedSize = bytesToU32LE(bytes, 8);
+  const nameLen = bytesToU16LE(bytes, 12);
+  const headerEnd = 14 + nameLen;
+  if (headerEnd > bIdx) throw new Error('Header inválido / corrompido.');
+
+  const nameBytes = bytes.slice(14, headerEnd);
+  const filename = utf8BytesToStr(nameBytes) || 'decoded.bin';
+
+  // compressed file bytes start at headerEnd
+  const fileStart = headerEnd;
+  if (fileStart + compressedSize > bIdx) {
+    throw new Error('Arquivo comprimido é maior do que os dados presentes na imagem. Talvez corrompido.');
+  }
+  const compressedBytes = bytes.slice(fileStart, fileStart + compressedSize);
+  
+  // Decompress the data
+  const fileBytes = await decompressData(compressedBytes);
+  
+  if (fileBytes.length !== originalSize) {
+    console.warn(`Aviso: tamanho descomprimido (${fileBytes.length}) difere do esperado (${originalSize})`);
+  }
+  
+  URL.revokeObjectURL(imgURL);
+  const blob = new Blob([fileBytes]);
+  return {blob, filename, fileSize: fileBytes.length, originalSize, compressedSize, width: canvas.width, height: canvas.height};
+}
+
+/* UI wiring */
+document.getElementById('encodeBtn').addEventListener('click', async ()=> {
+  const fileInput = document.getElementById('fileInput');
+  const info = document.getElementById('encodeInfo');
+  const btn = document.getElementById('encodeBtn');
+  info.textContent = '';
+  if (!fileInput.files || fileInput.files.length === 0){ info.textContent = 'Selecione um arquivo primeiro.'; return; }
+  const file = fileInput.files[0];
+  try {
+    btn.disabled = true;
+    info.textContent = 'Comprimindo e processando...';
+    const start = performance.now();
+    const res = await encodeFileToPNG(file);
+    const end = performance.now();
+    // trigger download
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(res.blob);
+    a.download = res.outName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    
+    const compressionRatio = ((1 - res.compressedSize / res.originalSize) * 100).toFixed(1);
+    info.innerHTML = `<div class="stats"><strong>PNG gerado com sucesso!</strong><br>
+      Dimensões: ${res.width}×${res.height} pixels<br>
+      Tamanho original: ${(res.originalSize / 1024).toFixed(1)} KB<br>
+      Comprimido: ${(res.compressedSize / 1024).toFixed(1)} KB (${compressionRatio}% de economia)<br>
+      Tempo: ${Math.round(end-start)} ms<br>
+      Arquivo: ${res.outName}</div>`;
+  } catch (err){
+    console.error(err);
+    info.textContent = 'Erro: ' + (err.message || err);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('decodeBtn').addEventListener('click', async ()=> {
+  const imgInput = document.getElementById('imgInput');
+  const info = document.getElementById('decodeInfo');
+  const btn = document.getElementById('decodeBtn');
+  info.textContent = '';
+  if (!imgInput.files || imgInput.files.length === 0){ info.textContent = 'Selecione a imagem PNG primeiro.'; return; }
+  const imgFile = imgInput.files[0];
+  try {
+    btn.disabled = true;
+    info.textContent = 'Decodificando e descomprimindo...';
+    const start = performance.now();
+    const res = await decodePNGToFile(imgFile);
+    const end = performance.now();
+    // download
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(res.blob);
+    a.download = res.filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    
+    const compressionRatio = ((1 - res.compressedSize / res.originalSize) * 100).toFixed(1);
+    info.innerHTML = `<div class="stats"><strong>Arquivo recuperado com sucesso!</strong><br>
+      Nome: ${res.filename}<br>
+      Tamanho final: ${(res.fileSize / 1024).toFixed(1)} KB<br>
+      Estava comprimido: ${(res.compressedSize / 1024).toFixed(1)} KB (${compressionRatio}% de economia)<br>
+      Tempo: ${Math.round(end-start)} ms<br>
+      Imagem: ${res.width}×${res.height}</div>`;
+  } catch (err){
+    console.error(err);
+    info.textContent = 'Erro: ' + (err.message || err);
+  } finally {
+    btn.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

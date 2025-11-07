@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Compactador + TOTP (Codificar/Decodificar)</title>
+  
+<style>
+body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial;margin:18px;background:#071029;color:#e6eef8}
+.card{background:#081427;padding:18px;border-radius:12px;box-shadow:0 8px 30px rgba(2,6,23,.6);margin-bottom:20px}
+input,textarea{width:100%;padding:8px;border-radius:8px;border:1px solid #0b3552;background:#061427;color:#dbeafe;margin-bottom:6px;box-sizing:border-box}
+button{background:#0ea5e9;color:#022035;border:none;padding:6px 12px;border-radius:8px;cursor:pointer;margin-top:4px;margin-right:4px;font-weight:600}
+button:hover{background:#38bdf8}
+pre{background:#021029;padding:12px;border-radius:8px;overflow:auto;white-space:pre-wrap;font-size:12px;line-height:1.5}
+label{font-size:13px;color:#9fb4d6;display:block;margin-top:8px}
+.muted{color:#9fb4d6;font-size:13px}
+.hidden{display:none;}
+h2{margin-top:0;color:#38bdf8}
+h3{color:#60a5fa;font-size:16px}
+.stats{background:#0a1e3a;padding:10px;border-radius:6px;margin:10px 0;font-size:13px}
+.copy-container { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.copy-container pre { flex-grow: 1; margin-bottom: 0; }
+.batch-results pre {max-height: 200px; overflow-y: auto;}
+.batch-results button {margin-bottom: 10px;}
+</style>
+</head>
+<body>
+
+<div class="card" id="encodeScreen">
+  <h2>🔒 Codificador BigInt + TOTP (Texto)</h2>
+  <p class="muted">Digite o texto que deseja codificar.</p>
+  <textarea id="inputText" placeholder="Digite ou cole o texto aqui..." rows="6"></textarea>
+  <button id="encodeBtn">🔑 Codificar</button>
+  <button onclick="showScreen('decodeScreen')">🔓 Ir para Decodificador de Texto</button>
+  <button onclick="showScreen('encodeImageScreen')">🖼️ Ir para Codificar Imagem</button>
+  <h3>Resultado</h3>
+  <pre id="encodeResult">Nenhum dado ainda.</pre>
+</div>
+
+<div class="card hidden" id="decodeScreen">
+  <h2>🔓 Decodificador BigInt + TOTP (Texto)</h2>
+  <p class="muted">Informe o mixedBigInt (hex) e o código TOTP do Authenticator para reconstruir o texto.</p>
+  <label>mixedBigInt (hex)</label>
+  <textarea id="mixedHex" placeholder="Ex: 435320444e41..." rows="4"></textarea>
+  <label>Segredo TOTP (base32)</label>
+  <input type="text" id="totpSecret" placeholder="Ex: ABCDEFGH23456789...">
+  <label>Código TOTP (6 dígitos)</label>
+  <input type="text" id="totpCode" placeholder="Ex: 123456">
+  <button id="decodeBtn">🔓 Decodificar</button>
+  <button onclick="showScreen('encodeScreen')">🔑 Ir para Codificador de Texto</button>
+  <button onclick="showScreen('decodeImageScreen')">🖼️ Ir para Decodificar Imagem</button>
+  <h3>Resultado</h3>
+  <pre id="decodeResult">Nenhum resultado ainda.</pre>
+</div>
+
+<div class="card hidden" id="encodeImageScreen">
+  <h2>🖼️ Codificador de Imagem BigInt + TOTP</h2>
+  <p class="muted">Selecione <strong>uma ou múltiplas</strong> imagens para codificar. Serão automaticamente comprimidas para ~30 páginas (~90KB).</p>
+  <p class="muted"><strong>Formatos aceitos:</strong> JPG, PNG, GIF, BMP, WEBP, SVG, TIFF, AVIF e outros formatos de imagem.<br>
+  ⚠️ Todas as imagens são convertidas para JPEG durante a compressão.<br>
+  🔐 <strong>Lote de imagens:</strong> Todas compartilharão o mesmo código TOTP.</p>
+  <input type="file" id="imageInput" accept="image/*" multiple>
+  <button id="encodeImagesBtn">🔑 Codificar Imagens</button>
+  <button onclick="showScreen('decodeImageScreen')">🔓 Ir para Decodificar Imagem</button>
+  <button onclick="showScreen('encodeScreen')">📝 Ir para Codificador de Texto</button>
+  
+  <h3>Resultados</h3>
+  <div id="encodeImageResult" class="batch-results">
+    <p>Selecione imagem(ns) e clique em "Codificar Imagens".</p>
+    <div id="batchTotpSecretOutput" style="display:none;">
+        <div class="copy-container">
+            <label>TOTP Secret (base32) - Use para todas as imagens:</label>
+            <pre id="batchTotpSecretPre"></pre>
+            <button onclick="copyToClipboard(document.getElementById('batchTotpSecretPre').textContent)">Copiar</button>
+        </div>
+    </div>
+    <div id="batchMixedHexOutput" style="display:none;">
+        <label>mixedBigInt (hex) de cada imagem:</label>
+        <button onclick="copyToClipboard(document.getElementById('batchMixedHexPre').textContent)">Copiar Todos</button>
+        <pre id="batchMixedHexPre"></pre>
+    </div>
+    <div id="batchStatsOutput" style="display:none;">
+        <label>Estatísticas:</label>
+        <pre id="batchStatsPre"></pre>
+    </div>
+  </div>
+</div>
+
+<div class="card hidden" id="decodeImageScreen">
+  <h2>🔓 Decodificador de Imagem BigInt + TOTP</h2>
+  <p class="muted">Informe os dados para reconstruir a imagem.</p>
+  <label>mixedBigInt (hex)</label>
+  <textarea id="mixedHexImage" placeholder="Cole o hex da imagem aqui..." style="min-height:120px" rows="6"></textarea>
+  <label>Segredo TOTP (base32)</label>
+  <input type="text" id="totpSecretImage" placeholder="Ex: ABCDEFGH23456789...">
+  <label>Código TOTP (6 dígitos)</label>
+  <input type="text" id="totpCodeImage" placeholder="Ex: 123456">
+  <button id="decodeImageBtn">🔓 Decodificar Imagem</button>
+  <button onclick="showScreen('encodeImageScreen')">🔑 Ir para Codificar Imagem</button>
+  <button onclick="showScreen('encodeScreen')">📝 Ir para Codificador de Texto</button>
+  <h3>Resultado</h3>
+  <pre id="decodeImageResult">Nenhum resultado ainda.</pre>
+  <div id="imagePreview"></div>
+</div>
+
+<script>
+const B = 256n;
+const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+function showScreen(id){
+  document.getElementById('encodeScreen').classList.add('hidden');
+  document.getElementById('decodeScreen').classList.add('hidden');
+  document.getElementById('encodeImageScreen').classList.add('hidden');
+  document.getElementById('decodeImageScreen').classList.add('hidden');
+  document.getElementById(id).classList.remove('hidden');
+}
+
+function textToBytes(str){ return Array.from(new TextEncoder().encode(str)); }
+function bytesToText(bytes){ return new TextDecoder().decode(new Uint8Array(bytes)); }
+function bigIntToBytes(v){
+  if(v===0n) return [0];
+  const out=[];
+  let cur=v;
+  while(cur>0n){ out.push(Number(cur%B)); cur=cur/B; }
+  return out;
+}
+function bytesToBigInt(bytes){
+  let v=0n;
+  for(let i=0;i<bytes.length;i++) v += BigInt(bytes[i])*(B**BigInt(i));
+  return v;
+}
+
+function base32Encode(bytes){
+  let bits=0,value=0,output='';
+  for(const b of bytes){
+    value=(value<<8)|b; bits+=8;
+    while(bits>=5){ output+=BASE32[(value>>(bits-5))&31]; bits-=5; }
+  }
+  if(bits>0) output+=BASE32[(value<<(5-bits))&31];
+  return output;
+}
+
+function base32Decode(str){
+  const cleaned = str.replace(/=+$/,'').toUpperCase();
+  let bits=0,value=0,out=[];
+  for(const ch of cleaned){
+    const idx=BASE32.indexOf(ch); if(idx===-1) continue;
+    value=(value<<5)|idx; bits+=5;
+    if(bits>=8){ out.push((value>>(bits-8))&0xFF); bits-=8; }
+  }
+  return new Uint8Array(out);
+}
+
+async function hmacSha1(keyBytes,msgBytes){
+  const key = await crypto.subtle.importKey('raw',keyBytes,{name:'HMAC',hash:'SHA-1'},false,['sign']);
+  const sig = await crypto.subtle.sign('HMAC',key,msgBytes);
+  return new Uint8Array(sig);
+}
+
+function intToBytesBE(num,length){
+  const out = new Uint8Array(length);
+  for(let i=length-1;i>=0;i--){ out[i]=Number(num&0xFFn); num>>=8n; }
+  return out;
+}
+
+async function generateTotp(secretBase32,forTime=Math.floor(Date.now()/1000),step=30,digits=6){
+  const key = base32Decode(secretBase32);
+  const counter = BigInt(Math.floor(forTime/step));
+  const msg = intToBytesBE(counter,8);
+  const hmac = await hmacSha1(key,msg);
+  const offset = hmac[hmac.length-1]&0x0f;
+  const code = ((hmac[offset]&0x7f)<<24)|((hmac[offset+1]&0xff)<<16)|((hmac[offset+2]&0xff)<<8)|(hmac[offset+3]&0xff);
+  return (code%(10**digits)).toString().padStart(digits,'0');
+}
+
+async function derivePrimeFromSecret(secretBase32){
+  const key = base32Decode(secretBase32);
+  const hash = await crypto.subtle.digest('SHA-256', key);
+  const hashBytes = new Uint8Array(hash);
+  let p = 0n;
+  for(let i=0;i<12;i++) p = (p<<8n)+BigInt(hashBytes[i]);
+  p |= 1n; 
+  if(p<3n) p+=3n;
+  return p;
+}
+
+async function compressImage(file, targetKB = 90){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    const reader = new FileReader();
+    
+    reader.onload = (e)=>{
+      img.onload = ()=>{
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = img.width;
+        let height = img.height;
+        const maxDimension = 1200;
+        
+        if(width > height && width > maxDimension){
+          height = (height * maxDimension) / width;
+          width = maxDimension;
+        } else if(height > maxDimension){
+          width = (width * maxDimension) / height;
+          height = maxDimension;
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        let quality = 0.7;
+        let compressed = canvas.toDataURL('image/jpeg', quality);
+        let sizeKB = (compressed.length * 0.75) / 1024;
+        
+        while(sizeKB > targetKB && quality > 0.1){
+          quality -= 0.05;
+          compressed = canvas.toDataURL('image/jpeg', quality);
+          sizeKB = (compressed.length * 0.75) / 1024;
+        }
+        
+        resolve({
+          base64: compressed,
+          originalSize: file.size,
+          compressedSize: sizeKB,
+          quality: quality,
+          dimensions: `${width}x${height}`,
+          fileName: file.name
+        });
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function copyToClipboard(text){
+    navigator.clipboard.writeText(text).then(() => {
+        alert('Copiado para a área de transferência!');
+    }).catch(err => {
+        console.error('Falha ao copiar:', err);
+        alert('Erro ao copiar.');
+    });
+}
+
+// --- Codificador de Texto ---
+document.getElementById('encodeBtn').onclick = async ()=>{
+  const text = document.getElementById('inputText').value || '';
+  if(!text){ alert('Digite algum texto'); return; }
+
+  const bytes = textToBytes(text);
+  const originalBigInt = bytesToBigInt(bytes);
+
+  const secretBytes = new Uint8Array(20);
+  crypto.getRandomValues(secretBytes);
+  const secretBase32 = base32Encode(secretBytes);
+
+  const prime = await derivePrimeFromSecret(secretBase32);
+  const mixedBigInt = originalBigInt * prime;
+
+  const hexLength = mixedBigInt.toString(16).length;
+  const estimatedPages = Math.ceil(hexLength / 3000);
+
+  document.getElementById('encodeResult').textContent = 
+`mixedBigInt (hex): ${mixedBigInt.toString(16)}
+
+TOTP Secret (base32): ${secretBase32}
+
+=== Informações ===
+Tamanho do texto: ${bytes.length} bytes
+Páginas estimadas: ~${estimatedPages} páginas
+
+⚠️ IMPORTANTE: Use este TOTP em seu app Authenticator (Google Authenticator, Authy, etc.)`;
+};
+
+// --- Decodificador de Texto ---
+document.getElementById('decodeBtn').onclick = async ()=>{
+  const mixedHex = document.getElementById('mixedHex').value.trim();
+  const secretBase32 = document.getElementById('totpSecret').value.trim();
+  const totpCode = document.getElementById('totpCode').value.trim();
+
+  if(!mixedHex || !secretBase32 || !totpCode){
+      alert('Preencha todos os campos.');
+      return;
+  }
+
+  try {
+    const mixedBigInt = BigInt('0x'+mixedHex);
+    const now = Math.floor(Date.now()/1000);
+    let valid=false;
+    for(let delta=-1; delta<=1; delta++){
+        const t = now + delta*30;
+        const code = await generateTotp(secretBase32,t);
+        if(code===totpCode.padStart(6,'0')){ valid=true; break; }
+    }
+    if(!valid){ 
+      document.getElementById('decodeResult').textContent = '❌ Código TOTP inválido! Verifique o código e tente novamente.';
+      return; 
+    }
+
+    const prime = await derivePrimeFromSecret(secretBase32);
+    const originalBigInt = mixedBigInt / prime;
+    const bytes = bigIntToBytes(originalBigInt);
+    const text = bytesToText(bytes);
+
+    document.getElementById('decodeResult').textContent = `✅ Texto decodificado com sucesso!\n\n${text}`;
+  } catch(error) {
+    document.getElementById('decodeResult').textContent = `❌ Erro ao decodificar: ${error.message}`;
+  }
+};
+
+// --- Codificador de Imagens (Única ou Lote) ---
+document.getElementById('encodeImagesBtn').onclick = async ()=>{
+  const fileInput = document.getElementById('imageInput');
+  const files = Array.from(fileInput.files);
+  if(files.length === 0){ alert('Selecione uma ou mais imagens'); return; }
+
+  const resultDiv = document.getElementById('encodeImageResult');
+  document.getElementById('batchMixedHexOutput').style.display = 'none';
+  document.getElementById('batchTotpSecretOutput').style.display = 'none';
+  document.getElementById('batchStatsOutput').style.display = 'none';
+
+  const batchMixedHexPre = document.getElementById('batchMixedHexPre');
+  const batchTotpSecretPre = document.getElementById('batchTotpSecretPre');
+  const batchStatsPre = document.getElementById('batchStatsPre');
+
+  batchMixedHexPre.textContent = '';
+  batchTotpSecretPre.textContent = '';
+  batchStatsPre.textContent = '';
+
+  // Gerar UM ÚNICO segredo TOTP para todas as imagens
+  const secretBytes = new Uint8Array(20);
+  crypto.getRandomValues(secretBytes);
+  const secretBase32 = base32Encode(secretBytes);
+  const prime = await derivePrimeFromSecret(secretBase32);
+
+  let allMixedHex = [];
+  let allStats = [];
+
+  resultDiv.querySelector('p').textContent = `Processando ${files.length} imagem(ns)...`;
+
+  for(let i=0; i < files.length; i++){
+    const file = files[i];
+    resultDiv.querySelector('p').textContent = `Processando imagem ${i + 1} de ${files.length}: ${file.name}...`;
+
+    try {
+      const compressed = await compressImage(file, 90);
+      const bytes = textToBytes(compressed.base64);
+      const originalBigInt = bytesToBigInt(bytes);
+
+      // Usar o MESMO prime para todas as imagens
+      const mixedBigInt = originalBigInt * prime;
+
+      const hexLength = mixedBigInt.toString(16).length;
+      const estimatedPages = Math.ceil(hexLength / 3000);
+
+      allMixedHex.push(`IMAGEM ${i + 1} (${file.name}):\n${mixedBigInt.toString(16)}`);
+      allStats.push(`--- IMAGEM ${i + 1} (${file.name}) ---\n` +
+`📦 Tamanho original: ${(compressed.originalSize/1024).toFixed(2)} KB\n` +
+`📉 Tamanho comprimido: ${compressed.compressedSize.toFixed(2)} KB\n` +
+`💾 Redução: ${(100 - (compressed.compressedSize / (compressed.originalSize/1024)) * 100).toFixed(1)}%\n` +
+`🎨 Qualidade aplicada: ${(compressed.quality * 100).toFixed(0)}%\n` +
+`📐 Dimensões: ${compressed.dimensions}\n` +
+`📄 Páginas estimadas: ~${estimatedPages} páginas`);
+
+    } catch(error) {
+      allStats.push(`--- ERRO ao processar IMAGEM ${i + 1} (${file.name}) ---\n${error.message}`);
+      console.error(`Erro ao processar ${file.name}:`, error);
+    }
+  }
+
+  resultDiv.querySelector('p').textContent = `✅ Processamento concluído: ${files.length} imagem(ns).`;
+  
+  // Mostrar o segredo TOTP ÚNICO
+  batchTotpSecretPre.textContent = secretBase32;
+  document.getElementById('batchTotpSecretOutput').style.display = 'block';
+  
+  if (allMixedHex.length > 0) {
+      batchMixedHexPre.textContent = allMixedHex.join('\n\n');
+      document.getElementById('batchMixedHexOutput').style.display = 'block';
+  }
+  if (allStats.length > 0) {
+      batchStatsPre.textContent = allStats.join('\n\n');
+      document.getElementById('batchStatsOutput').style.display = 'block';
+  }
+};
+
+// --- Decodificador de Imagem ---
+document.getElementById('decodeImageBtn').onclick = async ()=>{
+  const mixedHex = document.getElementById('mixedHexImage').value.trim();
+  const secretBase32 = document.getElementById('totpSecretImage').value.trim();
+  const totpCode = document.getElementById('totpCodeImage').value.trim();
+
+  if(!mixedHex || !secretBase32 || !totpCode){
+      alert('Preencha todos os campos.');
+      return;
+  }
+
+  try {
+    document.getElementById('decodeImageResult').textContent = '⏳ Validando TOTP...';
+
+    const mixedBigInt = BigInt('0x'+mixedHex);
+    const now = Math.floor(Date.now()/1000);
+    let valid=false;
+    for(let delta=-1; delta<=1; delta++){
+        const t = now + delta*30;
+        const code = await generateTotp(secretBase32,t);
+        if(code===totpCode.padStart(6,'0')){ valid=true; break; }
+    }
+    if(!valid){ 
+      document.getElementById('decodeImageResult').textContent = '❌ Código TOTP inválido! Verifique o código e tente novamente.';
+      document.getElementById('imagePreview').innerHTML = '';
+      return; 
+    }
+
+    document.getElementById('decodeImageResult').textContent = '⏳ Decodificando imagem...';
+
+    const prime = await derivePrimeFromSecret(secretBase32);
+    const originalBigInt = mixedBigInt / prime;
+    const bytes = bigIntToBytes(originalBigInt);
+    const base64Data = bytesToText(bytes);
+
+    document.getElementById('decodeImageResult').textContent = '✅ Imagem decodificada com sucesso!';
+    document.getElementById('imagePreview').innerHTML = `<img src="${base64Data}" style="max-width:100%; margin-top:10px; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.3);">`;
+  } catch(error) {
+    document.getElementById('decodeImageResult').textContent = '❌ Erro ao decodificar: ' + error.message;
+    document.getElementById('imagePreview').innerHTML = '';
+  }
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,1214 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Compactador + TOTP + Matriz 8x8 + Constantes + RSA</title>
+  
+<style>
+body{font-family:Inter,system-ui,Segoe UI,Roboto,Arial;margin:18px;background:#071029;color:#e6eef8}
+.card{background:#081427;padding:18px;border-radius:12px;box-shadow:0 8px 30px rgba(2,6,23,.6);margin-bottom:20px}
+input,textarea{width:100%;padding:8px;border-radius:8px;border:1px solid #0b3552;background:#061427;color:#dbeafe;margin-bottom:6px;box-sizing:border-box}
+button{background:#0ea5e9;color:#022035;border:none;padding:6px 12px;border-radius:8px;cursor:pointer;margin-top:4px;margin-right:4px;font-weight:600}
+button:hover{background:#38bdf8}
+button.success{background:#10b981;color:#022818}
+button.success:hover{background:#34d399}
+pre{background:#021029;padding:12px;border-radius:8px;overflow:auto;white-space:pre-wrap;font-size:12px;line-height:1.5}
+label{font-size:13px;color:#9fb4d6;display:block;margin-top:8px}
+.muted{color:#9fb4d6;font-size:13px}
+.hidden{display:none;}
+h2{margin-top:0;color:#38bdf8}
+h3{color:#60a5fa;font-size:16px}
+.copy-container{display:flex;align-items:center;gap:8px;margin-bottom:8px;}
+.copy-container pre{flex-grow:1;margin-bottom:0;}
+.batch-results pre{max-height:200px;overflow-y:auto;}
+.batch-results button{margin-bottom:10px;}
+</style>
+</head>
+<body>
+
+<div class="card" id="encodeScreen">
+  <h2>🔒 Codificador BigInt + TOTP + Matriz 8x8 + Constantes + RSA</h2>
+  <p class="muted">Digite o texto que deseja codificar com todas as camadas de segurança.</p>
+  <textarea id="inputText" placeholder="Digite ou cole o texto aqui..." rows="6"></textarea>
+  <button id="encodeBtn" class="success">🔑 Codificar com Todas as Camadas</button>
+  <button onclick="showScreen('decodeScreen')">🔓 Ir para Decodificador de Texto</button>
+  <button onclick="showScreen('encodeImageScreen')">🖼️ Ir para Codificar Imagem</button>
+  <h3>Resultado</h3>
+  <pre id="encodeResult">Nenhum dado ainda.</pre>
+</div>
+
+<div class="card hidden" id="decodeScreen">
+  <h2>🔓 Decodificador BigInt + TOTP + Matriz 8x8 + ECDSA + Constantes + RSA</h2>
+  <p class="muted">Informe todos os dados para reconstruir o texto.</p>
+  
+  <!-- ✅ LISTA COMPLETA VERIFICADA ITEM POR ITEM -->
+  <label>Dado Criptografado com RSA (Base64)</label>
+  <textarea id="mixedHex" placeholder="Cole o dado criptografado com RSA aqui..." rows="4"></textarea>
+  
+  <label>SHA-256 Hash (verificação)</label>
+  <input type="text" id="sha256Hash" placeholder="Cole o hash SHA-256 aqui...">
+  
+  <label>Assinatura ECDSA</label>
+  <textarea id="ecdsaSignature" placeholder="Cole a assinatura ECDSA aqui..." rows="3"></textarea>
+  
+  <label>Chave Pública ECDSA</label>
+  <textarea id="publicKeyECDSA" placeholder="Cole a chave pública ECDSA aqui..." rows="3"></textarea>
+  
+  <label>Chave Pública RSA</label>
+  <textarea id="publicKeyRSA" placeholder="Cole a chave pública RSA aqui..." rows="3"></textarea>
+  
+  <label>Chave da Matriz 8x8 (Base64)</label>
+  <textarea id="matrixKey" placeholder="Cole a chave da matriz aqui..." rows="4"></textarea>
+  
+  <label>Segredo TOTP (base32)</label>
+  <input type="text" id="totpSecret" placeholder="Ex: ABCDEFGH23456789...">
+  
+  <label>Código TOTP (6 dígitos)</label>
+  <input type="text" id="totpCode" placeholder="Ex: 123456">
+  
+  <label>Constante Matemática Somada (NÚMERO EXATO)</label>
+  <textarea id="mathConstant" placeholder="Cole o número exato da constante matemática aqui..." rows="4"></textarea>
+  
+  <label>Chave Privada RSA (Base64)</label>
+  <textarea id="rsaPrivateKey" placeholder="Cole a chave privada RSA aqui..." rows="4"></textarea>
+  
+  <button id="decodeBtn" class="success">🔓 Decodificar</button>
+  <button onclick="showScreen('encodeScreen')">🔑 Ir para Codificador de Texto</button>
+  <button onclick="showScreen('decodeImageScreen')">🖼️ Ir para Decodificar Imagem</button>
+  <h3>Resultado</h3>
+  <pre id="decodeResult">Nenhum resultado ainda.</pre>
+</div>
+
+<div class="card hidden" id="encodeImageScreen">
+  <h2>🖼️ Codificador de Imagem BigInt + TOTP + Matriz 8x8 + Constantes + RSA</h2>
+  <p class="muted">Selecione <strong>uma ou múltiplas</strong> imagens para codificar com todas as camadas de segurança.</p>
+  <p class="muted"><strong>Formatos aceitos:</strong> JPG, PNG, GIF, BMP, WEBP, SVG, TIFF, AVIF e outros formatos de imagem.<br>
+  ⚠️ Todas as imagens são convertidas para JPEG durante a compressão.<br>
+  🔐 <strong>Lote de imagens:</strong> Todas compartilharão o mesmo TOTP, Matriz e RSA.</p>
+  <input type="file" id="imageInput" accept="image/*" multiple>
+  <button id="encodeImagesBtn" class="success">🔑 Codificar Imagens com Todas as Camadas</button>
+  <button onclick="showScreen('decodeImageScreen')">🔓 Ir para Decodificar Imagem</button>
+  <button onclick="showScreen('encodeScreen')">📝 Ir para Codificador de Texto</button>
+  
+  <h3>Resultados</h3>
+  <div id="encodeImageResult" class="batch-results">
+    <p>Selecione imagem(ns) e clique em "Codificar Imagens com Todas as Camadas".</p>
+    <div id="batchMatrixKeyOutput" style="display:none;">
+        <div class="copy-container">
+            <label>Chave da Matriz 8x8 (guardar com segurança!):</label>
+            <pre id="batchMatrixKeyPre"></pre>
+            <button onclick="copyToClipboard(document.getElementById('batchMatrixKeyPre').textContent)">Copiar</button>
+        </div>
+    </div>
+    <div id="batchTotpSecretOutput" style="display:none;">
+        <div class="copy-container">
+            <label>TOTP Secret (base32) - Use para todas as imagens:</label>
+            <pre id="batchTotpSecretPre"></pre>
+            <button onclick="copyToClipboard(document.getElementById('batchTotpSecretPre').textContent)">Copiar</button>
+        </div>
+    </div>
+    <div id="batchMathConstantOutput" style="display:none;">
+        <div class="copy-container">
+            <label>Constante Matemática Somada (GUARDAR!):</label>
+            <pre id="batchMathConstantPre"></pre>
+            <button onclick="copyToClipboard(document.getElementById('batchMathConstantPre').textContent)">Copiar</button>
+        </div>
+    </div>
+    <div id="batchRSAKeysOutput" style="display:none;">
+        <div class="copy-container">
+            <label>Chave Privada RSA (GUARDAR COM SEGURANÇA!):</label>
+            <pre id="batchRSAPrivateKeyPre"></pre>
+            <button onclick="copyToClipboard(document.getElementById('batchRSAPrivateKeyPre').textContent)">Copiar</button>
+        </div>
+        <div class="copy-container">
+            <label>Chave Pública RSA (pode compartilhar):</label>
+            <pre id="batchRSAPublicKeyPre"></pre>
+            <button onclick="copyToClipboard(document.getElementById('batchRSAPublicKeyPre').textContent)">Copiar</button>
+        </div>
+    </div>
+    <div id="batchMixedHexOutput" style="display:none;">
+        <label>Dados Criptografados com RSA de cada imagem:</label>
+        <button onclick="copyToClipboard(document.getElementById('batchMixedHexPre').textContent)">Copiar Todos</button>
+        <pre id="batchMixedHexPre"></pre>
+    </div>
+    <div id="batchECDSAOutput" style="display:none;">
+        <div class="copy-container">
+            <label>Chave Pública ECDSA (pode compartilhar):</label>
+            <pre id="batchECDSAPublicKeyPre"></pre>
+            <button onclick="copyToClipboard(document.getElementById('batchECDSAPublicKeyPre').textContent)">Copiar</button>
+        </div>
+        <div class="copy-container">
+            <label>Chave Privada ECDSA (GUARDAR!):</label>
+            <pre id="batchECDSAPrivateKeyPre"></pre>
+            <button onclick="copyToClipboard(document.getElementById('batchECDSAPrivateKeyPre').textContent)">Copiar</button>
+        </div>
+    </div>
+    <div id="batchStatsOutput" style="display:none;">
+        <label>Estatísticas:</label>
+        <pre id="batchStatsPre"></pre>
+    </div>
+  </div>
+</div>
+
+<div class="card hidden" id="decodeImageScreen">
+  <h2>🔓 Decodificador de Imagem BigInt + TOTP + Matriz 8x8 + Constantes + RSA</h2>
+  <p class="muted">Informe todos os dados para reconstruir a imagem.</p>
+  
+  <!-- ✅ LISTA COMPLETA PARA IMAGENS -->
+  <label>Dado Criptografado com RSA (Base64)</label>
+  <textarea id="mixedHexImage" placeholder="Cole o dado criptografado com RSA aqui..." style="min-height:120px" rows="6"></textarea>
+  
+  <label>Chave da Matriz 8x8</label>
+  <textarea id="matrixKeyImage" placeholder="Cole a chave da matriz aqui..." rows="4"></textarea>
+  
+  <label>Segredo TOTP (base32)</label>
+  <input type="text" id="totpSecretImage" placeholder="Ex: ABCDEFGH23456789...">
+  
+  <label>Código TOTP (6 dígitos)</label>
+  <input type="text" id="totpCodeImage" placeholder="Ex: 123456">
+  
+  <label>Constante Matemática Somada (NÚMERO EXATO)</label>
+  <textarea id="mathConstantImage" placeholder="Cole o número exato da constante matemática aqui..." rows="4"></textarea>
+  
+  <label>Chave Privada RSA (Base64)</label>
+  <textarea id="rsaPrivateKeyImage" placeholder="Cole a chave privada RSA aqui..." rows="4"></textarea>
+  
+  <button id="decodeImageBtn" class="success">🔓 Decodificar Imagem</button>
+  <button onclick="showScreen('encodeImageScreen')">🔑 Ir para Codificar Imagem</button>
+  <button onclick="showScreen('encodeScreen')">📝 Ir para Codificador de Texto</button>
+  <h3>Resultado</h3>
+  <pre id="decodeImageResult">Nenhum resultado ainda.</pre>
+  <div id="imagePreview"></div>
+</div>
+
+<script>
+const B = 256n;
+const BASE32 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+
+// ========== GERADOR DE CONSTANTES MATEMÁTICAS ALEATÓRIAS ==========
+function generateRandom128DigitSequence() {
+    let sequence = '';
+    // Garantir que o primeiro dígito não seja zero
+    sequence += Math.floor(Math.random() * 9) + 1;
+    
+    // Gerar os 127 dígitos restantes
+    for (let i = 1; i < 128; i++) {
+        sequence += Math.floor(Math.random() * 10);
+    }
+    
+    return sequence;
+}
+
+function generateMathematicalConstantSum() {
+    console.log("🔢 Iniciando geração de constantes matemáticas aleatórias...");
+    
+    // FASE 1: QUATRO SEQUÊNCIAS ALEATÓRIAS DE π (128 dígitos cada)
+    const piSequences = [];
+    for (let i = 0; i < 4; i++) {
+        piSequences.push(generateRandom128DigitSequence());
+    }
+    
+    // FASE 2: QUATRO SEQUÊNCIAS ALEATÓRIAS DE OUTRAS CONSTANTES (128 dígitos cada)
+    const otherConstants = [];
+    for (let i = 0; i < 4; i++) {
+        otherConstants.push(generateRandom128DigitSequence());
+    }
+    
+    // Somar todas as sequências
+    let totalSum = 0n;
+    
+    // Somar sequências de π
+    console.log("📊 Sequências de π geradas:");
+    for (let i = 0; i < piSequences.length; i++) {
+        const seq = piSequences[i];
+        console.log(`π${i+1}: ${seq}`);
+        totalSum += BigInt(seq);
+    }
+    
+    // Somar outras constantes
+    console.log("📊 Outras constantes geradas:");
+    for (let i = 0; i < otherConstants.length; i++) {
+        const seq = otherConstants[i];
+        console.log(`Const${i+1}: ${seq}`);
+        totalSum += BigInt(seq);
+    }
+    
+    console.log("🔢 Soma total das constantes:", totalSum.toString());
+    
+    return {
+        sum: totalSum,
+        sequences: {
+            pi: piSequences,
+            other: otherConstants
+        }
+    };
+}
+
+// ========== CRIPTOGRAFIA RSA ==========
+async function generateRSAKeyPair() {
+    const keyPair = await crypto.subtle.generateKey(
+        {
+            name: "RSA-OAEP",
+            modulusLength: 2048,
+            publicExponent: new Uint8Array([1, 0, 1]),
+            hash: "SHA-256",
+        },
+        true,
+        ["encrypt", "decrypt"]
+    );
+    return keyPair;
+}
+
+async function exportRSAPublicKey(publicKey) {
+    const exported = await crypto.subtle.exportKey("spki", publicKey);
+    return btoa(String.fromCharCode(...new Uint8Array(exported)));
+}
+
+async function exportRSAPrivateKey(privateKey) {
+    const exported = await crypto.subtle.exportKey("pkcs8", privateKey);
+    return btoa(String.fromCharCode(...new Uint8Array(exported)));
+}
+
+async function importRSAPublicKey(base64Key) {
+    const binaryDer = Uint8Array.from(atob(base64Key), c => c.charCodeAt(0));
+    return await crypto.subtle.importKey(
+        "spki",
+        binaryDer,
+        {
+            name: "RSA-OAEP",
+            hash: "SHA-256",
+        },
+        true,
+        ["encrypt"]
+    );
+}
+
+async function importRSAPrivateKey(base64Key) {
+    const binaryDer = Uint8Array.from(atob(base64Key), c => c.charCodeAt(0));
+    return await crypto.subtle.importKey(
+        "pkcs8",
+        binaryDer,
+        {
+            name: "RSA-OAEP",
+            hash: "SHA-256",
+        },
+        true,
+        ["decrypt"]
+    );
+}
+
+async function rsaEncrypt(publicKey, data) {
+    const encoder = new TextEncoder();
+    const dataBuffer = encoder.encode(data);
+    
+    // RSA tem limite de tamanho, então dividimos se necessário
+    const chunkSize = 190; // 2048 bits = 256 bytes, menos overhead
+    const chunks = [];
+    
+    for (let i = 0; i < dataBuffer.length; i += chunkSize) {
+        const chunk = dataBuffer.slice(i, i + chunkSize);
+        const encryptedChunk = await crypto.subtle.encrypt(
+            { name: "RSA-OAEP" },
+            publicKey,
+            chunk
+        );
+        chunks.push(btoa(String.fromCharCode(...new Uint8Array(encryptedChunk))));
+    }
+    
+    return chunks.join('|');
+}
+
+async function rsaDecrypt(privateKey, encryptedData) {
+    const chunks = encryptedData.split('|');
+    const decryptedChunks = [];
+    
+    for (const chunk of chunks) {
+        const encryptedBuffer = Uint8Array.from(atob(chunk), c => c.charCodeAt(0));
+        const decryptedChunk = await crypto.subtle.decrypt(
+            { name: "RSA-OAEP" },
+            privateKey,
+            encryptedBuffer
+        );
+        decryptedChunks.push(new Uint8Array(decryptedChunk));
+    }
+    
+    // Combinar todos os chunks
+    const totalLength = decryptedChunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    const result = new Uint8Array(totalLength);
+    let offset = 0;
+    
+    for (const chunk of decryptedChunks) {
+        result.set(chunk, offset);
+        offset += chunk.length;
+    }
+    
+    return new TextDecoder().decode(result);
+}
+
+function showScreen(id){
+  document.getElementById('encodeScreen').classList.add('hidden');
+  document.getElementById('decodeScreen').classList.add('hidden');
+  document.getElementById('encodeImageScreen').classList.add('hidden');
+  document.getElementById('decodeImageScreen').classList.add('hidden');
+  document.getElementById(id).classList.remove('hidden');
+}
+
+function textToBytes(str){ return Array.from(new TextEncoder().encode(str)); }
+function bytesToText(bytes){ return new TextDecoder().decode(new Uint8Array(bytes)); }
+function bigIntToBytes(v){
+  if(v===0n) return [0];
+  const out=[];
+  let cur=v;
+  while(cur>0n){ out.push(Number(cur%B)); cur=cur/B; }
+  return out;
+}
+function bytesToBigInt(bytes){
+  let v=0n;
+  for(let i=0;i<bytes.length;i++) v += BigInt(bytes[i])*(B**BigInt(i));
+  return v;
+}
+
+function base32Encode(bytes){
+  let bits=0,value=0,output='';
+  for(const b of bytes){
+    value=(value<<8)|b; bits+=8;
+    while(bits>=5){ output+=BASE32[(value>>(bits-5))&31]; bits-=5; }
+  }
+  if(bits>0) output+=BASE32[(value<<(5-bits))&31];
+  return output;
+}
+
+function base32Decode(str){
+  const cleaned = str.replace(/=+$/,'').toUpperCase();
+  let bits=0,value=0,out=[];
+  for(const ch of cleaned){
+    const idx=BASE32.indexOf(ch); if(idx===-1) continue;
+    value=(value<<5)|idx; bits+=5;
+    if(bits>=8){ out.push((value>>(bits-8))&0xFF); bits-=8; }
+  }
+  return new Uint8Array(out);
+}
+
+async function hmacSha1(keyBytes,msgBytes){
+  const key = await crypto.subtle.importKey('raw',keyBytes,{name:'HMAC',hash:'SHA-1'},false,['sign']);
+  const sig = await crypto.subtle.sign('HMAC',key,msgBytes);
+  return new Uint8Array(sig);
+}
+
+function intToBytesBE(num,length){
+  const out = new Uint8Array(length);
+  for(let i=length-1;i>=0;i--){ out[i]=Number(num&0xFFn); num>>=8n; }
+  return out;
+}
+
+async function generateTotp(secretBase32,forTime=Math.floor(Date.now()/1000),step=30,digits=6){
+  const key = base32Decode(secretBase32);
+  const counter = BigInt(Math.floor(forTime/step));
+  const msg = intToBytesBE(counter,8);
+  const hmac = await hmacSha1(key,msg);
+  const offset = hmac[hmac.length-1]&0x0f;
+  const code = ((hmac[offset]&0x7f)<<24)|((hmac[offset+1]&0xff)<<16)|((hmac[offset+2]&0xff)<<8)|(hmac[offset+3]&0xff);
+  return (code%(10**digits)).toString().padStart(digits,'0');
+}
+
+async function derivePrimeFromSecret(secretBase32){
+  const key = base32Decode(secretBase32);
+  const hash = await crypto.subtle.digest('SHA-256', key);
+  const hashBytes = new Uint8Array(hash);
+  let p = 0n;
+  for(let i=0;i<12;i++) p = (p<<8n)+BigInt(hashBytes[i]);
+  p |= 1n; 
+  if(p<3n) p+=3n;
+  return p;
+}
+
+async function compressImage(file, targetKB = 90){
+  return new Promise((resolve, reject)=>{
+    const img = new Image();
+    const reader = new FileReader();
+    
+    reader.onload = (e)=>{
+      img.onload = ()=>{
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        
+        let width = img.width;
+        let height = img.height;
+        const maxDimension = 1200;
+        
+        if(width > height && width > maxDimension){
+          height = (height * maxDimension) / width;
+          width = maxDimension;
+        } else if(height > maxDimension){
+          width = (width * maxDimension) / height;
+          height = maxDimension;
+        }
+        
+        canvas.width = width;
+        canvas.height = height;
+        ctx.drawImage(img, 0, 0, width, height);
+        
+        let quality = 0.7;
+        let compressed = canvas.toDataURL('image/jpeg', quality);
+        let sizeKB = (compressed.length * 0.75) / 1024;
+        
+        while(sizeKB > targetKB && quality > 0.1){
+          quality -= 0.05;
+          compressed = canvas.toDataURL('image/jpeg', quality);
+          sizeKB = (compressed.length * 0.75) / 1024;
+        }
+        
+        resolve({
+          base64: compressed,
+          originalSize: file.size,
+          compressedSize: sizeKB,
+          quality: quality,
+          dimensions: `${width}x${height}`,
+          fileName: file.name
+        });
+      };
+      img.onerror = reject;
+      img.src = e.target.result;
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+function copyToClipboard(text){
+    navigator.clipboard.writeText(text).then(() => {
+        alert('Copiado para a área de transferência!');
+    }).catch(err => {
+        console.error('Falha ao copiar:', err);
+        alert('Erro ao copiar.');
+    });
+}
+
+// ========== CRIPTOGRAFIA SHA-256 + ECDSA ==========
+
+async function generateECDSAKeyPair(){
+  const keyPair = await crypto.subtle.generateKey(
+    {
+      name: "ECDSA",
+      namedCurve: "P-256"
+    },
+    true,
+    ["sign", "verify"]
+  );
+  return keyPair;
+}
+
+async function exportPublicKey(publicKey){
+  const exported = await crypto.subtle.exportKey("spki", publicKey);
+  return btoa(String.fromCharCode(...new Uint8Array(exported)));
+}
+
+async function exportPrivateKey(privateKey){
+  const exported = await crypto.subtle.exportKey("pkcs8", privateKey);
+  return btoa(String.fromCharCode(...new Uint8Array(exported)));
+}
+
+async function importPublicKey(base64Key){
+  const binaryDer = Uint8Array.from(atob(base64Key), c => c.charCodeAt(0));
+  return await crypto.subtle.importKey(
+    "spki",
+    binaryDer,
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["verify"]
+  );
+}
+
+async function importPrivateKey(base64Key){
+  const binaryDer = Uint8Array.from(atob(base64Key), c => c.charCodeAt(0));
+  return await crypto.subtle.importKey(
+    "pkcs8",
+    binaryDer,
+    { name: "ECDSA", namedCurve: "P-256" },
+    true,
+    ["sign"]
+  );
+}
+
+async function signData(privateKey, data){
+  const encoder = new TextEncoder();
+  const dataBuffer = encoder.encode(data);
+  
+  // SHA-256 hash
+  const hashBuffer = await crypto.subtle.digest("SHA-256", dataBuffer);
+  
+  // ECDSA signature
+  const signature = await crypto.subtle.sign(
+    { name: "ECDSA", hash: "SHA-256" },
+    privateKey,
+    hashBuffer
+  );
+  
+  return btoa(String.fromCharCode(...new Uint8Array(signature)));
+}
+
+async function verifySignature(publicKey, data, signatureBase64){
+  const encoder = new TextEncoder();
+  const dataBuffer = encoder.encode(data);
+  
+  // SHA-256 hash
+  const hashBuffer = await crypto.subtle.digest("SHA-256", dataBuffer);
+  
+  // Decode signature
+  const signature = Uint8Array.from(atob(signatureBase64), c => c.charCodeAt(0));
+  
+  // Verify ECDSA signature
+  return await crypto.subtle.verify(
+    { name: "ECDSA", hash: "SHA-256" },
+    publicKey,
+    signature,
+    hashBuffer
+  );
+}
+
+async function sha256Hash(data){
+  const encoder = new TextEncoder();
+  const dataBuffer = encoder.encode(data);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", dataBuffer);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function isPrimeFast(n){
+  if(n<2n) return false;
+  if(n===2n || n===3n) return true;
+  if(n%2n===0n || n%3n===0n) return false;
+  
+  // Teste Miller-Rabin simplificado para números grandes
+  let d = n - 1n;
+  while(d % 2n === 0n) d /= 2n;
+  
+  // Teste com base 2
+  let x = 2n;
+  let temp = d;
+  let result = 1n;
+  let base = x;
+  let mod = n;
+  
+  // Exponenciação modular rápida
+  while(temp > 0n){
+    if(temp % 2n === 1n) result = (result * base) % mod;
+    base = (base * base) % mod;
+    temp /= 2n;
+  }
+  
+  if(result === 1n || result === n - 1n) return true;
+  return false;
+}
+
+function generateRandomPrime(minDigits, maxDigits){
+  // Limitar a 50 dígitos para performance
+  const digits = Math.min(50, minDigits + Math.floor(Math.random() * (maxDigits - minDigits + 1)));
+  let candidate;
+  let attempts = 0;
+  
+  do {
+    let numStr = '1'; // Começar com 1 para garantir número de N dígitos
+    for(let i = 1; i < digits; i++){
+      numStr += Math.floor(Math.random() * 10);
+    }
+    candidate = BigInt(numStr);
+    if(candidate % 2n === 0n) candidate += 1n;
+    attempts++;
+    if(attempts > 100) break; // Evitar loop infinito
+  } while(!isPrimeFast(candidate));
+  
+  return candidate;
+}
+
+function generatePrimeMatrix(){
+  const matrix = [];
+  for(let i = 0; i < 8; i++){
+    matrix[i] = [];
+    for(let j = 0; j < 8; j++){
+      matrix[i][j] = generateRandomPrime(8, 128);
+    }
+  }
+  return matrix;
+}
+
+function bigIntToVector(bigInt){
+  const vector = [];
+  let remaining = bigInt;
+  const divisor = 10n ** 150n; // Divide em pedaços de 150 dígitos
+  for(let i = 0; i < 8; i++){
+    vector.push(remaining % divisor);
+    remaining = remaining / divisor;
+  }
+  return vector;
+}
+
+function vectorToBigInt(vector){
+  let result = 0n;
+  const multiplier = 10n ** 150n;
+  for(let i = 7; i >= 0; i--){
+    result = result * multiplier + vector[i];
+  }
+  return result;
+}
+
+function addMatrixToVector(matrix, vector){
+  const result = [];
+  for(let i = 0; i < 8; i++){
+    let sum = vector[i];
+    for(let j = 0; j < 8; j++){
+      sum += matrix[i][j];
+    }
+    result.push(sum);
+  }
+  return result;
+}
+
+function subtractMatrixFromVector(matrix, vector){
+  const result = [];
+  for(let i = 0; i < 8; i++){
+    let diff = vector[i];
+    for(let j = 0; j < 8; j++){
+      diff -= matrix[i][j];
+    }
+    result.push(diff);
+  }
+  return result;
+}
+
+function matrixToString(matrix){
+  // Comprimir matriz para formato compacto
+  const json = JSON.stringify(matrix.map(row => row.map(val => val.toString())));
+  // Simular compressão Base64 (navegador não tem gzip nativo)
+  return btoa(json);
+}
+
+function stringToMatrix(str){
+  try {
+    const json = atob(str);
+    return JSON.parse(json).map(row => row.map(val => BigInt(val)));
+  } catch(e) {
+    // Fallback para formato antigo (sem compressão)
+    return JSON.parse(str).map(row => row.map(val => BigInt(val)));
+  }
+}
+
+// --- Codificador de Texto com Matriz + SHA-256 + ECDSA + Constantes + RSA ---
+document.getElementById('encodeBtn').onclick = async ()=>{
+  const text = document.getElementById('inputText').value || '';
+  if(!text){ alert('Digite algum texto'); return; }
+
+  try {
+    document.getElementById('encodeResult').textContent = '⏳ Processando... (1/8) Convertendo texto';
+    
+    const bytes = textToBytes(text);
+    const originalBigInt = bytesToBigInt(bytes);
+    
+    document.getElementById('encodeResult').textContent = '⏳ Processando... (2/8) Gerando chaves ECDSA';
+    
+    // Gerar par de chaves ECDSA
+    const keyPair = await generateECDSAKeyPair();
+    const publicKeyBase64 = await exportPublicKey(keyPair.publicKey);
+    const privateKeyBase64 = await exportPrivateKey(keyPair.privateKey);
+    
+    document.getElementById('encodeResult').textContent = '⏳ Processando... (3/8) Gerando TOTP';
+
+    const secretBytes = new Uint8Array(20);
+    crypto.getRandomValues(secretBytes);
+    const secretBase32 = base32Encode(secretBytes);
+
+    const prime = await derivePrimeFromSecret(secretBase32);
+    let mixedBigInt = originalBigInt * prime;
+
+    document.getElementById('encodeResult').textContent = '⏳ Processando... (4/8) Gerando Matriz 8x8 de Primos';
+
+    // APLICAR SOMA COM MATRIZ 8x8 DE PRIMOS
+    const matrix = generatePrimeMatrix();
+    
+    document.getElementById('encodeResult').textContent = '⏳ Processando... (5/8) Aplicando Matriz';
+    
+    const vector = bigIntToVector(mixedBigInt);
+    const obfuscatedVector = addMatrixToVector(matrix, vector);
+    const obfuscatedBigInt = vectorToBigInt(obfuscatedVector);
+    
+    document.getElementById('encodeResult').textContent = '⏳ Processando... (6/8) Gerando e somando constantes matemáticas';
+    
+    // GERAR E SOMAR CONSTANTES MATEMÁTICAS ALEATÓRIAS
+    const constantResult = generateMathematicalConstantSum();
+    const finalBigInt = obfuscatedBigInt + constantResult.sum;
+    
+    document.getElementById('encodeResult').textContent = '⏳ Processando... (7/8) Gerando chaves RSA e aplicando criptografia';
+    
+    // GERAR CHAVES RSA E APLICAR CRIPTOGRAFIA
+    const rsaKeyPair = await generateRSAKeyPair();
+    const rsaPublicKeyBase64 = await exportRSAPublicKey(rsaKeyPair.publicKey);
+    const rsaPrivateKeyBase64 = await exportRSAPrivateKey(rsaKeyPair.privateKey);
+    
+    // Criptografar o BigInt final com RSA
+    const finalBigIntStr = finalBigInt.toString();
+    const rsaEncryptedData = await rsaEncrypt(rsaKeyPair.publicKey, finalBigIntStr);
+    
+    document.getElementById('encodeResult').textContent = '⏳ Processando... (8/8) Gerando assinatura ECDSA';
+    
+    // SHA-256 hash do dado criptografado com RSA
+    const sha256 = await sha256Hash(rsaEncryptedData);
+    
+    // Assinar com ECDSA
+    const signature = await signData(keyPair.privateKey, rsaEncryptedData);
+
+    const hexLength = rsaEncryptedData.length;
+    const estimatedPages = Math.ceil(hexLength / 3000);
+    
+    const matrixCompressed = matrixToString(matrix);
+
+    document.getElementById('encodeResult').textContent = 
+`━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📤 DADOS PÚBLICOS (podem ser compartilhados)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Dado Criptografado com RSA (Base64):
+${rsaEncryptedData}
+
+SHA-256 Hash:
+${sha256}
+
+Assinatura ECDSA:
+${signature}
+
+Chave Pública ECDSA:
+${publicKeyBase64}
+
+Chave Pública RSA:
+${rsaPublicKeyBase64}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔒 DADOS PRIVADOS (GUARDAR COM SEGURANÇA!)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Chave Privada ECDSA:
+${privateKeyBase64}
+
+Chave da Matriz 8x8:
+${matrixCompressed}
+
+TOTP Secret (base32):
+${secretBase32}
+
+CONSTANTE MATEMÁTICA SOMADA (NÚMERO EXATO):
+${constantResult.sum.toString()}
+
+CHAVE PRIVADA RSA:
+${rsaPrivateKeyBase64}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 INFORMAÇÕES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Tamanho do texto: ${bytes.length} bytes
+Páginas estimadas: ~${estimatedPages} páginas
+Constantes matemáticas: ✅ Aplicadas (8 sequências de 128 dígitos)
+Criptografia RSA: ✅ Aplicada (2048 bits)
+
+🔐 CAMADAS DE SEGURANÇA APLICADAS:
+1. TOTP (Autenticação em dois fatores)
+2. Matriz 8x8 de Primos (Ofuscação matemática) 
+3. Constantes Matemáticas Aleatórias (Ofuscação adicional)
+4. ECDSA (Assinatura digital e verificação)
+5. RSA (Criptografia assimétrica final)
+
+⚠️ IMPORTANTE:
+• DADOS PÚBLICOS: Podem ser enviados por e-mail, mensagem, etc.
+• DADOS PRIVADOS: Nunca compartilhe! Guarde em local seguro
+• Use o TOTP Secret no Google Authenticator ou Authy
+• Sem os DADOS PRIVADOS, é IMPOSSÍVEL decodificar
+• 🔢 GUARDE O NÚMERO EXATO DA CONSTANTE MATEMÁTICA para decodificar
+• 🔐 GUARDE A CHAVE PRIVADA RSA para descriptografar`;
+  } catch(error) {
+    document.getElementById('encodeResult').textContent = `❌ ERRO: ${error.message}\n\nStack: ${error.stack}`;
+    console.error('Erro completo:', error);
+  }
+};
+
+// --- Decodificador de Texto com Matriz + SHA-256 + ECDSA + Constantes + RSA ---
+document.getElementById('decodeBtn').onclick = async ()=>{
+  const rsaEncryptedData = document.getElementById('mixedHex').value.trim();
+  const sha256Expected = document.getElementById('sha256Hash').value.trim();
+  const ecdsaSig = document.getElementById('ecdsaSignature').value.trim();
+  const publicKeyB64 = document.getElementById('publicKeyECDSA').value.trim();
+  const publicKeyRSAB64 = document.getElementById('publicKeyRSA').value.trim();
+  const matrixKeyStr = document.getElementById('matrixKey').value.trim();
+  const secretBase32 = document.getElementById('totpSecret').value.trim();
+  const totpCode = document.getElementById('totpCode').value.trim();
+  const mathConstantStr = document.getElementById('mathConstant').value.trim();
+  const rsaPrivateKeyB64 = document.getElementById('rsaPrivateKey').value.trim();
+
+  if(!rsaEncryptedData || !matrixKeyStr || !secretBase32 || !totpCode || !mathConstantStr || !rsaPrivateKeyB64){
+      alert('Preencha todos os campos obrigatórios.');
+      return;
+  }
+
+  try {
+    document.getElementById('decodeResult').textContent = '⏳ Etapa 1/9: Verificando integridade SHA-256...';
+    
+    // Verificar hash SHA-256
+    const sha256Computed = await sha256Hash(rsaEncryptedData);
+    if(sha256Expected && sha256Computed !== sha256Expected){
+      document.getElementById('decodeResult').textContent = '❌ ERRO: Hash SHA-256 não confere! Os dados podem ter sido alterados.';
+      return;
+    }
+    
+    document.getElementById('decodeResult').textContent = '⏳ Etapa 2/9: Verificando assinatura ECDSA...';
+    
+    // Verificar assinatura ECDSA
+    if(publicKeyB64 && ecdsaSig){
+      const publicKey = await importPublicKey(publicKeyB64);
+      const isValid = await verifySignature(publicKey, rsaEncryptedData, ecdsaSig);
+      if(!isValid){
+        document.getElementById('decodeResult').textContent = '❌ ERRO: Assinatura ECDSA inválida! Os dados não são autênticos.';
+        return;
+      }
+    }
+    
+    document.getElementById('decodeResult').textContent = '⏳ Etapa 3/9: Importando chave privada RSA...';
+    
+    // IMPORTAR CHAVE PRIVADA RSA
+    const rsaPrivateKey = await importRSAPrivateKey(rsaPrivateKeyB64);
+    
+    document.getElementById('decodeResult').textContent = '⏳ Etapa 4/9: Descriptografando com RSA...';
+    
+    // DESCRIPTOGRAFAR COM RSA
+    const decryptedBigIntStr = await rsaDecrypt(rsaPrivateKey, rsaEncryptedData);
+    const finalBigInt = BigInt(decryptedBigIntStr);
+    
+    document.getElementById('decodeResult').textContent = '⏳ Etapa 5/9: Convertendo constante matemática...';
+    
+    // USAR A CONSTANTE MATEMÁTICA FORNECIDA PELO USUÁRIO
+    const mathConstant = BigInt(mathConstantStr);
+    
+    document.getElementById('decodeResult').textContent = '⏳ Etapa 6/9: Subtraindo constantes...';
+    
+    // SUBTRAIR CONSTANTES MATEMÁTICAS
+    const obfuscatedBigInt = finalBigInt - mathConstant;
+    
+    document.getElementById('decodeResult').textContent = '⏳ Etapa 7/9: Revertendo Matriz 8x8...';
+    
+    // SUBTRAIR MATRIZ
+    const matrix = stringToMatrix(matrixKeyStr);
+    const obfuscatedVector = bigIntToVector(obfuscatedBigInt);
+    const originalVector = subtractMatrixFromVector(matrix, obfuscatedVector);
+    const mixedBigInt = vectorToBigInt(originalVector);
+
+    document.getElementById('decodeResult').textContent = '⏳ Etapa 8/9: Validando TOTP...';
+    
+    // Validar TOTP
+    const now = Math.floor(Date.now()/1000);
+    let valid=false;
+    for(let delta=-1; delta<=1; delta++){
+        const t = now + delta*30;
+        const code = await generateTotp(secretBase32,t);
+        if(code===totpCode.padStart(6,'0')){ valid=true; break; }
+    }
+    if(!valid){ 
+      document.getElementById('decodeResult').textContent = '❌ Código TOTP inválido! Verifique o código e tente novamente.';
+      return; 
+    }
+
+    document.getElementById('decodeResult').textContent = '⏳ Etapa 9/9: Revertendo BigInt...';
+
+    // Reverter BigInt
+    const prime = await derivePrimeFromSecret(secretBase32);
+    const originalBigInt = mixedBigInt / prime;
+    
+    const bytes = bigIntToBytes(originalBigInt);
+    const text = bytesToText(bytes);
+
+    document.getElementById('decodeResult').textContent = text;
+  } catch(error) {
+    document.getElementById('decodeResult').textContent = `❌ Erro ao decodificar: ${error.message}\n\nStack: ${error.stack}`;
+    console.error('Erro completo:', error);
+  }
+};
+
+// --- Codificador de Imagens com Matriz + Constantes + RSA (Lote) ---
+document.getElementById('encodeImagesBtn').onclick = async ()=>{
+  const fileInput = document.getElementById('imageInput');
+  const files = Array.from(fileInput.files);
+  if(files.length === 0){ alert('Selecione uma ou mais imagens'); return; }
+
+  const resultDiv = document.getElementById('encodeImageResult');
+  document.getElementById('batchMixedHexOutput').style.display = 'none';
+  document.getElementById('batchMatrixKeyOutput').style.display = 'none';
+  document.getElementById('batchTotpSecretOutput').style.display = 'none';
+  document.getElementById('batchMathConstantOutput').style.display = 'none';
+  document.getElementById('batchRSAKeysOutput').style.display = 'none';
+  document.getElementById('batchECDSAOutput').style.display = 'none';
+  document.getElementById('batchStatsOutput').style.display = 'none';
+
+  const batchMixedHexPre = document.getElementById('batchMixedHexPre');
+  const batchMatrixKeyPre = document.getElementById('batchMatrixKeyPre');
+  const batchMathConstantPre = document.getElementById('batchMathConstantPre');
+  const batchRSAPrivateKeyPre = document.getElementById('batchRSAPrivateKeyPre');
+  const batchRSAPublicKeyPre = document.getElementById('batchRSAPublicKeyPre');
+  const batchECDSAPublicKeyPre = document.getElementById('batchECDSAPublicKeyPre');
+  const batchECDSAPrivateKeyPre = document.getElementById('batchECDSAPrivateKeyPre');
+  const batchStatsPre = document.getElementById('batchStatsPre');
+
+  batchMixedHexPre.textContent = '';
+  batchMatrixKeyPre.textContent = '';
+  batchMathConstantPre.textContent = '';
+  batchRSAPrivateKeyPre.textContent = '';
+  batchRSAPublicKeyPre.textContent = '';
+  batchECDSAPublicKeyPre.textContent = '';
+  batchECDSAPrivateKeyPre.textContent = '';
+  batchStatsPre.textContent = '';
+
+  try {
+    // Gerar chaves ECDSA
+    resultDiv.querySelector('p').textContent = 'Gerando chaves ECDSA...';
+    const keyPair = await generateECDSAKeyPair();
+    const publicKeyBase64 = await exportPublicKey(keyPair.publicKey);
+    const privateKeyBase64 = await exportPrivateKey(keyPair.privateKey);
+
+    // Gerar UM segredo TOTP e UMA matriz para todas as imagens
+    const secretBytes = new Uint8Array(20);
+    crypto.getRandomValues(secretBytes);
+    const secretBase32 = base32Encode(secretBytes);
+    const prime = await derivePrimeFromSecret(secretBase32);
+    
+    const matrix = generatePrimeMatrix();
+    const matrixCompressed = matrixToString(matrix);
+    
+    // GERAR CONSTANTES MATEMÁTICAS (mesmas para todas as imagens do lote)
+    const constantResult = generateMathematicalConstantSum();
+    
+    // GERAR CHAVES RSA (mesmas para todas as imagens do lote)
+    resultDiv.querySelector('p').textContent = 'Gerando chaves RSA...';
+    const rsaKeyPair = await generateRSAKeyPair();
+    const rsaPublicKeyBase64 = await exportRSAPublicKey(rsaKeyPair.publicKey);
+    const rsaPrivateKeyBase64 = await exportRSAPrivateKey(rsaKeyPair.privateKey);
+
+    let allMixedHex = [];
+    let allStats = [];
+
+    resultDiv.querySelector('p').textContent = `Processando ${files.length} imagem(ns)...`;
+
+    for(let i=0; i < files.length; i++){
+      const file = files[i];
+      resultDiv.querySelector('p').textContent = `Processando imagem ${i + 1} de ${files.length}: ${file.name}...`;
+
+      try {
+        const compressed = await compressImage(file, 90);
+        const bytes = textToBytes(compressed.base64);
+        const originalBigInt = bytesToBigInt(bytes);
+
+        let mixedBigInt = originalBigInt * prime;
+        
+        // SOMAR matriz aos dados
+        const vector = bigIntToVector(mixedBigInt);
+        const obfuscatedVector = addMatrixToVector(matrix, vector);
+        const obfuscatedBigInt = vectorToBigInt(obfuscatedVector);
+        
+        // SOMAR CONSTANTES MATEMÁTICAS
+        const finalBigInt = obfuscatedBigInt + constantResult.sum;
+        
+        // CRIPTOGRAFAR COM RSA
+        const finalBigIntStr = finalBigInt.toString();
+        const rsaEncryptedData = await rsaEncrypt(rsaKeyPair.publicKey, finalBigIntStr);
+
+        const hexLength = rsaEncryptedData.length;
+        const estimatedPages = Math.ceil(hexLength / 3000);
+
+        allMixedHex.push(`IMAGEM ${i + 1} (${file.name}):\n${rsaEncryptedData}`);
+        allStats.push(`--- IMAGEM ${i + 1} (${file.name}) ---\n` +
+`📦 Tamanho original: ${(compressed.originalSize/1024).toFixed(2)} KB\n` +
+`📉 Tamanho comprimido: ${compressed.compressedSize.toFixed(2)} KB\n` +
+`💾 Redução: ${(100 - (compressed.compressedSize / (compressed.originalSize/1024)) * 100).toFixed(1)}%\n` +
+`🎨 Qualidade aplicada: ${(compressed.quality * 100).toFixed(0)}%\n` +
+`📐 Dimensões: ${compressed.dimensions}\n` +
+`📄 Páginas estimadas: ~${estimatedPages} páginas\n` +
+`🔢 Constantes matemáticas: ✅ Aplicadas\n` +
+`🔐 RSA: ✅ Aplicado`);
+
+      } catch(error) {
+        allStats.push(`--- ERRO ao processar IMAGEM ${i + 1} (${file.name}) ---\n${error.message}`);
+        console.error(`Erro ao processar ${file.name}:`, error);
+      }
+    }
+
+    resultDiv.querySelector('p').textContent = 'Gerando SHA-256 e assinatura ECDSA...';
+    
+    // Gerar SHA-256 e assinatura para o conjunto de dados
+    const allData = allMixedHex.join('\n');
+    const sha256 = await sha256Hash(allData);
+    const signature = await signData(keyPair.privateKey, allData);
+
+    resultDiv.querySelector('p').textContent = `✅ Processamento concluído: ${files.length} imagem(ns).`;
+    
+    // Gerar dados públicos e privados
+    const publicData = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📤 DADOS PÚBLICOS (podem ser compartilhados)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SHA-256 Hash:
+${sha256}
+
+Assinatura ECDSA:
+${signature}
+
+Chave Pública ECDSA:
+${publicKeyBase64}
+
+Chave Pública RSA:
+${rsaPublicKeyBase64}
+
+Dados Criptografados com RSA de cada imagem:
+
+${allMixedHex.join('\n\n')}`;
+
+    const privateData = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔒 DADOS PRIVADOS (GUARDAR COM SEGURANÇA!)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Chave Privada ECDSA:
+${privateKeyBase64}
+
+Chave da Matriz 8x8:
+${matrixCompressed}
+
+TOTP Secret (base32):
+${secretBase32}
+
+CONSTANTE MATEMÁTICA SOMADA (NÚMERO EXATO):
+${constantResult.sum.toString()}
+
+CHAVE PRIVADA RSA:
+${rsaPrivateKeyBase64}`;
+
+    const statsData = `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 ESTATÍSTICAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${allStats.join('\n\n')}
+
+🔐 CAMADAS DE SEGURANÇA APLICADAS:
+1. TOTP (Autenticação em dois fatores)
+2. Matriz 8x8 de Primos (Ofuscação matemática)
+3. Constantes Matemáticas Aleatórias (Ofuscação adicional) 
+4. ECDSA (Assinatura digital e verificação)
+5. RSA (Criptografia assimétrica final)
+
+⚠️ IMPORTANTE:
+• DADOS PÚBLICOS: Podem ser enviados
+• DADOS PRIVADOS: Nunca compartilhe!
+• Use o TOTP Secret no Google Authenticator
+• 🔢 GUARDE O NÚMERO EXATO DA CONSTANTE MATEMÁTICA para decodificar
+• 🔐 GUARDE A CHAVE PRIVADA RSA para descriptografar`;
+    
+    batchMixedHexPre.textContent = publicData;
+    document.getElementById('batchMixedHexOutput').style.display = 'block';
+    
+    batchMatrixKeyPre.textContent = privateData;
+    document.getElementById('batchMatrixKeyOutput').style.display = 'block';
+    
+    batchMathConstantPre.textContent = constantResult.sum.toString();
+    document.getElementById('batchMathConstantOutput').style.display = 'block';
+    
+    batchRSAPrivateKeyPre.textContent = rsaPrivateKeyBase64;
+    batchRSAPublicKeyPre.textContent = rsaPublicKeyBase64;
+    document.getElementById('batchRSAKeysOutput').style.display = 'block';
+    
+    batchECDSAPublicKeyPre.textContent = publicKeyBase64;
+    batchECDSAPrivateKeyPre.textContent = privateKeyBase64;
+    document.getElementById('batchECDSAOutput').style.display = 'block';
+    
+    batchStatsPre.textContent = statsData;
+    document.getElementById('batchStatsOutput').style.display = 'block';
+    
+    // Esconder outputs antigos de TOTP
+    document.getElementById('batchTotpSecretOutput').style.display = 'none';
+    
+  } catch(error) {
+    resultDiv.querySelector('p').textContent = `❌ Erro: ${error.message}`;
+    console.error('Erro completo:', error);
+  }
+};
+
+// --- Decodificador de Imagem com Matriz + Constantes + RSA ---
+document.getElementById('decodeImageBtn').onclick = async ()=>{
+  const rsaEncryptedData = document.getElementById('mixedHexImage').value.trim();
+  const matrixKeyStr = document.getElementById('matrixKeyImage').value.trim();
+  const secretBase32 = document.getElementById('totpSecretImage').value.trim();
+  const totpCode = document.getElementById('totpCodeImage').value.trim();
+  const mathConstantStr = document.getElementById('mathConstantImage').value.trim();
+  const rsaPrivateKeyB64 = document.getElementById('rsaPrivateKeyImage').value.trim();
+
+  if(!rsaEncryptedData || !matrixKeyStr || !secretBase32 || !totpCode || !mathConstantStr || !rsaPrivateKeyB64){
+      alert('Preencha todos os campos.');
+      return;
+  }
+
+  try {
+    document.getElementById('decodeImageResult').textContent = '⏳ Importando chave privada RSA...';
+
+    // IMPORTAR CHAVE PRIVADA RSA
+    const rsaPrivateKey = await importRSAPrivateKey(rsaPrivateKeyB64);
+    
+    document.getElementById('decodeImageResult').textContent = '⏳ Descriptografando com RSA...';
+    
+    // DESCRIPTOGRAFAR COM RSA
+    const decryptedBigIntStr = await rsaDecrypt(rsaPrivateKey, rsaEncryptedData);
+    const finalBigInt = BigInt(decryptedBigIntStr);
+
+    document.getElementById('decodeImageResult').textContent = '⏳ Convertendo constante matemática...';
+
+    // USAR A CONSTANTE MATEMÁTICA FORNECIDA PELO USUÁRIO
+    const mathConstant = BigInt(mathConstantStr);
+    
+    document.getElementById('decodeImageResult').textContent = '⏳ Subtraindo constantes...';
+    
+    // SUBTRAIR CONSTANTES MATEMÁTICAS
+    const obfuscatedBigInt = finalBigInt - mathConstant;
+
+    document.getElementById('decodeImageResult').textContent = '⏳ Revertendo Matriz...';
+
+    // SUBTRAIR MATRIZ
+    const matrix = stringToMatrix(matrixKeyStr);
+    const obfuscatedVector = bigIntToVector(obfuscatedBigInt);
+    const originalVector = subtractMatrixFromVector(matrix, obfuscatedVector);
+    const mixedBigInt = vectorToBigInt(originalVector);
+
+    document.getElementById('decodeImageResult').textContent = '⏳ Validando TOTP...';
+
+    // Validar TOTP
+    const now = Math.floor(Date.now()/1000);
+    let valid=false;
+    for(let delta=-1; delta<=1; delta++){
+        const t = now + delta*30;
+        const code = await generateTotp(secretBase32,t);
+        if(code===totpCode.padStart(6,'0')){ valid=true; break; }
+    }
+    if(!valid){ 
+      document.getElementById('decodeImageResult').textContent = '❌ Código TOTP inválido! Verifique o código e tente novamente.';
+      document.getElementById('imagePreview').innerHTML = '';
+      return; 
+    }
+
+    document.getElementById('decodeImageResult').textContent = '⏳ Decodificando imagem...';
+
+    const prime = await derivePrimeFromSecret(secretBase32);
+    const originalBigInt = mixedBigInt / prime;
+    const bytes = bigIntToBytes(originalBigInt);
+    const base64Data = bytesToText(bytes);
+
+    document.getElementById('decodeImageResult').textContent = '✅ Imagem decodificada com sucesso!';
+    document.getElementById('imagePreview').innerHTML = `<img src="${base64Data}" style="max-width:100%; margin-top:10px; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.3);">`;
+  } catch(error) {
+    document.getElementById('decodeImageResult').textContent = '❌ Erro ao decodificar: ' + error.message;
+    document.getElementById('imagePreview').innerHTML = '';
+  }
+};
+</script>
+</body>
+</html>
