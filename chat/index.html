@@ -1,140 +1,7 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <script>
-(function() {
-    'use strict';
-    
-    // VERIFICAÇÃO ULTRA-RÁPIDA
-    let authenticated = false;
-    
-    try {
-        const session = localStorage.getItem('math10_session');
-        if (session) {
-            const data = JSON.parse(session);
-            const SESSION_MAX_AGE = 4 * 60 * 60 * 1000;
-            const elapsed = Date.now() - data.loginTime;
-            
-            if (data.authenticated && elapsed <= SESSION_MAX_AGE) {
-                authenticated = true;
-            } else {
-                localStorage.removeItem('math10_session');
-            }
-        }
-    } catch (e) {
-        localStorage.removeItem('math10_session');
-    }
-    
-    // SE NÃO AUTENTICADO - DESTRÓI E REDIRECIONA
-    if (!authenticated) {
-        // DESTRÓI TODO O CONTEÚDO DA PÁGINA
-        document.documentElement.innerHTML = '';
-        document.body.innerHTML = '';
-        
-        // REDIRECIONA IMEDIATAMENTE
-        window.location.href = 'https://matematico10.com.br/index.html';
-        return;
-    }
-    
-    // SE AUTENTICADO - PÁGINA CONTINUA NORMALMENTE
-    console.log('✅ Acesso autorizado via autenticação TOTP');
-})();
-</script>
-    <script>
-(function () {
-  "use strict";
-
-  const e = document.referrer.includes("index.html"),
-        t = sessionStorage.getItem("authorized") === "true",
-        n = sessionStorage.getItem("lastAccess");
-
-  // Se veio da index.html, marca como autorizado
-  if (e) {
-    sessionStorage.setItem("authorized", "true");
-    sessionStorage.setItem("lastAccess", Date.now());
-  }
-
-  // Se autorizado ou acesso recente (menos de 5 min), deixa continuar
-  if (t || (n && Date.now() - parseInt(n) < 300000)) {
-    sessionStorage.setItem("lastAccess", Date.now());
-    console.log("✅ Acesso permitido");
-    return;
-  }
-
-  // Caso contrário, redireciona para o login
-  console.warn("⛔ Acesso negado — redirecionando para login");
-  sessionStorage.removeItem("authorized");
-  sessionStorage.removeItem("lastAccess");
-
-  window.location.replace(
-    window.location.hostname === "matematico10.com.br"
-      ? "https://matematico10.com.br/index.html"
-      : "https://k10.netlify.app/index.html"
-  );
-})();
-</script>
-
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chat K10 - Comunicação Segura</title>
-    <!-- ═══════════════════════════════════════════════════════════════
-     MIDDLEWARE DE PROTEÇÃO - LOCALSTORAGE
-     ═══════════════════════════════════════════════════════════════ -->
-<script>
-(function() {
-  'use strict';
-
-  const isAuthenticated = () => {
-    try {
-      const session = localStorage.getItem('math10_session');
-      if (!session) return false;
-      
-      const data = JSON.parse(session);
-      if (!data.authenticated || !data.loginTime || !data.totpSecret) return false;
-      
-      const SESSION_MAX_AGE = 4 * 60 * 60 * 1000;
-      const elapsed = Date.now() - data.loginTime;
-      
-      if (elapsed > SESSION_MAX_AGE) {
-        localStorage.removeItem('math10_session');
-        return false;
-      }
-      
-      return true;
-    } catch (e) {
-      return false;
-    }
-  };
-
-  if (!isAuthenticated()) {
-    document.documentElement.innerHTML = '';
-    document.body.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#0a192f 0%,#071029 100%);font-family:Inter,system-ui;color:#e6eef8;">
-        <div style="text-align:center;background:#081427;padding:40px;border-radius:16px;box-shadow:0 20px 60px rgba(2,6,23,.8);border:1px solid #0b3552;max-width:420px;">
-          <div style="font-size:64px;margin-bottom:16px;">🔒</div>
-          <h1 style="color:#dbeafe;margin:0 0 16px 0;font-size:24px;">Acesso Negado</h1>
-          <p style="color:#9fb4d6;margin:0 0 24px 0;font-size:14px;line-height:1.6;">Você não está autenticado. Faça login primeiro.</p>
-          <button onclick="window.location.href=window.location.origin+'/index.html'" style="background:linear-gradient(135deg,#0ea5e9,#06b6d4);color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;">Ir para Login</button>
-        </div>
-      </div>
-    `;
-    throw new Error('Acesso negado');
-  }
-  
-  console.log('✅ Acesso permitido');
-})();
-</script>
-
-<!-- FUNÇÃO LOGOUT -->
-<script>
-function logout() {
-  if (confirm('Tem certeza que deseja sair?')) {
-    localStorage.removeItem('math10_session');
-    alert('✅ Você saiu com sucesso.');
-    window.location.href = window.location.origin + '/index.html';
-  }
-}
-</script>
+ 
 
 <!-- ═══════════════════════════════════════════════════════════════
      RESTO DO SEU CÓDIGO DO MENU - SEM ALTERAÇÕES
@@ -377,8 +244,6 @@ function logout() {
 </head>
 <body>
 
-  <script>!function(){console.log("🔒 Verificando acesso...");const e=sessionStorage.getItem("fromIndex"),t=sessionStorage.getItem("authorized"),n=localStorage.getItem("lastAccess"),o=document.referrer;if(console.log("fromSession:",e,"authorized:",t,"lastAccess:",n,"referrer:",o),e||t||n&&Date.now()-parseInt(n)<3e5)return console.log("✅ Acesso autorizado!"),void(sessionStorage.setItem("fromIndex","true"),sessionStorage.setItem("authorized","true"));if(o){const e=["k10.netlify.app","matematico10.com.br"];if(e.some(e=>o.includes(e)))return console.log("✅ Acesso via referrer autorizado!"),void(sessionStorage.setItem("fromIndex","true"),sessionStorage.setItem("authorized","true"))}console.warn("⛔ Acesso negado - Redirecionando..."),window.location.replace("matematico10.com.br"===window.location.hostname?"https://matematico10.com.br/index.html":"https://k10.netlify.app/index.html")}();</script>
-
     
     <!-- Cabeçalho -->
     <header>
@@ -488,6 +353,7 @@ function logout() {
     </script>
 </body>
 </html>
+
 
 
 
