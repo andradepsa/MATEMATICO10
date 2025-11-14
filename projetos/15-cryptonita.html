@@ -1,0 +1,1263 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Codificação com Primos - Seguro e Independente</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start; /* Alinha no topo para melhor visualização de conteúdo longo */
+        }
+        .container {
+            max-width: 1200px;
+            width: 100%;
+            margin: 20px auto; /* Adiciona margem superior para espaçamento */
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 30px;
+        }
+        h1 {
+            color: #667eea;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            border-bottom: 3px solid #667eea;
+        }
+        .tab {
+            padding: 15px 30px;
+            background: #f0f0f0;
+            border: none;
+            border-radius: 10px 10px 0 0;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+            transition: all 0.3s;
+            flex-grow: 1; /* Faz os botões das abas ocuparem o espaço disponível */
+            text-align: center;
+        }
+        .tab.active {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .security-warning {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+            font-weight: bold;
+            box-shadow: 0 5px 15px rgba(255,107,107,0.3);
+        }
+        .info-box {
+            background: #e3f2fd;
+            border: 2px solid #2196f3;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            color: #0d47a1;
+        }
+        .success-box {
+            background: #e8f5e9;
+            border: 2px solid #4caf50;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+            color: #1b5e20;
+        }
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin: 5px;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        .btn-encode {
+            background: linear-gradient(135deg, #4caf50 0%, #388e3c 100%);
+        }
+        .btn-decode {
+            background: linear-gradient(135deg, #ff9800 0%, #f57c00 100%);
+        }
+        .btn-download {
+            background: linear-gradient(135deg, #9c27b0 0%, #7b1fa2 100%);
+        }
+        .btn-clear {
+            background: linear-gradient(135deg, #ef5350 0%, #c62828 100%);
+        }
+        textarea, input[type="text"], input[type="number"], select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #667eea;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            margin: 10px 0;
+            resize: vertical;
+        }
+        input[type="number"], select {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 16px;
+        }
+        label {
+            font-weight: bold;
+            display: block;
+            margin-top: 15px;
+            margin-bottom: 5px;
+            color: #333;
+        }
+        .output-box {
+            background: #f9f9f9;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            word-break: break-all;
+            max-height: 300px;
+            overflow-y: auto;
+            margin: 10px 0;
+        }
+        .key-display {
+            background: #fff3cd;
+            border: 2px solid #ffc107;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            word-break: break-all;
+            color: #856404;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+        .progress {
+            width: 100%;
+            height: 30px;
+            background: #e0e0e0;
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 20px 0;
+            display: none;
+            box-shadow: inset 0 2px 5px rgba(0,0,0,0.1);
+        }
+        .progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+            width: 0%;
+            transition: width 0.3s ease-out; /* Suaviza a transição */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+        .config-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .result-success {
+            background: #d4edda;
+            color: #155724;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 2px solid #c3e6cb;
+        }
+        .result-error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            border: 2px solid #f5c6cb;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/seedrandom/3.0.5/seedrandom.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Sistema de Codificação com Primos</h1>
+        
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('encoder', this)">📝 Codificador</button>
+            <button class="tab" onclick="switchTab('decoder', this)">🔓 Decodificador</button>
+        </div>
+
+        <!-- PÁGINA DE CODIFICAÇÃO -->
+        <div id="encoder" class="tab-content active">
+            <div class="security-warning">
+                ⚠️ SISTEMA HÍBRIDO: Ofuscação + Criptografia AES-GCM
+            </div>
+
+            <div class="info-box">
+                <strong>🔒 Recursos de Segurança:</strong><br>
+                • Criptografia AES-GCM com derivação de chave (PBKDF2)<br>
+                • HMAC-SHA256 para integridade dos dados<br>
+                • Salt criptográfico único para cada operação<br>
+                • TOTP (Google Authenticator) para 2FA<br>
+                • Semente determinística para reprodutibilidade das sequências
+            </div>
+
+            <h2 style="color: #667eea; margin: 30px 0 20px 0;">Configurações de Geração</h2>
+            
+            <div class="config-grid">
+                <div>
+                    <label for="numSequences">Número de Sequências:</label>
+                    <input type="number" id="numSequences" value="100" min="20" max="1000">
+                </div>
+                <div>
+                    <label for="minPrimesPerSeq">Primos Mín por Sequência:</label>
+                    <input type="number" id="minPrimesPerSeq" value="8" min="5" max="50">
+                </div>
+                <div>
+                    <label for="maxPrimesPerSeq">Primos Máx por Sequência:</label>
+                    <input type="number" id="maxPrimesPerSeq" value="150" min="50" max="500">
+                </div>
+                <div>
+                    <label for="primeLimit">Limite de Primos:</label>
+                    <select id="primeLimit">
+                        <option value="100000">100.000</option>
+                        <option value="500000" selected>500.000</option>
+                        <option value="1000000">1.000.000</option>
+                        <option value="5000000">5.000.000</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="partSize">Tamanho das Partes (dígitos):</label>
+                    <select id="partSize">
+                        <option value="256" selected>256 dígitos</option>
+                        <option value="512">512 dígitos</option>
+                        <option value="1024">1024 dígitos</option>
+                        <option value="2048">2048 dígitos</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="totpKeySize">Tamanho Chave TOTP:</label>
+                    <select id="totpKeySize">
+                        <option value="128" selected>128 bits</option>
+                        <option value="256">256 bits</option>
+                        <option value="512">512 bits</option>
+                    </select>
+                </div>
+            </div>
+
+            <button id="btnGenerateSequences" onclick="generateSequences()">🔢 Gerar Sequências de Primos</button>
+
+            <div class="progress" id="progress">
+                <div class="progress-bar" id="progressBar">0%</div>
+            </div>
+
+            <div class="stats" id="stats"></div>
+
+            <div id="encodingSection" style="display: none;">
+                <h2 style="color: #4caf50; margin: 30px 0 20px 0;">📝 Codificação de Texto</h2>
+
+                <label for="textToEncode">Texto para Codificar:</label>
+                <textarea id="textToEncode" rows="5" placeholder="Digite o texto que deseja proteger..."></textarea>
+
+                <button class="btn-encode" id="btnEncodeText" onclick="encodeText()">🔒 Codificar Texto</button>
+
+                <div id="encodedResult" style="display: none;">
+                    <div class="result-success">
+                        <h3>✅ Texto Codificado com Sucesso!</h3>
+                        
+                        <label for="encodedText">Texto Codificado:</label>
+                        <div class="output-box" id="encodedText"></div>
+
+                        <label for="totpSecret">Chave TOTP (Base32) - Adicione no Google Authenticator:</label>
+                        <div class="key-display" id="totpSecret"></div>
+
+                        <div style="text-align: center; margin: 20px 0;">
+                            <img id="qrCode" style="border: 2px solid #4caf50; border-radius: 8px;" alt="QR Code">
+                        </div>
+
+                        <label for="generationSeed">Semente de Geração (GUARDE COM SEGURANÇA!):</label>
+                        <div class="key-display" id="generationSeed"></div>
+
+                        <div style="margin-top: 20px;">
+                            <button onclick="copyToClipboard('totpSecret')">📋 Copiar TOTP</button>
+                            <button onclick="copyToClipboard('generationSeed')">📋 Copiar Semente</button>
+                            <button class="btn-download" onclick="downloadEncodedPackage()">💾 Baixar Pacote Completo</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PÁGINA DE DECODIFICAÇÃO -->
+        <div id="decoder" class="tab-content">
+            <div class="security-warning">
+                🔓 DECODIFICADOR INDEPENDENTE
+            </div>
+
+            <div class="info-box">
+                <strong>ℹ️ Como Usar:</strong><br>
+                1. Preencha manualmente todos os campos abaixo, usando os dados gerados durante a codificação.<br>
+                2. Insira o código TOTP atual do Google Authenticator.<br>
+                3. Clique em "Decodificar Texto".
+            </div>
+
+            <h2 style="color: #ff9800; margin: 30px 0 20px 0;">✍️ Entrada Manual para Decodificação</h2>
+
+            <div id="manualDecoderFields">
+                <label for="textToDecodeMan">Texto Codificado (Payload JSON Completo):</label>
+                <textarea id="textToDecodeMan" rows="4" placeholder="Cole o texto codificado completo (incluindo HMAC, salt, etc.) aqui..."></textarea>
+
+                <label for="totpSecretDecodeMan">Chave TOTP (Base32):</label>
+                <input type="text" id="totpSecretDecodeMan" placeholder="Cole a chave TOTP Base32 aqui...">
+
+                <label for="generationSeedDecodeMan">Semente de Geração:</label>
+                <input type="text" id="generationSeedDecodeMan" placeholder="Cole a semente de geração aqui...">
+
+                <div class="config-grid">
+                    <div>
+                        <label for="numSequencesDecodeMan">Número de Sequências:</label>
+                        <input type="number" id="numSequencesDecodeMan" value="100">
+                    </div>
+                    <div>
+                        <label for="minPrimesDecodeMan">Primos Mín por Sequência:</label>
+                        <input type="number" id="minPrimesDecodeMan" value="8">
+                    </div>
+                    <div>
+                        <label for="maxPrimesDecodeMan">Primos Máx por Sequência:</label>
+                        <input type="number" id="maxPrimesDecodeMan" value="150">
+                    </div>
+                    <div>
+                        <label for="primeLimitDecodeMan">Limite de Primos:</label>
+                        <input type="number" id="primeLimitDecodeMan" value="500000">
+                    </div>
+                    <div>
+                        <label for="partSizeDecodeMan">Tamanho das Partes:</label>
+                        <input type="number" id="partSizeDecodeMan" value="256">
+                    </div>
+                </div>
+            </div>
+
+            <h2 style="color: #ff9800; margin: 30px 0 20px 0;">🔓 Decodificação</h2>
+
+            <label for="totpCode">Código TOTP (6 dígitos do Authenticator):</label>
+            <input type="text" id="totpCode" placeholder="000000" maxlength="6" 
+                   style="width: 150px; text-align: center; letter-spacing: 5px; font-size: 24px;">
+
+            <div style="margin-top: 20px;">
+                <button class="btn-decode" id="btnDecodeText" onclick="decodeText()">🔓 Decodificar Texto</button>
+            </div>
+
+            <div id="decodeProgress" style="display: none; margin: 20px 0;">
+                <div class="info-box">
+                    <strong>⏳ Processando...</strong><br>
+                    <span id="decodeStatus">Recriando sequências de primos...</span>
+                </div>
+            </div>
+
+            <div id="decodedResult"></div>
+        </div>
+    </div>
+
+<script>
+// ==================== VARIÁVEIS GLOBAIS ====================
+let currentEncodedData = {
+    encodedText: '',
+    totpSecret: '',
+    generationSeed: '',
+    salt: '',
+    hmac: '',
+    config: {},
+    finalSum: null,
+    timestamp: 0,
+    totpAlgorithm: 'SHA-1' // Padrão
+};
+
+let rng = Math.random; // Variável para a função de geração de números aleatórios (seeded ou não)
+
+// ==================== FUNÇÕES DE CRIPTOGRAFIA ====================
+
+// Gera um salt criptograficamente seguro
+function generateSalt(length = 16) {
+    const salt = new Uint8Array(length);
+    crypto.getRandomValues(salt);
+    return Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Gera uma semente criptograficamente segura para a geração de primos
+function generateCryptoSeed(length = 32) {
+    const seed = new Uint8Array(length);
+    crypto.getRandomValues(seed);
+    return Array.from(seed).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Gera um nonce (vetor de inicialização) para AES-GCM
+function generateNonce(length = 12) {
+    const nonce = new Uint8Array(length);
+    crypto.getRandomValues(nonce);
+    return nonce;
+}
+
+/**
+ * Deriva uma chave de criptografia a partir de uma soma final (finalSum), salt e semente de geração.
+ * Usa PBKDF2 para segurança.
+ * @param {BigInt} finalSum - A soma final BigInt.
+ * @param {string} salt - O salt criptográfico em formato hexadecimal.
+ * @param {string} generationSeed - A semente de geração em formato hexadecimal.
+ * @param {number} iterations - Número de iterações para PBKDF2.
+ * @returns {Promise<CryptoKey>} A chave AES-GCM derivada.
+ */
+async function deriveKeyFromSum(finalSum, salt, generationSeed, iterations = 100000) {
+    const sumStr = finalSum.toString();
+    const encoder = new TextEncoder();
+    
+    // Concatena finalSum, salt e generationSeed para formar o material base da chave.
+    // Usamos o finalSum como parte do "password" para PBKDF2, o salt é o salt do PBKDF2.
+    const keyMaterial = encoder.encode(sumStr + generationSeed); // Alterei para usar generationSeed aqui também
+    
+    const importedKey = await crypto.subtle.importKey(
+        'raw', keyMaterial, 'PBKDF2', false, ['deriveBits']
+    );
+    
+    const derivedBits = await crypto.subtle.deriveBits(
+        {
+            name: 'PBKDF2',
+            salt: encoder.encode(salt), // O salt do PBKDF2 é usado aqui
+            iterations: iterations,
+            hash: 'SHA-256'
+        },
+        importedKey,
+        256 // 256 bits para AES-256
+    );
+    
+    return crypto.subtle.importKey('raw', derivedBits, 'AES-GCM', false, ['encrypt', 'decrypt']);
+}
+
+/**
+ * Criptografa texto usando AES-GCM.
+ * @param {string} text - O texto a ser criptografado.
+ * @param {CryptoKey} key - A chave AES-GCM.
+ * @returns {Promise<string>} O texto criptografado em Base64, incluindo o nonce.
+ */
+async function encryptAESGCM(text, key) {
+    const encoder = new TextEncoder();
+    const data = encoder.encode(text);
+    const nonce = generateNonce(); // Gerar um novo nonce para cada criptografia
+    
+    const encrypted = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv: nonce }, // iv é o nonce
+        key,
+        data
+    );
+    
+    // Concatena o nonce com o ciphertext e codifica em Base64
+    const result = new Uint8Array(nonce.length + encrypted.byteLength);
+    result.set(nonce, 0);
+    result.set(new Uint8Array(encrypted), nonce.length);
+    
+    return btoa(String.fromCharCode(...result));
+}
+
+/**
+ * Decriptografa texto usando AES-GCM.
+ * @param {string} encryptedData - O texto criptografado em Base64 (nonce + ciphertext).
+ * @param {CryptoKey} key - A chave AES-GCM.
+ * @returns {Promise<string>} O texto decriptografado.
+ */
+async function decryptAESGCM(encryptedData, key) {
+    const data = Uint8Array.from(atob(encryptedData), c => c.charCodeAt(0));
+    const nonce = data.slice(0, 12); // O nonce tem 12 bytes
+    const encrypted = data.slice(12);
+    
+    const decrypted = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: nonce },
+        key,
+        encrypted
+    );
+    
+    return new TextDecoder().decode(decrypted);
+}
+
+/**
+ * Gera um HMAC (Hash-based Message Authentication Code) para verificar a integridade.
+ * @param {string} data - Os dados a serem assinados (geralmente o texto criptografado).
+ * @param {string} finalSumStr - A soma final como string.
+ * @param {string} salt - O salt usado na derivação da chave.
+ * @param {string} generationSeed - A semente de geração.
+ * @returns {Promise<string>} O HMAC em Base64.
+ */
+async function generateHMAC(data, finalSumStr, salt, generationSeed) {
+    const encoder = new TextEncoder();
+    // A chave HMAC é derivada de forma similar à chave de criptografia, mas para autenticação
+    const hmacKeyMaterial = encoder.encode(finalSumStr + salt + generationSeed + 'HMAC_SUFFIX'); // Adiciona um sufixo para diferenciar
+    
+    const key = await crypto.subtle.importKey(
+        'raw',
+        hmacKeyMaterial,
+        { name: 'HMAC', hash: {name: 'SHA-256'} },
+        false,
+        ['sign']
+    );
+    
+    const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
+    return btoa(String.fromCharCode(...new Uint8Array(signature)));
+}
+
+/**
+ * Verifica um HMAC.
+ * @param {string} data - Os dados originais.
+ * @param {string} signature - O HMAC recebido para verificação.
+ * @param {string} finalSumStr - A soma final como string.
+ * @param {string} salt - O salt usado.
+ * @param {string} generationSeed - A semente de geração.
+ * @returns {Promise<boolean>} True se o HMAC for válido, false caso contrário.
+ */
+async function verifyHMAC(data, signature, finalSumStr, salt, generationSeed) {
+    const expectedHMAC = await generateHMAC(data, finalSumStr, salt, generationSeed);
+    return expectedHMAC === signature;
+}
+
+// ==================== FUNÇÕES TOTP ====================
+
+// Codifica um Uint8Array em Base32
+function base32Encode(buffer) {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    let bits = 0, value = 0, output = '';
+    
+    for (let i = 0; i < buffer.length; i++) {
+        value = (value << 8) | buffer[i];
+        bits += 8;
+        while (bits >= 5) {
+            output += alphabet[(value >>> (bits - 5)) & 31];
+            bits -= 5;
+        }
+    }
+    
+    if (bits > 0) output += alphabet[(value << (5 - bits)) & 31];
+    while (output.length % 8 !== 0) output += '='; // Padding
+    
+    return output;
+}
+
+// Decodifica uma string Base32 em Uint8Array
+function base32Decode(base32) {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    base32 = base32.replace(/=+$/, ''); // Remove padding
+    let bits = 0, value = 0, index = 0;
+    const output = new Uint8Array(Math.ceil(base32.length * 5 / 8));
+    
+    for (let i = 0; i < base32.length; i++) {
+        const idx = alphabet.indexOf(base32[i].toUpperCase());
+        if (idx === -1) continue; // Ignora caracteres inválidos
+        
+        value = (value << 5) | idx;
+        bits += 5;
+        
+        if (bits >= 8) {
+            output[index++] = (value >>> (bits - 8)) & 255;
+            bits -= 8;
+        }
+    }
+    
+    return output.slice(0, index);
+}
+
+/**
+ * Gera um código TOTP.
+ * @param {string} secret - A chave secreta em Base32.
+ * @param {number} [time] - O contador de tempo (Unix epoch / 30). Padrão é o tempo atual.
+ * @param {string} [algorithm='SHA-1'] - O algoritmo HMAC a ser usado ('SHA-1', 'SHA-256', 'SHA-512').
+ * @returns {Promise<string>} O código TOTP de 6 dígitos.
+ */
+async function generateTOTP(secret, time = Math.floor(Date.now() / 1000 / 30), algorithm = 'SHA-1') {
+    const key = base32Decode(secret);
+    const buffer = new ArrayBuffer(8); // TOTP usa um contador de 8 bytes
+    const view = new DataView(buffer);
+    view.setBigUint64(0, BigInt(time), false); // Define o contador (Big-endian)
+    
+    const cryptoKey = await crypto.subtle.importKey(
+        'raw', key, { name: 'HMAC', hash: algorithm }, false, ['sign']
+    );
+    
+    const signature = await crypto.subtle.sign('HMAC', cryptoKey, buffer);
+    const signatureArray = new Uint8Array(signature);
+    
+    // Calcula o offset dinâmico para extrair 4 bytes
+    const offset = signatureArray[signatureArray.length - 1] & 0x0f;
+    const code = (
+        ((signatureArray[offset] & 0x7f) << 24) | // Remove o bit de sinal
+        ((signatureArray[offset + 1] & 0xff) << 16) |
+        ((signatureArray[offset + 2] & 0xff) << 8) |
+        (signatureArray[offset + 3] & 0xff)
+    ) % 1000000; // Módulo 1 milhão para 6 dígitos
+    
+    return code.toString().padStart(6, '0');
+}
+
+/**
+ * Gera uma nova chave secreta TOTP aleatória.
+ * @param {number} keySize - Tamanho da chave em bits (ex: 128, 256).
+ * @returns {string} A chave secreta em Base32.
+ */
+function generateTOTPSecret(keySize = 128) {
+    const bytes = Math.floor(keySize / 8);
+    const buffer = new Uint8Array(bytes);
+    crypto.getRandomValues(buffer); // Criptograficamente segura
+    return base32Encode(buffer);
+}
+
+// ==================== GERAÇÃO DE PRIMOS ====================
+
+// Implementação do Crivo de Eratóstenes para gerar primos até um limite
+function generatePrimesSieve(limit) {
+    const sieve = new Array(limit + 1).fill(true);
+    sieve[0] = sieve[1] = false;
+    
+    for (let i = 2; i * i <= limit; i++) {
+        if (sieve[i]) {
+            for (let j = i * i; j <= limit; j += i) {
+                sieve[j] = false;
+            }
+        }
+    }
+    
+    const primes = [];
+    for (let i = 2; i <= limit; i++) {
+        if (sieve[i]) primes.push(i);
+    }
+    
+    return primes;
+}
+
+// Embaralha um array usando a função RNG atual (seeded ou não)
+function shuffleArray(array) {
+    const arr = [...array];
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
+
+// Gera tamanhos variáveis para as sequências de primos, com uma distribuição mais "pesada" para tamanhos menores
+function generateVariableSizes(numSequences, minSize, maxSize) {
+    const sizes = [];
+    const totalRange = maxSize - minSize;
+    
+    for (let i = 0; i < numSequences; i++) {
+        // Usa uma função de potência para gerar mais números próximos ao mínimo
+        const randomFactor = Math.pow(rng(), 1.5); 
+        const size = minSize + Math.floor(randomFactor * totalRange);
+        sizes.push(Math.max(minSize, Math.min(maxSize, size)));
+    }
+    
+    // Garante que pelo menos o min, max e médio estejam presentes (para maior variabilidade)
+    if (numSequences > 3) {
+        sizes[0] = minSize;
+        sizes[1] = maxSize;
+        sizes[2] = Math.floor((minSize + maxSize) / 2);
+    }
+    
+    return shuffleArray(sizes);
+}
+
+// Divide o conjunto total de primos em múltiplos "pools" para evitar repetições imediatas
+function createPrimePools(primes, numPools = 7) {
+    const pools = [];
+    const shuffledPrimes = shuffleArray(primes); // Embaralha os primos globais
+    const poolSize = Math.ceil(shuffledPrimes.length / numPools);
+    
+    for (let i = 0; i < numPools; i++) {
+        const start = i * poolSize;
+        const end = Math.min(start + poolSize, shuffledPrimes.length);
+        pools.push(shuffledPrimes.slice(start, end));
+    }
+    
+    return pools;
+}
+
+// Gera uma sequência única de primos a partir dos pools
+function generateUniqueSequence(primePools, size, usedPrimes) {
+    // Tenta encontrar primos únicos em pools aleatórios
+    for (let attempts = 0; attempts < 200; attempts++) {
+        const poolIndex = Math.floor(rng() * primePools.length);
+        const pool = shuffleArray([...primePools[poolIndex]]); // Embaralha o pool selecionado
+        const sequence = [];
+        const localUsed = new Set(); // Primos usados nesta sequência específica
+        
+        for (const prime of pool) {
+            if (!usedPrimes.has(prime) && !localUsed.has(prime)) {
+                sequence.push(prime);
+                localUsed.add(prime);
+                if (sequence.length >= size) break;
+            }
+        }
+        
+        if (sequence.length === size) {
+            sequence.forEach(prime => usedPrimes.add(prime)); // Adiciona aos primos globais usados
+            return sequence.sort((a, b) => a - b); // Retorna ordenada
+        }
+    }
+    
+    // Fallback: se não conseguir gerar uma sequência totalmente única de um pool, pega dos primos disponíveis globalmente
+    const allPrimesFlat = primePools.flat();
+    const availablePrimes = allPrimesFlat.filter(p => !usedPrimes.has(p));
+    
+    if (availablePrimes.length >= size) {
+        const fallbackSequence = shuffleArray(availablePrimes).slice(0, size);
+        fallbackSequence.forEach(prime => usedPrimes.add(prime));
+        return fallbackSequence.sort((a, b) => a - b);
+    }
+    
+    // Último recurso: pega qualquer primo, mesmo que repetido em casos extremos (pool muito pequeno)
+    console.warn("Não foi possível gerar uma sequência totalmente única do tamanho desejado. Primos podem ser repetidos.");
+    return shuffleArray(allPrimesFlat).slice(0, size).sort((a, b) => a - b);
+}
+
+// ==================== GERAÇÃO DE SEQUÊNCIAS PRINCIPAL ====================
+
+/**
+ * Gera as sequências de primos e calcula a soma final.
+ * @param {object} params - Parâmetros de configuração.
+ * @param {boolean} updateUI - Se deve atualizar a interface de progresso e estatísticas.
+ * @returns {Promise<BigInt>} A soma final BigInt.
+ */
+async function generateSequencesInternal(params, updateUI = true) {
+    const { numSequences, minPrimesPerSeq, maxPrimesPerSeq, primeLimit, partSize, generationSeed } = params;
+    
+    // Inicializa o gerador de números aleatórios com a semente
+    rng = new Math.seedrandom(generationSeed);
+    
+    if (updateUI) {
+        document.getElementById('btnGenerateSequences').disabled = true;
+        document.getElementById('btnEncodeText').disabled = true;
+        document.getElementById('progress').style.display = 'block';
+        document.getElementById('progressBar').style.width = '0%';
+        document.getElementById('progressBar').textContent = '0%';
+        document.getElementById('progressBar').classList.remove('progress-bar-complete');
+    }
+    
+    // Passo 1: Gerar todos os primos até o limite
+    if (updateUI) {
+        document.getElementById('progressBar').style.width = '10%';
+        document.getElementById('progressBar').textContent = '10% - Gerando primos...';
+        await new Promise(r => setTimeout(r, 0)); // Permite que a UI seja atualizada
+    }
+    const allPrimes = generatePrimesSieve(primeLimit);
+    
+    if (updateUI) {
+        document.getElementById('progressBar').style.width = '30%';
+        document.getElementById('progressBar').textContent = '30% - Criando pools de primos...';
+        await new Promise(r => setTimeout(r, 0));
+    }
+    const sequenceSizes = generateVariableSizes(numSequences, minPrimesPerSeq, maxPrimesPerSeq);
+    const primePools = createPrimePools(allPrimes, 7);
+    
+    const sequences = [];
+    const sums = [];
+    const usedPrimes = new Set();
+    
+    // Passo 2: Gerar N sequências de primos e suas somas
+    for (let s = 0; s < numSequences; s++) {
+        const seqSize = sequenceSizes[s];
+        const sequence = generateUniqueSequence(primePools, seqSize, usedPrimes);
+        const sum = sequence.reduce((a, b) => a + b, 0);
+        
+        sequences.push(sequence);
+        sums.push(sum);
+        
+        if (updateUI && (s + 1) % 10 === 0) { // Atualiza o progresso mais frequentemente
+            const progress = 30 + ((s + 1) / numSequences) * 50; // 30% a 80%
+            document.getElementById('progressBar').style.width = `${progress}%`;
+            document.getElementById('progressBar').textContent = `${Math.round(progress)}% - Gerando sequências... (${s + 1}/${numSequences})`;
+            await new Promise(r => setTimeout(r, 0));
+        }
+    }
+    
+    // Passo 3: Calcular a soma final (K*K dividido em partes e somado)
+    if (updateUI) {
+        document.getElementById('progressBar').style.width = '90%';
+        document.getElementById('progressBar').textContent = '90% - Calculando soma final...';
+        await new Promise(r => setTimeout(r, 0));
+    }
+    
+    const keyString = sums.join('');
+    const K = BigInt(keyString);
+    const KS = K * K;
+    const ksStr = KS.toString();
+    
+    const parts = [];
+    for (let i = 0; i < ksStr.length; i += partSize) {
+        parts.push(ksStr.slice(i, i + partSize));
+    }
+    
+    let finalSum = BigInt(0);
+    parts.forEach(part => {
+        finalSum += BigInt(part);
+    });
+    
+    if (updateUI) {
+        document.getElementById('progressBar').style.width = '100%';
+        document.getElementById('progressBar').textContent = '✅ 100% Completo!';
+        document.getElementById('progressBar').classList.add('progress-bar-complete');
+        
+        setTimeout(() => {
+            document.getElementById('progress').style.display = 'none';
+        }, 1500); // Exibe por um pouco mais de tempo o "Completo!"
+        
+        const uniqueSums = new Set(sums).size;
+        document.getElementById('stats').innerHTML = `
+            <div class="stat-card">
+                <div class="stat-value">${numSequences}</div>
+                <div class="stat-label">Sequências</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">${usedPrimes.size.toLocaleString()}</div>
+                <div class="stat-label">Primos Usados</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">${((uniqueSums/numSequences)*100).toFixed(1)}%</div>
+                <div class="stat-label">Somas Únicas</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value">${finalSum.toString().length}</div>
+                <div class="stat-label">Dígitos Soma Final</div>
+            </div>
+        `;
+        
+        document.getElementById('encodingSection').style.display = 'block';
+        document.getElementById('btnGenerateSequences').disabled = false;
+        document.getElementById('btnEncodeText').disabled = false;
+    }
+    
+    return finalSum;
+}
+
+// Inicia o processo de geração de sequências a partir da UI
+async function generateSequences() {
+    const numSequences = parseInt(document.getElementById('numSequences').value);
+    const minPrimesPerSeq = parseInt(document.getElementById('minPrimesPerSeq').value);
+    const maxPrimesPerSeq = parseInt(document.getElementById('maxPrimesPerSeq').value);
+    const primeLimit = parseInt(document.getElementById('primeLimit').value);
+    const partSize = parseInt(document.getElementById('partSize').value);
+    
+    if (isNaN(numSequences) || isNaN(minPrimesPerSeq) || isNaN(maxPrimesPerSeq) || isNaN(primeLimit) || isNaN(partSize)) {
+        alert('Por favor, preencha todos os campos de configuração com números válidos.');
+        return;
+    }
+
+    if (minPrimesPerSeq >= maxPrimesPerSeq) {
+        alert('O número mínimo de primos por sequência deve ser menor que o máximo!');
+        return;
+    }
+    if (numSequences * minPrimesPerSeq > primeLimit * 0.8) { // Heurística simples
+        alert('As configurações podem exigir mais primos do que o limite especificado. Considere aumentar o limite de primos ou reduzir o número/tamanho das sequências.');
+        return;
+    }
+    
+    currentEncodedData.generationSeed = generateCryptoSeed(); // Gera uma nova semente criptográfica
+    currentEncodedData.config = {
+        numSequences,
+        minPrimesPerSeq,
+        maxPrimesPerSeq,
+        primeLimit,
+        partSize
+    };
+    
+    const params = {
+        numSequences,
+        minPrimesPerSeq,
+        maxPrimesPerSeq,
+        primeLimit,
+        partSize,
+        generationSeed: currentEncodedData.generationSeed
+    };
+    
+    currentEncodedData.finalSum = await generateSequencesInternal(params, true);
+}
+
+// ==================== CODIFICAÇÃO ====================
+
+async function encodeText() {
+    const textInput = document.getElementById('textToEncode').value;
+    
+    if (!textInput.trim()) {
+        alert('Por favor, digite um texto para codificar!');
+        return;
+    }
+    
+    if (!currentEncodedData.finalSum) {
+        alert('Primeiro, você deve gerar as sequências de primos (passo 1)!');
+        return;
+    }
+    
+    document.getElementById('btnEncodeText').disabled = true;
+    document.getElementById('encodedResult').style.display = 'none'; // Oculta resultados antigos
+    
+    try {
+        currentEncodedData.salt = generateSalt();
+        currentEncodedData.totpSecret = generateTOTPSecret(
+            parseInt(document.getElementById('totpKeySize').value)
+        );
+        currentEncodedData.timestamp = Date.now();
+        currentEncodedData.totpAlgorithm = 'SHA-1'; // Algoritmo padrão compatível para TOTP
+        
+        const derivedKey = await deriveKeyFromSum(
+            currentEncodedData.finalSum,
+            currentEncodedData.salt,
+            currentEncodedData.generationSeed
+        );
+        
+        const encryptedData = await encryptAESGCM(textInput, derivedKey);
+        const hmac = await generateHMAC(
+            encryptedData,
+            currentEncodedData.finalSum.toString(),
+            currentEncodedData.salt,
+            currentEncodedData.generationSeed
+        );
+        
+        const payload = {
+            mode: 'hybrid', // Indica o modo de operação (híbrido = ofuscação + criptografia)
+            data: encryptedData,
+            hmac: hmac,
+            salt: currentEncodedData.salt,
+            timestamp: currentEncodedData.timestamp,
+            algorithm: currentEncodedData.totpAlgorithm // Armazena o algoritmo TOTP para decodificação
+        };
+        
+        currentEncodedData.encodedText = JSON.stringify(payload);
+        currentEncodedData.hmac = hmac; // Armazena para download do pacote
+        
+        // --- Atualiza a UI com os resultados da codificação ---
+        
+        document.getElementById('encodedText').textContent = currentEncodedData.encodedText;
+        document.getElementById('totpSecret').textContent = currentEncodedData.totpSecret;
+        document.getElementById('generationSeed').textContent = currentEncodedData.generationSeed;
+        
+        const otpauthUrl = `otpauth://totp/CryptoPrimes:${window.location.hostname || 'LocalHost'}?secret=${currentEncodedData.totpSecret}&issuer=SecureSystem&algorithm=SHA1&digits=6`;
+        document.getElementById('qrCode').src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(otpauthUrl)}`;
+        document.getElementById('qrCode').alt = 'QR Code para Google Authenticator';
+        
+        const infoMessage = document.createElement('div');
+        infoMessage.className = 'info-box';
+        infoMessage.style.marginTop = '15px';
+        infoMessage.innerHTML = `
+            <strong>ℹ️ Informações Importantes:</strong><br>
+            • Adicione a <strong>Chave TOTP (Base32)</strong> no seu Google Authenticator.<br>
+            • O aplicativo gerará o código de 6 dígitos que você precisará para decodificar.<br>
+            • Algoritmo TOTP: ${currentEncodedData.totpAlgorithm}<br>
+            • Chave de ${parseInt(document.getElementById('totpKeySize').value)} bits<br>
+            • Timestamp da Codificação: ${new Date(currentEncodedData.timestamp).toLocaleString()}
+        `;
+        
+        const existingInfo = document.querySelector('#encodedResult .info-box');
+        if (existingInfo) existingInfo.remove();
+        
+        document.getElementById('encodedResult').appendChild(infoMessage);
+        document.getElementById('encodedResult').style.display = 'block';
+        
+    } catch (error) {
+        alert('Erro ao codificar o texto: ' + error.message);
+        console.error('Erro detalhado na codificação:', error);
+    } finally {
+        document.getElementById('btnEncodeText').disabled = false;
+    }
+}
+
+// ==================== DECODIFICAÇÃO ====================
+
+async function decodeText() {
+    // Referências aos campos de entrada manual
+    const encodedTextInput = document.getElementById('textToDecodeMan').value.trim();
+    const totpSecretInput = document.getElementById('totpSecretDecodeMan').value.trim();
+    const totpCodeInput = document.getElementById('totpCode').value.trim();
+    const generationSeedInput = document.getElementById('generationSeedDecodeMan').value.trim();
+    
+    // Oculta resultados anteriores e mostra o progresso
+    document.getElementById('decodedResult').innerHTML = '';
+    document.getElementById('decodeProgress').style.display = 'block';
+    document.getElementById('btnDecodeText').disabled = true;
+
+    try {
+        if (!encodedTextInput || !totpSecretInput || !totpCodeInput || !generationSeedInput) {
+            throw new Error('Por favor, preencha todos os campos obrigatórios (Texto Codificado, Chave TOTP, Semente de Geração, Código TOTP).');
+        }
+        
+        if (totpCodeInput.length !== 6 || !/^\d{6}$/.test(totpCodeInput)) {
+            throw new Error('O código TOTP deve ser um número de 6 dígitos!');
+        }
+        
+        document.getElementById('decodeStatus').textContent = 'Verificando código TOTP...';
+        await new Promise(r => setTimeout(r, 50));
+        
+        // Tenta fazer o parse do payload para pegar o algoritmo TOTP e outros dados
+        let payload;
+        try {
+            payload = JSON.parse(encodedTextInput);
+            if (!payload.data || !payload.hmac || !payload.salt) {
+                 throw new Error("Formato do pacote codificado inválido. Faltam dados essenciais.");
+            }
+        } catch (parseError) {
+            throw new Error("O texto codificado não é um JSON válido. Verifique se o pacote não foi corrompido. Detalhes: " + parseError.message);
+        }
+        
+        const algorithm = payload.algorithm || 'SHA-1'; // Usa o algoritmo salvo ou SHA-1 como fallback
+        
+        // Verifica o TOTP em uma pequena janela de tempo
+        const currentTime = Math.floor(Date.now() / 1000 / 30);
+        const debugCodes = [];
+        let isValidTOTP = false;
+        const totpVerificationWindow = 2; // +/- 2 janelas de tempo
+        
+        for (let i = -totpVerificationWindow; i <= totpVerificationWindow; i++) {
+            const expectedCode = await generateTOTP(totpSecretInput, currentTime + i, algorithm);
+            debugCodes.push({offset: i, code: expectedCode});
+            if (expectedCode === totpCodeInput) {
+                isValidTOTP = true;
+                break;
+            }
+        }
+        
+        if (!isValidTOTP) {
+            // Se o TOTP for inválido, exibe uma mensagem de erro detalhada
+            document.getElementById('decodeProgress').style.display = 'none';
+            document.getElementById('decodedResult').innerHTML = `
+                <div class="result-error">
+                    <h3>❌ Código TOTP Inválido!</h3>
+                    <p><strong>Código inserido:</strong> ${totpCodeInput}</p>
+                    <p><strong>Algoritmo TOTP esperado:</strong> ${algorithm}</p>
+                    <p><strong>Códigos válidos neste momento (Janela +/- ${totpVerificationWindow}):</strong></p>
+                    <ul style="margin-left: 20px; margin-top: 10px;">
+                        ${debugCodes.map(d => `<li>Janela ${d.offset}: <strong>${d.code}</strong> ${d.code === totpCodeInput ? '(Correto)' : ''}</li>`).join('')}
+                    </ul>
+                    <p style="margin-top: 15px; color: #666;">
+                        <strong>Dicas para solucionar:</strong><br>
+                        • Certifique-se de que o relógio do seu dispositivo está sincronizado com a internet.<br>
+                        • Verifique se a chave TOTP (Base32) e a semente de geração estão EXATAMENTE corretas.<br>
+                        • O código no Google Authenticator muda a cada 30 segundos; insira-o rapidamente.<br>
+                        • Certifique-se de que a chave TOTP foi adicionada corretamente ao seu Google Authenticator.
+                    </p>
+                </div>
+            `;
+            return; // Interrompe a decodificação
+        }
+        
+        // TOTP válido, procede com a recriação das sequências
+        document.getElementById('decodeStatus').textContent = 'TOTP válido! Recriando sequências de primos (pode demorar)...';
+        await new Promise(r => setTimeout(r, 50));
+        
+        const config = { // Parâmetros do decodificador
+            numSequences: parseInt(document.getElementById('numSequencesDecodeMan').value),
+            minPrimesPerSeq: parseInt(document.getElementById('minPrimesDecodeMan').value),
+            maxPrimesPerSeq: parseInt(document.getElementById('maxPrimesDecodeMan').value),
+            primeLimit: parseInt(document.getElementById('primeLimitDecodeMan').value),
+            partSize: parseInt(document.getElementById('partSizeDecodeMan').value),
+            generationSeed: generationSeedInput
+        };
+
+        // Validação básica dos parâmetros de configuração para evitar NaN ou valores inválidos
+        if (isNaN(config.numSequences) || isNaN(config.minPrimesPerSeq) || isNaN(config.maxPrimesPerSeq) || isNaN(config.primeLimit) || isNaN(config.partSize)) {
+            throw new Error('Os parâmetros de configuração (número de sequências, limites de primos, tamanho das partes) são inválidos. Verifique se foram digitados corretamente.');
+        }
+
+        // Recria as sequências e calcula a finalSum (sem atualizar UI de progresso)
+        const finalSum = await generateSequencesInternal(config, false); 
+        
+        document.getElementById('decodeStatus').textContent = 'Sequências recriadas. Verificando integridade dos dados (HMAC)...';
+        await new Promise(r => setTimeout(r, 50));
+        
+        // Deriva a chave para descriptografia e verificação HMAC
+        const derivedKey = await deriveKeyFromSum(finalSum, payload.salt, generationSeedInput);
+        const hmacValid = await verifyHMAC(
+            payload.data,
+            payload.hmac,
+            finalSum.toString(),
+            payload.salt,
+            generationSeedInput
+        );
+        
+        if (!hmacValid) {
+            throw new Error('Falha na verificação de integridade (HMAC)! Os dados podem estar corrompidos ou os parâmetros de decodificação (semente, configurações) estão incorretos.');
+        }
+        
+        document.getElementById('decodeStatus').textContent = 'Integridade verificada. Decodificando texto...';
+        await new Promise(r => setTimeout(r, 50));
+        
+        const decodedText = await decryptAESGCM(payload.data, derivedKey);
+        
+        // Decodificação bem-sucedida
+        document.getElementById('decodeProgress').style.display = 'none';
+        
+        const escapedText = decodedText
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+        
+        document.getElementById('decodedResult').innerHTML = `
+            <div class="result-success">
+                <h3>✅ Decodificação Bem-Sucedida!</h3>
+                <p style="color: #666; margin-bottom: 15px;">
+                    Código TOTP válido • HMAC verificado • Integridade confirmada
+                </p>
+                <label>Texto Original:</label>
+                <div style="background: white; padding: 15px; border-radius: 5px; margin-top: 10px; 
+                            color: #000; font-family: 'Segoe UI', Arial, sans-serif; white-space: pre-wrap; 
+                            word-break: break-word; border: 2px solid #4caf50;">
+                    ${escapedText || '[Texto vazio ou não decodificável]'}
+                </div>
+                <div style="margin-top: 10px; color: #666;">
+                    Caracteres: ${decodedText.length} | Bytes: ${new TextEncoder().encode(decodedText).length}
+                </div>
+            </div>
+        `;
+        
+    } catch (error) {
+        document.getElementById('decodeProgress').style.display = 'none';
+        document.getElementById('decodedResult').innerHTML = `
+            <div class="result-error">
+                <h3>❌ Erro ao Decodificar!</h3>
+                <p><strong>Erro:</strong> ${error.message}</p>
+                <p style="margin-top: 10px; font-size: 14px;">
+                    <strong>Verifique os seguintes pontos:</strong><br>
+                    • O <strong>código TOTP</strong> do Google Authenticator está correto e atual.<br>
+                    • A <strong>chave TOTP (Base32)</strong> está EXATAMENTE correta.<br>
+                    • A <strong>semente de geração</strong> está EXATAMENTE correta.<br>
+                    • Todos os <strong>parâmetros de configuração</strong> (Número de Sequências, Primos Mín/Máx, Limite de Primos, Tamanho das Partes) são IDÊNTICOS aos usados na codificação.<br>
+                    • O <strong>texto codificado</strong> não foi alterado ou corrompido.<br>
+                    • O relógio do seu sistema está sincronizado com a internet.
+                </p>
+                <details style="margin-top: 15px;">
+                    <summary style="cursor: pointer; font-weight: bold;">Detalhes técnicos do erro</summary>
+                    <pre style="margin-top: 10px; font-size: 11px; overflow: auto; background: #f5f5f5; padding: 10px; border-radius: 5px; color: #333;">${error.stack || 'Sem stack trace disponível.'}</pre>
+                </details>
+            </div>
+        `;
+        console.error('Erro geral na decodificação:', error);
+    } finally {
+        document.getElementById('btnDecodeText').disabled = false;
+    }
+}
+
+// ==================== FUNÇÕES AUXILIARES DA UI ====================
+
+// Alterna entre as abas Codificador e Decodificador
+function switchTab(tabName, clickedButton) {
+    const tabs = document.querySelectorAll('.tab');
+    const contents = document.querySelectorAll('.tab-content');
+    
+    tabs.forEach(tab => tab.classList.remove('active'));
+    contents.forEach(content => content.classList.remove('active'));
+    
+    clickedButton.classList.add('active');
+    document.getElementById(tabName).classList.add('active');
+}
+
+// Copia texto para a área de transferência
+function copyToClipboard(elementId) {
+    const text = document.getElementById(elementId).textContent;
+    navigator.clipboard.writeText(text).then(() => {
+        alert('✅ Copiado para a área de transferência!');
+    }).catch(err => {
+        console.error('Erro ao copiar: ', err);
+        alert('❌ Erro ao copiar. Por favor, tente novamente ou copie manualmente.');
+    });
+}
+
+// Faz o download do pacote de codificação completo
+function downloadEncodedPackage() {
+    if (!currentEncodedData.encodedText) {
+        alert('Nenhum texto codificado disponível para download. Codifique um texto primeiro.');
+        return;
+    }
+
+    const packageData = {
+        version: '2.0',
+        encodedText: currentEncodedData.encodedText,
+        totpSecret: currentEncodedData.totpSecret,
+        generationSeed: currentEncodedData.generationSeed,
+        totpAlgorithm: currentEncodedData.totpAlgorithm,
+        config: currentEncodedData.config,
+        timestamp: currentEncodedData.timestamp,
+        instructions: {
+            pt: 'Use este arquivo no Decodificador do Sistema de Codificação com Primos. Você precisará do código TOTP atual do Google Authenticator para decodificar.',
+            en: 'Use this file in the Prime Encoding System Decoder. You will need the current TOTP code from Google Authenticator to decode.'
+        }
+    };
+    
+    const content = JSON.stringify(packageData, null, 2);
+    const blob = new Blob([content], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `crypto_package_${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url); // Libera o objeto URL após o download
+}
+
+// Inicialização
+document.addEventListener('DOMContentLoaded', () => {
+    // Garante que a primeira aba esteja ativa ao carregar
+    document.querySelector('.tab').click(); 
+});
+</script>
+
+</body>
+</html>
