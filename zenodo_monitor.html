@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor de Papers do Zenodo</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 500px;
+            width: 100%;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            text-align: center;
+            font-size: 28px;
+        }
+        
+        .input-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+        }
+        
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+        }
+        
+        button {
+            flex: 1;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .btn-start {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-start:hover:not(:disabled) {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-stop {
+            background: #ef4444;
+            color: white;
+        }
+        
+        .btn-stop:hover:not(:disabled) {
+            background: #dc2626;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(239, 68, 68, 0.4);
+        }
+        
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .result-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 15px;
+            padding: 30px;
+            text-align: center;
+            color: white;
+            margin-bottom: 20px;
+        }
+        
+        .paper-count {
+            font-size: 64px;
+            font-weight: bold;
+            margin: 20px 0;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .label {
+            font-size: 18px;
+            opacity: 0.9;
+        }
+        
+        .last-update {
+            text-align: center;
+            color: rgba(255,255,255,0.9);
+            font-size: 14px;
+            margin-top: 10px;
+        }
+        
+        .error {
+            background: #fee;
+            color: #c33;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #c33;
+        }
+        
+        .loading {
+            text-align: center;
+            color: #667eea;
+            font-weight: 600;
+        }
+        
+        .status {
+            text-align: center;
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+        
+        .status.monitoring {
+            background: #d1fae5;
+            color: #065f46;
+        }
+        
+        .status.stopped {
+            background: #fee;
+            color: #991b1b;
+        }
+
+        .info {
+            background: #e0f2fe;
+            color: #0369a1;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            border-left: 4px solid #0369a1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📚 Monitor de Papers do Zenodo</h1>
+        
+        <div class="info">
+            💡 Digite o nome completo do autor como aparece no Zenodo (ex: "Silva, João" ou "John Smith")
+        </div>
+
+        <div class="input-group">
+            <label for="creator">Nome do autor/criador:</label>
+            <input 
+                type="text" 
+                id="creator" 
+                placeholder='Ex: "Silva, João" ou "John Smith"'
+                value="">
+        </div>
+        
+        <div class="button-group">
+            <button class="btn-start" id="startBtn" onclick="startMonitoring()">
+                ▶ Iniciar Monitoramento
+            </button>
+            <button class="btn-stop" id="stopBtn" onclick="stopMonitoring()" disabled>
+                ⏸ Parar
+            </button>
+        </div>
+        
+        <div id="status" class="status stopped">
+            Status: Parado
+        </div>
+        
+        <div id="error" class="error" style="display: none;"></div>
+        <div id="loading" class="loading" style="display: none;">Carregando...</div>
+        
+        <div id="result" class="result-box" style="display: none;">
+            <div class="label">Total de Papers</div>
+            <div class="paper-count" id="paperCount">0</div>
+            <div class="last-update" id="lastUpdate"></div>
+        </div>
+    </div>
+
+    <script>
+        var intervalId = null;
+        var isMonitoring = false;
+
+        function fetchPapers() {
+            var creator = document.getElementById('creator').value.trim();
+            
+            if (!creator) {
+                showError('Por favor, digite o nome do autor/criador');
+                return;
+            }
+
+            hideError();
+            showLoading();
+
+            var searchQuery = 'metadata.creators.person_or_org.name:"' + creator + '"';
+            var url = 'https://zenodo.org/api/records/?q=' + encodeURIComponent(searchQuery) + '&size=1';
+
+            fetch(url)
+                .then(function(response) {
+                    if (!response.ok) {
+                        throw new Error('Erro ao buscar dados do Zenodo (código: ' + response.status + ')');
+                    }
+                    return response.json();
+                })
+                .then(function(data) {
+                    var count = data.hits.total;
+                    document.getElementById('paperCount').textContent = count;
+                    document.getElementById('result').style.display = 'block';
+                    
+                    var now = new Date();
+                    document.getElementById('lastUpdate').textContent = 
+                        'Última atualização: ' + now.toLocaleTimeString('pt-BR');
+                    
+                    hideLoading();
+                    
+                    if (count === 0) {
+                        showError('Nenhum paper encontrado para "' + creator + '". Verifique se o nome está correto.');
+                    }
+                })
+                .catch(function(err) {
+                    showError('Erro ao buscar dados: ' + err.message);
+                    hideLoading();
+                });
+        }
+
+        function startMonitoring() {
+            var creator = document.getElementById('creator').value.trim();
+            
+            if (!creator) {
+                showError('Por favor, digite o nome do autor/criador');
+                return;
+            }
+
+            isMonitoring = true;
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('stopBtn').disabled = false;
+            document.getElementById('creator').disabled = true;
+            
+            var statusDiv = document.getElementById('status');
+            statusDiv.className = 'status monitoring';
+            statusDiv.textContent = 'Status: Monitorando (atualiza a cada 15s)';
+
+            fetchPapers();
+            intervalId = setInterval(fetchPapers, 15000);
+        }
+
+        function stopMonitoring() {
+            isMonitoring = false;
+            
+            if (intervalId) {
+                clearInterval(intervalId);
+                intervalId = null;
+            }
+
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            document.getElementById('creator').disabled = false;
+            
+            var statusDiv = document.getElementById('status');
+            statusDiv.className = 'status stopped';
+            statusDiv.textContent = 'Status: Parado';
+        }
+
+        function showError(message) {
+            var errorDiv = document.getElementById('error');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+
+        function hideError() {
+            document.getElementById('error').style.display = 'none';
+        }
+
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+        }
+
+        function hideLoading() {
+            document.getElementById('loading').style.display = 'none';
+        }
+
+        window.addEventListener('beforeunload', stopMonitoring);
+    </script>
+</body>
+</html>
