@@ -1,20 +1,25 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8">
-  <title>Submeter para Comunidade MATH10</title>
+  <meta charset="UTF-8" />
+  <title>Submeter Artigos Zenodo à Comunidade MATH10</title>
   <style>
-    body { font-family: sans-serif; background: #f4f4f4; padding: 20px; }
-    input, button { padding: 8px; margin: 6px 0; width: 100%; }
-    button { background: #0077cc; color: #fff; border: none; cursor: pointer; border-radius: 6px; }
-    #log { background: #fff; border: 1px solid #ddd; padding: 10px; height: 400px; overflow-y: auto; }
+    body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
+    h1 { color: #0077cc; }
+    input, button { padding: 10px; margin: 10px 0; width: 100%; border-radius: 6px; border: 1px solid #ccc; }
+    button { background: #0077cc; color: white; cursor: pointer; }
+    button:hover { background: #005fa3; }
+    #log { background: white; padding: 15px; border-radius: 8px; height: 400px; overflow-y: auto; font-family: monospace; border: 1px solid #ddd; }
+    hr { border: none; border-top: 1px solid #ddd; margin: 10px 0; }
   </style>
 </head>
 <body>
-  <h1>🧮 Adicionar artigos Zenodo à comunidade MATH10</h1>
-  <p>Informe seu token pessoal do Zenodo:</p>
+  <h1>🧮 Submeter Artigos Zenodo à Comunidade MATH10</h1>
+  <p>Este script adiciona todos os seus artigos à comunidade <b>MATH10</b> automaticamente.</p>
+
+  <label>Token Zenodo:</label>
   <input type="text" id="token" placeholder="Cole aqui seu token Zenodo">
-  <button onclick="iniciar()">Iniciar</button>
+  <button id="startBtn">Iniciar Submissão</button>
 
   <div id="log"></div>
 
@@ -25,53 +30,83 @@
       div.scrollTop = div.scrollHeight;
     };
 
+    document.getElementById("startBtn").addEventListener("click", iniciar);
+
     async function iniciar() {
       const token = document.getElementById("token").value.trim();
-      if (!token) return alert("Insira o token Zenodo!");
+      if (!token) return alert("Por favor, insira seu token Zenodo!");
 
       const proxy = "https://api.codetabs.com/v1/proxy/?quest=";
       const base = "https://zenodo.org/api";
 
       log("🔍 Buscando artigos publicados...");
-      let page = 1, todos = [];
+      let page = 1;
+      let todos = [];
 
+      // ======================
+      // 1️⃣ BUSCAR TODOS OS ARTIGOS
+      // ======================
       while (true) {
         const url = `${proxy}${encodeURIComponent(base + "/records/?size=100&page=" + page + "&access_token=" + token)}`;
         const res = await fetch(url);
-        if (!res.ok) break;
-        const data = await res.json();
-        if (!data.hits || data.hits.hits.length === 0) break;
-        todos = todos.concat(data.hits.hits);
-        log(`📄 Página ${page}: ${data.hits.hits.length} artigos`);
+        if (!res.ok) {
+          log(`❌ Erro HTTP ${res.status} na página ${page}`);
+          break;
+        }
+
+        const data = await res.json().catch(() => null);
+        const hits = data?.hits?.hits || [];
+
+        if (hits.length === 0) {
+          log(`📚 Fim da listagem — ${todos.length} artigos encontrados.`);
+          break;
+        }
+
+        todos = todos.concat(hits);
+        log(`📄 Página ${page}: ${hits.length} artigos`);
         page++;
+
+        // Limite de segurança (máx. 30 páginas = 3000 artigos)
+        if (page > 30) {
+          log("⚠️ Limite de 30 páginas atingido — parando busca para evitar loop.");
+          break;
+        }
+
+        await new Promise(r => setTimeout(r, 300)); // pequena pausa entre páginas
       }
 
-      log(`✅ Total de ${todos.length} artigos encontrados.`);
+      log(`✅ Total de artigos encontrados: ${todos.length}`);
+      log("<hr>");
 
+      // ======================
+      // 2️⃣ CRIAR NOVA VERSÃO E ADICIONAR COMUNIDADE
+      // ======================
+      let contador = 0;
       for (const art of todos) {
+        contador++;
         const id = art.id;
-        log(`<hr>➡️ Criando nova versão do artigo ${id}...`);
+        log(`➡️ (${contador}/${todos.length}) Criando nova versão do artigo ${id}...`);
 
-        // ✅ CORREÇÃO: usar /records/ (não /deposit/depositions/)
-        const newVersionURL = `${proxy}${encodeURIComponent(base + "/records/" + id + "/actions/newversion?access_token=" + token)}`;
-        const resNew = await fetch(newVersionURL, { method: "POST" });
+        // Criar nova versão via /records/
+        const newVerURL = `${proxy}${encodeURIComponent(base + "/records/" + id + "/actions/newversion?access_token=" + token)}`;
+        const resNew = await fetch(newVerURL, { method: "POST" });
 
         if (!resNew.ok) {
-          log(`❌ Falha ao criar nova versão (HTTP ${resNew.status})`);
+          log(`❌ Erro ao criar nova versão (${resNew.status})`);
           continue;
         }
 
-        const json = await resNew.json();
-        const draft = json?.links?.latest_draft;
-        if (!draft) {
-          log("⚠️ Não foi possível criar rascunho.");
+        const newVer = await resNew.json().catch(() => null);
+        const draftURL = newVer?.links?.latest_draft;
+        if (!draftURL) {
+          log(`⚠️ Não foi possível obter o draft do artigo ${id}`);
           continue;
         }
 
-        const draftId = draft.split("/").pop();
+        const draftId = draftURL.split("/").pop();
         log(`🆕 Draft criado: ${draftId}`);
 
-        // Adicionar comunidade
+        // Adicionar comunidade MATH10
         const updateURL = `${proxy}${encodeURIComponent(base + "/deposit/depositions/" + draftId + "?access_token=" + token)}`;
         const body = { metadata: { communities: [{ identifier: "math10" }] } };
 
@@ -82,24 +117,25 @@
         });
 
         if (!resUpdate.ok) {
-          log(`⚠️ Erro ao adicionar comunidade (${resUpdate.status})`);
+          log(`⚠️ Falha ao adicionar comunidade (${resUpdate.status})`);
           continue;
         }
 
         // Publicar nova versão
-        const pubURL = `${proxy}${encodeURIComponent(base + "/deposit/depositions/" + draftId + "/actions/publish?access_token=" + token)}`;
-        const resPub = await fetch(pubURL, { method: "POST" });
+        const publishURL = `${proxy}${encodeURIComponent(base + "/deposit/depositions/" + draftId + "/actions/publish?access_token=" + token)}`;
+        const resPub = await fetch(publishURL, { method: "POST" });
 
         if (resPub.ok) {
-          log(`✅ Artigo ${id} publicado na comunidade MATH10`);
+          log(`✅ Artigo ${id} publicado na comunidade MATH10.`);
         } else {
-          log(`❌ Falha ao publicar (${resPub.status})`);
+          log(`❌ Erro ao publicar ${draftId} (${resPub.status})`);
         }
 
-        await new Promise(r => setTimeout(r, 2000)); // pausa
+        // Pequena pausa entre artigos para evitar limite da API
+        await new Promise(r => setTimeout(r, 2000));
       }
 
-      log("<hr>🎯 Concluído!");
+      log("<hr><b>🎯 Processo concluído!</b>");
     }
   </script>
 </body>
