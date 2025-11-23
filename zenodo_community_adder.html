@@ -1,25 +1,20 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="UTF-8" />
-  <title>Submeter Artigos Zenodo MATH10</title>
+  <meta charset="UTF-8">
+  <title>Submeter para Comunidade MATH10</title>
   <style>
-    body { font-family: Arial, sans-serif; background: #f5f5f5; padding: 20px; }
-    h1 { color: #0077cc; }
-    input, button { padding: 10px; margin: 10px 0; width: 100%; border-radius: 6px; border: 1px solid #ccc; }
-    button { background: #0077cc; color: white; cursor: pointer; }
-    button:hover { background: #005fa3; }
-    #log { background: white; padding: 15px; border-radius: 8px; height: 400px; overflow-y: auto; font-family: monospace; border: 1px solid #ddd; }
+    body { font-family: sans-serif; background: #f4f4f4; padding: 20px; }
+    input, button { padding: 8px; margin: 6px 0; width: 100%; }
+    button { background: #0077cc; color: #fff; border: none; cursor: pointer; border-radius: 6px; }
+    #log { background: #fff; border: 1px solid #ddd; padding: 10px; height: 400px; overflow-y: auto; }
   </style>
 </head>
 <body>
-  <h1>🧮 Submeter Artigos Zenodo à Comunidade MATH10</h1>
-  <p>Insira seu <b>token de acesso do Zenodo</b> e clique em <b>Iniciar Submissão</b>.<br>
-  O sistema vai buscar todos os seus artigos e enviá-los para a comunidade <b>MATH10</b>.</p>
-
-  <label>Token Zenodo:</label>
+  <h1>🧮 Adicionar artigos Zenodo à comunidade MATH10</h1>
+  <p>Informe seu token pessoal do Zenodo:</p>
   <input type="text" id="token" placeholder="Cole aqui seu token Zenodo">
-  <button id="startBtn">Iniciar Submissão</button>
+  <button onclick="iniciar()">Iniciar</button>
 
   <div id="log"></div>
 
@@ -30,104 +25,81 @@
       div.scrollTop = div.scrollHeight;
     };
 
-    document.getElementById("startBtn").addEventListener("click", iniciar);
-
     async function iniciar() {
       const token = document.getElementById("token").value.trim();
-      if (!token) return alert("Por favor, insira seu token Zenodo!");
+      if (!token) return alert("Insira o token Zenodo!");
 
-      log("🔍 Buscando seus artigos...");
+      const proxy = "https://api.codetabs.com/v1/proxy/?quest=";
+      const base = "https://zenodo.org/api";
 
-      try {
-        // ✅ Proxy seguro (sem erro QUIC)
-        const proxy = "https://api.codetabs.com/v1/proxy/?quest=";
-        const base = "https://zenodo.org/api";
-        let page = 1;
-        let todos = [];
+      log("🔍 Buscando artigos publicados...");
+      let page = 1, todos = [];
 
-        // 1️⃣ Buscar todos os registros do usuário
-        while (true) {
-          const url = `${proxy}${encodeURIComponent(base + "/records/?size=100&page=" + page + "&access_token=" + token)}`;
-          const res = await fetch(url);
-
-          if (!res.ok) {
-            log(`❌ Erro HTTP ${res.status} na página ${page}`);
-            break;
-          }
-
-          const data = await res.json().catch(() => null);
-          if (!data || !data.hits || data.hits.hits.length === 0) break;
-
-          todos = todos.concat(data.hits.hits);
-          log(`📄 Página ${page}: ${data.hits.hits.length} artigos encontrados`);
-          page++;
-        }
-
-        if (todos.length === 0) {
-          log("⚠️ Nenhum artigo encontrado ou token inválido!");
-          return;
-        }
-
-        log(`✅ Total de artigos encontrados: ${todos.length}`);
-
-        // 2️⃣ Criar nova versão e adicionar à comunidade
-        for (let i = 0; i < todos.length; i++) {
-          const art = todos[i];
-          const id = art.id;
-          log(`<hr>➡️ Criando nova versão do artigo ${id}...`);
-
-          // Criar nova versão
-          const newVerURL = `${proxy}${encodeURIComponent(base + "/deposit/depositions/" + id + "/actions/newversion?access_token=" + token)}`;
-          const resNew = await fetch(newVerURL, { method: "POST" });
-
-          if (!resNew.ok) {
-            log(`❌ Erro ao criar nova versão de ${id} (${resNew.status})`);
-            continue;
-          }
-
-          const newVer = await resNew.json().catch(() => null);
-          const draftURL = newVer?.links?.latest_draft;
-          if (!draftURL) {
-            log(`⚠️ Não foi possível obter o draft de ${id}`);
-            continue;
-          }
-
-          const draftId = draftURL.split("/").pop();
-          log(`🆕 Draft criado: ${draftId}`);
-
-          // Atualizar metadados (adicionar comunidade)
-          const updateURL = `${proxy}${encodeURIComponent(base + "/deposit/depositions/" + draftId + "?access_token=" + token)}`;
-          const body = { metadata: { communities: [{ identifier: "math10" }] } };
-
-          const resUpdate = await fetch(updateURL, {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(body)
-          });
-
-          if (!resUpdate.ok) {
-            log(`⚠️ Falha ao adicionar comunidade no draft ${draftId} (${resUpdate.status})`);
-            continue;
-          }
-
-          // Publicar o novo depósito
-          const publishURL = `${proxy}${encodeURIComponent(base + "/deposit/depositions/" + draftId + "/actions/publish?access_token=" + token)}`;
-          const resPub = await fetch(publishURL, { method: "POST" });
-
-          if (resPub.ok) {
-            log(`✅ Artigo ${id} enviado com sucesso para a comunidade MATH10!`);
-          } else {
-            log(`❌ Erro ao publicar ${draftId} (${resPub.status})`);
-          }
-
-          await new Promise(r => setTimeout(r, 2000)); // pausa leve entre artigos
-        }
-
-        log("<hr><b>🎯 Processo concluído!</b>");
-      } catch (e) {
-        console.error(e);
-        log("❌ Erro no script: " + e.message);
+      while (true) {
+        const url = `${proxy}${encodeURIComponent(base + "/records/?size=100&page=" + page + "&access_token=" + token)}`;
+        const res = await fetch(url);
+        if (!res.ok) break;
+        const data = await res.json();
+        if (!data.hits || data.hits.hits.length === 0) break;
+        todos = todos.concat(data.hits.hits);
+        log(`📄 Página ${page}: ${data.hits.hits.length} artigos`);
+        page++;
       }
+
+      log(`✅ Total de ${todos.length} artigos encontrados.`);
+
+      for (const art of todos) {
+        const id = art.id;
+        log(`<hr>➡️ Criando nova versão do artigo ${id}...`);
+
+        // ✅ CORREÇÃO: usar /records/ (não /deposit/depositions/)
+        const newVersionURL = `${proxy}${encodeURIComponent(base + "/records/" + id + "/actions/newversion?access_token=" + token)}`;
+        const resNew = await fetch(newVersionURL, { method: "POST" });
+
+        if (!resNew.ok) {
+          log(`❌ Falha ao criar nova versão (HTTP ${resNew.status})`);
+          continue;
+        }
+
+        const json = await resNew.json();
+        const draft = json?.links?.latest_draft;
+        if (!draft) {
+          log("⚠️ Não foi possível criar rascunho.");
+          continue;
+        }
+
+        const draftId = draft.split("/").pop();
+        log(`🆕 Draft criado: ${draftId}`);
+
+        // Adicionar comunidade
+        const updateURL = `${proxy}${encodeURIComponent(base + "/deposit/depositions/" + draftId + "?access_token=" + token)}`;
+        const body = { metadata: { communities: [{ identifier: "math10" }] } };
+
+        const resUpdate = await fetch(updateURL, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body)
+        });
+
+        if (!resUpdate.ok) {
+          log(`⚠️ Erro ao adicionar comunidade (${resUpdate.status})`);
+          continue;
+        }
+
+        // Publicar nova versão
+        const pubURL = `${proxy}${encodeURIComponent(base + "/deposit/depositions/" + draftId + "/actions/publish?access_token=" + token)}`;
+        const resPub = await fetch(pubURL, { method: "POST" });
+
+        if (resPub.ok) {
+          log(`✅ Artigo ${id} publicado na comunidade MATH10`);
+        } else {
+          log(`❌ Falha ao publicar (${resPub.status})`);
+        }
+
+        await new Promise(r => setTimeout(r, 2000)); // pausa
+      }
+
+      log("<hr>🎯 Concluído!");
     }
   </script>
 </body>
