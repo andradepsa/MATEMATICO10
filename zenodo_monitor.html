@@ -202,6 +202,7 @@
                 <option value="ASTRO, 10">ASTRO, 10</option>
                 <option value="PHILOSOPHY, 10">PHILOSOPHY, 10</option>
                 <option value="LITERATURE, 10">LITERATURE, 10</option>
+                <option value="IA, 10">IA, 10</option>
             </select>
         </div>
         
@@ -243,7 +244,13 @@
             hideError();
             showLoading();
 
-            var searchQuery = 'metadata.creators.person_or_org.name:"' + creator + '"';
+            // Extrair apenas o valor principal para a busca (remover descrição entre parênteses)
+            var creatorValue = creator;
+            if (creator.includes('(')) {
+                creatorValue = creator.split('(')[0].trim();
+            }
+            
+            var searchQuery = 'metadata.creators.person_or_org.name:"' + creatorValue + '"';
             var url = 'https://zenodo.org/api/records/?q=' + encodeURIComponent(searchQuery) + '&size=1';
 
             fetch(url)
@@ -265,7 +272,7 @@
                     hideLoading();
                     
                     if (count === 0) {
-                        showError('Nenhum paper encontrado para "' + creator + '". Verifique se o nome está correto.');
+                        showError('Nenhum paper encontrado para "' + creatorValue + '". Verifique se o nome está correto.');
                     }
                 })
                 .catch(function(err) {
