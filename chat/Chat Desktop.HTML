@@ -1436,8 +1436,16 @@ const toggleDarkMode = () => {
           }
         });
 
-        peer.on('connection', (conn) => {
+    peer.on('connection', (conn) => {
           console.log("PeerJS: Incoming data connection from:", conn.peer);
+
+          const isKnown = contacts.some(c => c.peerId === conn.peer);
+          if (!isKnown) {
+            console.log("PeerJS: Conexão rejeitada de peer desconhecido:", conn.peer);
+            conn.close();
+            return;
+          }
+
           if (connections.some(c => c.peer === conn.peer)) {
             console.log("App: Connection handler already set up for", conn.peer);
             setConnections(prev => prev.map(c => c.peer === conn.peer ? conn : c));
