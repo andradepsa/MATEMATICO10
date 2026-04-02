@@ -1302,15 +1302,20 @@ const toggleDarkMode = () => {
 
       const sendRadioSync = (conn) => {
         if (radioStateRef.current.status !== 'idle') {
-          try {
-            conn.send({
-              type: 'radio-sync',
-              startTime: radioStateRef.current.startTime,
-              duration: radioStateRef.current.duration,
-              fileName: radioStateRef.current.fileName,
-              senderName: radioStateRef.current.sender
-            });
-          } catch (e) {}
+          const syncMsg = {
+            type: 'radio-sync',
+            startTime: radioStateRef.current.startTime,
+            duration: radioStateRef.current.duration,
+            fileName: radioStateRef.current.fileName,
+            senderName: radioStateRef.current.sender
+          };
+          
+          // Envia imediatamente e tenta novamente após 1 e 2 segundos
+          // Isso previne que a mensagem seja perdida se o canal de dados do novato ainda não estiver 100% pronto
+          const send = () => { try { conn.send(syncMsg); } catch (e) {} };
+          send();
+          setTimeout(send, 1000);
+          setTimeout(send, 2000);
         }
       };
 
@@ -1494,6 +1499,7 @@ const toggleDarkMode = () => {
                         console.log("PeerJS: Auto-connected to backup door:", porta);
                         setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]);
                         sendRadioSync(conn);
+                        try { conn.send({ type: 'radio-request-sync' }); } catch(e){}
                       });
                       conn.on('data', (data) => {
                         handleIncomingData(data, porta);
@@ -1714,6 +1720,7 @@ const toggleDarkMode = () => {
             console.log("PeerJS: Connection opened with:", peerIdToConnect);
             setConnections(prev => [...prev.filter(c => c.peer !== peerIdToConnect), conn]);
             sendRadioSync(conn);
+            try { conn.send({ type: 'radio-request-sync' }); } catch(e){}
           });
 
           conn.on('error', (err) => {
@@ -1758,17 +1765,29 @@ const toggleDarkMode = () => {
           return;
         }
 
+        if (data.type === 'radio-request-sync') {
+          setConnections(currentConns => {
+            const conn = currentConns.find(c => c.peer === pId);
+            if (conn) sendRadioSync(conn);
+            return currentConns;
+          });
+          return;
+        }
+
         if (data.type === 'radio-sync') {
           const now = Date.now();
           const endTime = data.startTime + data.duration * 1000;
           if (now < endTime) {
             setRadioState(prev => {
               if (prev.status === 'idle') {
+                // Se o tempo de início já passou, vai direto para 'playing' (mesmo sem áudio, para bloquear a UI corretamente)
+                // Se ainda não passou, vai para 'buffering' para mostrar o cronômetro
+                const newStatus = now >= data.startTime ? 'playing' : 'buffering';
                 return {
-                  status: 'buffering', // Fica em buffering para bloquear a UI
+                  status: newStatus,
                   startTime: data.startTime,
                   duration: data.duration,
-                  audioUrl: null, // Não tem o áudio, mas bloqueia o envio
+                  audioUrl: null,
                   fileName: data.fileName,
                   sender: data.senderName
                 };
@@ -1781,6 +1800,17 @@ const toggleDarkMode = () => {
 
         if (data.type === 'radio-start' || data.type === 'radio-chunk') {
           if (seenMessagesRef.current.has(data.id)) return;
+
+          // PROTEÇÃO ANTI-INTRUSÃO: Se já tem uma música tocando, ignora tentativas de iniciar outra
+          if (data.type === 'radio-start' && radioStateRef.current.status !== 'idle') {
+            console.log("App: Bloqueando tentativa de nova rádio. Já existe uma tocando.");
+            return;
+          }
+          // Se for chunk de uma rádio que não estamos acompanhando, ignora
+          if (data.type === 'radio-chunk' && radioStateRef.current.status === 'idle' && !pendingRadioFiles.current[data.radioId]) {
+            return;
+          }
+
           seenMessagesRef.current.add(data.id);
           if (seenMessagesRef.current.size > 5000) {
             const firstItem = seenMessagesRef.current.values().next().value;
@@ -2081,8 +2111,10 @@ const toggleDarkMode = () => {
                   radioAudioRef.current.src = current.audioUrl;
                   radioAudioRef.current.currentTime = offset;
                   radioAudioRef.current.play().catch(e => console.error("Erro ao tocar rádio:", e));
-                  return { ...current, status: 'playing' };
                 }
+                // Muda para playing mesmo se não tiver o áudio (ex: novato que chegou atrasado)
+                // Isso garante que a UI mude de "A música começa em X" para "Tocando agora"
+                return { ...current, status: 'playing' };
               } else {
                 // Força re-render para atualizar o cronômetro na tela
                 return { ...current, _tick: now };
@@ -2097,17 +2129,27 @@ const toggleDarkMode = () => {
       }, []);
 
       const handleRadioUpload = (e) => {
+        if (radioStateRef.current.status !== 'idle') {
+          alert("Já existe uma música tocando na sala!");
+          e.target.value = '';
+          return;
+        }
+
         const file = e.target.files[0];
         if (!file) return;
         if (file.size > 5 * 1024 * 1024) {
           alert("O arquivo MP3 da rádio deve ter no máximo 5MB para não travar a rede.");
+          e.target.value = '';
           return;
         }
         
         const url = URL.createObjectURL(file);
         const audio = new Audio(url);
         audio.onloadedmetadata = () => {
-          const duration = audio.duration;
+          let duration = audio.duration;
+          // Fallback para navegadores que retornam Infinity no primeiro load
+          if (!duration || duration === Infinity) duration = 300; 
+
           const startTime = Date.now() + 60000; // 60 segundos de buffer para espalhar
           const radioId = peerId + '_radio_' + Date.now();
 
