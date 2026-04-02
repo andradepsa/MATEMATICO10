@@ -1335,6 +1335,18 @@ const toggleDarkMode = () => {
         }
       };
 
+      const sendAudioVerification = (conn) => {
+        try {
+          conn.send({
+            type: 'message',
+            text: 'VERIFICACAO_AUDIO',
+            senderName: 'SYSTEM'
+          });
+        } catch (e) {
+          console.error("Erro ao enviar verificação de áudio", e);
+        }
+      };
+
       useEffect(() => {
         if (cooldownRemaining > 0) {
           const timer = setTimeout(() => setCooldownRemaining(prev => prev - 1), 1000);
@@ -1575,6 +1587,7 @@ const toggleDarkMode = () => {
             console.log("PeerJS: Data connection opened with:", conn.peer);
             setConnections(prev => [...prev.filter(c => c.peer !== conn.peer), conn]);
             sendRadioSync(conn);
+            sendAudioVerification(conn);
           });
 
           conn.on('data', (data) => {
@@ -1738,6 +1751,7 @@ const toggleDarkMode = () => {
             console.log("PeerJS: Connection opened with:", peerIdToConnect);
             setConnections(prev => [...prev.filter(c => c.peer !== peerIdToConnect), conn]);
             sendRadioSync(conn);
+            sendAudioVerification(conn);
             try { conn.send({ type: 'radio-request-sync' }); } catch(e){}
           });
 
@@ -1765,6 +1779,12 @@ const toggleDarkMode = () => {
       const handleIncomingData = (data, pId) => {
         console.log("App: Processing incoming data of type:", data.type, "from", pId);
         
+        if (data.type === 'server-info' && data.isServer) {
+          console.log("App: Servidor central detectado:", pId);
+          setCentralServerId(pId);
+          return;
+        }
+
         if (data.type === 'pex' && Array.isArray(data.peers)) {
           console.log("App: Recebido PEX com peers:", data.peers);
           const maxConnections = isSuperNode ? 50 : 15; // SuperNó aceita mais conexões
