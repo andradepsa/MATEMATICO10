@@ -1383,33 +1383,35 @@
         if (data.type === 'message' && data.id) {
           // FIX Bug 4: anti-cheat usa pId (peerId da conexão direta) em vez de data.sender
           // (data.sender nunca existe nas mensagens; só data.senderName existe).
-          const now = Date.now();
+          
+
+
+const now = Date.now();
           if (!knownUsersRef.current.has(pId)) {
             knownUsersRef.current.add(pId);
             setNetworkSize(knownUsersRef.current.size);
           }
 
-          const lastTime = lastMessageTimeRef.current.get(pId) || 0;
-          const requiredCooldownMs = Math.max(1, Math.floor(knownUsersRef.current.size / 1000)) * 1000;
+          // NOVA REGRA: O Servidor Central é isento de banimento por velocidade (Anti-Auto-Ban)
+          if (pId !== centralServerId) {
+            const lastTime = lastMessageTimeRef.current.get(pId) || 0;
+            // Cálculo dinâmico de cooldown baseado no tamanho da rede
+            const requiredCooldownMs = Math.max(1, Math.floor(knownUsersRef.current.size / 1000)) * 1000;
 
-          if (now - lastTime < requiredCooldownMs) {
-            console.log(`App: Mensagem de ${pId} ignorada por cooldown. Iniciando banimento.`);
-            bannedPeersRef.current.add(pId);
-            setConnections(currentConns => {
-              const connToClose = currentConns.find(c => c.peer === pId);
-              if (connToClose) { connToClose.close(); }
-              return currentConns.filter(c => c.peer !== pId);
-            });
-            return;
+            if (now - lastTime < requiredCooldownMs) {
+              console.log(`App: Mensagem de ${pId} ignorada por cooldown. Iniciando banimento.`);
+              bannedPeersRef.current.add(pId);
+              setConnections(currentConns => {
+                const connToClose = currentConns.find(c => c.peer === pId);
+                if (connToClose) { connToClose.close(); }
+                return currentConns.filter(c => c.peer !== pId);
+              });
+              return;
+            }
+            lastMessageTimeRef.current.set(pId, now);
           }
 
-          lastMessageTimeRef.current.set(pId, now);
-
-          if (seenMessagesRef.current.has(data.id)) return;
-          seenMessagesRef.current.add(data.id);
-          if (seenMessagesRef.current.size > 5000) {
-            seenMessagesRef.current.delete(seenMessagesRef.current.values().next().value);
-          }
+        if (seenMessagesRef.current.has(data.id)) return;
 
           let currentTtl = data.ttl !== undefined ? data.ttl : 8;
           if (currentTtl > 0) {
@@ -1545,8 +1547,9 @@
             const progress = Math.min(100, Math.floor((offset / dataBlob.size) * 100));
             setMessages(prev => prev.map(msg => msg[idKey] === id ? { ...msg, progress } : msg));
             if (offset < dataBlob.size) {
-              requestAnimationFrame(readChunk);
-            } else {
+  // setTimeout garante que o envio continue mesmo se a aba estiver escondida
+  setTimeout(readChunk, 0); 
+} else {
               setMessages(prev => {
                 const updated = prev.map(msg => msg[idKey] === id ? { ...msg, sending: false, progress: 100 } : msg);
                 localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated));
