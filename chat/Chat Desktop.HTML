@@ -1528,11 +1528,23 @@ const toggleDarkMode = () => {
           const portasStr = urlParams.get('portas');
           if (portasStr) {
             const portas = portasStr.split(',');
-            // O servidor central é o último da lista
-            const serverId = portas[portas.length - 1];
-            setCentralServerId(serverId);
-            setSelectedContact(serverId);
-            console.log("App: Servidor central definido como:", serverId);
+            
+            // Verifica se algum ID na lista é o servidor central
+            const centralIdFromList = portas.find(isCentralServer);
+            
+            if (centralIdFromList) {
+              setCentralServerId(centralIdFromList);
+              setSelectedContact(centralIdFromList);
+              console.log("App: Servidor central detectado via sufixo -CENTRAL:", centralIdFromList);
+            } else if (!centralServerId) {
+              // Fallback para o primeiro se não houver -CENTRAL
+              const serverId = portas[0];
+              setCentralServerId(serverId);
+              setSelectedContact(serverId);
+              console.log("App: Servidor central definido automaticamente como:", serverId);
+            } else {
+              console.log("App: Servidor central já definido manualmente como:", centralServerId);
+            }
             
             // Aguarda um pouco para garantir que o estado está pronto
             setTimeout(() => {
@@ -1725,6 +1737,8 @@ const toggleDarkMode = () => {
         return () => clearInterval(pexInterval);
       }, [connections]);
 
+      const isCentralServer = (id) => id && id.endsWith('-CENTRAL');
+      
       const generateNewId = () => {
         const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
         const buffer = new Uint8Array(9);
@@ -1812,9 +1826,12 @@ const toggleDarkMode = () => {
           }
           
           // Processa servidor
-          if (data.isServer) {
-             // Se não temos um servidor ainda, ou se este é o servidor que definimos (pelo link ou edição), aceitamos.
-             if (!centralServerId || pId === centralServerId) {
+          if (data.isServer || isCentralServer(pId)) {
+             // Se o ID termina com -CENTRAL, ele é o servidor.
+             if (isCentralServer(pId)) {
+               console.log("App: Servidor central detectado via sufixo -CENTRAL:", pId);
+               setCentralServerId(pId);
+             } else if (!centralServerId || pId === centralServerId) {
                console.log("App: Servidor central detectado via handshake:", pId);
                setCentralServerId(pId);
              } else {
