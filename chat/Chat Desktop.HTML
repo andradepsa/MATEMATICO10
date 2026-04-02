@@ -1288,12 +1288,31 @@ const toggleDarkMode = () => {
       const [networkSize, setNetworkSize] = useState(1);
       const [isSuperNode, setIsSuperNode] = useState(false);
       const [radioState, setRadioState] = useState({ status: 'idle', startTime: 0, duration: 0, audioUrl: null, fileName: '', sender: '' });
+      const radioStateRef = useRef(radioState);
       const radioAudioRef = useRef(null);
       const pendingRadioFiles = useRef({});
       const radioIntervalRef = useRef(null);
       const knownUsersRef = useRef(new Set());
       const lastMessageTimeRef = useRef(new Map());
       const bannedPeersRef = useRef(new Set());
+
+      useEffect(() => {
+        radioStateRef.current = radioState;
+      }, [radioState]);
+
+      const sendRadioSync = (conn) => {
+        if (radioStateRef.current.status !== 'idle') {
+          try {
+            conn.send({
+              type: 'radio-sync',
+              startTime: radioStateRef.current.startTime,
+              duration: radioStateRef.current.duration,
+              fileName: radioStateRef.current.fileName,
+              senderName: radioStateRef.current.sender
+            });
+          } catch (e) {}
+        }
+      };
 
       useEffect(() => {
         if (cooldownRemaining > 0) {
@@ -1474,6 +1493,7 @@ const toggleDarkMode = () => {
                       conn.on('open', () => {
                         console.log("PeerJS: Auto-connected to backup door:", porta);
                         setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]);
+                        sendRadioSync(conn);
                       });
                       conn.on('data', (data) => {
                         handleIncomingData(data, porta);
@@ -1531,6 +1551,7 @@ const toggleDarkMode = () => {
           conn.on('open', () => {
             console.log("PeerJS: Data connection opened with:", conn.peer);
             setConnections(prev => [...prev.filter(c => c.peer !== conn.peer), conn]);
+            sendRadioSync(conn);
           });
 
           conn.on('data', (data) => {
@@ -1692,6 +1713,7 @@ const toggleDarkMode = () => {
           conn.on('open', () => {
             console.log("PeerJS: Connection opened with:", peerIdToConnect);
             setConnections(prev => [...prev.filter(c => c.peer !== peerIdToConnect), conn]);
+            sendRadioSync(conn);
           });
 
           conn.on('error', (err) => {
@@ -1732,6 +1754,27 @@ const toggleDarkMode = () => {
                 }
               });
             }
+          }
+          return;
+        }
+
+        if (data.type === 'radio-sync') {
+          const now = Date.now();
+          const endTime = data.startTime + data.duration * 1000;
+          if (now < endTime) {
+            setRadioState(prev => {
+              if (prev.status === 'idle') {
+                return {
+                  status: 'buffering', // Fica em buffering para bloquear a UI
+                  startTime: data.startTime,
+                  duration: data.duration,
+                  audioUrl: null, // Não tem o áudio, mas bloqueia o envio
+                  fileName: data.fileName,
+                  sender: data.senderName
+                };
+              }
+              return prev;
+            });
           }
           return;
         }
