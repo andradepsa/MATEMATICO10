@@ -1335,6 +1335,22 @@ const toggleDarkMode = () => {
         }
       };
 
+      const sendHandshake = (conn) => {
+        const handshake = {
+          type: 'handshake',
+          radio: {
+            status: radioStateRef.current.status,
+            startTime: radioStateRef.current.startTime,
+            duration: radioStateRef.current.duration,
+            fileName: radioStateRef.current.fileName,
+            senderName: radioStateRef.current.sender
+          },
+          isServer: pureServerMode,
+          peerId: peerId
+        };
+        try { conn.send(handshake); } catch(e) { console.error("Erro no handshake", e); }
+      };
+
       const sendAudioVerification = (conn) => {
         try {
           conn.send({
@@ -1512,9 +1528,12 @@ const toggleDarkMode = () => {
           const portasStr = urlParams.get('portas');
           if (portasStr) {
             const portas = portasStr.split(',');
-            setCentralServerId(portas[0]);
-            setSelectedContact(portas[0]);
-            console.log("App: Encontradas portas no link de convite:", portas);
+            // O servidor central é o último da lista
+            const serverId = portas[portas.length - 1];
+            setCentralServerId(serverId);
+            setSelectedContact(serverId);
+            console.log("App: Servidor central definido como:", serverId);
+            
             // Aguarda um pouco para garantir que o estado está pronto
             setTimeout(() => {
               portas.forEach(porta => {
@@ -1522,14 +1541,15 @@ const toggleDarkMode = () => {
                   // A função connectToPeer será chamada indiretamente ou podemos usar a lógica direta aqui
                   // Como connectToPeer depende do estado, vamos apenas tentar conectar diretamente com o peerInstance
                   if (peer) {
-                    console.log("App: Tentando conectar à porta de backup:", porta);
+                    console.log("App: Tentando conectar à porta:", porta);
                     const conn = peer.connect(porta, { reliable: true });
                     if (conn) {
                       conn.on('open', () => {
-                        console.log("PeerJS: Auto-connected to backup door:", porta);
+                        console.log("PeerJS: Auto-connected to door:", porta);
                         setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]);
                         sendRadioSync(conn);
                         try { conn.send({ type: 'radio-request-sync' }); } catch(e){}
+                        try { conn.send({ type: 'server-request-info' }); } catch(e){}
                       });
                       conn.on('data', (data) => {
                         handleIncomingData(data, porta);
@@ -1544,7 +1564,7 @@ const toggleDarkMode = () => {
                   }
                 }
               });
-            }, 1000);
+            }, 1000); // Aumentei um pouco o timeout para garantir que o peer esteja pronto
           }
         });
 
@@ -1587,8 +1607,7 @@ const toggleDarkMode = () => {
           conn.on('open', () => {
             console.log("PeerJS: Data connection opened with:", conn.peer);
             setConnections(prev => [...prev.filter(c => c.peer !== conn.peer), conn]);
-            sendRadioSync(conn);
-            sendAudioVerification(conn);
+            sendHandshake(conn);
           });
 
           conn.on('data', (data) => {
@@ -1751,9 +1770,7 @@ const toggleDarkMode = () => {
           conn.on('open', () => {
             console.log("PeerJS: Connection opened with:", peerIdToConnect);
             setConnections(prev => [...prev.filter(c => c.peer !== peerIdToConnect), conn]);
-            sendRadioSync(conn);
-            sendAudioVerification(conn);
-            try { conn.send({ type: 'radio-request-sync' }); } catch(e){}
+            sendHandshake(conn);
           });
 
           conn.on('error', (err) => {
@@ -1780,9 +1797,33 @@ const toggleDarkMode = () => {
       const handleIncomingData = (data, pId) => {
         console.log("App: Processing incoming data of type:", data.type, "from", pId);
         
-        if (data.type === 'server-info' && data.isServer) {
-          console.log("App: Servidor central detectado:", pId);
-          setCentralServerId(pId);
+        if (data.type === 'handshake') {
+          console.log("App: Recebido handshake de:", pId);
+          
+          // Processa rádio
+          if (data.radio && data.radio.status === 'playing') {
+             radioStateRef.current = {
+               status: 'playing',
+               startTime: data.radio.startTime,
+               duration: data.radio.duration,
+               fileName: data.radio.fileName,
+               sender: data.radio.senderName
+             };
+          }
+          
+          // Processa servidor
+          if (data.isServer) {
+             console.log("App: Servidor central detectado via handshake:", pId);
+             setCentralServerId(pId);
+          }
+          
+          // Respond if I am a server
+          if (pureServerMode) {
+             const conn = activeConnectionsRef.current.get(pId);
+             if (conn) {
+               sendHandshake(conn);
+             }
+          }
           return;
         }
 
