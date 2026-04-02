@@ -299,6 +299,7 @@
       });
       // New state to control the mode
       const [pureServerMode, setPureServerMode] = useState(true);
+      const radioStateRef = useRef({ status: 'idle', startTime: 0, duration: 0 });
       
       const peerInstance = useRef(null);
       const pendingFiles = useRef({});
@@ -503,6 +504,23 @@
           
           distributeMessage(data, sourceConn.peer);
         }
+        else if (data.type === 'radio-start' || data.type === 'radio-chunk' || data.type === 'radio-sync' || data.type === 'radio-request-sync') {
+          if (data.id) {
+            if (seenMessagesRef.current.has(data.id)) return;
+            seenMessagesRef.current.add(data.id);
+          }
+          
+          if (data.type === 'radio-start' || data.type === 'radio-sync') {
+            radioStateRef.current = {
+              status: 'playing',
+              startTime: data.startTime,
+              duration: data.duration
+            };
+          }
+          
+          // O Servidor também atua como um relay para a rádio
+          distributeMessage(data, sourceConn.peer);
+        }
         else if (data.type === 'file-start' || data.type === 'file-chunk' || data.type === 'audio-start' || data.type === 'audio-chunk') {
           console.log("Bloqueado: O servidor agora só repassa mensagens de texto e emojis para proteger a banda da rede.");
         }
@@ -564,6 +582,33 @@
               });
             } catch (err) {
               console.error(`Erro ao enviar informação de servidor para ${conn.peer}:`, err);
+            }
+          }
+
+          // Se a rádio estiver tocando, avisa o novato imediatamente
+          if (radioStateRef.current.status === 'playing') {
+            const now = Date.now();
+            const endTime = radioStateRef.current.startTime + radioStateRef.current.duration * 1000;
+            if (now < endTime) {
+              try {
+                // Envia o radio-sync padrão
+                conn.send({
+                  type: 'radio-sync',
+                  startTime: radioStateRef.current.startTime,
+                  duration: radioStateRef.current.duration,
+                  fileName: 'Rádio Global',
+                  senderName: 'Servidor K10'
+                });
+                // Envia a string #$% solicitada pelo usuário como fallback de bloqueio
+                conn.send({
+                  type: 'message',
+                  text: '#$%',
+                  senderName: 'Servidor K10',
+                  id: 'radio_block_' + Date.now()
+                });
+              } catch (e) {}
+            } else {
+              radioStateRef.current.status = 'idle';
             }
           }
         });
