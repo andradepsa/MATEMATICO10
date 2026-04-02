@@ -857,7 +857,11 @@ body.dark-mode {
       getContactName,
       selectedContact,
       setSelectedContact,
-      localVideoRef
+      localVideoRef,
+      registerSentMessage,
+      cooldownRemaining,
+      setCooldownRemaining,
+      networkSize
     }) => {
       const messagesEndRef = useRef(null);
 
@@ -884,8 +888,8 @@ body.dark-mode {
           return;
         }
 
-        if (!newMessage.trim() || !selectedContact) {
-          console.log("UpdatedChatManager: Cannot send message: no text or no selected contact");
+        if (!newMessage.trim() || !selectedContact || cooldownRemaining > 0) {
+          console.log("UpdatedChatManager: Cannot send message: no text, no selected contact, or in cooldown");
           return;
         }
 
@@ -895,10 +899,22 @@ body.dark-mode {
           return;
         }
 
+        // Calcula o cooldown baseado no tamanho da rede (1s base + 1s a cada 1000 usuários)
+        const currentCooldown = Math.max(1, Math.floor(networkSize / 1000));
+        setCooldownRemaining(currentCooldown);
+
         try {
           const timestamp = new Date();
+          const msgId = Date.now() + Math.random().toString(36).substring(7);
+          
+          if (registerSentMessage) {
+            registerSentMessage(msgId);
+          }
+
           conn.send({
             type: 'message',
+            id: msgId,
+            ttl: 8,
             text: newMessage,
             senderName: userName,
             direct: true,
@@ -1154,17 +1170,19 @@ body.dark-mode {
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     placeholder={
-                      selectedContact
-                        ? `Mensagem para ${getContactName(selectedContact)}...`
-                        : "Selecione um contato..."
+                      cooldownRemaining > 0 
+                        ? `Aguarde ${cooldownRemaining}s (Modo Lento: ${networkSize} usuários na rede)`
+                        : selectedContact
+                          ? `Mensagem para ${getContactName(selectedContact)}...`
+                          : "Selecione um contato..."
                     }
                     onKeyPress={(e) => {
-                      if (e.key === 'Enter' && selectedContact) {
+                      if (e.key === 'Enter' && selectedContact && cooldownRemaining === 0) {
                         handleSendMessage();
                       }
                     }}
                     className="message-input"
-                    disabled={!selectedContact}
+                    disabled={!selectedContact || cooldownRemaining > 0}
                   />
                   {showEmojiPanel && populateEmojiPanel()}
                 </div>
@@ -1173,11 +1191,12 @@ body.dark-mode {
                   disabled={
                     !newMessage.trim() ||
                     !selectedContact ||
-                    !connections.some(c => c.peer === selectedContact)
+                    !connections.some(c => c.peer === selectedContact) ||
+                    cooldownRemaining > 0
                   }
                   title="Enviar mensagem"
                 >
-                  <i className="fas fa-paper-plane"></i>
+                  {cooldownRemaining > 0 ? `${cooldownRemaining}s` : <i className="fas fa-paper-plane"></i>}
                 </button>
               </div>
             </div>
@@ -1262,7 +1281,26 @@ const toggleDarkMode = () => {
       const videoRefs = useRef({});
       const localVideoRef = useRef(null);
       const localStreamsRef = useRef(new Map());
+      const seenMessagesRef = useRef(new Set());
       const CHUNK_SIZE = 16 * 1024;
+
+      const [cooldownRemaining, setCooldownRemaining] = useState(0);
+      const [networkSize, setNetworkSize] = useState(1);
+      const [isSuperNode, setIsSuperNode] = useState(false);
+      const [radioState, setRadioState] = useState({ status: 'idle', startTime: 0, duration: 0, audioUrl: null, fileName: '', sender: '' });
+      const radioAudioRef = useRef(null);
+      const pendingRadioFiles = useRef({});
+      const radioIntervalRef = useRef(null);
+      const knownUsersRef = useRef(new Set());
+      const lastMessageTimeRef = useRef(new Map());
+      const bannedPeersRef = useRef(new Set());
+
+      useEffect(() => {
+        if (cooldownRemaining > 0) {
+          const timer = setTimeout(() => setCooldownRemaining(prev => prev - 1), 1000);
+          return () => clearTimeout(timer);
+        }
+      }, [cooldownRemaining]);
 
       const stopAndRemoveLocalStream = (peerId) => {
         const stream = localStreamsRef.current.get(peerId);
@@ -1416,6 +1454,42 @@ const toggleDarkMode = () => {
         peer.on('open', (id) => {
           console.log("PeerJS: Connected with ID:", id);
           setIsPeerInitialized(true);
+          
+          // Auto-conectar se houver portas no link
+          const urlParams = new URLSearchParams(window.location.search);
+          const portasStr = urlParams.get('portas');
+          if (portasStr) {
+            const portas = portasStr.split(',');
+            console.log("App: Encontradas portas no link de convite:", portas);
+            // Aguarda um pouco para garantir que o estado está pronto
+            setTimeout(() => {
+              portas.forEach(porta => {
+                if (porta && porta !== id) {
+                  // A função connectToPeer será chamada indiretamente ou podemos usar a lógica direta aqui
+                  // Como connectToPeer depende do estado, vamos apenas tentar conectar diretamente com o peerInstance
+                  if (peer) {
+                    console.log("App: Tentando conectar à porta de backup:", porta);
+                    const conn = peer.connect(porta, { reliable: true });
+                    if (conn) {
+                      conn.on('open', () => {
+                        console.log("PeerJS: Auto-connected to backup door:", porta);
+                        setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]);
+                      });
+                      conn.on('data', (data) => {
+                        handleIncomingData(data, porta);
+                      });
+                      conn.on('close', () => {
+                        setConnections(prev => prev.filter(c => c.peer !== porta));
+                      });
+                      conn.on('error', () => {
+                        setConnections(prev => prev.filter(c => c.peer !== porta));
+                      });
+                    }
+                  }
+                }
+              });
+            }, 1000);
+          }
         });
 
         peer.on('error', (err) => {
@@ -1435,6 +1509,19 @@ const toggleDarkMode = () => {
 
         peer.on('connection', (conn) => {
           console.log("PeerJS: Incoming data connection from:", conn.peer);
+          
+          if (bannedPeersRef.current.has(conn.peer)) {
+            setTimeout(() => conn.close(), 500);
+            return;
+          }
+
+          const maxConns = isSuperNode ? 50 : 15;
+          if (connections.length >= maxConns) {
+            console.log("App: Limite de conexões atingido. Rejeitando:", conn.peer);
+            setTimeout(() => conn.close(), 500);
+            return;
+          }
+
           if (connections.some(c => c.peer === conn.peer)) {
             console.log("App: Connection handler already set up for", conn.peer);
             setConnections(prev => prev.map(c => c.peer === conn.peer ? conn : c));
@@ -1532,9 +1619,38 @@ const toggleDarkMode = () => {
         };
       }, [peerId]);
 
+      useEffect(() => {
+        const pexInterval = setInterval(() => {
+          if (connections.length > 0) {
+            // Junta os peers conectados com os conhecidos
+            const allKnownPeers = Array.from(new Set([...connections.map(c => c.peer), ...Array.from(knownUsersRef.current)]));
+            
+            connections.forEach(conn => {
+              if (conn.open) {
+                try {
+                  // Embaralha para garantir que todos os peers sejam descobertos ao longo do tempo
+                  const shuffled = [...allKnownPeers].sort(() => 0.5 - Math.random());
+                  // SuperNós enviam até 100 peers, nós normais enviam até 50
+                  const subset = shuffled.slice(0, isSuperNode ? 100 : 50);
+                  
+                  conn.send({
+                    type: 'pex',
+                    peers: subset
+                  });
+                } catch (e) {
+                  console.error("Erro ao enviar PEX:", e);
+                }
+              }
+            });
+          }
+        }, 30000); // A cada 30 segundos
+
+        return () => clearInterval(pexInterval);
+      }, [connections]);
+
       const generateNewId = () => {
         const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-        const buffer = new Uint8Array(6);
+        const buffer = new Uint8Array(9);
         crypto.getRandomValues(buffer);
         return Array.from(buffer).map(b => chars[b % chars.length]).join('');
       };
@@ -1555,6 +1671,12 @@ const toggleDarkMode = () => {
           alert("Erro: Peer não inicializado ou ID inválido");
           return;
         }
+
+        if (bannedPeersRef.current.has(peerIdToConnect)) {
+          console.log("App: Tentativa de conexão com usuário banido recusada:", peerIdToConnect);
+          return;
+        }
+
         if (connections.some(conn => conn.peer === peerIdToConnect && conn.open)) {
           console.log("App: Already connected to", peerIdToConnect);
           return;
@@ -1595,6 +1717,143 @@ const toggleDarkMode = () => {
 
       const handleIncomingData = (data, pId) => {
         console.log("App: Processing incoming data of type:", data.type, "from", pId);
+        
+        if (data.type === 'pex' && Array.isArray(data.peers)) {
+          console.log("App: Recebido PEX com peers:", data.peers);
+          const maxConnections = isSuperNode ? 50 : 15; // SuperNó aceita mais conexões
+          
+          if (peerInstance.current) {
+            const activeConnCount = Object.keys(peerInstance.current.connections).length;
+            if (activeConnCount < maxConnections) {
+              data.peers.forEach(newPeerId => {
+                if (newPeerId !== peerId && !peerInstance.current.connections[newPeerId] && !bannedPeersRef.current.has(newPeerId)) {
+                  console.log("App: Tentando conectar a novo peer via PEX:", newPeerId);
+                  connectToPeer(newPeerId);
+                }
+              });
+            }
+          }
+          return;
+        }
+
+        if (data.type === 'radio-start' || data.type === 'radio-chunk') {
+          if (seenMessagesRef.current.has(data.id)) return;
+          seenMessagesRef.current.add(data.id);
+          if (seenMessagesRef.current.size > 5000) {
+            const firstItem = seenMessagesRef.current.values().next().value;
+            seenMessagesRef.current.delete(firstItem);
+          }
+          
+          let currentTtl = data.ttl !== undefined ? data.ttl : 8;
+          if (currentTtl > 0) {
+            const relayData = { ...data, ttl: currentTtl - 1 };
+            setConnections(currentConns => {
+              currentConns.forEach(conn => {
+                if (conn.peer !== pId && conn.open) {
+                  try { conn.send(relayData); } catch (e) {}
+                }
+              });
+              return currentConns;
+            });
+          }
+
+          if (data.type === 'radio-start') {
+            pendingRadioFiles.current[data.radioId] = {
+              chunks: new Uint8Array(data.fileSize),
+              receivedBytes: 0,
+              totalSize: data.fileSize
+            };
+            setRadioState({
+              status: 'buffering',
+              startTime: data.startTime,
+              duration: data.duration,
+              audioUrl: null,
+              fileName: data.fileName,
+              sender: data.senderName
+            });
+          } else if (data.type === 'radio-chunk') {
+            const fileData = pendingRadioFiles.current[data.radioId];
+            if (fileData) {
+              const chunk = data.chunk instanceof ArrayBuffer ? new Uint8Array(data.chunk) : new Uint8Array(Object.values(data.chunk));
+              fileData.chunks.set(chunk, data.offset);
+              fileData.receivedBytes += chunk.length;
+              
+              if (fileData.receivedBytes === fileData.totalSize) {
+                const blob = new Blob([fileData.chunks], { type: 'audio/mpeg' });
+                const url = URL.createObjectURL(blob);
+                setRadioState(prev => ({ ...prev, audioUrl: url }));
+                delete pendingRadioFiles.current[data.radioId];
+              }
+            }
+          }
+          return;
+        }
+
+        if (data.type === 'message' && data.id) {
+          if (data.sender) {
+            if (!knownUsersRef.current.has(data.sender)) {
+              knownUsersRef.current.add(data.sender);
+              setNetworkSize(knownUsersRef.current.size);
+            }
+
+            // --- NOVO: Verificação de Cooldown (Anti-Trapaça) ---
+            const now = Date.now();
+            const lastTime = lastMessageTimeRef.current.get(data.sender) || 0;
+            // Calcula o cooldown atual exigido pela rede (em milissegundos)
+            const requiredCooldownMs = Math.max(1, Math.floor(knownUsersRef.current.size / 1000)) * 1000;
+
+            if (now - lastTime < requiredCooldownMs) {
+              console.log(`App: Mensagem de ${data.sender} ignorada. Tentou burlar o cooldown. Iniciando banimento.`);
+              
+              // 1. Adiciona à Blacklist
+              bannedPeersRef.current.add(data.sender);
+              
+              // 2. Desconecta o trapaceiro
+              setConnections(currentConns => {
+                const connToClose = currentConns.find(c => c.peer === data.sender);
+                if (connToClose) {
+                  connToClose.close();
+                  console.log(`App: Conexão com trapaceiro ${data.sender} encerrada.`);
+                }
+                return currentConns.filter(c => c.peer !== data.sender);
+              });
+
+              return; // Ignora a mensagem completamente (não exibe e não repassa)
+            }
+
+            // Atualiza o tempo da última mensagem válida deste usuário
+            lastMessageTimeRef.current.set(data.sender, now);
+            // ----------------------------------------------------
+          }
+
+          if (seenMessagesRef.current.has(data.id)) {
+            console.log("App: Mensagem repetida ignorada (Anti-Loop).");
+            return;
+          }
+          seenMessagesRef.current.add(data.id);
+          if (seenMessagesRef.current.size > 5000) {
+            const firstItem = seenMessagesRef.current.values().next().value;
+            seenMessagesRef.current.delete(firstItem);
+          }
+          
+          let currentTtl = data.ttl !== undefined ? data.ttl : 8;
+          if (currentTtl > 0) {
+            const relayData = { ...data, ttl: currentTtl - 1 };
+            setConnections(currentConns => {
+              currentConns.forEach(conn => {
+                if (conn.peer !== pId && conn.open) {
+                  try {
+                    conn.send(relayData);
+                  } catch (e) {
+                    console.error("Erro ao repassar mensagem:", e);
+                  }
+                }
+              });
+              return currentConns;
+            });
+          }
+        }
+
         const timestamp = data.timestamp || Date.now();
         const messageTime = data.time || formatTime(new Date(timestamp));
         const baseMessage = {
@@ -1754,6 +2013,121 @@ const toggleDarkMode = () => {
           setMessages(prev => prev.map(msg => msg[idKey] === id ? { ...msg, sending: false, progress: -1 } : msg));
         };
         readChunk();
+      };
+
+      useEffect(() => {
+        const checkRadio = () => {
+          setRadioState(current => {
+            if (current.status === 'idle') return current;
+            
+            const now = Date.now();
+            const endTime = current.startTime + current.duration * 1000;
+            
+            if (now >= endTime) {
+              if (radioAudioRef.current) {
+                radioAudioRef.current.pause();
+                radioAudioRef.current.src = '';
+              }
+              return { status: 'idle', startTime: 0, duration: 0, audioUrl: null, fileName: '', sender: '' };
+            }
+
+            if (current.status === 'buffering') {
+              if (now >= current.startTime) {
+                if (current.audioUrl && radioAudioRef.current) {
+                  const offset = (now - current.startTime) / 1000;
+                  radioAudioRef.current.src = current.audioUrl;
+                  radioAudioRef.current.currentTime = offset;
+                  radioAudioRef.current.play().catch(e => console.error("Erro ao tocar rádio:", e));
+                  return { ...current, status: 'playing' };
+                }
+              } else {
+                // Força re-render para atualizar o cronômetro na tela
+                return { ...current, _tick: now };
+              }
+            }
+            return current;
+          });
+        };
+
+        radioIntervalRef.current = setInterval(checkRadio, 500);
+        return () => clearInterval(radioIntervalRef.current);
+      }, []);
+
+      const handleRadioUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.size > 5 * 1024 * 1024) {
+          alert("O arquivo MP3 da rádio deve ter no máximo 5MB para não travar a rede.");
+          return;
+        }
+        
+        const url = URL.createObjectURL(file);
+        const audio = new Audio(url);
+        audio.onloadedmetadata = () => {
+          const duration = audio.duration;
+          const startTime = Date.now() + 60000; // 60 segundos de buffer para espalhar
+          const radioId = peerId + '_radio_' + Date.now();
+
+          const startMsg = {
+            type: 'radio-start',
+            id: radioId + '_start',
+            radioId: radioId,
+            fileName: file.name,
+            fileSize: file.size,
+            duration: duration,
+            startTime: startTime,
+            sender: peerId,
+            senderName: userName,
+            ttl: 8
+          };
+          
+          seenMessagesRef.current.add(startMsg.id);
+          connections.forEach(conn => {
+            if (conn.open) {
+              try { conn.send(startMsg); } catch (e) {}
+            }
+          });
+
+          setRadioState({
+            status: 'buffering',
+            startTime: startTime,
+            duration: duration,
+            audioUrl: null,
+            fileName: file.name,
+            sender: userName
+          });
+
+          const reader = new FileReader();
+          let offset = 0;
+          reader.onload = (ev) => {
+            const buffer = ev.target.result;
+            const chunkMsg = {
+              type: 'radio-chunk',
+              id: radioId + '_chunk_' + offset,
+              radioId: radioId,
+              offset: offset,
+              chunk: buffer,
+              ttl: 8
+            };
+            
+            seenMessagesRef.current.add(chunkMsg.id);
+            connections.forEach(conn => {
+              if (conn.open) {
+                try { conn.send(chunkMsg); } catch (e) {}
+              }
+            });
+
+            offset += buffer.byteLength;
+            if (offset < file.size) {
+              const slice = file.slice(offset, offset + 64 * 1024);
+              reader.readAsArrayBuffer(slice);
+            } else {
+              setRadioState(prev => ({ ...prev, audioUrl: url }));
+            }
+          };
+          const slice = file.slice(0, 64 * 1024);
+          reader.readAsArrayBuffer(slice);
+        };
       };
 
       const handleFileChange = (e) => {
@@ -2086,6 +2460,22 @@ const toggleDarkMode = () => {
     );
   };
 
+  const generateInviteLink = () => {
+    if (!peerId) return;
+    // Pega o próprio ID e adiciona os IDs dos peers conectados
+    const activePeers = connections.filter(c => c.open).map(c => c.peer);
+    const allIds = [peerId, ...activePeers].slice(0, 196);
+    
+    const url = new URL(window.location.href);
+    url.searchParams.set('portas', allIds.join(','));
+    
+    const finalUrl = url.toString();
+    navigator.clipboard.writeText(finalUrl);
+    
+    // Mostra o link em um prompt para garantir que o usuário veja
+    prompt(`Link de convite gerado! (${allIds.length} porta(s) incluída(s)). Copie o link abaixo:`, finalUrl);
+  };
+
   if (error) {
     return (
       <div className="error-message">
@@ -2112,6 +2502,26 @@ const toggleDarkMode = () => {
 </div>
 
       </div>
+
+      <input type="file" id="radioInput" accept="audio/mp3, audio/mpeg" style={{ display: 'none' }} onChange={handleRadioUpload} />
+      <audio ref={radioAudioRef} style={{ display: 'none' }} />
+
+      {radioState.status !== 'idle' && (
+        <div style={{ background: '#1e293b', color: 'white', padding: '10px', margin: '0', textAlign: 'center', borderBottom: '1px solid #334155' }}>
+          <div style={{ fontSize: '14px', fontWeight: 'bold' }}>🎵 Rádio Global: {radioState.fileName}</div>
+          <div style={{ fontSize: '12px', color: '#94a3b8' }}>DJ: {radioState.sender}</div>
+          {radioState.status === 'buffering' ? (
+            <div style={{ color: '#f59e0b', marginTop: '5px', fontSize: '13px', fontWeight: 'bold' }}>
+              A música começa em {Math.max(0, Math.ceil((radioState.startTime - Date.now()) / 1000))}s...
+              {!radioState.audioUrl && " (Baixando...)"}
+            </div>
+          ) : (
+            <div style={{ color: '#10b981', marginTop: '5px', fontSize: '13px', fontWeight: 'bold' }}>
+              ▶ Tocando agora
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="user-info-container">
         {editingName ? (
@@ -2144,15 +2554,66 @@ const toggleDarkMode = () => {
       </div>
 
       <div className="peer-id-container">
-        <span>Seu ID: {peerId}</span>
-        <button
-          onClick={() => {
-            navigator.clipboard.writeText(peerId);
-            alert('ID copiado para a área de transferência!');
-          }}
-        >
-          Copiar
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
+          <span>Seu ID: {peerId}</span>
+          <button
+            onClick={() => setIsSuperNode(!isSuperNode)}
+            style={{
+              backgroundColor: isSuperNode ? '#fef3c7' : 'white',
+              color: isSuperNode ? '#b45309' : '#666',
+              border: `1px solid ${isSuperNode ? '#f59e0b' : '#ddd'}`,
+              padding: '5px 10px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              fontSize: '12px',
+              fontWeight: 'bold'
+            }}
+            title="SuperNós aceitam mais conexões e ajudam a estabilizar a rede"
+          >
+            <i className="fas fa-bolt" style={{ color: isSuperNode ? '#d97706' : '#999' }}></i>
+            {isSuperNode ? 'SuperNó ON' : 'SuperNó OFF'}
+          </button>
+          <button
+            onClick={() => document.getElementById('radioInput').click()}
+            disabled={radioState.status !== 'idle'}
+            style={{
+              backgroundColor: radioState.status !== 'idle' ? '#f1f5f9' : '#8b5cf6',
+              color: radioState.status !== 'idle' ? '#94a3b8' : 'white',
+              border: 'none',
+              padding: '5px 10px',
+              borderRadius: '4px',
+              cursor: radioState.status !== 'idle' ? 'not-allowed' : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '5px',
+              fontSize: '12px',
+              fontWeight: 'bold'
+            }}
+            title="Tocar música MP3 para toda a sala"
+          >
+            <i className="fas fa-music"></i>
+            DJ Rádio
+          </button>
+        </div>
+        <div>
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(peerId);
+              alert('ID copiado para a área de transferência!');
+            }}
+          >
+            Copiar
+          </button>
+          <button
+            onClick={generateInviteLink}
+            style={{ marginLeft: '10px', backgroundColor: '#10b981', color: 'white', border: 'none' }}
+          >
+            Gerar Link de Convite
+          </button>
+        </div>
       </div>
 
       {(remoteStreams.length > 0 || isLocalVideoVisible) && (
@@ -2239,6 +2700,10 @@ const toggleDarkMode = () => {
           selectedContact={selectedContact}
           setSelectedContact={setSelectedContact}
           localVideoRef={localVideoRef}
+          registerSentMessage={(id) => seenMessagesRef.current.add(id)}
+          cooldownRemaining={cooldownRemaining}
+          setCooldownRemaining={setCooldownRemaining}
+          networkSize={networkSize}
         />
       )}
     </div>
