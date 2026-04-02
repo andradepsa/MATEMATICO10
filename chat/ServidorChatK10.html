@@ -1,740 +1,146 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-
-
-<!-- ═══════════════════════════════════════════════════════════════
-     RESTO DO SEU CÓDIGO DO MENU - SEM ALTERAÇÕES
-     ═══════════════════════════════════════════════════════════════ -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <meta charset="UTF-8">
+  <title>Servidor Central 10 - Autoridade</title>
+  <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+  <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 20px;
-      background-color: #f5f5f5;
-    }
-    #root {
-      max-width: 800px;
-      margin: 0 auto;
-      background: white;
-      padding: 20px;
-      border-radius: 8px;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    .peer-id-container {
-      display: flex;
-      align-items: center;
-      margin-bottom: 10px;
-      padding: 10px;
-      background: #f8f9fa;
-      border-radius: 5px;
-    }
-    .message {
-      margin-bottom: 10px;
-      padding: 10px;
-      border-radius: 5px;
-    }
-    .message.you {
-      background-color: #e3f2fd;
-      margin-left: 20%;
-    }
-    .message.other {
-      background-color: #f1f1f1;
-      margin-right: 20%;
-    }
-    .file-link {
-      color: #1976d2;
-      text-decoration: none;
-      font-weight: bold;
-    }
-    .progress-container {
-      margin-top: 5px;
-    }
-    .progress-bar {
-      height: 5px;
-      background: #ddd;
-      border-radius: 3px;
-      overflow: hidden;
-    }
-    .progress {
-      height: 100%;
-      background: #4CAF50;
-      width: 0%;
-      transition: width 0.3s ease;
-    }
-    .connected-peers {
-      margin-top: 10px;
-      padding: 10px;
-      background: #f9f9f9;
-      border-radius: 4px;
-    }
-    .peer-item {
-      margin: 5px 0;
-      padding: 5px;
-      background: #e3f2fd;
-      border-radius: 3px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-    }
-    button {
-      background: #4CAF50;
-      color: white;
-      border: none;
-      padding: 8px 15px;
-      border-radius: 4px;
-      cursor: pointer;
-      margin-left: 10px;
-    }
-    button:disabled {
-      background: #cccccc;
-      cursor: not-allowed;
-    }
-    .file-input-container {
-      display: flex;
-      gap: 10px;
-      margin-top: 10px;
-    }
-    .audio-player {
-      margin-top: 5px;
-      width: 100%;
-    }
-    .contact-form {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      margin-bottom: 20px;
-    }
-    .contact-form-row {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-    }
-    .contact-form input {
-      padding: 8px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-    }
-    .contacts-list {
-      max-height: 300px;
-      overflow-y: auto;
-      border-right: 4px solid #4CAF50;
-      padding-right: 10px;
-    }
-    .id-backup-container {
-      margin: 10px 0;
-      padding: 10px;
-      background-color: #fff3cd;
-      border-radius: 4px;
-      border: 1px solid #ffeeba;
-      display: flex;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-    .id-input {
-      padding: 8px;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-      width: 100px;
-      margin-right: 10px;
-    }
-    .copy-button {
-      background: #007bff;
-    }
-    .status-indicator {
-      display: inline-block;
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-      margin-right: 5px;
-    }
-    .status-online {
-      background-color: #4CAF50;
-    }
-    .status-offline {
-      background-color: #ff0000;
-    }
-    .status-connecting {
-      background-color: #FFC107;
-    }
-    .distribution-stats {
-      margin-top: 15px;
-      padding: 10px;
-      background-color: #e3f2fd;
-      border-radius: 5px;
-    }
-    .message-source {
-      font-size: 0.8em;
-      color: #666;
-      margin-top: 3px;
-    }
-    .debug-container {
-      margin-top: 15px;
-      padding: 10px;
-      background-color: #e8f5e9;
-      border-radius: 5px;
-      border: 1px solid #c8e6c9;
-    }
-    .server-mode-container {
-      margin-top: 15px;
-      padding: 10px;
-      background-color: #e8f5e9;
-      border-radius: 5px;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
+    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a1a; color: #fff; padding: 20px; }
+    #root { max-width: 800px; margin: 0 auto; background: #2d2d2d; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+    .status-bar { padding: 15px; border-radius: 8px; margin-bottom: 20px; background: #3d3d3d; border-left: 5px solid #007bff; }
+    .peer-list { background: #1e1e1e; padding: 15px; border-radius: 8px; max-height: 200px; overflow-y: auto; }
+    .vote-panel { margin-top: 20px; padding: 15px; background: #333; border-radius: 8px; border: 1px solid #444; }
+    .progress-bg { background: #444; height: 10px; border-radius: 5px; margin-top: 10px; }
+    .progress-fill { background: #28a745; height: 100%; border-radius: 5px; transition: width 0.3s; }
   </style>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.1/peerjs.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
 
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
 
-    const PEER_ID_STORAGE_KEY = 'p2pChatDistributorId';
-    const DEFAULT_ID = 'AAAAAA';
-
-    const usePersistentId = () => {
-      const [peerId, setPeerId] = useState(() => {
-        try {
-          const saved = localStorage.getItem(PEER_ID_STORAGE_KEY) || DEFAULT_ID;
-          return saved.endsWith('-CENTRAL') ? saved : saved + '-CENTRAL';
-        } catch (e) {
-          return DEFAULT_ID + '-CENTRAL';
-        }
-      });
-
-      useEffect(() => {
-        try {
-          const formattedId = peerId.endsWith('-CENTRAL') ? peerId : peerId + '-CENTRAL';
-          if (formattedId !== peerId) {
-            setPeerId(formattedId);
-            return;
-          }
-          localStorage.setItem(PEER_ID_STORAGE_KEY, formattedId);
-          sessionStorage.setItem(PEER_ID_STORAGE_KEY, formattedId);
-          document.cookie = `${PEER_ID_STORAGE_KEY}=${formattedId}; max-age=31536000; path=/`;
-        } catch (e) {
-          console.error("Erro ao persistir ID:", e);
-        }
-      }, [peerId]);
-
-      return [peerId, setPeerId];
-    };
-
-    const IdBackupTools = ({ peerId, setPeerId, onSaveId, isConnected }) => {
-      const [editableId, setEditableId] = useState(peerId);
-      const [isEditing, setIsEditing] = useState(false);
-
-      const copyToClipboard = () => {
-        navigator.clipboard.writeText(peerId).then(() => {
-          alert("ID copiado para a área de transferência!");
-        });
-      };
-
-      const startEditing = () => {
-        setEditableId(peerId);
-        setIsEditing(true);
-      };
-
-      const saveId = () => {
-        if (editableId.trim() === '') {
-          alert("O ID não pode estar vazio!");
-          return;
-        }
-        
-        if (editableId !== peerId) {
-          setPeerId(editableId);
-          if (onSaveId) onSaveId(editableId);
-        }
-        
-        setIsEditing(false);
-      };
-
-      return (
-        <div className="id-backup-container">
-          <div>
-            <strong>Distributor ID:</strong> 
-            {isEditing ? (
-              <>
-                <input 
-                  type="text" 
-                  className="id-input"
-                  value={editableId}
-                  onChange={(e) => setEditableId(e.target.value)}
-                  placeholder="Insira o ID"
-                />
-                <button onClick={saveId}>Salvar</button>
-                <button onClick={() => setIsEditing(false)}>Cancelar</button>
-              </>
-            ) : (
-              <>
-                {peerId}
-                <button onClick={copyToClipboard} className="copy-button">
-                  Copiar
-                </button>
-                <button 
-                  onClick={startEditing}
-                  disabled={isConnected}
-                >
-                  Editar
-                </button>
-              </>
-            )}
-          </div>
-          {isConnected && !isEditing && (
-            <p><small>Log out to edit ID</small></p>
-          )}
-        </div>
-      );
-    };
+    const MAX_SERVER_CONNECTIONS = 200;
+    // Token Único de Autoridade para evitar Spoofing
+    const SERVER_AUTH_TOKEN = "AUTH-" + Math.random().toString(36).substr(2, 9);
 
     const DistributorApp = () => {
-      const [peerId, setPeerId] = usePersistentId();
+      const [peerId, setPeerId] = useState('');
       const [connections, setConnections] = useState([]);
-      const [messages, setMessages] = useState([]);
-      const [connectionStatus, setConnectionStatus] = useState('desconectado');
-      const [stats, setStats] = useState({
-        messagesReceived: 0,
-        messagesDistributed: 0,
-        activeConnections: 0
-      });
-      // New state to control the mode
-      const [pureServerMode, setPureServerMode] = useState(true);
-      const radioStateRef = useRef({ status: 'idle', startTime: 0, duration: 0 });
-      
-      const peerInstance = useRef(null);
-      const pendingFiles = useRef({});
-      const messagesEndRef = useRef(null);
-      const activeConnectionsRef = useRef(new Map());
-      const seenMessagesRef = useRef(new Set());
-      const CHUNK_SIZE = 16 * 1024;
+      const [stopVotes, setStopVotes] = useState(new Set());
+      const [status, setStatus] = useState('Iniciando...');
+      const peerRef = useRef(null);
+      const connsRef = useRef(new Map());
 
       useEffect(() => {
-        if (messagesEndRef.current) {
-          messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
-        }
-      }, [messages]);
-
-      const toggleConnection = () => {
-        if (connectionStatus === 'conectado' || connectionStatus === 'conectando') {
-          disconnectPeer();
-        } else {
-          setupPeer();
-        }
-      };
-
-      const disconnectPeer = () => {
-        if (peerInstance.current) {
-          try {
-            console.log("Desconectando peer...");
-            
-            activeConnectionsRef.current.forEach((conn) => {
-              try {
-                conn.close();
-              } catch (e) {
-                console.error("Erro ao fechar conexão:", e);
-              }
-            });
-            
-            activeConnectionsRef.current.clear();
-            setConnections([]);
-            
-            peerInstance.current.destroy();
-            peerInstance.current = null;
-            
-            setConnectionStatus('desconectado');
-            
-            setStats({
-              messagesReceived: 0,
-              messagesDistributed: 0,
-              activeConnections: 0
-            });
-            
-            console.log("Peer desconectado com sucesso");
-          } catch (err) {
-            console.error("Erro ao desconectar peer:", err);
-          }
-        }
-      };
-
-      const setupPeer = () => {
-        if (!peerId) return;
-
-        console.log("Configurando distribuidor com ID:", peerId);
-        setConnectionStatus('conectando');
+        let savedId = localStorage.getItem('server_peer_id') || 'MATEMATICO10';
+        if (!savedId.endsWith('-CENTRAL')) savedId += '-CENTRAL';
         
-        if (peerInstance.current) {
-          try {
-            peerInstance.current.destroy();
-          } catch (err) {
-            console.error("Erro ao destruir instância anterior:", err);
-          }
-        }
-        
-        const peer = new Peer(peerId, {
-          host: '0.peerjs.com',
-          port: 443,
-          secure: true,
-          config: {
-            iceServers: [
-              { urls: 'stun:stun.l.google.com:19302' },
-              { urls: 'stun:stun1.l.google.com:19302' }
-            ]
-          },
-          debug: 2
-        });
+        const peer = new Peer(savedId);
+        peerRef.current = peer;
 
         peer.on('open', (id) => {
-          console.log("Distribuidor conectado com ID:", id);
-          setConnectionStatus('conectado');
+          setPeerId(id);
+          localStorage.setItem('server_peer_id', id);
+          setStatus('Online - Aguardando conexões');
         });
 
         peer.on('connection', (conn) => {
-          console.log("Nova conexão recebida de:", conn.peer);
-          
-          // Limite de segurança para o servidor rodando no navegador (evita travamento)
-          const MAX_SERVER_CONNECTIONS = 200;
-          if (activeConnectionsRef.current.size >= MAX_SERVER_CONNECTIONS) {
-            console.log("Servidor cheio. Rejeitando conexão de:", conn.peer);
-            setTimeout(() => {
-              try { conn.close(); } catch (e) {}
-            }, 500);
+          if (connsRef.current.size >= MAX_SERVER_CONNECTIONS) {
+            conn.on('open', () => {
+              conn.send({ type: 'error', message: 'Servidor Lotado (Max 200)' });
+              setTimeout(() => conn.close(), 500);
+            });
             return;
           }
-          
-          setupConnection(conn);
-        });
 
-        peer.on('error', (err) => {
-          console.error("Erro no peer:", err);
-          setConnectionStatus('erro');
-        });
+          conn.on('open', () => {
+            connsRef.current.set(conn.peer, conn);
+            updateConnList();
+            
+            // Handshake de Autoridade
+            conn.send({
+              type: 'handshake',
+              isServer: true,
+              serverToken: SERVER_AUTH_TOKEN,
+              peerId: peer.id
+            });
+          });
 
-        peer.on('disconnected', () => {
-          console.log("Peer desconectado");
-          setConnectionStatus('desconectado');
+          conn.on('data', (data) => handleData(conn, data));
+          conn.on('close', () => {
+            connsRef.current.delete(conn.peer);
+            setStopVotes(prev => {
+              const next = new Set(prev);
+              next.delete(conn.peer);
+              return next;
+            });
+            updateConnList();
+          });
         });
+      }, []);
 
-        peerInstance.current = peer;
+      const updateConnList = () => {
+        setConnections(Array.from(connsRef.current.keys()));
       };
 
-      useEffect(() => {
-        if (connectionStatus !== 'conectado' && connectionStatus !== 'conectando') return;
-        
-        const checkConnectionInterval = setInterval(() => {
-          if (peerInstance.current && peerInstance.current.disconnected) {
-            console.log("Tentando reconectar...");
-            try {
-              peerInstance.current.reconnect();
-            } catch (e) {
-              console.error("Falha na reconexão, recriando peer:", e);
-              setupPeer();
-            }
-          }
-        }, 30000);
-
-        // PEX interval for the server
-        const pexInterval = setInterval(() => {
-          if (connectionStatus === 'conectado') {
-            const peerList = Array.from(activeConnectionsRef.current.keys());
-            if (peerList.length > 0) {
-              console.log("Servidor enviando PEX com", peerList.length, "peers");
-              activeConnectionsRef.current.forEach((conn, peerId) => {
-                try {
-                  // Embaralha e envia no máximo 100 peers para não sobrecarregar a rede
-                  const shuffled = [...peerList].sort(() => 0.5 - Math.random());
-                  const subset = shuffled.slice(0, 100);
-                  conn.send({
-                    type: 'pex',
-                    peers: subset
-                  });
-                } catch (err) {
-                  console.error(`Erro ao enviar PEX para ${peerId}:`, err);
-                }
-              });
-            }
-          }
-        }, 30000);
-
-        return () => {
-          clearInterval(checkConnectionInterval);
-          clearInterval(pexInterval);
-        };
-      }, [connectionStatus]);
-
-      const handleIdChange = (newId) => {
-        disconnectPeer();
-      };
-
-      const handleIncomingData = (data, sourceConn) => {
-        console.log(`Recebendo dados de ${sourceConn.peer}:`, data);
-        
-        if (data.type === 'pex') {
-          return; // Servidor não precisa processar PEX de clientes
-        }
-
-        if (data.type === 'message') {
-          if (data.id) {
-            if (seenMessagesRef.current.has(data.id)) {
-              console.log("Servidor: Mensagem repetida ignorada (Anti-Loop).");
-              return;
-            }
-            seenMessagesRef.current.add(data.id);
-            if (seenMessagesRef.current.size > 10000) {
-              const firstItem = seenMessagesRef.current.values().next().value;
-              seenMessagesRef.current.delete(firstItem);
-            }
-          }
-
-          setStats(prev => ({
-            ...prev,
-            messagesReceived: prev.messagesReceived + 1
-          }));
-
-          const senderName = data.senderName || sourceConn.peer;
-          
-          const newMessage = {
-            id: data.id || (Date.now() + Math.random().toString(36).substring(7)),
-            text: data.text,
-            sender: senderName,
-            timestamp: new Date().toISOString(),
-            source: sourceConn.peer
-          };
-          
-          setMessages(prev => [...prev, newMessage]);
-          
-          distributeMessage(data, sourceConn.peer);
-        }
-        else if (data.type === 'radio-start' || data.type === 'radio-chunk' || data.type === 'radio-sync' || data.type === 'radio-request-sync') {
-          if (data.id) {
-            if (seenMessagesRef.current.has(data.id)) return;
-            seenMessagesRef.current.add(data.id);
-          }
-          
-          if (data.type === 'radio-start' || data.type === 'radio-sync') {
-            radioStateRef.current = {
-              status: 'playing',
-              startTime: data.startTime,
-              duration: data.duration
-            };
-          }
-          
-          // O Servidor também atua como um relay para a rádio
-          distributeMessage(data, sourceConn.peer);
-        }
-        else if (data.type === 'file-start' || data.type === 'file-chunk' || data.type === 'audio-start' || data.type === 'audio-chunk') {
-          console.log("Bloqueado: O servidor agora só repassa mensagens de texto e emojis para proteger a banda da rede.");
+      const handleData = (conn, data) => {
+        if (data.type === 'stop-music-request') {
+          setStopVotes(prev => {
+            const next = new Set(prev).add(conn.peer);
+            checkVotes(next);
+            return next;
+          });
         }
       };
 
-      const distributeMessage = (data, sourceId) => {
-        let distributionCount = 0;
-        
-        let currentTtl = data.ttl !== undefined ? data.ttl : 8;
-        if (currentTtl <= 0) {
-          console.log("Servidor: Mensagem descartada por TTL = 0");
-          return;
+      const checkVotes = (currentVotes) => {
+        const total = connsRef.current.size;
+        const percent = (currentVotes.size / total) * 100;
+
+        broadcast({
+          type: 'stop-music-stats',
+          percentage: Math.round(percent),
+          count: currentVotes.size,
+          total: total
+        });
+
+        if (percent >= 80) {
+          broadcast({ type: 'stop-music-command', serverToken: SERVER_AUTH_TOKEN });
+          setStopVotes(new Set());
         }
-        
-        const relayData = { ...data, ttl: currentTtl - 1 };
-        
-        activeConnectionsRef.current.forEach((conn, peerId) => {
-          if (peerId !== sourceId) {
-            try {
-              console.log(`Distribuindo mensagem para ${peerId}`);
-              conn.send(relayData);
-              distributionCount++;
-            } catch (err) {
-              console.error(`Erro ao enviar para ${peerId}:`, err);
-            }
-          }
-        });
-        
-        setStats(prev => ({
-          ...prev,
-          messagesDistributed: prev.messagesDistributed + distributionCount
-        }));
-        
-        console.log(`Mensagem distribuída para ${distributionCount} conexões`);
       };
 
-      const setupConnection = (conn) => {
-        conn.on('open', () => {
-          console.log(`Conexão estabelecida com ${conn.peer}`);
-          
-          activeConnectionsRef.current.set(conn.peer, conn);
-          
-          setConnections(Array.from(activeConnectionsRef.current.keys()));
-          
-          setStats(prev => ({
-            ...prev,
-            activeConnections: activeConnectionsRef.current.size
-          }));
-          
-          // Here is the critical change to ensure we operate in pure server mode:
-          // We'll send a special message to mark this as a server connection
-          // when pure server mode is enabled
-          if (pureServerMode) {
-            try {
-              conn.send({
-                type: 'server-info',
-                isServer: true,
-                message: 'Connected to K10 server in pure server mode' 
-              });
-            } catch (err) {
-              console.error(`Erro ao enviar informação de servidor para ${conn.peer}:`, err);
-            }
-          }
-
-          // Se a rádio estiver tocando, avisa o novato imediatamente
-          if (radioStateRef.current.status === 'playing') {
-            const now = Date.now();
-            const endTime = radioStateRef.current.startTime + radioStateRef.current.duration * 1000;
-            if (now < endTime) {
-              try {
-                // Envia o radio-sync padrão
-                conn.send({
-                  type: 'radio-sync',
-                  startTime: radioStateRef.current.startTime,
-                  duration: radioStateRef.current.duration,
-                  fileName: 'Rádio Global',
-                  senderName: 'Servidor K10'
-                });
-                // Envia a string #$% solicitada pelo usuário como fallback de bloqueio
-                conn.send({
-                  type: 'message',
-                  text: '#$%',
-                  senderName: 'Servidor K10',
-                  id: 'radio_block_' + Date.now()
-                });
-              } catch (e) {}
-            } else {
-              radioStateRef.current.status = 'idle';
-            }
-          }
-        });
-
-        conn.on('data', (data) => {
-          handleIncomingData(data, conn);
-        });
-
-        conn.on('close', () => {
-          console.log(`Conexão fechada com ${conn.peer}`);
-          
-          activeConnectionsRef.current.delete(conn.peer);
-          
-          setConnections(Array.from(activeConnectionsRef.current.keys()));
-          
-          setStats(prev => ({
-            ...prev,
-            activeConnections: activeConnectionsRef.current.size
-          }));
-        });
-
-        conn.on('error', (err) => {
-          console.error(`Erro na conexão com ${conn.peer}:`, err);
-        });
+      const broadcast = (data) => {
+        const payload = { ...data, sender: peerId, timestamp: Date.now() };
+        connsRef.current.forEach(c => c.open && c.send(payload));
       };
+
+      const votePercent = connections.length > 0 ? (stopVotes.size / connections.length) * 100 : 0;
 
       return (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-            <h1 style={{ margin: 0 }}>Servidor K10</h1>
-          </div>
-          <p>The ID consists of 6 alphanumeric characters.</p>
-          <p>More specifically:</p>
-          <p>Letters: A to Z (uppercase only)</p>
-          <p>Numbers: 2 to 9</p>    
-          <div className="peer-id-container">
-            <div>
-              <span 
-                className={`status-indicator status-${
-                  connectionStatus === 'conectado' ? 'online' : 
-                  connectionStatus === 'conectando' ? 'connecting' : 'offline'
-                }`}
-              ></span>
-              Status: {connectionStatus}
-              <button onClick={toggleConnection}>
-                {connectionStatus === 'conectado' || connectionStatus === 'conectando' ? 'Desconectar' : 'Conectar'}
-              </button>
-            </div>
-          </div>
-          
-          <IdBackupTools 
-            peerId={peerId} 
-            setPeerId={setPeerId} 
-            onSaveId={handleIdChange} 
-            isConnected={connectionStatus === 'conectado' || connectionStatus === 'conectando'}
-          />
-          
-          {/* New component for controlling server mode */}
-          <div className="server-mode-container">
-            <strong>Pure Server Mode:</strong>
-            <input 
-              type="checkbox" 
-              checked={pureServerMode} 
-              onChange={(e) => {
-                setPureServerMode(e.target.checked);
-                // If we're changing mode while connected, it's best to disconnect and reconnect
-                if (connectionStatus === 'conectado') {
-                  disconnectPeer();
-                  setTimeout(setupPeer, 500);
-                }
-              }} 
-              id="serverModeCheckbox"
-            />
-            <label htmlFor="serverModeCheckbox">
-              Enable pure server mode (prevents clients from connecting to each other)
-            </label>
-          </div>
-          
-          <div className="distribution-stats">
-            <h3>Distribution Statistics</h3>
-            <p>Messages received: {stats.messagesReceived}</p>
-            <p>Distributed messages: {stats.messagesDistributed}</p>
-            <p>Active connections: {stats.activeConnections}</p>
-          </div>
-          
-          <div className="connected-peers">
-            <h3>Active Connections ({connections.length})</h3>
-            {connections.length === 0 ? (
-              <p>No active connections</p>
-            ) : (
-              <div>
-                {connections.map((peerId, index) => (
-                 <div key={index} className="peer-item">
-                    <span className="status-indicator status-online"></span>
-                    {peerId}
-                  </div>
-                ))}
-              </div>
-            )}
+          <h2>Painel do Servidor Central</h2>
+          <div className="status-bar">
+            <strong>ID:</strong> {peerId} <br/>
+            <strong>Status:</strong> {status} <br/>
+            <strong>Token de Segurança:</strong> <code style={{color:'#ffc107'}}>{SERVER_AUTH_TOKEN}</code>
           </div>
 
-          <div style={{ marginTop: '20px' }}>
-            <h3>Messages</h3>
-            <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #ddd', padding: '10px' }}>
-              {messages.length === 0 ? (
-                <p>Nenhuma mensagem recebida</p>
-              ) : (
-                <div>
-                  {messages.map((msg, index) => (
-                    <div key={index} className={`message other`}>
-                      <div>{msg.text}</div>
-                      <div className="message-source">
-                        Origem: {msg.source} | {new Date(msg.timestamp).toLocaleTimeString()}
-                      </div>
-                    </div>
-                  ))}
-                  <div ref={messagesEndRef} />
-                </div>
-              )}
+          <div className="vote-panel">
+            <h3>Votação "Stop Music" (Meta 80%)</h3>
+            <p>{stopVotes.size} de {connections.length} usuários votaram.</p>
+            <div className="progress-bg">
+              <div className="progress-fill" style={{width: `${votePercent}%`}}></div>
             </div>
+          </div>
+
+          <h3>Usuários Conectados ({connections.length}/200)</h3>
+          <div className="peer-list">
+            {connections.map(id => <div key={id}>• {id}</div>)}
           </div>
         </div>
       );
@@ -742,17 +148,5 @@
 
     ReactDOM.render(<DistributorApp />, document.getElementById('root'));
   </script>
-</head>
-<body>
- 
-  <div id="root"></div>
 </body>
 </html>
-
-
-
-
-
-
-
-
