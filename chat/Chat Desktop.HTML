@@ -1292,8 +1292,6 @@ const toggleDarkMode = () => {
       const [cooldownRemaining, setCooldownRemaining] = useState(0);
       const [networkSize, setNetworkSize] = useState(1);
       const [isSuperNode, setIsSuperNode] = useState(false);
-      const [stopMusicPercentage, setStopMusicPercentage] = useState(0);
-      const [hasRequestedStop, setHasRequestedStop] = useState(false);
       const [radioState, setRadioState] = useState({ status: 'idle', startTime: 0, duration: 0, audioUrl: null, fileName: '', sender: '' });
       const radioStateRef = useRef(radioState);
       const radioAudioRef = useRef(null);
@@ -1875,22 +1873,6 @@ const toggleDarkMode = () => {
             if (conn) sendRadioSync(conn);
             return currentConns;
           });
-          return;
-        }
-
-        if (data.type === 'stop-music-stats') {
-          setStopMusicPercentage(data.percentage);
-          return;
-        }
-
-        if (data.type === 'stop-music-command') {
-          if (radioAudioRef.current) {
-            radioAudioRef.current.pause();
-            radioAudioRef.current.src = '';
-          }
-          setRadioState({ status: 'idle', startTime: 0, duration: 0, audioUrl: null, fileName: '', sender: '' });
-          setHasRequestedStop(false);
-          setStopMusicPercentage(0);
           return;
         }
 
@@ -2759,29 +2741,6 @@ const toggleDarkMode = () => {
               ▶ Tocando agora
             </div>
           )}
-          <button
-            onClick={() => {
-              if (hasRequestedStop) return;
-              setHasRequestedStop(true);
-              if (serverConn.current) {
-                serverConn.current.send({ type: 'stop-music-request' });
-              }
-            }}
-            disabled={hasRequestedStop}
-            style={{
-              marginTop: '10px',
-              backgroundColor: hasRequestedStop ? '#ef4444' : '#f59e0b',
-              color: 'white',
-              border: 'none',
-              padding: '5px 10px',
-              borderRadius: '4px',
-              cursor: hasRequestedStop ? 'default' : 'pointer',
-              fontSize: '12px',
-              fontWeight: 'bold'
-            }}
-          >
-            Stop Music ({stopMusicPercentage}%)
-          </button>
         </div>
       )}
 
