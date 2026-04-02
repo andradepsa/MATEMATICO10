@@ -201,17 +201,23 @@
     const usePersistentId = () => {
       const [peerId, setPeerId] = useState(() => {
         try {
-          return localStorage.getItem(PEER_ID_STORAGE_KEY) || DEFAULT_ID;
+          const saved = localStorage.getItem(PEER_ID_STORAGE_KEY) || DEFAULT_ID;
+          return saved.endsWith('-CENTRAL') ? saved : saved + '-CENTRAL';
         } catch (e) {
-          return DEFAULT_ID;
+          return DEFAULT_ID + '-CENTRAL';
         }
       });
 
       useEffect(() => {
         try {
-          localStorage.setItem(PEER_ID_STORAGE_KEY, peerId);
-          sessionStorage.setItem(PEER_ID_STORAGE_KEY, peerId);
-          document.cookie = `${PEER_ID_STORAGE_KEY}=${peerId}; max-age=31536000; path=/`;
+          const formattedId = peerId.endsWith('-CENTRAL') ? peerId : peerId + '-CENTRAL';
+          if (formattedId !== peerId) {
+            setPeerId(formattedId);
+            return;
+          }
+          localStorage.setItem(PEER_ID_STORAGE_KEY, formattedId);
+          sessionStorage.setItem(PEER_ID_STORAGE_KEY, formattedId);
+          document.cookie = `${PEER_ID_STORAGE_KEY}=${formattedId}; max-age=31536000; path=/`;
         } catch (e) {
           console.error("Erro ao persistir ID:", e);
         }
