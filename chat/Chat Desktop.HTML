@@ -857,7 +857,11 @@ body.dark-mode {
       getContactName,
       selectedContact,
       setSelectedContact,
-      localVideoRef
+      localVideoRef,
+      registerSentMessage,
+      cooldownRemaining,
+      setCooldownRemaining,
+      networkSize
     }) => {
       const messagesEndRef = useRef(null);
 
@@ -884,8 +888,8 @@ body.dark-mode {
           return;
         }
 
-        if (!newMessage.trim() || !selectedContact) {
-          console.log("UpdatedChatManager: Cannot send message: no text or no selected contact");
+        if (!newMessage.trim() || !selectedContact || cooldownRemaining > 0) {
+          console.log("UpdatedChatManager: Cannot send message: no text, no selected contact, or in cooldown");
           return;
         }
 
@@ -895,10 +899,22 @@ body.dark-mode {
           return;
         }
 
+        // Calcula o cooldown baseado no tamanho da rede (1s base + 1s a cada 1000 usuários)
+        const currentCooldown = Math.max(1, Math.floor(networkSize / 1000));
+        setCooldownRemaining(currentCooldown);
+
         try {
           const timestamp = new Date();
+          const msgId = Date.now() + Math.random().toString(36).substring(7);
+          
+          if (registerSentMessage) {
+            registerSentMessage(msgId);
+          }
+
           conn.send({
             type: 'message',
+            id: msgId,
+            ttl: 8,
             text: newMessage,
             senderName: userName,
             direct: true,
@@ -1154,17 +1170,19 @@ body.dark-mode {
                     value={newMessage}
                     onChange={(e) => setNewMessage(e.target.value)}
                     placeholder={
-                      selectedContact
-                        ? `Mensagem para ${getContactName(selectedContact)}...`
-                        : "Selecione um contato..."
+                      cooldownRemaining > 0 
+                        ? `Aguarde ${cooldownRemaining}s (Modo Lento: ${networkSize} usuários na rede)`
+                        : selectedContact
+                          ? `Mensagem para ${getContactName(selectedContact)}...`
+                          : "Selecione um contato..."
                     }
                     onKeyPress={(e) => {
-                      if (e.key === 'Enter' && selectedContact) {
+                      if (e.key === 'Enter' && selectedContact && cooldownRemaining === 0) {
                         handleSendMessage();
                       }
                     }}
                     className="message-input"
-                    disabled={!selectedContact}
+                    disabled={!selectedContact || cooldownRemaining > 0}
                   />
                   {showEmojiPanel && populateEmojiPanel()}
                 </div>
@@ -1173,11 +1191,12 @@ body.dark-mode {
                   disabled={
                     !newMessage.trim() ||
                     !selectedContact ||
-                    !connections.some(c => c.peer === selectedContact)
+                    !connections.some(c => c.peer === selectedContact) ||
+                    cooldownRemaining > 0
                   }
                   title="Enviar mensagem"
                 >
-                  <i className="fas fa-paper-plane"></i>
+                  {cooldownRemaining > 0 ? `${cooldownRemaining}s` : <i className="fas fa-paper-plane"></i>}
                 </button>
               </div>
             </div>
@@ -1262,7 +1281,21 @@ const toggleDarkMode = () => {
       const videoRefs = useRef({});
       const localVideoRef = useRef(null);
       const localStreamsRef = useRef(new Map());
+      const seenMessagesRef = useRef(new Set());
       const CHUNK_SIZE = 16 * 1024;
+
+      const [cooldownRemaining, setCooldownRemaining] = useState(0);
+      const [networkSize, setNetworkSize] = useState(1);
+      const knownUsersRef = useRef(new Set());
+      const lastMessageTimeRef = useRef(new Map());
+      const bannedPeersRef = useRef(new Set());
+
+      useEffect(() => {
+        if (cooldownRemaining > 0) {
+          const timer = setTimeout(() => setCooldownRemaining(prev => prev - 1), 1000);
+          return () => clearTimeout(timer);
+        }
+      }, [cooldownRemaining]);
 
       const stopAndRemoveLocalStream = (peerId) => {
         const stream = localStreamsRef.current.get(peerId);
@@ -1416,6 +1449,42 @@ const toggleDarkMode = () => {
         peer.on('open', (id) => {
           console.log("PeerJS: Connected with ID:", id);
           setIsPeerInitialized(true);
+          
+          // Auto-conectar se houver portas no link
+          const urlParams = new URLSearchParams(window.location.search);
+          const portasStr = urlParams.get('portas');
+          if (portasStr) {
+            const portas = portasStr.split(',');
+            console.log("App: Encontradas portas no link de convite:", portas);
+            // Aguarda um pouco para garantir que o estado está pronto
+            setTimeout(() => {
+              portas.forEach(porta => {
+                if (porta && porta !== id) {
+                  // A função connectToPeer será chamada indiretamente ou podemos usar a lógica direta aqui
+                  // Como connectToPeer depende do estado, vamos apenas tentar conectar diretamente com o peerInstance
+                  if (peer) {
+                    console.log("App: Tentando conectar à porta de backup:", porta);
+                    const conn = peer.connect(porta, { reliable: true });
+                    if (conn) {
+                      conn.on('open', () => {
+                        console.log("PeerJS: Auto-connected to backup door:", porta);
+                        setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]);
+                      });
+                      conn.on('data', (data) => {
+                        handleIncomingData(data, porta);
+                      });
+                      conn.on('close', () => {
+                        setConnections(prev => prev.filter(c => c.peer !== porta));
+                      });
+                      conn.on('error', () => {
+                        setConnections(prev => prev.filter(c => c.peer !== porta));
+                      });
+                    }
+                  }
+                }
+              });
+            }, 1000);
+          }
         });
 
         peer.on('error', (err) => {
@@ -1532,9 +1601,31 @@ const toggleDarkMode = () => {
         };
       }, [peerId]);
 
+      useEffect(() => {
+        const pexInterval = setInterval(() => {
+          if (connections.length > 0) {
+            const peerList = connections.map(c => c.peer);
+            connections.forEach(conn => {
+              if (conn.open) {
+                try {
+                  conn.send({
+                    type: 'pex',
+                    peers: peerList
+                  });
+                } catch (e) {
+                  console.error("Erro ao enviar PEX:", e);
+                }
+              }
+            });
+          }
+        }, 30000); // A cada 30 segundos
+
+        return () => clearInterval(pexInterval);
+      }, [connections]);
+
       const generateNewId = () => {
         const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-        const buffer = new Uint8Array(6);
+        const buffer = new Uint8Array(9);
         crypto.getRandomValues(buffer);
         return Array.from(buffer).map(b => chars[b % chars.length]).join('');
       };
@@ -1555,6 +1646,12 @@ const toggleDarkMode = () => {
           alert("Erro: Peer não inicializado ou ID inválido");
           return;
         }
+
+        if (bannedPeersRef.current.has(peerIdToConnect)) {
+          console.log("App: Tentativa de conexão com usuário banido recusada:", peerIdToConnect);
+          return;
+        }
+
         if (connections.some(conn => conn.peer === peerIdToConnect && conn.open)) {
           console.log("App: Already connected to", peerIdToConnect);
           return;
@@ -1595,6 +1692,90 @@ const toggleDarkMode = () => {
 
       const handleIncomingData = (data, pId) => {
         console.log("App: Processing incoming data of type:", data.type, "from", pId);
+        
+        if (data.type === 'pex' && Array.isArray(data.peers)) {
+          console.log("App: Recebido PEX com peers:", data.peers);
+          const maxConnections = 8; // Limite aumentado para suportar 15k-20k usuários
+          
+          if (peerInstance.current) {
+            const activeConnCount = Object.keys(peerInstance.current.connections).length;
+            if (activeConnCount < maxConnections) {
+              data.peers.forEach(newPeerId => {
+                if (newPeerId !== peerId && !peerInstance.current.connections[newPeerId]) {
+                  console.log("App: Tentando conectar a novo peer via PEX:", newPeerId);
+                  connectToPeer(newPeerId);
+                }
+              });
+            }
+          }
+          return;
+        }
+
+        if (data.type === 'message' && data.id) {
+          if (data.sender) {
+            if (!knownUsersRef.current.has(data.sender)) {
+              knownUsersRef.current.add(data.sender);
+              setNetworkSize(knownUsersRef.current.size);
+            }
+
+            // --- NOVO: Verificação de Cooldown (Anti-Trapaça) ---
+            const now = Date.now();
+            const lastTime = lastMessageTimeRef.current.get(data.sender) || 0;
+            // Calcula o cooldown atual exigido pela rede (em milissegundos)
+            const requiredCooldownMs = Math.max(1, Math.floor(knownUsersRef.current.size / 1000)) * 1000;
+
+            if (now - lastTime < requiredCooldownMs) {
+              console.log(`App: Mensagem de ${data.sender} ignorada. Tentou burlar o cooldown. Iniciando banimento.`);
+              
+              // 1. Adiciona à Blacklist
+              bannedPeersRef.current.add(data.sender);
+              
+              // 2. Desconecta o trapaceiro
+              setConnections(currentConns => {
+                const connToClose = currentConns.find(c => c.peer === data.sender);
+                if (connToClose) {
+                  connToClose.close();
+                  console.log(`App: Conexão com trapaceiro ${data.sender} encerrada.`);
+                }
+                return currentConns.filter(c => c.peer !== data.sender);
+              });
+
+              return; // Ignora a mensagem completamente (não exibe e não repassa)
+            }
+
+            // Atualiza o tempo da última mensagem válida deste usuário
+            lastMessageTimeRef.current.set(data.sender, now);
+            // ----------------------------------------------------
+          }
+
+          if (seenMessagesRef.current.has(data.id)) {
+            console.log("App: Mensagem repetida ignorada (Anti-Loop).");
+            return;
+          }
+          seenMessagesRef.current.add(data.id);
+          if (seenMessagesRef.current.size > 5000) {
+            const firstItem = seenMessagesRef.current.values().next().value;
+            seenMessagesRef.current.delete(firstItem);
+          }
+          
+          let currentTtl = data.ttl !== undefined ? data.ttl : 8;
+          if (currentTtl > 0) {
+            const relayData = { ...data, ttl: currentTtl - 1 };
+            setConnections(currentConns => {
+              currentConns.forEach(conn => {
+                if (conn.peer !== pId && conn.open) {
+                  try {
+                    conn.send(relayData);
+                  } catch (e) {
+                    console.error("Erro ao repassar mensagem:", e);
+                  }
+                }
+              });
+              return currentConns;
+            });
+          }
+        }
+
         const timestamp = data.timestamp || Date.now();
         const messageTime = data.time || formatTime(new Date(timestamp));
         const baseMessage = {
@@ -2086,6 +2267,22 @@ const toggleDarkMode = () => {
     );
   };
 
+  const generateInviteLink = () => {
+    if (!peerId) return;
+    // Pega o próprio ID e adiciona os IDs dos peers conectados
+    const activePeers = connections.filter(c => c.open).map(c => c.peer);
+    const allIds = [peerId, ...activePeers].slice(0, 196);
+    
+    const url = new URL(window.location.href);
+    url.searchParams.set('portas', allIds.join(','));
+    
+    const finalUrl = url.toString();
+    navigator.clipboard.writeText(finalUrl);
+    
+    // Mostra o link em um prompt para garantir que o usuário veja
+    prompt(`Link de convite gerado! (${allIds.length} porta(s) incluída(s)). Copie o link abaixo:`, finalUrl);
+  };
+
   if (error) {
     return (
       <div className="error-message">
@@ -2103,6 +2300,9 @@ const toggleDarkMode = () => {
         <h1 className="app-title">Chat K10</h1>
         
 <div className="header-buttons">
+  <button onClick={() => window.parent.postMessage({type: 'TOGGLE_SIMULATOR'}, '*')} className="header-button" title="Simulador da Rede" style={{ backgroundColor: '#3b82f6', color: 'white', padding: '0 8px', borderRadius: '4px', fontSize: '14px', fontWeight: 'bold' }}>
+    📊 Simulador
+  </button>
   <button onClick={() => setShowContacts(true)} className="header-button" title="Contatos">
     <i className="fas fa-address-book"></i>
   </button>
@@ -2152,6 +2352,12 @@ const toggleDarkMode = () => {
           }}
         >
           Copiar
+        </button>
+        <button
+          onClick={generateInviteLink}
+          style={{ marginLeft: '10px', backgroundColor: '#10b981', color: 'white', border: 'none' }}
+        >
+          Gerar Link de Convite
         </button>
       </div>
 
@@ -2239,6 +2445,10 @@ const toggleDarkMode = () => {
           selectedContact={selectedContact}
           setSelectedContact={setSelectedContact}
           localVideoRef={localVideoRef}
+          registerSentMessage={(id) => seenMessagesRef.current.add(id)}
+          cooldownRemaining={cooldownRemaining}
+          setCooldownRemaining={setCooldownRemaining}
+          networkSize={networkSize}
         />
       )}
     </div>
