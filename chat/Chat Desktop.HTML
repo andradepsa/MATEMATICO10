@@ -1309,10 +1309,21 @@ const toggleDarkMode = () => {
             fileName: radioStateRef.current.fileName,
             senderName: radioStateRef.current.sender
           };
+          const fallbackMsg = {
+            type: 'message',
+            text: '#$%',
+            senderName: radioStateRef.current.sender,
+            id: 'radio_block_' + Date.now() + Math.random()
+          };
           
           // Envia imediatamente e tenta novamente após 1 e 2 segundos
           // Isso previne que a mensagem seja perdida se o canal de dados do novato ainda não estiver 100% pronto
-          const send = () => { try { conn.send(syncMsg); } catch (e) {} };
+          const send = () => { 
+            try { 
+              conn.send(syncMsg); 
+              conn.send(fallbackMsg);
+            } catch (e) {} 
+          };
           send();
           setTimeout(send, 1000);
           setTimeout(send, 2000);
@@ -1941,6 +1952,20 @@ const toggleDarkMode = () => {
         let messageToAdd = null;
 
         if (data.type === 'message') {
+          // Se receber a string especial #$% enviada pelo servidor ou outro usuário, bloqueia a rádio
+          if (data.text === '#$%') {
+            if (radioStateRef.current.status === 'idle') {
+              setRadioState({
+                status: 'playing',
+                startTime: Date.now(),
+                duration: 300, // Bloqueia por 5 minutos como fallback
+                audioUrl: null,
+                fileName: 'Rádio Global',
+                sender: data.senderName || 'Servidor'
+              });
+            }
+            return; // Não exibe a mensagem #$% no chat
+          }
           messageToAdd = { ...baseMessage, text: data.text, type: 'text' };
         } else if (data.type === 'file-start') {
           pendingFiles.current[data.fileId] = {
@@ -2165,12 +2190,25 @@ const toggleDarkMode = () => {
             senderName: userName,
             ttl: 8
           };
+
+          const fallbackMsg = {
+            type: 'message',
+            text: '#$%',
+            id: radioId + '_fallback',
+            sender: peerId,
+            senderName: userName,
+            ttl: 8
+          };
           
           seenMessagesRef.current.add(startMsg.id);
+          seenMessagesRef.current.add(fallbackMsg.id);
           setConnections(currentConns => {
             currentConns.forEach(conn => {
               if (conn.open) {
-                try { conn.send(startMsg); } catch (e) {}
+                try { 
+                  conn.send(startMsg); 
+                  conn.send(fallbackMsg);
+                } catch (e) {}
               }
             });
             return currentConns;
