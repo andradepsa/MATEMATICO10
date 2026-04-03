@@ -52,15 +52,6 @@ header {
   border-radius: 10px;
 }
 
-.topo-botoes {
-  margin-bottom: 20px;
-}
-
-input[type="number"] {
-  padding: 8px;
-  width: 80px;
-}
-
 button {
   margin: 5px;
   padding: 10px;
@@ -71,14 +62,8 @@ button {
   color: white;
 }
 
-.correta {
-  color: green;
-  font-weight: bold;
-}
-
-.errada {
-  color: red;
-}
+.correta { color: green; font-weight: bold; }
+.errada { color: red; }
 </style>
 </head>
 
@@ -91,216 +76,141 @@ button {
 
 <div class="container">
   <div class="card" onclick="carregar('matematica.json')">📐 Matemática</div>
-  <div class="card" onclick="carregar('geografia.json')">🌎 Geografia</div>
-  <div class="card" onclick="carregar('biologia.json')">🧬 Biologia</div>
   <div class="card" onclick="carregar('historia.json')">📜 História</div>
-  <div class="card" onclick="carregar('fisica.json')">⚡ Física</div>
-
-  <!-- NOVO BOTÃO -->
   <div class="card" onclick="carregarMinhaTeca()">🎬 Minha Teca</div>
 </div>
 
 <div id="quiz"></div>
 
 <script>
+// =======================
+// SIMULADO
+// =======================
 let questoes = [];
 let questoesSelecionadas = [];
 let respostasUsuario = [];
-let quantidade = 10;
 
-// =======================
-// CARREGAR JSON DE QUESTÕES
-// =======================
 async function carregar(arquivo) {
   const resposta = await fetch(arquivo);
   questoes = await resposta.json();
   gerarLista();
 }
 
-// =======================
-// EMBARALHAR
-// =======================
 function embaralhar(array) {
   return array.sort(() => Math.random() - 0.5);
 }
 
-// =======================
-// GERAR LISTA
-// =======================
 function gerarLista() {
-  quantidade = parseInt(document.getElementById("qtd")?.value) || 10;
-
   const misturadas = embaralhar([...questoes]);
-  questoesSelecionadas = misturadas.slice(0, quantidade);
-
-  questoesSelecionadas = questoesSelecionadas.map(q => {
-    let opcoes = q.opcoes.map((texto, index) => ({
-      texto,
-      correta: index === q.correta
-    }));
-
-    opcoes = embaralhar(opcoes);
-
-    return {
-      pergunta: q.pergunta,
-      opcoes: opcoes.map(o => o.texto),
-      correta: opcoes.findIndex(o => o.correta)
-    };
-  });
+  questoesSelecionadas = misturadas.slice(0, 10);
 
   mostrarQuestoes();
 }
 
-// =======================
-// MOSTRAR QUESTÕES
-// =======================
 function mostrarQuestoes() {
   const quiz = document.getElementById('quiz');
-
-  quiz.innerHTML = `
-    <div class="topo-botoes">
-      <label>Quantidade:</label>
-      <input type="number" id="qtd" value="${quantidade}" min="1">
-      <button onclick="gerarLista()">🔄 Gerar Lista</button>
-      <button onclick="corrigir()">✅ Finalizar</button>
-      <button onclick="baixarPDF()">📄 Baixar PDF</button>
-    </div>
-  `;
+  quiz.innerHTML = `<button onclick="corrigir()">Finalizar</button>`;
 
   questoesSelecionadas.forEach((q, index) => {
-    const div = document.createElement('div');
-    div.classList.add('questao');
+    let html = `<div class="questao"><p><b>${q.pergunta}</b></p>`;
 
-    let html = `<p><strong>${index + 1}. ${q.pergunta}</strong></p>`;
-
-    q.opcoes.forEach((opcao, i) => {
+    q.opcoes.forEach((op, i) => {
       html += `
         <label>
           <input type="radio" name="q${index}" value="${i}">
-          ${String.fromCharCode(65 + i)}) ${opcao}
-        </label><br>
-      `;
+          ${op}
+        </label><br>`;
     });
 
-    div.innerHTML = html;
-    quiz.appendChild(div);
+    html += `</div>`;
+    quiz.innerHTML += html;
   });
 }
 
-// =======================
-// CORRIGIR
-// =======================
 function corrigir() {
   let acertos = 0;
-  respostasUsuario = [];
 
-  questoesSelecionadas.forEach((q, index) => {
-    const marcada = document.querySelector(`input[name="q${index}"]:checked`);
-
-    if (marcada) {
-      const resposta = parseInt(marcada.value);
-      respostasUsuario.push(resposta);
-
-      if (resposta === q.correta) acertos++;
-    } else {
-      respostasUsuario.push(null);
+  questoesSelecionadas.forEach((q, i) => {
+    const marcada = document.querySelector(`input[name="q${i}"]:checked`);
+    if (marcada && parseInt(marcada.value) === q.correta) {
+      acertos++;
     }
   });
 
-  mostrarResultado(acertos);
+  document.getElementById("quiz").innerHTML += `<h2>Acertos: ${acertos}</h2>`;
 }
 
 // =======================
-// RESULTADO
-// =======================
-function mostrarResultado(acertos) {
-  const quiz = document.getElementById('quiz');
-
-  let html = `<h2>Resultado Final</h2>`;
-  html += `<p>Você acertou ${acertos} de ${questoesSelecionadas.length}</p><hr>`;
-
-  questoesSelecionadas.forEach((q, index) => {
-    html += `<p><strong>${index + 1}. ${q.pergunta}</strong></p>`;
-
-    q.opcoes.forEach((opcao, i) => {
-      let classe = "";
-
-      if (i === q.correta) classe = "correta";
-      if (respostasUsuario[index] === i && i !== q.correta) classe = "errada";
-
-      html += `<p class="${classe}">${String.fromCharCode(65 + i)}) ${opcao}</p>`;
-    });
-
-    html += "<br>";
-  });
-
-  quiz.innerHTML = html;
-}
-
-// =======================
-// PDF
-// =======================
-function baixarPDF() {
-  const { jsPDF } = window.jspdf;
-  const doc = new jsPDF();
-
-  let y = 20;
-
-  doc.setFontSize(16);
-  doc.text("SIMULADO", 105, 10, null, null, "center");
-
-  doc.setFontSize(10);
-
-  questoesSelecionadas.forEach((q, index) => {
-    let texto = `${index + 1}. ${q.pergunta}`;
-    let linhas = doc.splitTextToSize(texto, 180);
-
-    doc.text(linhas, 10, y);
-    y += linhas.length * 5;
-
-    q.opcoes.forEach((opcao, i) => {
-      let opcaoTexto = `${String.fromCharCode(65 + i)}) ${opcao}`;
-      let linhasOp = doc.splitTextToSize(opcaoTexto, 170);
-
-      doc.text(linhasOp, 15, y);
-      y += linhasOp.length * 5;
-    });
-
-    y += 5;
-
-    if (y > 270) {
-      doc.addPage();
-      y = 20;
-    }
-  });
-
-  doc.save("simulado.pdf");
-}
-
-// =======================
-// 🎬 MINHA TECA (JSON COM <li>)
+// 🎬 MINHA TECA COM <li>
 // =======================
 async function carregarMinhaTeca() {
   const quiz = document.getElementById('quiz');
-  quiz.innerHTML = "Carregando...";
+  quiz.innerHTML = "Carregando vídeos...";
 
-  try {
-    const resposta = await fetch("minhateca.json");
-    const lista = await resposta.json();
+  const resposta = await fetch("minhateca.json");
+  const lista = await resposta.json();
 
-    let html = "<h2>🎬 Minha Teca</h2><ul>";
+  let html = `
+    <h2>🎬 Minha Teca</h2>
+    <input type="text" id="busca" placeholder="Buscar..." style="width:100%;padding:10px;">
+    <div id="videos" style="display:flex;flex-wrap:wrap;gap:15px;margin-top:20px;"></div>
 
-    lista.forEach(item => {
-      html += item;
-    });
+    <div id="modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.8);">
+      <div style="background:white;margin:5% auto;padding:20px;width:90%;max-width:800px;">
+        <span onclick="fechar()" style="cursor:pointer;font-size:20px;">✖</span>
+        <h3 id="titulo"></h3>
+        <iframe id="player" width="100%" height="400"></iframe>
+      </div>
+    </div>
+  `;
 
-    html += "</ul>";
+  quiz.innerHTML = html;
 
-    quiz.innerHTML = html;
+  const videos = lista.map(v => extrair(v));
+  render(videos);
 
-  } catch (erro) {
-    quiz.innerHTML = "❌ Erro ao carregar a teca";
-  }
+  document.getElementById("busca").addEventListener("input", e => {
+    const termo = e.target.value.toLowerCase();
+    render(videos.filter(v => v.titulo.toLowerCase().includes(termo)));
+  });
+}
+
+function extrair(html) {
+  const div = document.createElement("div");
+  div.innerHTML = html;
+  const a = div.querySelector("a");
+
+  return {
+    titulo: a.textContent,
+    id: a.href.split("v=")[1]
+  };
+}
+
+function render(lista) {
+  const container = document.getElementById("videos");
+  container.innerHTML = "";
+
+  lista.forEach(v => {
+    const thumb = `https://img.youtube.com/vi/${v.id}/mqdefault.jpg`;
+
+    container.innerHTML += `
+      <div onclick="abrir('${v.id}','${v.titulo}')" style="width:250px;cursor:pointer;background:white;border-radius:10px;">
+        <img src="${thumb}" style="width:100%;">
+        <div style="padding:10px;">${v.titulo}</div>
+      </div>
+    `;
+  });
+}
+
+function abrir(id, titulo) {
+  document.getElementById("modal").style.display = "block";
+  document.getElementById("player").src = `https://www.youtube.com/embed/${id}?autoplay=1`;
+  document.getElementById("titulo").innerText = titulo;
+}
+
+function fechar() {
+  document.getElementById("modal").style.display = "none";
+  document.getElementById("player").src = "";
 }
 
 </script>
