@@ -2,11 +2,11 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Simulados Online</title>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
 <style>
-/* ===== SIMULADOR ===== */
 body {
   margin: 0;
   font-family: Arial;
@@ -32,667 +32,240 @@ header {
   border-radius: 15px;
   text-align: center;
   cursor: pointer;
+  transition: 0.3s;
+  font-size: 18px;
   font-weight: bold;
 }
 
-.card:hover { transform: scale(1.05); }
+.card:hover {
+  transform: scale(1.05);
+}
 
-#conteudo {
+#quiz {
   padding: 20px;
 }
 
 .questao {
   background: white;
-  margin: 10px 0;
+  margin-bottom: 15px;
   padding: 15px;
   border-radius: 10px;
 }
 
+.topo-botoes {
+  margin-bottom: 20px;
+}
+
+input[type="number"] {
+  padding: 8px;
+  width: 80px;
+}
+
 button {
+  margin: 5px;
   padding: 10px;
-  margin: 10px 5px;
+  cursor: pointer;
   border: none;
+  border-radius: 5px;
   background: #4facfe;
   color: white;
-  border-radius: 5px;
-  cursor: pointer;
 }
 
-/* ===== TECA ===== */
-#tecaWrapper {
-  display: none;
-  background-color: #f5f5f5;
-  padding: 20px;
-  min-height: 100vh;
-}
-
-#tecaWrapper h1 {
-  text-align: center;
-  margin-bottom: 10px;
-  color: #333;
-}
-
-#videoCount {
-  text-align: center;
-  color: #666;
-  margin-bottom: 20px;
-  font-size: 16px;
-}
-
-.btn-voltar {
-  display: inline-block;
-  margin-bottom: 10px;
-  color: #1976d2;
-  text-decoration: none;
-  font-size: 15px;
-  cursor: pointer;
-  background: none;
-  border: none;
-  padding: 0;
-}
-
-.search-container {
-  position: sticky;
-  top: 0;
-  background-color: rgba(245, 245, 245, 0.95);
-  padding: 15px 0;
-  z-index: 100;
-  margin-bottom: 20px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-}
-
-#searchInput {
-  width: 100%;
-  padding: 15px;
-  font-size: 16px;
-  border: 1px solid #ddd;
-  border-radius: 8px;
-  max-width: 600px;
-  margin: 0 auto;
-  display: block;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  transition: box-shadow 0.3s, border-color 0.3s;
-  box-sizing: border-box;
-}
-
-#searchInput:focus {
-  outline: none;
-  border-color: #2196f3;
-  box-shadow: 0 2px 12px rgba(33, 150, 243, 0.2);
-}
-
-#searchInput::placeholder {
-  color: #aaa;
-}
-
-.loader {
-  border: 4px solid #f3f3f3;
-  border-top: 4px solid #3498db;
-  border-radius: 50%;
-  width: 30px;
-  height: 30px;
-  animation: spin 1s linear infinite;
-  margin: 20px auto;
-  display: none;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
-#videoListContainer {
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-ul#videoList {
-  list-style: none;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 20px;
-  justify-content: center;
-}
-
-.video-item {
-  background: #fff;
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  cursor: pointer;
-  transition: transform 0.2s, box-shadow 0.2s;
-  width: 250px;
-  flex-shrink: 0;
-  flex-grow: 0;
-  position: relative;
-}
-
-.video-item:hover {
-  transform: scale(1.02);
-  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-}
-
-.video-thumbnail {
-  width: 250px;
-  height: 140px;
-  overflow: hidden;
-  position: relative;
-  background-color: #eee;
-}
-
-.video-thumbnail img {
-  width: 250px;
-  height: 140px;
-  object-fit: cover;
-  display: block;
-}
-
-.video-thumbnail .placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  background-color: #eee;
-  color: #999;
-  font-size: 14px;
-}
-
-.video-info {
-  padding: 12px;
-}
-
-.video-title {
-  font-size: 16px;
+.correta {
+  color: green;
   font-weight: bold;
-  line-height: 1.4;
-  max-height: 67px;
-  overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
 }
 
-.video-duration {
-  color: #888;
-  margin-top: 8px;
-  font-size: 14px;
-}
-
-.modal-teca {
-  display: none;
-  position: fixed;
-  z-index: 1000;
-  left: 0; top: 0;
-  width: 100%; height: 100%;
-  overflow: auto;
-  background-color: rgba(0,0,0,0.85);
-}
-
-.modal-teca-content {
-  background-color: #fff;
-  margin: 5vh auto;
-  padding: 20px;
-  border-radius: 8px;
-  max-width: 800px;
-  width: 90%;
-  position: relative;
-  text-align: center;
-  box-shadow: 0 5px 15px rgba(0,0,0,0.3);
-}
-
-.modal-teca-content iframe {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  max-height: 80vh;
-  border: none;
-}
-
-.close-teca {
-  position: absolute;
-  right: 15px;
-  top: 10px;
-  font-size: 28px;
-  font-weight: bold;
-  cursor: pointer;
-  z-index: 10;
-  color: #333;
-}
-
-.close-teca:hover {
-  color: #ff5252;
-}
-
-#modalInfo {
-  margin-bottom: 15px;
-  text-align: left;
-}
-
-#modalTitle {
-  margin-top: 0;
-  margin-right: 30px;
-}
-
-#statusMessage {
-  text-align: center;
-  padding: 15px;
-  margin: 20px auto;
-  max-width: 80%;
-  border-radius: 8px;
-  background-color: #fff;
-  display: none;
-}
-
-.error {
-  background-color: #ffebee;
-  color: #d32f2f;
-  border-left: 4px solid #f44336;
-}
-
-.info {
-  background-color: #e3f2fd;
-  color: #1976d2;
-  border-left: 4px solid #2196f3;
-}
-
-.empty-state {
-  text-align: center;
-  padding: 40px 20px;
-  color: #777;
-}
-
-#videoListOriginal {
-  display: none;
-}
-
-@media (max-width: 768px) {
-  #searchInput {
-    width: 90%;
-  }
+.errada {
+  color: red;
 }
 </style>
 </head>
+
 <body>
 
-<!-- ===== SIMULADOR ===== -->
-<div id="simuladorWrapper">
-  <header>
-    <h1>📚 Simulados Online</h1>
-    <p>Escolha uma disciplina ou acesse sua teca</p>
-  </header>
+<header>
+  <h1>📚 Simulados Online</h1>
+  <p>Escolha uma matéria</p>
+</header>
 
-  <div class="container">
-    <div class="card" onclick="carregar('matematica.json')">📐 Matemática</div>
-    <div class="card" onclick="carregar('portugues.json')">📖 Português</div>
-    <div class="card" onclick="carregar('historia.json')">📜 História</div>
-    <div class="card" onclick="carregar('geografia.json')">🌎 Geografia</div>
-    <div class="card" onclick="carregar('biologia.json')">🧬 Biologia</div>
-    <div class="card" onclick="carregar('fisica.json')">⚡ Física</div>
-  
-    <div class="card" onclick="abrirTeca()">🎬 Minha Teca</div>
-  </div>
+<div class="container">
+  <div class="card" onclick="carregar('matematica.json')">📐 Matemática</div>
+  <div class="card" onclick="carregar('geografia.json')">🌎 Geografia</div>
+  <div class="card" onclick="carregar('biologia.json')">🧬 Biologia</div>
+  <div class="card" onclick="carregar('historia.json')">📜 História</div>
+  <div class="card" onclick="carregar('fisica.json')">⚡ Física</div>
 
-  <div id="conteudo"></div>
+  <!-- ✅ AQUI ESTÁ A MUDANÇA -->
+  <div class="card" onclick="abrirMinhaTeca()">📁 Minha Teca</div>
 </div>
 
-<!-- ===== TECA ===== -->
-<div id="tecaWrapper">
-  <h1>Minha Videoteca</h1>
-  <center><h6>Matemática, Física, Astronomia e Conhecimentos Gerais</h6></center>
-  <div id="videoCount">Carregando vídeos...</div>
-  <button class="btn-voltar" onclick="voltarSimulador()">⬅️ Voltar</button>
-
-  <div class="search-container">
-    <input type="text" id="searchInput" placeholder="Buscar vídeos...">
-  </div>
-
-  <div id="statusMessage"></div>
-  <div class="loader" id="loader"></div>
-
-  <!-- Lista original oculta -->
-  <ul id="videoListOriginal">
-    <li><a href="https://www.youtube.com/watch?v=w3wQsRTRi2I" target="_blank">Matemáquinas Vol.2 - Ta Ta Ta Ta - Ritmos no Viver</a> (2:18)</li>
-    <li><a href="https://www.youtube.com/watch?v=fBXEpiC8Agg" target="_blank">Matemática: a arte de compreender o mundo - com Carlos Mathias e Mariana Gaete - UNILA CHARLA REMIX</a> (20:13)</li>
-    <li><a href="https://www.youtube.com/watch?v=xTfVovnGE0o" target="_blank">Matemáquinas (Versão com Texto) - Um Ensaio de Antonio Miguel e Carlos Mathias</a> (2:31)</li>
-    <li><a href="https://www.youtube.com/watch?v=k2x8JWFtjGM" target="_blank">SACANI explica o SURGIMENTO ESTRELAS</a></li>
-    <li><a href="https://www.youtube.com/watch?v=kQ40EYABYUE" target="_blank">COMO foi CRIADO o GRANDE VULCÃO ETNA?</a></li>
-    <li><a href="https://www.youtube.com/watch?v=q-tjUTreBgg" target="_blank">COMO o UNIVERSO NASCEU?</a></li>
-    <li><a href="https://www.youtube.com/watch?v=v5O_dzOCgx8" target="_blank">SERJÃO explica a EXPLOSÃO SOLAR</a></li>
-    <li><a href="https://www.youtube.com/watch?v=Pzcab5NF0as" target="_blank">ESTAMOS SOZINHOS na GALÁXIA ???</a></li>
-    <li><a href="https://www.youtube.com/watch?v=uHo-Pi5fdKc" target="_blank">TODAS as ERUPÇÕES do ETNA !!!</a></li>
-    <li><a href="https://www.youtube.com/watch?v=4JVIz8xTkPA" target="_blank">ESSE ASTEROIDE tem CHANCE de BATER na TERRA em DEZEMBRO</a></li>
-    <li><a href="https://www.youtube.com/watch?v=xB3f1za_PSQ" target="_blank">QUADRARO em MARTE que ELON MUSK comentou!</a></li>
-    <li><a href="https://www.youtube.com/watch?v=vhXs8GQeLKM" target="_blank">O que SERJÃO FAZIA quando era UFÓLOGO</a></li>
-    <li><a href="https://www.youtube.com/watch?v=5kYmnNi08m4" target="_blank">SERJÃO explica o BURACO DE MINHOCA</a></li>
-    <li><a href="https://www.youtube.com/watch?v=_0YDC5AOFnU" target="_blank">A TERRA vai GANHAR uma MINI-LUA</a></li>
-    <li><a href="https://www.youtube.com/watch?v=fBhlzBsQfsk" target="_blank">INRI CRISTO falou a REAL pro SÉRGIO SACANI</a></li>
-    <li><a href="https://www.youtube.com/watch?v=R-iS-I5ydpg" target="_blank">VULCÃO DESTRUIU uma CIDADE INTEIRA !!!</a></li>
-    <li><a href="https://www.youtube.com/watch?v=yd2oX763_ic" target="_blank">A FITA do caso VARGINHA</a></li>
-    <li><a href="https://www.youtube.com/watch?v=-uC2rrS62Cw" target="_blank">COMO ESTUDAMOS os PLANETAS</a></li>
-    <li><a href="https://www.youtube.com/watch?v=OyrmRl5vDc4" target="_blank">OS RISCOS da VIAGEM no TEMPO</a></li>
-    <li><a href="https://www.youtube.com/watch?v=9l-2eAbdVq0" target="_blank">SERJÃO era UFÓLOGO!!!</a></li>
-    <li><a href="https://www.youtube.com/watch?v=qVehZo0xqaI" target="_blank">SERJÃO RESPONDE de ONDE VIEMOS !!!</a></li>
-    <li><a href="https://www.youtube.com/watch?v=D6zqCFsJcTw" target="_blank">EXISTE ILHAS ESCONDIDAS dentro da TERRA</a></li>
-    <li><a href="https://www.youtube.com/watch?v=VwB0HLXavuk" target="_blank">EXPLICANDO a TEORIA da "FLORESTA NEGRA"</a></li>
-    <li><a href="https://www.youtube.com/watch?v=1TNfEISsxvc" target="_blank">AS EXTINÇÕES no PLANETA TERRA</a></li>
-    <li><a href="https://www.youtube.com/watch?v=RrJp0_CbPas" target="_blank">DESCUBRA o TEMA da NOVA SÉRIE do SPACE TODAY !!!</a></li>
-    <li><a href="https://www.youtube.com/watch?v=mxtkb2LNrlw" target="_blank">PROVAVELMENTE NUNCA teria EXISTIDO VIDA...</a></li>
-    <li><a href="https://www.youtube.com/watch?v=JSnuQ8cUqTo" target="_blank">Você Sabia Que O Brasil Terá Déficit de 530 Mil Profissionais de Tecnologia Até 2025?</a></li>
-    <li><a href="https://www.youtube.com/watch?v=LoW74rUnsA4" target="_blank">Visitando o Monte Etna</a></li>
-    <li><a href="https://www.youtube.com/watch?v=i34GOS6oHA0" target="_blank">BURACO NEGRO ATIRA EM DIREÇÃO A TERRA #SHORTS</a></li>
-    <li><a href="https://www.youtube.com/watch?v=z9ffpUrSBRs" target="_blank">STEPHEN HAWKING SOBRE OS BURACOS NEGROS #SHORTS</a></li>
-    <li><a href="https://www.youtube.com/watch?v=nZtcbxcHiWY" target="_blank">A CHUVA DOS ANÉIS DE SATURNO #SHORTS</a></li>
-    <li><a href="https://www.youtube.com/watch?v=akXbvHptTPQ" target="_blank">JAMES WEBB DETECTOU O PRIMEIRO BURACO NEGRO DO UNIVERSO #SHORTS</a></li>
-    <li><a href="https://www.youtube.com/watch?v=NGH20L_9Pwg" target="_blank">POR QUE PLUTÃO NÃO É MAIS CONSIDERADO PLANETA? #SHORTS</a></li>
-    <li><a href="https://www.youtube.com/watch?v=TumrDuLR-BI" target="_blank">POR QUE ESSES RISCOS NA EESTRELA DO JAMES WEBB? #SHORTS</a></li>
-    <li><a href="https://www.youtube.com/watch?v=Qym2fgXXd90" target="_blank">A MISSÃO MERCURY REDSTONE BOOSTER DEVELOPMENT #SHORTS</a></li>
-    <li><a href="https://www.youtube.com/watch?v=rAlqT_8JJGs" target="_blank">Panorama Marciano Registrado Pela MastcamZ do Rover Perseverance</a></li>
-    <li><a href="https://www.youtube.com/watch?v=f02_WI8OwnM" target="_blank">Thomas Pesquet Se Preparando Para Caminhada Espacial</a></li>
-  </ul>
-
-  <div id="videoListContainer">
-    <ul id="videoList"></ul>
-  </div>
-
-  <!-- Modal da teca -->
-  <div id="videoModal" class="modal-teca">
-    <div class="modal-teca-content">
-      <span class="close-teca">&times;</span>
-      <div id="modalInfo">
-        <h2 id="modalTitle"></h2>
-        <p id="modalDuration"></p>
-      </div>
-      <iframe id="videoFrame" allowfullscreen allow="autoplay"></iframe>
-    </div>
-  </div>
-</div>
+<div id="quiz"></div>
 
 <script>
-// =======================
-// SIMULADOR
-// =======================
 let questoes = [];
-let selecionadas = [];
+let questoesSelecionadas = [];
+let respostasUsuario = [];
+let quantidade = 10;
 
-async function carregar(arquivo) {
-  const r = await fetch(arquivo);
-  questoes = await r.json();
-  selecionadas = questoes.sort(() => Math.random() - 0.5).slice(0, 10);
-  mostrar();
+// ✅ FUNÇÃO PARA ABRIR HTML
+function abrirMinhaTeca() {
+  window.location.href = "minhateca.html";
 }
 
-function mostrar() {
-  const div = document.getElementById("conteudo");
-  div.innerHTML = `<button onclick="corrigir()">Finalizar</button>`;
+// carregar JSON
+async function carregar(arquivo) {
+  const resposta = await fetch(arquivo);
+  questoes = await resposta.json();
+  gerarLista();
+}
 
-  selecionadas.forEach((q, i) => {
-    let html = `<div class="questao"><b>${q.pergunta}</b><br>`;
-    q.opcoes.forEach((op, j) => {
-      html += `<label><input type="radio" name="q${i}" value="${j}"> ${op}</label><br>`;
+// embaralhar
+function embaralhar(array) {
+  return array.sort(() => Math.random() - 0.5);
+}
+
+// gerar lista
+function gerarLista() {
+  quantidade = parseInt(document.getElementById("qtd")?.value) || 10;
+
+  const misturadas = embaralhar([...questoes]);
+  questoesSelecionadas = misturadas.slice(0, quantidade);
+
+  questoesSelecionadas = questoesSelecionadas.map(q => {
+    let opcoes = q.opcoes.map((texto, index) => ({
+      texto,
+      correta: index === q.correta
+    }));
+
+    opcoes = embaralhar(opcoes);
+
+    return {
+      pergunta: q.pergunta,
+      opcoes: opcoes.map(o => o.texto),
+      correta: opcoes.findIndex(o => o.correta)
+    };
+  });
+
+  mostrarQuestoes();
+}
+
+// mostrar questões
+function mostrarQuestoes() {
+  const quiz = document.getElementById('quiz');
+
+  quiz.innerHTML = `
+    <div class="topo-botoes">
+      <label>Quantidade:</label>
+      <input type="number" id="qtd" value="${quantidade}" min="1">
+      <button onclick="gerarLista()">🔄 Gerar Lista</button>
+      <button onclick="corrigir()">✅ Finalizar</button>
+      <button onclick="baixarPDF()">📄 Baixar PDF</button>
+    </div>
+  `;
+
+  questoesSelecionadas.forEach((q, index) => {
+    const div = document.createElement('div');
+    div.classList.add('questao');
+
+    let html = `<p><strong>${index + 1}. ${q.pergunta}</strong></p>`;
+
+    q.opcoes.forEach((opcao, i) => {
+      html += `
+        <label>
+          <input type="radio" name="q${index}" value="${i}">
+          ${String.fromCharCode(65 + i)}) ${opcao}
+        </label><br>
+      `;
     });
-    html += `</div>`;
-    div.innerHTML += html;
+
+    div.innerHTML = html;
+    quiz.appendChild(div);
   });
 }
 
+// corrigir
 function corrigir() {
   let acertos = 0;
-  selecionadas.forEach((q, i) => {
-    const m = document.querySelector(`input[name="q${i}"]:checked`);
-    if (m && parseInt(m.value) === q.correta) acertos++;
+  respostasUsuario = [];
+
+  questoesSelecionadas.forEach((q, index) => {
+    const marcada = document.querySelector(`input[name="q${index}"]:checked`);
+
+    if (marcada) {
+      const resposta = parseInt(marcada.value);
+      respostasUsuario.push(resposta);
+
+      if (resposta === q.correta) acertos++;
+    } else {
+      respostasUsuario.push(null);
+    }
   });
-  document.getElementById("conteudo").innerHTML += `<h2>Acertos: ${acertos}</h2>`;
+
+  mostrarResultado(acertos);
 }
 
-// =======================
-// TECA
-// =======================
-function abrirTeca() {
-  document.getElementById("simuladorWrapper").style.display = "none";
-  document.getElementById("tecaWrapper").style.display = "block";
-  iniciarTeca();
+// resultado
+function mostrarResultado(acertos) {
+  const quiz = document.getElementById('quiz');
+
+  let html = `<h2>Resultado Final</h2>`;
+  html += `<p>Você acertou ${acertos} de ${questoesSelecionadas.length}</p><hr>`;
+
+  questoesSelecionadas.forEach((q, index) => {
+    html += `<p><strong>${index + 1}. ${q.pergunta}</strong></p>`;
+
+    q.opcoes.forEach((opcao, i) => {
+      let classe = "";
+
+      if (i === q.correta) classe = "correta";
+      if (respostasUsuario[index] === i && i !== q.correta) classe = "errada";
+
+      html += `<p class="${classe}">${String.fromCharCode(65 + i)}) ${opcao}</p>`;
+    });
+
+    html += "<br>";
+  });
+
+  quiz.innerHTML = html;
 }
 
-function voltarSimulador() {
-  document.getElementById("tecaWrapper").style.display = "none";
-  document.getElementById("simuladorWrapper").style.display = "block";
-}
+// PDF
+function baixarPDF() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
 
-let tecaIniciada = false;
+  let y = 20;
 
-function iniciarTeca() {
-  if (tecaIniciada) return;
-  tecaIniciada = true;
+  doc.setFontSize(16);
+  doc.text("SIMULADO", 105, 10, null, null, "center");
 
-  const originalList = document.getElementById('videoListOriginal');
-  const videoList = document.getElementById('videoList');
-  const searchInput = document.getElementById('searchInput');
-  const loader = document.getElementById('loader');
-  const statusMessage = document.getElementById('statusMessage');
-  const modal = document.getElementById('videoModal');
-  const closeBtn = document.querySelector('.close-teca');
-  const videoFrame = document.getElementById('videoFrame');
-  const modalTitle = document.getElementById('modalTitle');
-  const modalDuration = document.getElementById('modalDuration');
-  const videoCountElement = document.getElementById('videoCount');
+  doc.setFontSize(10);
 
-  let allVideos = [];
-  let filteredVideos = [];
-  let isRendering = false;
-  let offset = 0;
-  const batchSize = 40;
+  questoesSelecionadas.forEach((q, index) => {
+    let texto = `${index + 1}. ${q.pergunta}`;
+    let linhas = doc.splitTextToSize(texto, 180);
 
-  try {
-    showLoader();
-    processVideos();
-    setupEventListeners();
-    renderNextBatch();
-    hideLoader();
-  } catch (error) {
-    console.error('Erro na inicialização:', error);
-    hideLoader();
-    showMessage('Erro ao inicializar a videoteca. Por favor, recarregue a página.', 'error');
-  }
+    doc.text(linhas, 10, y);
+    y += linhas.length * 5;
 
-  function processVideos() {
-    try {
-      const items = originalList.querySelectorAll('li');
-      allVideos = [];
-      const processedUrls = new Set();
-      const processedIds = new Set();
+    q.opcoes.forEach((opcao, i) => {
+      let opcaoTexto = `${String.fromCharCode(65 + i)}) ${opcao}`;
+      let linhasOp = doc.splitTextToSize(opcaoTexto, 170);
 
-      for (let i = 0; i < items.length; i++) {
-        const item = items[i];
-        const link = item.querySelector('a');
-        if (!link) continue;
-
-        const url = link.getAttribute('href');
-        if (processedUrls.has(url)) continue;
-        processedUrls.add(url);
-
-        const title = link.textContent.trim();
-        const durationMatch = item.textContent.match(/\((\d+:\d+)\)/);
-        const duration = durationMatch ? durationMatch[1] : "";
-
-        if (item.textContent.includes('(?')) continue;
-
-        const videoId = extractYouTubeId(url);
-        if (!videoId) continue;
-
-        if (processedIds.has(videoId)) continue;
-        processedIds.add(videoId);
-
-        const aulaMatch = title.match(/Aula\s+(\d+)/i);
-        const aulaNum = aulaMatch ? parseInt(aulaMatch[1]) : 9999;
-
-        allVideos.push({
-          id: videoId,
-          url: url,
-          title: title,
-          duration: duration,
-          thumbnail: `https://img.youtube.com/vi/${videoId}/mqdefault.jpg`,
-          aulaNum: aulaNum
-        });
-      }
-
-      allVideos.sort((a, b) => a.aulaNum - b.aulaNum);
-      filteredVideos = [...allVideos];
-      updateVideoCount(allVideos.length);
-    } catch (error) {
-      console.error('Erro ao processar vídeos:', error);
-      showMessage('Erro ao processar lista de vídeos', 'error');
-    }
-  }
-
-  function updateVideoCount(count) {
-    videoCountElement.textContent = count === 1
-      ? `${count} vídeo disponível`
-      : `${count} vídeos disponíveis`;
-  }
-
-  function applySearchFilter(searchTerm) {
-    try {
-      offset = 0;
-      videoList.innerHTML = '';
-      isRendering = false;
-
-      if (searchTerm) {
-        const terms = searchTerm.toLowerCase().split(' ').filter(t => t.length > 0);
-        filteredVideos = allVideos.filter(video => {
-          const title = video.title.toLowerCase();
-          return terms.every(term => title.includes(term));
-        });
-      } else {
-        filteredVideos = [...allVideos];
-      }
-
-      updateVideoCount(filteredVideos.length);
-
-      if (filteredVideos.length === 0) {
-        const emptyState = document.createElement('div');
-        emptyState.className = 'empty-state';
-        emptyState.innerHTML = `<h3>Nenhum vídeo encontrado</h3><p>Tente outros termos de busca</p>`;
-        videoList.appendChild(emptyState);
-      } else {
-        renderNextBatch();
-      }
-    } catch (error) {
-      console.error('Erro ao aplicar filtro de busca:', error);
-      showMessage('Erro ao buscar vídeos', 'error');
-    }
-  }
-
-  function renderNextBatch() {
-    if (isRendering || offset >= filteredVideos.length) return;
-    isRendering = true;
-
-    try {
-      const batch = filteredVideos.slice(offset, offset + batchSize);
-      const fragment = document.createDocumentFragment();
-
-      batch.forEach(video => {
-        const li = document.createElement('li');
-        li.className = 'video-item';
-        li.dataset.id = video.id;
-
-        li.innerHTML = `
-          <div class="video-thumbnail">
-            <img src="${video.thumbnail}" alt="${video.title}" onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
-            <div class="placeholder" style="display:none;">Miniatura indisponível</div>
-          </div>
-          <div class="video-info">
-            <div class="video-title">${video.title}</div>
-            <div class="video-duration">${video.duration}</div>
-          </div>
-        `;
-
-        li.addEventListener('click', function() {
-          openModal(video);
-        });
-
-        fragment.appendChild(li);
-      });
-
-      videoList.appendChild(fragment);
-      offset += batchSize;
-    } catch (error) {
-      console.error('Erro ao renderizar vídeos:', error);
-    } finally {
-      isRendering = false;
-    }
-  }
-
-  function setupEventListeners() {
-    let searchTimeout;
-    searchInput.addEventListener('input', function() {
-      clearTimeout(searchTimeout);
-      searchTimeout = setTimeout(function() {
-        const query = searchInput.value.trim();
-        applySearchFilter(query);
-      }, 300);
+      doc.text(linhasOp, 15, y);
+      y += linhasOp.length * 5;
     });
 
-    window.addEventListener('scroll', function() {
-      if (document.getElementById('tecaWrapper').style.display !== 'none') {
-        if ((window.innerHeight + window.scrollY) >= document.body.offsetHeight - 500) {
-          renderNextBatch();
-        }
-      }
-    });
+    y += 5;
 
-    closeBtn.addEventListener('click', function() {
-      modal.style.display = 'none';
-      videoFrame.src = '';
-    });
-
-    window.addEventListener('click', function(event) {
-      if (event.target === modal) {
-        modal.style.display = 'none';
-        videoFrame.src = '';
-      }
-    });
-
-    window.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape' && modal.style.display === 'block') {
-        modal.style.display = 'none';
-        videoFrame.src = '';
-      }
-    });
-
-    setTimeout(() => { searchInput.focus(); }, 500);
-  }
-
-  function extractYouTubeId(url) {
-    try {
-      const regExp = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]+)/i;
-      const match = url.match(regExp);
-      return match ? match[1] : null;
-    } catch (error) {
-      return null;
+    if (y > 270) {
+      doc.addPage();
+      y = 20;
     }
-  }
+  });
 
-  function openModal(video) {
-    try {
-      modalTitle.textContent = video.title;
-      modalDuration.textContent = `Duração: ${video.duration}`;
-      videoFrame.src = `https://www.youtube.com/embed/${video.id}?autoplay=1&rel=0`;
-      modal.style.display = 'block';
-    } catch (error) {
-      showMessage('Erro ao reproduzir o vídeo', 'error');
-    }
-  }
-
-  function showLoader() { loader.style.display = 'block'; }
-  function hideLoader() { loader.style.display = 'none'; }
-
-  function showMessage(text, type = 'info') {
-    statusMessage.textContent = text;
-    statusMessage.className = type;
-    statusMessage.style.display = 'block';
-    setTimeout(() => { statusMessage.style.display = 'none'; }, 5000);
-  }
+  doc.save("simulado.pdf");
 }
 </script>
 
