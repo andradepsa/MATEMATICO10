@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+ 
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            line-height: 1.6;
+            background-color: #f4f4f9;
+            color: #333;
+            transition: background-color 0.3s, color 0.3s;
+        }
+
+        body.dark {
+            background-color: #1a1a1a;
+            color: #e0e0e0;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1.5rem 2rem;
+            background-color: #ffffff;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+        }
+
+        body.dark header {
+            background-color: #2a2a2a;
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            font-weight: 600;
+        }
+
+        #theme-toggle {
+            background: none;
+            border: none;
+            font-size: 1.5rem;
+            cursor: pointer;
+            transition: transform 0.3s;
+        }
+
+        #theme-toggle:hover {
+            transform: scale(1.2);
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+        }
+
+        .accordion {
+            margin-bottom: 1rem;
+        }
+
+        .accordion-header {
+            background-color: #ffffff;
+            padding: 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1.2rem;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            transition: background-color 0.3s;
+        }
+
+        body.dark .accordion-header {
+            background-color: #2a2a2a;
+        }
+
+        .accordion-header:hover {
+            background-color: #f0f0f0;
+        }
+
+        body.dark .accordion-header:hover {
+            background-color: #3a3a3a;
+        }
+
+        .accordion-header::after {
+            content: '▼';
+            font-size: 0.8rem;
+            transition: transform 0.3s;
+        }
+
+        .accordion-header.active::after {
+            transform: rotate(180deg);
+        }
+
+        .accordion-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease-out;
+            background-color: #ffffff;
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        body.dark .accordion-content {
+            background-color: #2a2a2a;
+        }
+
+        .accordion-content ul {
+            list-style: none;
+            padding: 1rem;
+        }
+
+        .accordion-content li {
+            margin: 0.5rem 0;
+        }
+
+        .accordion-content a {
+            color: #007bff;
+            text-decoration: none;
+            transition: color 0.3s;
+        }
+
+        body.dark .accordion-content a {
+            color: #66b0ff;
+        }
+
+        .accordion-content a:hover {
+            text-decoration: underline;
+        }
+
+        footer {
+            text-align: center;
+            padding: 1rem;
+            background-color: #ffffff;
+            margin-top: 2rem;
+            font-size: 0.9rem;
+        }
+
+        body.dark footer {
+            background-color: #2a2a2a;
+        }
+
+        @media (max-width: 600px) {
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            .accordion-header {
+                font-size: 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    
+    <header>
+        
+      <a href="https://www.matematico10.com.br/" class="logo-link">
+    <img src="https://i.ibb.co/DNQv5x8/Simbolo-Matem-tico-10-removebg-preview.pngg">
+    <div>Volte Matemático 10</div>
+  </a>        
+        <button id="theme-toggle" aria-label="Alternar tema">🌙</button>
+    </header>
+    <main>
+        <div class="container">
+            <div id="exam-list"></div>
+        </div>
+    </main>
+    <footer>
+        <p>Provas organizadas de 2005 a 2024 | Design moderno e responsivo</p>
+    </footer>
+    <script>
+        // Exam data
+        const exams = [
+            {
+                year: 2005,
+                levels: [
+                    { name: 'Nível 1 - 1ª Fase', url: 'https://drive.google.com/file/d/1KH0HaBdExd2b5KZ9DXjKmpr7prPRL1wf/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 'https://drive.google.com/file/d/1Ge7cP8lyMx7d-sJGO2uPRUsjyPXKF3Wy/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 'https://drive.google.com/file/d/1dYU5WdzT23JyAj2b3gcZq0heiYKxHPZ_/view' },
+                    { name: 'Nível 1 - 2ª Fase', url: 'https://drive.google.com/file/d/1URHuzT8PmU0YE7Oqb4pFOCXD8z3bfZbM/view' },
+                    { name: 'Nível 2 - 2ª Fase', url: 'https://drive.google.com/file/d/1Q175jGjPmMUiggKqJjOfDpX797bN8sgD/view' },
+                    { name: 'Nível 3 - 2ª Fase', url: 'https://drive.google.com/file/d/1jHpMLI7ccgAqQn-IxBI1Uxmdh4RfyFij/view' }
+                ]
+            },
+            {
+                year: 2006,
+                levels: [
+                    { name: 'Nível 1 - 1ª Fase', url: 'https://drive.google.com/file/d/1EQUxhAC39lUfnFl1bfgwigv1rSoGXdyV/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 'https://drive.google.com/file/d/1FHq4ZU2zsNyOmhmcVwgIGby2ro__9Ozu/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 'https://drive.google.com/file/d/1mYJdU2Ep7ON4LOl00emDfWr921t9jobx/view' },
+                    { name: 'Nível 1 - 2ª Fase', url: 'https://drive.google.com/file/d/1AhKNUn5uCcsd4P_x7TW0_pcqUJaxZUQ4/view' },
+                    { name: 'Nível 2 - 2ª Fase', url: 'https://drive.google.com/file/d/1jDvxCrj26rpjexdmH0WtJKeU1LfqOi6I/view' },
+                    { name: 'Nível 3 - 2ª Fase', url: 'https://drive.google.com/file/d/1P28Pwg31y0Sta8lYqc486zUCQqRD1-33/view' }
+                ]
+            },
+            {
+                year: 2007,
+                levels: [
+                    { name: 'Nível 1 - 1ª Fase', url: 
+'https://drive.google.com/file/d/1hQJ5lJ9UPx2KvjvTKtl2MRO4E0pO8jXs/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 'https://drive.google.com/file/d/1U86otx1VI92RPkX32nARruRPtj6_2Bcw/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 
+'https://drive.google.com/file/d/1BGJpb-iHexweRkRPXCpx7AmMP7edZhkR/view' },
+                    { name: 'Nível 1 - 2ª Fase', url: 
+'https://drive.google.com/file/d/1kF_P-nj1hkDGgbb_mNL1NJCTgbIrjn6d/view' },
+                    { name: 'Nível 2 - 2ª Fase', url:
+'https://drive.google.com/file/d/1xuly-O4weAiqvT7xBgx-zT9rxZ6tI59d/view' },
+                    { name: 'Nível 3 - 2ª Fase', url: 'https://drive.google.com/file/d/1IwrhA9bUKEEI4PgjtpNnz3LMP6dkpZKT/view' }
+                ]
+            },
+            {
+                year: 2008,
+                levels: [
+                    { name: 'Nível 1 - 1ª Fase', url: 
+'https://drive.google.com/file/d/1-n85hyZwloC3mYaGdwCnANNn9XwVVY8u/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 
+'https://drive.google.com/file/d/1wZp0kb_0v7Spqt9YNjQQd_0cSXkP-O14/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 
+'https://drive.google.com/file/d/1pXkMm0-TjFjziXiZ7IbUzvuQLlK1jAuo/view' },
+                    { name: 'Nível 1 - 2ª Fase', url: 'https://drive.google.com/file/d/1iMHJ3BrAQIZsB6jn1R_lwCM32IfHIanw/view' },
+                    { name: 'Nível 2 - 2ª Fase', url: 'https://drive.google.com/file/d/1aEj6Wo7vXCP8z2Mb89CBuZb2qbzwRmbG/view' },
+                    { name: 'Nível 3 - 2ª Fase', url: 'https://drive.google.com/file/d/1inWsgbiROqOu0wSi7shG9_kQ3afTHvR0/view' }
+                ]
+            },
+            {
+                year: 2009,
+                levels: [
+                    { name: 'Nível 1 - 1ª Fase', url: 'https://drive.google.com/file/d/1U1cej_UzczDgwTy40ANHj9f_7Rwl-bFW/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 'https://drive.google.com/file/d/107RbWFZ3yVw-hoDN_utALPuM5_DY1fhg/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 'https://drive.google.com/file/d/1Nyg4mmfj7sJ4D2A2Ja1lxaJnLl1AxdoL/view' },
+                    { name: 'Nível 1 - 2ª Fase', url:
+ 'https://drive.google.com/file/d/1Ng0-HrU-kgbfh0nEeOcuke3KyjbJkQxP/view' },
+                    { name: 'Nível 2 - 2ª Fase', url: 
+'https://drive.google.com/file/d/1_Wu63lz96aRyUasHQseeSAYj9QXzHrgW/view' },
+                    { name: 'Nível 3 - 2ª Fase', url: 
+'https://drive.google.com/file/d/1_rsO3wVlDT98S-7NsrKx80uFB2bn2aTR/view' }
+                ]
+            },
+            // Placeholder links for 2010–2023 (update with correct URLs when available)
+            {
+                year: 2010,
+                levels: [
+                    { name: 'Nível 1 - 1ª Fase', url: 'https://drive.google.com/file/d/1vDFxJNHbxptTbpybhewBYCsyhA8Xvs85/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 'https://drive.google.com/file/d/1g4Rl6566h7wPLwlDQMUAQ5bbd1x9CoIG/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 'https://drive.google.com/file/d/1jhEt_aHkQspkZLDXytZjT547HsvRLxzQ/view'  },
+                    { name: 'Nível 1 - 2ª Fase', url: 
+'https://drive.google.com/file/d/1b3lf-fA4JERlXo5f1bLQQIf2TrLqqcG3/view' },
+                    { name: 'Nível 2 - 2ª Fase', url: 'https://drive.google.com/file/d/136js9fv7SK8zTw0LpgZ0NNzeSYuftEcY/view' },
+                    { name: 'Nível 3 - 2ª Fase', url: 'https://drive.google.com/file/d/1FmFBgU0veT846pea2QVEYb-mEiRdAqqr/view' }
+                ]
+            },
+            {
+                year: 2011,
+                levels: [
+                    { name: 'Nível 1 - 1ª Fase', url: 'https://drive.google.com/file/d/1KsCrVE9cN1Mo64kHHDGzU0PWvPydSjLq/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 
+'https://drive.google.com/file/d/1spw5P4_Y2OjQsKTvxj0rgK2sdwDEGKf0/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 'https://drive.google.com/file/d/1hpMlzKP2a2NN_rm_3i9AtLnqcW42rSH4/view' },
+                    { name: 'Nível 1 - 2ª Fase', url: 'https://drive.google.com/file/d/1Wusj5FJq2GeHoBlkfaAtNl51vyDVxCcQ/view' },
+                    { name: 'Nível 2 - 2ª Fase', url: 'https://drive.google.com/file/d/1xiueuYeuuSOOoe7ff0h02hTNXbfXzMoU/view' },
+                    { name: 'Nível 3 - 2ª Fase', url: 'https://drive.google.com/file/d/1lrIT4vK3gK1ZGpXugGI_d5vI2DqDYB0W/view' }
+                ]
+            },
+            {
+                year: 2012,
+                levels: [
+                    { name: 'Nível 1 - 1ª Fase', url: 'https://drive.google.com/file/d/1AxzfVbDtFxQq0xBBrr4Yye8Z8HxuEB0m/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 'https://drive.google.com/file/d/1bFeDAB7P912IXnSfdAKGwWXstWmMc1tR/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 'https://drive.google.com/file/d/1lVhCd3QCzg-XLehaCUnYP994d1p9yBJG/view' },
+                    { name: 'Nível 1 - 2ª Fase', url: 
+'https://drive.google.com/file/d/1oC_020Qxgc5k8fZpqVVfa_cJZCtgJtLl/view' },
+                    { name: 'Nível 2 - 2ª Fase', url: 
+'https://drive.google.com/file/d/1DbMRbf-uU-sQURJi0MLULxZw2Eu4x9CI/view' },
+                    { name: 'Nível 3 - 2ª Fase', url: 'https://drive.google.com/file/d/16x07tVBD9Qt-dbkMjnF3Jn8pLL10SFJm/view' }
+                ]
+            },
+            {
+                year: 2013,
+                levels: [
+                    { name: 'Nível 1 - 1ª Fase', url:
+ 'https://drive.google.com/file/d/1e_8Nt4P6fzdr7k-UmqxGarLFe1eFv3zN/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 'https://drive.google.com/file/d/1jWr-5C3IZFDTKb6sIQWksVG46g_hsqV7/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 'https://drive.google.com/file/d/16QUYqvy4g96f6LYg4bWWO-LrSuZYGks5/view' },
+                    { name: 'Nível 1 - 2ª Fase', url: 'https://drive.google.com/file/d/1bygZQZoc_G8npuOmTu_dvVXEJdF7O7_h/view' },
+                    { name: 'Nível 2 - 2ª Fase', url: 'https://drive.google.com/file/d/1PiC5UpoOoDrwFHb2W4FvVjKPTHdSj61g/view' },
+                    { name: 'Nível 3 - 2ª Fase', url: 'https://drive.google.com/file/d/1lTr7IF2RYRq0_Kh6P6-Lmbgelw2GU7Z4/view' }
+                ]
+            },
+            {
+                year: 2014,
+                levels: [
+                    { name: 'Nível 1 - 1ª Fase', url: 'https://drive.google.com/file/d/1SK-1rqx7M6MZ6wWSROJZtYSpqyFUlogV/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 
+'https://drive.google.com/file/d/1ypVjOGp-CbhA6xXGtmLxTKKe29It7RsY/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 'https://drive.google.com/file/d/1KZjoQvAYWBFzJXNZv1KhWDo3a4sFRAE4/view' },
+                    { name: 'Nível 1 - 2ª Fase', url: 'https://drive.google.com/file/d/1lKOHb33OqTZD79m5lmxjGKNw2yqgBvIn/view' },
+                    { name: 'Nível 2 - 2ª Fase', url: 'https://drive.google.com/file/d/127sacdDfZl6u9paxGiEicd25cBHOxuh-/view' },
+                    { name: 'Nível 3 - 2ª Fase', url: 'https://drive.google.com/file/d/1PABt7eAK7JZ5V73R6CwvQZSraW6AvtC5/view' }
+                ]
+            },
+            {
+                year: 2015,
+                levels: [
+                    { name: 'Nível 1 - 1ª Fase', url: 'https://drive.google.com/file/d/188rcPvCr4oKQOY4PSnBP5AUeT5ZU6myY/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 
+'https://drive.google.com/file/d/181xHhJ5nw-p35cDYXpP_j2rhIfIX0StI/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 'https://drive.google.com/file/d/1A8gk7I8maNZuf9sJjb93BfEdb6WFgbW-/view' },
+                    { name: 'Nível 1 - 2ª Fase', url: 'https://drive.google.com/file/d/15I4hEXuqvm4LLv7GZxTF7GsYU-1lbyxz/view' },
+                    { name: 'Nível 2 - 2ª Fase', url: 'https://drive.google.com/file/d/1bDI7IMv__CV3XNNEeDoIIVXerQyrRpXK/view' },
+                    { name: 'Nível 3 - 2ª Fase', url: 'https://drive.google.com/file/d/1VWX5EGNCYAwdOk7ZWVC-QFF368llwpLF/view' }
+                ]
+            },
+            {
+                year: 2016,
+                levels: [
+                    { name: 'Nível 1 - 1ª Fase', url: 'https://drive.google.com/file/d/1eKRYzPZX2ZYQLpa-uB32IAmCLiucv-o_/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 'https://drive.google.com/file/d/1897epJ3Z8d9BAQ51ZFdLxN8_JcLRGDJu/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 'https://drive.google.com/file/d/11wxnOCAbxYS1d_FAYKAxfcE5-nJ5iZPk/view' },
+                    { name: 'Nível 1 - 2ª Fase', url: 'https://drive.google.com/file/d/19lRymKoLJ4tU4h3g1JoAEbtjpTvst7Vc/view' },
+                    { name: 'Nível 2 - 2ª Fase', url: 'https://drive.google.com/file/d/1wVXiygwBkQ_hoo8NxM4jRgAK-UPz2L2c/view' },
+                    { name: 'Nível 3 - 2ª Fase', url: 'https://drive.google.com/file/d/1zhOTi67MT0dYaFggr9wLI7v0Nt4598Ym/view' }
+                ]
+            },
+            {
+                year: 2017,
+                levels: [
+                    { name: 'Nível 1 - 1ª Fase', url: 'https://drive.google.com/file/d/1FLmHogjZxSMKA9HrQBHgPh7mUVGaeMVb/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 'https://drive.google.com/file/d/1ByCQa_wjTwIuSmtuBIjUxstFWiCowHXI/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 
+'https://drive.google.com/file/d/1O_nEyPi-LqlBE7aZYgB6CXclkPhL7qXO/view' },
+                    { name: 'Nível 1 - 2ª Fase', url: 
+'https://drive.google.com/file/d/1Im6mI-RE5J5oNEoE7q7C8PAJo18rWXlO/view' },
+                    { name: 'Nível 2 - 2ª Fase', url:
+ 'https://drive.google.com/file/d/1Fl1qc-XZiX9kDQVzx0ypQCpHN6_ln63y/view' },
+                    { name: 'Nível 3 - 2ª Fase', url: 
+'https://drive.google.com/file/d/1lLE-dFu9S4fRwo5GAzaPTXQKOrDuH0Kd/view' }
+                ]
+            },
+            {
+                year: 2018,
+                levels: [
+                    { name: 'Nível A - 1ª Fase', url: 'https://drive.google.com/file/d/1Pq5kKyXBkZq-XvQdVeeFaeyIw_KuIbHh/view' },
+                    { name: 'Nível 1 - 1ª Fase', url:
+'https://drive.google.com/file/d/13TGb_47jzpdG0aCggZa2gRqEICfHztAY/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 'https://drive.google.com/file/d/125nUD1ceE0YaKxWjh_en6cEfnAkZOVGI/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 
+'https://drive.google.com/file/d/1_Z0jiUv5bsuKS9TWCrwqxb3C1M-fS8O0/view' },
+                    { name: 'Nível 1 - 2ª Fase', url: 'https://drive.google.com/file/d/13zGrtor4fgbWrqYOVYZw8zTUDUpigfy9/view' },
+                    { name: 'Nível 2 - 2ª Fase', url: 
+'https://drive.google.com/file/d/1zY_1EUEhwtY-UFLpjy9Jex2yrEFvJqVj/view' },
+                    { name: 'Nível 3 - 2ª Fase', url: 'https://drive.google.com/file/d/1bs3rEHm3sE0ELp1N-oFK7QsR2nDLiUEU/view' }
+                ]
+            },
+            {
+                year: 2019,
+                levels: [
+
+                    { name: 'Nível 1 - 1ª Fase', url: 'https://drive.google.com/file/d/11DDPHRkmuAbozjeSNawFG2RKgL0aYYNH/view' },
+                    { name: 'Nível 1 - 1ª Fase', url: 'https://drive.google.com/file/d/1F2iOxFkDwazxPCb2FbbXZbjKfvQ7F2Db/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 'https://drive.google.com/file/d/1XjxGRHty6PSeHlETMdLKPsojIJC-9l5D/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 'https://drive.google.com/file/d/14cUeqGDDdh74HSwPLBcHn6A_m-H0Kjdd/view' },
+                    { name: 'Nível 1 - 2ª Fase', url: 'https://drive.google.com/file/d/1sMP4R6M3rHdrHC5XWDfTtt_mKfjAS6_Y/view' },
+                    { name: 'Nível 2 - 2ª Fase', url: 'https://drive.google.com/file/d/18FYx6vrHKXpcJ-Hf6jpnfyGfsW3nzUWu/view' },
+                    { name: 'Nível 3 - 2ª Fase', url: 'https://drive.google.com/file/d/14O7tg9QG1FAKYhw-c4SjnFslzbD9K-lj/view' }
+                ]
+            },
+         
+            {
+                year: 2021,
+                levels: [
+
+                    { name: 'Nível 1 - 1ª Fase', url: 
+'https://drive.google.com/file/d/1ab0LO-UJWZL0oEYeCSCrIS3cQmtcHcLl/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 'https://drive.google.com/file/d/1CwiZQUpJG3R1grAD-8KyDlBESUIuVWqk/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 'https://drive.google.com/file/d/1DNOr4nauxzIqxmp8PHVEWo-RFmaSbbm_/view' },
+                    { name: 'Nível 4 - 1ª Fase', url: 'https://drive.google.com/file/d/1DNOr4nauxzIqxmp8PHVEWo-RFmaSbbm_/view' },
+                    { name: 'Nível 1 - 2ª Fase', url: 'https://drive.google.com/file/d/1lHgErZPzzjSzYTiD212v1W3vZe-lptQ7/view' },
+                    { name: 'Nível 2 - 2ª Fase', url: 'https://drive.google.com/file/d/16PzjjRpXTNydoBOj_DVnSMxHKDDWVhBr/view' },
+                    { name: 'Nível 3 - 2ª Fase', url: 'https://drive.google.com/file/d/13btz02PzpMuoszYnZ-vvXlzFaK5SpZqk/view' }
+                ]
+            },
+            {
+                year: 2022,
+                levels: [
+                    { name: 'Nível 1 - 1ª Fase', url: 'https://drive.google.com/file/d/1JguYNwwXsohIb8mfIiZwP6ZHB2pN7A_J/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 'https://drive.google.com/file/d/1c42JXFwxQaxg_UDSDGd0Ot56Ues7hIqh/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 'https://drive.google.com/file/d/1qf2EYY7W6oDsVSM1JhMj_KMNxVl0mLIl/view' },
+                    { name: 'MIRIM 1 - 2ª Fase', url: 'https://drive.google.com/file/d/1ODPUse4q4GQ3WsFeiS7P2jNqtRraWpuT/view' },
+                    { name: 'MIRIM 2 - 2ª Fase', url: 'https://drive.google.com/file/d/1PfJNAM91orv-XsSuc6GzOtQY93i2356X/view' },
+                ]
+            },
+            {
+                year: 2023,
+                levels: [
+                   { name: 'Nível 1 - 1ª Fase', url: 'https://drive.google.com/file/d/1FmsUWfm05YtfrWLZIn0edsAArpXonxF0/view' },
+                    { name: 'Nível 2 - 1ª Fase', url: 'https://drive.google.com/file/d/1jR7LoupLvuEvZYdclIGGfyi9dc9ryIvV/view' },
+                    { name: 'Nível 3 - 1ª Fase', url: 
+'https://drive.google.com/file/d/1cdwyAg-QTqrdClnqFB1EFXk3oBiY3mC6/view' },
+                    { name: 'MIRIM 1 - 2ª Fase', url: 'https://drive.google.com/file/d/1qOExhUNEc42sfNFo5_8CwZsDrkh6SWrg/view' },
+                    { name: 'MIRIM 2 - 2ª Fase', url: 
+'https://drive.google.com/file/d/1X-y9ery4DhthT7vziMCtKq1E39oz0gFo/view' },
+                ]
+            },
+            {
+                year: 2024,
+                levels: [
+                    
+                ]
+            }
+        ];
+
+        // Render exams
+        const examList = document.getElementById('exam-list');
+        exams.forEach(exam => {
+            const accordion = document.createElement('div');
+            accordion.className = 'accordion';
+            accordion.innerHTML = `
+                <div class="accordion-header">${exam.year}</div>
+                <div class="accordion-content">
+                    <ul>
+                        ${exam.levels.map(level => `<li><a href="${level.url}" target="_blank">${level.name}</a></li>`).join('')}
+                    </ul>
+                </div>
+            `;
+            examList.appendChild(accordion);
+        });
+
+        // Accordion functionality
+        document.querySelectorAll('.accordion-header').forEach(header => {
+            header.addEventListener('click', () => {
+                const content = header.nextElementSibling;
+                const isActive = header.classList.contains('active');
+                
+                // Close all other accordions
+                document.querySelectorAll('.accordion-header').forEach(h => {
+                    h.classList.remove('active');
+                    h.nextElementSibling.style.maxHeight = null;
+                });
+
+                // Toggle current accordion
+                if (!isActive) {
+                    header.classList.add('active');
+                    content.style.maxHeight = content.scrollHeight + 'px';
+                }
+            });
+        });
+
+        // Theme toggle
+        const themeToggle = document.getElementById('theme-toggle');
+        themeToggle.addEventListener('click', () => {
+            document.body.classList.toggle('dark');
+            themeToggle.textContent = document.body.classList.contains('dark') ? '☀️' : '🌙';
+        });
+    </script>
+</body>
+</html>
+
+
+
