@@ -1318,6 +1318,7 @@
       e2eeState, setE2eeState, isCentralServer, serverE2EE, setServerE2EE
     }) => {
       const messagesEndRef = useRef(null);
+      const messagesContainerRef = useRef(null);
       const [showSendSecretModal, setShowSendSecretModal] = useState(false);
       const [showServerE2EEModal, setShowServerE2EEModal] = useState(false);
 
@@ -1465,7 +1466,28 @@
         setMessages(prev => { const u = prev.filter(m => !((m.sender === pId && m.recipient === 'you') || (m.sender === 'you' && m.recipient === pId) || m.systemFor === pId)); localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(u)); return u; });
       };
 
-      useEffect(() => { if (messagesEndRef.current) messagesEndRef.current.scrollIntoView({ behavior: "smooth" }); }, [filteredMessages]);
+      const scrollToBottom = (behavior = "smooth") => {
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ behavior });
+        }
+      };
+
+      useEffect(() => {
+        scrollToBottom("auto");
+      }, [selectedContact]);
+
+      useEffect(() => {
+        scrollToBottom("smooth");
+      }, [filteredMessages]);
+
+      useEffect(() => {
+        if (!messagesContainerRef.current) return;
+        const observer = new ResizeObserver(() => {
+          scrollToBottom("smooth");
+        });
+        observer.observe(messagesContainerRef.current);
+        return () => observer.disconnect();
+      }, []);
 
       useEffect(() => {
         remoteStreams.forEach(({ peerId: rPeerId, stream, type }) => {
@@ -1549,7 +1571,7 @@
             </div>
 
             <div className="chat-messages-container">
-              <div className="chat-messages">
+              <div className="chat-messages" ref={messagesContainerRef}>
                 {filteredMessages.length === 0 && (
                   <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px', marginTop: '40px' }}>
                     {selectedContact ? t(lang, 'noMessages') : t(lang, 'selectContactToChat')}
