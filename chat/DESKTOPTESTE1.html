@@ -1491,6 +1491,13 @@
 
       const decryptionCache = useRef(new Map());
 
+      const formatTime = (date) => {
+        const h = date.getHours().toString().padStart(2,'0');
+        const m = date.getMinutes().toString().padStart(2,'0');
+        const s = date.getSeconds().toString().padStart(2,'0');
+        return `${h}:${m}:${s}`;
+      };
+
       const canSendPrivate = selectedContact && !!e2eeState[selectedContact]?.mySecret;
       const hasAnyE2EE = selectedContact && (!!e2eeState[selectedContact]?.mySecret || !!e2eeState[selectedContact]?.contactSecret);
       const selectedIsServer = selectedContact && isCentralServer(selectedContact);
@@ -1862,7 +1869,7 @@
                   <input type="text" value={newMessage}
                     onChange={e => setNewMessage(e.target.value)}
                     placeholder={inputStatus.placeholder}
-                    onKeyPress={e => { if (e.key === 'Enter' && selectedContact && cooldownRemaining === 0) sendMessage(); }}
+                    onKeyPress={e => { if (e.key === 'Enter' && selectedContact && cooldownRemaining === 0) sendDirectMessage(); }}
                     className="message-input"
                     disabled={!selectedContact || cooldownRemaining > 0}
                     style={inputStatus.style}
@@ -1984,12 +1991,7 @@
       };
       const getContactName = (pId) => contacts.find(c => c.peerId === pId)?.name || pId;
       const saveUserName = () => { if (userName.trim()) { localStorage.setItem('p2pUserName', userName); setEditingName(false); } };
-      const formatTime = (date) => {
-        const h = date.getHours().toString().padStart(2,'0');
-        const m = date.getMinutes().toString().padStart(2,'0');
-        const s = date.getSeconds().toString().padStart(2,'0');
-        return `${h}:${m}:${s}`;
-      };
+      const formatTime = (date) => date.toLocaleTimeString('en-US');
 
       const stopAndRemoveLocalStream = (pId) => {
         const stream = localStreamsRef.current.get(pId);
@@ -2459,6 +2461,13 @@
           showVideo: true,
           videoSize: 'medium'
         });
+      };
+
+      const formatTime = (date) => {
+        const h = date.getHours().toString().padStart(2,'0');
+        const m = date.getMinutes().toString().padStart(2,'0');
+        const s = date.getSeconds().toString().padStart(2,'0');
+        return `${h}:${m}:${s}`;
       };
 
       const sendMessage = async (textOverride = null) => {
