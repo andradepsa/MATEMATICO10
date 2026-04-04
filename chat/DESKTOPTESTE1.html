@@ -1158,8 +1158,59 @@
       );
     };
 
-    // ================================================================
-    // SendSecretModal
+    const TorrentManagerModal = ({ lang, torrents, onClose, onStop }) => {
+      const formatSize = (bytes) => {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+      };
+
+      return (
+        <div className="torrent-modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+          <div className="torrent-modal">
+            <div className="torrent-modal-header">
+              <h3><i className="fas fa-magnet"></i> {t(lang, 'torrentManager')}</h3>
+              <button className="tutorial-close" onClick={onClose}>✕</button>
+            </div>
+            <div className="torrent-modal-content">
+              {torrents.length === 0 ? (
+                <div className="torrent-empty">{t(lang, 'noTorrents')}</div>
+              ) : (
+                torrents.map(tnt => (
+                  <div key={tnt.infoHash} className="torrent-item">
+                    <div className="torrent-item-name">{tnt.name}</div>
+                    <div className="torrent-progress-container">
+                      <div className="torrent-progress-bar" style={{ width: `${tnt.progress * 100}%` }}></div>
+                    </div>
+                    <div className="torrent-item-stats">
+                      <span>{Math.round(tnt.progress * 100)}% {tnt.done ? `(${t(lang, 'completed')})` : ''}</span>
+                      <span>{t(lang, 'peers')}: {tnt.numPeers}</span>
+                    </div>
+                    <div className="torrent-item-stats" style={{ marginTop: '4px' }}>
+                      <span>↓ {formatSize(tnt.downloadSpeed)}/s</span>
+                      <span>↑ {formatSize(tnt.uploadSpeed)}/s</span>
+                    </div>
+                    <div className="torrent-item-actions">
+                      <button className="torrent-item-btn remove" onClick={() => onStop(tnt.infoHash)}>
+                        <i className="fas fa-stop"></i> {t(lang, 'stopTorrent')}
+                      </button>
+                      <button className="torrent-item-btn" style={{ background: '#3b82f6', color: 'white' }} onClick={() => {
+                        navigator.clipboard.writeText(tnt.magnetURI);
+                        alert(t(lang, 'magnetCopied'));
+                      }}>
+                        <i className="fas fa-copy"></i> {t(lang, 'copyMagnet')}
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    };
     // ================================================================
     const SendSecretModal = ({ lang, connections, contacts, getContactName, isCentralServer, onSend, onClose, e2eeState }) => {
       const [selectedPeer, setSelectedPeer] = useState(null);
