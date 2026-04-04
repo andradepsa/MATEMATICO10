@@ -1,198 +1,231 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Chat K10</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f4f4; }
-    #root { max-width: 1200px; margin: 0 auto; padding: 20px; }
-    .app-header { display: flex; justify-content: space-between; align-items: center; background-color: #007bff; color: white; padding: 10px 20px; border-radius: 5px; margin-bottom: 20px; }
-    .app-title { margin: 0; font-size: 24px; }
-    .header-buttons { display: flex; gap: 10px; }
-    .header-button { background: none; border: none; color: white; font-size: 18px; cursor: pointer; }
-    .user-info-container { background-color: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-    .username { font-weight: bold; color: #333; }
-    .user-edit-button { background-color: #007bff; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; }
-    .user-name-form { display: flex; gap: 10px; align-items: center; }
-    .user-name-form input { padding: 8px; border: 1px solid #ddd; border-radius: 3px; width: 200px; }
-    .user-name-form button { background-color: #28a745; color: white; border: none; padding: 8px 15px; border-radius: 3px; cursor: pointer; }
-    .user-name-form button:disabled { background-color: #ccc; cursor: not-allowed; }
-    .peer-id-container { background-color: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-    .peer-id-container button { background-color: #007bff; color: white; border: none; padding: 8px 15px; border-radius: 3px; cursor: pointer; }
-    .chat-main-container { display: flex; gap: 20px; height: calc(100vh - 300px); }
-    .conversations-list { width: 300px; background-color: white; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); overflow-y: auto; }
-    .conversation-item { padding: 15px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; flex-direction: column; gap: 5px; }
-    .conversation-item.selected { background-color: #e6f3ff; }
-    .conversation-item.central-server { border-left: 4px solid #ffc107 !important; }
-    .conversation-name { font-weight: bold; color: #333; }
-    .conversation-peer-id { font-size: 12px; color: #666; }
-    .chat-messages-container { flex: 1; display: flex; flex-direction: column; background-color: white; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-    .chat-messages { flex: 1; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; }
-    .message-bubble { max-width: 70%; padding: 10px; border-radius: 10px; position: relative; word-wrap: break-word; }
-    .message-bubble.sent { background-color: #007bff; color: white; align-self: flex-end; }
-    .message-bubble.received { background-color: #e9ecef; color: #333; align-self: flex-start; }
-    .chat-user-bubble { font-size: 12px; font-weight: bold; margin-bottom: 5px; }
-    .message-timestamp { font-size: 10px; color: #999; margin-top: 5px; text-align: right; }
+    :root {
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --success: #10b981;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --bg: #f1f5f9;
+      --surface: #ffffff;
+      --border: #e2e8f0;
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --bubble-sent: #2563eb;
+      --bubble-recv: #f1f5f9;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; background-color: var(--bg); color: var(--text); }
+    #root { max-width: 1200px; margin: 0 auto; padding: 16px; }
+
+    /* HEADER */
+    .app-header { display: flex; justify-content: space-between; align-items: center; background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%); color: white; padding: 12px 20px; border-radius: 12px; margin-bottom: 16px; box-shadow: 0 4px 20px rgba(37,99,235,0.3); }
+    .app-title { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.5px; }
+    .app-title span { opacity: 0.7; font-weight: 400; font-size: 14px; margin-left: 8px; }
+    .header-buttons { display: flex; gap: 8px; align-items: center; }
+    .header-button { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); color: white; font-size: 15px; cursor: pointer; width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+    .header-button:hover { background: rgba(255,255,255,0.28); }
+    .lang-btn { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3); color: white; font-size: 11px; font-weight: 700; cursor: pointer; height: 36px; padding: 0 12px; border-radius: 8px; letter-spacing: 0.5px; transition: all 0.2s; display: flex; align-items: center; gap: 5px; }
+    .lang-btn:hover { background: rgba(255,255,255,0.28); }
+
+    /* USER INFO */
+    .user-info-container { background: var(--surface); padding: 12px 16px; border-radius: 10px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); display: flex; align-items: center; gap: 12px; }
+    .username { font-weight: 600; color: var(--text); }
+    .user-edit-button { background: var(--primary); color: white; border: none; padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600; }
+    .user-name-form { display: flex; gap: 8px; align-items: center; flex: 1; }
+    .user-name-form input { padding: 7px 12px; border: 1.5px solid var(--border); border-radius: 7px; width: 200px; font-family: inherit; font-size: 14px; outline: none; transition: border-color 0.2s; }
+    .user-name-form input:focus { border-color: var(--primary); }
+    .user-name-form button { background: var(--success); color: white; border: none; padding: 7px 16px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 13px; }
+    .user-name-form button:disabled { background: #cbd5e1; cursor: not-allowed; }
+
+    /* PEER ID */
+    .peer-id-container { background: var(--surface); padding: 12px 16px; border-radius: 10px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 1px 4px rgba(0,0,0,0.06); flex-wrap: wrap; gap: 10px; }
+    .peer-id-container button { background: var(--primary); color: white; border: none; padding: 7px 14px; border-radius: 7px; cursor: pointer; font-size: 12px; font-weight: 600; }
+    .peer-id-label { font-family: 'JetBrains Mono', monospace; font-size: 13px; background: #f1f5f9; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border); }
+    .invite-btn { background: var(--success) !important; }
+
+    /* CHAT LAYOUT */
+    .chat-main-container { display: flex; gap: 14px; height: calc(100vh - 280px); min-height: 400px; }
+    .conversations-list { width: 280px; min-width: 220px; background: var(--surface); border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); overflow-y: auto; display: flex; flex-direction: column; }
+    .conversations-list h4 { padding: 14px 16px 10px; margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); border-bottom: 1px solid var(--border); }
+    .conversation-item { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.15s; }
+    .conversation-item:hover { background: #f8fafc; }
+    .conversation-item.selected { background: #eff6ff; border-left: 3px solid var(--primary); }
+    .conversation-item.central-server { border-left: 3px solid var(--warning) !important; }
+    .conversation-name { font-weight: 600; color: var(--text); font-size: 14px; }
+    .conversation-peer-id { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
+
+    /* MESSAGES */
+    .chat-messages-container { flex: 1; display: flex; flex-direction: column; background: var(--surface); border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); overflow: hidden; }
+    .chat-messages { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; background: #f8fafc; }
+    .message-bubble { max-width: 72%; padding: 10px 14px; border-radius: 16px; position: relative; word-wrap: break-word; }
+    .message-bubble.sent { background: var(--bubble-sent); color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+    .message-bubble.received { background: white; color: var(--text); align-self: flex-start; border-bottom-left-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+    .chat-user-bubble { font-size: 11px; font-weight: 700; margin-bottom: 4px; opacity: 0.75; }
+    .message-timestamp { font-size: 10px; margin-top: 4px; text-align: right; opacity: 0.6; }
     .file-link { color: inherit; text-decoration: underline; }
     .audio-player { width: 200px; margin-top: 5px; }
-    .chat-input-container { display: flex; padding: 10px; border-top: 1px solid #eee; gap: 10px; align-items: center; }
-    .voice-button { padding: 8px; background-color: #4CAF50; color: white; border: none; border-radius: 50%; cursor: pointer; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }
-    .voice-button.recording { background-color: #ff5722; animation: pulse 1s infinite; }
+
+    /* INPUT */
+    .chat-input-container { display: flex; padding: 10px 12px; border-top: 1px solid var(--border); gap: 8px; align-items: center; background: white; }
+    .voice-button { padding: 8px; background: var(--success); color: white; border: none; border-radius: 50%; cursor: pointer; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0; }
+    .voice-button.recording { background: var(--danger); animation: pulse 1s infinite; }
     @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
-    .voice-button:disabled { background-color: #ccc; cursor: not-allowed; }
-    .chat-input-container button { padding: 8px; background-color: #007bff; color: white; border: none; border-radius: 50%; cursor: pointer; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; }
-    .chat-input-container button:disabled { background-color: #ccc; cursor: not-allowed; }
+    .voice-button:disabled { background: #cbd5e1; cursor: not-allowed; }
+    .icon-btn { padding: 8px; background: #f1f5f9; color: var(--text-muted); border: 1px solid var(--border); border-radius: 50%; cursor: pointer; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0; }
+    .icon-btn:hover { background: #e2e8f0; }
+    .icon-btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .message-input-container { flex: 1; position: relative; display: flex; align-items: center; }
-    .emoji-button { background: none; border: none; font-size: 20px; cursor: pointer; margin-right: 5px; }
-    .message-input { width: 100%; padding: 8px 40px 8px 40px; border: 1px solid #ddd; border-radius: 20px; outline: none; }
-    .message-input:disabled { background-color: #f4f4f4; cursor: not-allowed; }
-    .emoji-panel { position: absolute; bottom: 50px; left: 0; background-color: white; border: 1px solid #ddd; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.2); width: 300px; max-height: 200px; display: flex; flex-direction: column; z-index: 100; }
-    .emoji-panel-header { background-color: #007bff; color: white; padding: 5px 10px; font-weight: bold; }
-    .emoji-panel-content { display: flex; flex-wrap: wrap; padding: 10px; overflow-y: auto; }
-    .emoji-item { font-size: 24px; padding: 5px; cursor: pointer; }
-    .emoji-panel-footer { padding: 5px 10px; border-top: 1px solid #ddd; }
-    .barra-rolagem-label { font-size: 12px; color: #666; }
-    .contact-form { background-color: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-    .contact-form-row { display: flex; gap: 10px; align-items: flex-start; }
-    .contact-form input { padding: 8px; border: 1px solid #ddd; border-radius: 3px; flex: 1; }
-    .contact-form button { background-color: #28a745; color: white; border: none; padding: 8px 15px; border-radius: 3px; cursor: pointer; }
-    .connected-peers { background-color: white; padding: 15px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-    .peer-item { padding: 10px; border-bottom: 1px solid #eee; display: flex; align-items: center; cursor: pointer; }
-    .peer-item:last-child { border-bottom: none; }
-    .peer-item button { background-color: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; }
-    .error-message { background-color: #f8d7da; color: #721c24; padding: 20px; border-radius: 5px; text-align: center; margin: 20px; }
-    .error-message button { background-color: #dc3545; color: white; border: none; padding: 8px 15px; border-radius: 3px; cursor: pointer; margin-top: 10px; }
+    .emoji-button { background: none; border: none; font-size: 18px; cursor: pointer; position: absolute; left: 8px; z-index: 1; }
+    .message-input { width: 100%; padding: 9px 44px; border: 1.5px solid var(--border); border-radius: 20px; outline: none; font-family: inherit; font-size: 14px; transition: border-color 0.2s; }
+    .message-input:focus { border-color: var(--primary); }
+    .message-input:disabled { background: #f8fafc; cursor: not-allowed; }
+    .send-btn { background: var(--primary); color: white; border: none; border-radius: 50%; cursor: pointer; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; transition: all 0.2s; }
+    .send-btn:hover { background: var(--primary-dark); }
+    .send-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
+
+    /* EMOJI PANEL */
+    .emoji-panel { position: absolute; bottom: 50px; left: 0; background: white; border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,0.12); width: 300px; max-height: 200px; display: flex; flex-direction: column; z-index: 100; }
+    .emoji-panel-header { background: var(--primary); color: white; padding: 6px 12px; font-weight: 600; font-size: 12px; border-radius: 12px 12px 0 0; }
+    .emoji-panel-content { display: flex; flex-wrap: wrap; padding: 8px; overflow-y: auto; }
+    .emoji-item { font-size: 22px; padding: 4px; cursor: pointer; border-radius: 6px; transition: background 0.15s; }
+    .emoji-item:hover { background: #f1f5f9; }
+    .emoji-panel-footer { padding: 4px 10px; border-top: 1px solid var(--border); font-size: 11px; color: var(--text-muted); }
+
+    /* MISC */
+    .green-delete-icon { position: absolute; top: 5px; right: 5px; color: #94a3b8; cursor: pointer; font-size: 11px; opacity: 0; transition: opacity 0.2s; }
+    .message-bubble:hover .green-delete-icon { opacity: 1; }
     .progress-container { margin-top: 5px; }
-    .progress-bar { width: 100%; background-color: #f0f0f0; border-radius: 5px; overflow: hidden; }
-    .progress { height: 5px; background-color: #007bff; transition: width 0.3s ease; }
-    .green-delete-icon { position: absolute; top: 5px; right: 5px; color: #28a745; cursor: pointer; font-size: 14px; }
-    .green-delete-icon:hover { color: #218838; }
-    .video-container { display: flex; flex-wrap: wrap; gap: 20px; margin-bottom: 20px; }
-    .video-player, .local-video-player { width: 320px; height: 240px; background-color: #000; border-radius: 5px; }
-    .local-video-player { border: 2px solid #007bff; }
-    .video-label { font-size: 14px; font-weight: bold; margin-bottom: 5px; }
-    .audio-call-container { background-color: white; padding: 15px; border-radius: 5px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-    .call-end-button { background-color: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 3px; cursor: pointer; }
+    .progress-bar { width: 100%; background: rgba(255,255,255,0.3); border-radius: 5px; overflow: hidden; }
+    .progress { height: 4px; background: white; transition: width 0.3s ease; }
 
-    /* ===================== E2EE STYLES ===================== */
-    .private-mode-toggle {
-      background: none; border: 1px solid #10b981; color: #10b981;
-      border-radius: 50%; padding: 0; font-size: 16px; font-weight: bold;
-      cursor: pointer; width: 40px; height: 40px; display: flex; align-items: center; justify-content: center;
-      transition: all 0.2s;
-    }
-    .private-mode-toggle.active { background-color: #10b981; color: white; }
-    .private-mode-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+    /* VIDEO */
+    .video-container { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 14px; }
+    .video-player, .local-video-player { width: 280px; height: 210px; background: #0f172a; border-radius: 10px; object-fit: cover; }
+    .local-video-player { border: 2px solid var(--primary); }
+    .video-label { font-size: 12px; font-weight: 600; margin-bottom: 4px; color: var(--text-muted); }
+    .audio-call-container { background: var(--surface); padding: 12px 16px; border-radius: 10px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); display: flex; align-items: center; gap: 12px; }
+    .call-end-button { background: var(--danger); color: white; border: none; padding: 6px 14px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px; }
 
-    /* ---- Send Secret Modal ---- */
-    .secret-modal-overlay {
-      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-      background: rgba(0,0,0,0.65); z-index: 1000;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .secret-modal {
-      background: #0f2744; border-radius: 16px; padding: 32px 36px;
-      max-width: 500px; width: 95%; box-shadow: 0 8px 40px rgba(0,0,0,0.6);
-      border: 1px solid #1e4d8c; color: #e0f0ff;
-      max-height: 90vh; overflow-y: auto;
-    }
-    .secret-modal h3 { margin: 0 0 6px; font-size: 20px; color: #10b981; }
-    .secret-modal .sm-subtitle { margin: 0 0 20px; font-size: 13px; color: #7eb3d8; }
-    .sm-section { margin-bottom: 18px; }
-    .sm-label { display: block; font-size: 11px; color: #7eb3d8; margin-bottom: 6px; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; }
-    .sm-contact-list { display: flex; flex-direction: column; gap: 8px; max-height: 200px; overflow-y: auto; }
-    .sm-contact-item {
-      display: flex; align-items: center; justify-content: space-between;
-      background: #162a44; border: 1px solid #1e4d8c; border-radius: 8px;
-      padding: 10px 14px; cursor: pointer; transition: all 0.15s;
-    }
-    .sm-contact-item:hover { border-color: #10b981; background: #0d2238; }
-    .sm-contact-item.selected { border-color: #10b981; background: #0a2a1a; }
+    /* E2EE */
+    .private-mode-toggle { background: none; border: 1.5px solid var(--success); color: var(--success); border-radius: 50%; padding: 0; font-size: 15px; cursor: pointer; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0; }
+    .private-mode-toggle.active { background: var(--success); color: white; }
+    .private-mode-toggle:disabled { opacity: 0.35; cursor: not-allowed; }
+    .secret-modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.65); z-index: 1000; display: flex; align-items: center; justify-content: center; }
+    .secret-modal { background: #0f2744; border-radius: 16px; padding: 28px 32px; max-width: 500px; width: 95%; box-shadow: 0 8px 40px rgba(0,0,0,0.6); border: 1px solid #1e4d8c; color: #e0f0ff; max-height: 90vh; overflow-y: auto; }
+    .secret-modal h3 { margin: 0 0 6px; font-size: 18px; color: var(--success); }
+    .secret-modal .sm-subtitle { margin: 0 0 18px; font-size: 13px; color: #7eb3d8; }
+    .sm-section { margin-bottom: 16px; }
+    .sm-label { display: block; font-size: 10px; color: #7eb3d8; margin-bottom: 5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+    .sm-contact-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; }
+    .sm-contact-item { display: flex; align-items: center; justify-content: space-between; background: #162a44; border: 1px solid #1e4d8c; border-radius: 8px; padding: 9px 12px; cursor: pointer; transition: all 0.15s; }
+    .sm-contact-item:hover { border-color: var(--success); }
+    .sm-contact-item.selected { border-color: var(--success); background: #0a2a1a; }
     .sm-contact-item.is-server { opacity: 0.4; cursor: not-allowed; }
-    .sm-contact-name { font-size: 14px; font-weight: bold; }
-    .sm-contact-id { font-size: 11px; color: #7eb3d8; margin-top: 2px; }
-    .sm-server-tag { font-size: 10px; background: #fbbf24; color: #78350f; border-radius: 4px; padding: 2px 6px; font-weight: bold; }
-    .sm-e2ee-tag { font-size: 10px; background: #10b981; color: #fff; border-radius: 4px; padding: 2px 6px; font-weight: bold; }
-    .sm-secret-display {
-      background: #0a1a33; border: 1px solid #1e4d8c; border-radius: 8px;
-      padding: 12px 14px; font-family: monospace; font-size: 12px;
-      color: #34d399; word-break: break-all; line-height: 1.6;
-      display: flex; align-items: center; justify-content: space-between; gap: 10px;
-    }
+    .sm-contact-name { font-size: 13px; font-weight: 700; }
+    .sm-contact-id { font-size: 10px; color: #7eb3d8; margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
+    .sm-server-tag { font-size: 9px; background: var(--warning); color: #78350f; border-radius: 4px; padding: 2px 5px; font-weight: 700; }
+    .sm-e2ee-tag { font-size: 9px; background: var(--success); color: white; border-radius: 4px; padding: 2px 5px; font-weight: 700; }
+    .sm-secret-display { background: #0a1a33; border: 1px solid #1e4d8c; border-radius: 8px; padding: 10px 12px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #34d399; word-break: break-all; line-height: 1.6; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .sm-secret-text { flex: 1; }
-    .sm-copy-btn { background: #1e4d8c; border: none; color: #7eb3d8; border-radius: 6px; padding: 6px 10px; cursor: pointer; font-size: 12px; white-space: nowrap; }
+    .sm-copy-btn { background: #1e4d8c; border: none; color: #7eb3d8; border-radius: 6px; padding: 5px 9px; cursor: pointer; font-size: 11px; white-space: nowrap; }
     .sm-copy-btn:hover { background: #2563eb; color: white; }
-    .sm-info-box {
-      background: #0a2210; border: 1px solid #10b981; border-radius: 8px;
-      padding: 10px 14px; font-size: 12px; color: #6ee7b7; margin-top: 12px;
-      display: flex; gap: 8px; align-items: flex-start;
-    }
-    .sm-warning-box {
-      background: #1c1200; border: 1px solid #f59e0b; border-radius: 8px;
-      padding: 10px 14px; font-size: 12px; color: #fcd34d; margin-top: 8px;
-      display: flex; gap: 8px; align-items: flex-start;
-    }
-    .sm-btn-row { display: flex; gap: 10px; margin-top: 22px; }
-    .sm-btn {
-      flex: 1; padding: 12px; border: none; border-radius: 8px;
-      font-weight: bold; font-size: 14px; cursor: pointer; transition: opacity 0.15s;
-    }
+    .sm-info-box { background: #0a2210; border: 1px solid var(--success); border-radius: 8px; padding: 9px 12px; font-size: 11px; color: #6ee7b7; margin-top: 10px; display: flex; gap: 7px; align-items: flex-start; }
+    .sm-warning-box { background: #1c1200; border: 1px solid var(--warning); border-radius: 8px; padding: 9px 12px; font-size: 11px; color: #fcd34d; margin-top: 7px; display: flex; gap: 7px; align-items: flex-start; }
+    .sm-btn-row { display: flex; gap: 8px; margin-top: 20px; }
+    .sm-btn { flex: 1; padding: 11px; border: none; border-radius: 8px; font-weight: 700; font-size: 13px; cursor: pointer; transition: opacity 0.15s; }
     .sm-btn:hover { opacity: 0.88; }
-    .sm-btn.green { background: #10b981; color: white; }
+    .sm-btn.green { background: var(--success); color: white; }
     .sm-btn.blue { background: #3b82f6; color: white; }
     .sm-btn.gray { background: #334155; color: #94a3b8; }
     .sm-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-    .sm-status { margin-top: 12px; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: bold; text-align: center; }
-    .sm-status.ok { background: #0a2210; color: #34d399; border: 1px solid #10b981; }
-    .sm-status.err { background: #2a0a0a; color: #f87171; border: 1px solid #ef4444; }
+    .sm-status { margin-top: 10px; padding: 9px 12px; border-radius: 8px; font-size: 12px; font-weight: 700; text-align: center; }
+    .sm-status.ok { background: #0a2210; color: #34d399; border: 1px solid var(--success); }
+    .sm-status.err { background: #2a0a0a; color: #f87171; border: 1px solid var(--danger); }
     .sm-status.info { background: #0c1a33; color: #93c5fd; border: 1px solid #3b82f6; }
-
-    /* ---- Server E2EE badge in conversation list ---- */
-    .server-e2ee-btn {
-      padding: 4px; width: 30px; height: 30px; border-radius: 50%;
-      color: white; border: none; cursor: pointer; font-size: 14px;
-      display: flex; align-items: center; justify-content: center;
-      transition: all 0.2s;
-    }
-    .server-e2ee-btn.active { background: #10b981 !important; box-shadow: 0 0 8px rgba(16,185,129,0.5); }
+    .server-e2ee-btn { padding: 4px; width: 28px; height: 28px; border-radius: 50%; color: white; border: none; cursor: pointer; font-size: 13px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
+    .server-e2ee-btn.active { background: var(--success) !important; box-shadow: 0 0 8px rgba(16,185,129,0.5); }
     .server-e2ee-btn.inactive { background: #475569; }
-
-    /* ---- Server E2EE banner in chat ---- */
-    .server-e2ee-banner {
-      padding: 8px 14px; display: flex; align-items: center; gap: 8px;
-      font-size: 12px; font-weight: bold; border-top: 1px solid;
-    }
-    .server-e2ee-banner.active {
-      background: #f0fdf4; border-color: #bbf7d0; color: #059669;
-    }
-    .server-e2ee-banner.inactive {
-      background: #fff7ed; border-color: #fed7aa; color: #c2410c;
-    }
-
-    /* ---- E2EE badge in bubbles ---- */
-    .msg-encrypted-badge {
-      display: inline-flex; align-items: center; gap: 3px;
-      background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.4);
-      border-radius: 4px; padding: 1px 6px; font-size: 10px; color: #10b981;
-      margin-bottom: 4px; font-weight: bold;
-    }
+    .server-e2ee-banner { padding: 7px 12px; display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 700; border-top: 1px solid; }
+    .server-e2ee-banner.active { background: #f0fdf4; border-color: #bbf7d0; color: #059669; }
+    .server-e2ee-banner.inactive { background: #fff7ed; border-color: #fed7aa; color: #c2410c; }
+    .msg-encrypted-badge { display: inline-flex; align-items: center; gap: 3px; background: rgba(16,185,129,0.15); border: 1px solid rgba(16,185,129,0.4); border-radius: 4px; padding: 1px 5px; font-size: 10px; color: var(--success); margin-bottom: 3px; font-weight: 700; }
     .msg-encrypted-badge.group { background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #3b82f6; }
-    .msg-encrypted-locked { font-size: 12px; color: #f59e0b; font-style: italic; }
     .msg-no-key { font-size: 11px; color: #94a3b8; font-style: italic; }
 
-    /* ===================== DARK MODE ===================== */
-    body.dark-mode { background-color: #121212; color: #e0e0e0; }
-    .dark-mode .app-header { background-color: #1f1f1f; }
-    .dark-mode .user-info-container, .dark-mode .peer-id-container, .dark-mode .contact-form,
-    .dark-mode .connected-peers, .dark-mode .chat-messages-container, .dark-mode .conversations-list,
-    .dark-mode .audio-call-container { background-color: #1e1e1e; color: #e0e0e0; }
-    .dark-mode .message-bubble.received { background-color: #2e2e2e; color: #e0e0e0; }
-    .dark-mode .message-input { background-color: #333; color: #fff; border: 1px solid #555; }
-    .dark-mode .emoji-panel { background-color: #2a2a2a; border-color: #444; }
-    .dark-mode .conversation-name { color: #e0e0e0; }
-    .dark-mode .conversation-peer-id { color: #999; }
+    /* CONTACT SCREEN */
+    .contact-form { background: var(--surface); padding: 14px 16px; border-radius: 10px; margin-bottom: 14px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+    .contact-form-row { display: flex; gap: 8px; align-items: flex-start; flex-wrap: wrap; }
+    .contact-form input { padding: 8px 12px; border: 1.5px solid var(--border); border-radius: 7px; font-family: inherit; font-size: 13px; outline: none; flex: 1; min-width: 140px; }
+    .contact-form input:focus { border-color: var(--primary); }
+    .contact-form button { background: var(--success); color: white; border: none; padding: 8px 16px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 13px; }
+    .connected-peers { background: var(--surface); padding: 14px 16px; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+    .peer-item { padding: 10px 12px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; cursor: pointer; transition: background 0.15s; }
+    .peer-item:hover { background: #f8fafc; }
+    .peer-item:last-child { border-bottom: none; }
+    .peer-item button { background: var(--danger); color: white; border: none; padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; }
+    .error-message { background: #fef2f2; color: #991b1b; padding: 20px; border-radius: 10px; text-align: center; margin: 20px; border: 1px solid #fecaca; }
+
+    /* RADIO BAR */
+    .radio-bar { background: #0f172a; color: white; padding: 10px 16px; text-align: center; border-radius: 10px; margin-bottom: 12px; }
+
+    /* CALL BTN STYLES */
+    .call-btn { padding: 4px; width: 28px; height: 28px; border-radius: 50%; color: white; border: none; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; }
+
+    /* DARK MODE */
+    body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #e2e8f0; --text-muted: #94a3b8; --bubble-recv: #1e293b; }
+    .dark-mode .chat-messages { background: #0f172a; }
+    .dark-mode .message-bubble.received { background: #1e293b; color: #e2e8f0; }
+    .dark-mode .message-input { background: #1e293b; color: #e2e8f0; }
+    .dark-mode .emoji-panel { background: #1e293b; }
+    .dark-mode .emoji-item:hover { background: #334155; }
+
+    /* ============================================================
+       TUTORIAL MODAL
+       ============================================================ */
+    .tutorial-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 16px; animation: fadeIn 0.25s ease; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .tutorial-modal { background: #0f172a; border-radius: 20px; max-width: 680px; width: 100%; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column; border: 1px solid #1e3a5f; box-shadow: 0 24px 80px rgba(0,0,0,0.7); }
+    .tutorial-header { background: linear-gradient(135deg, #1e40af, #7c3aed); padding: 22px 28px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+    .tutorial-header h2 { margin: 0; color: white; font-size: 20px; display: flex; align-items: center; gap: 10px; }
+    .tutorial-close { background: rgba(255,255,255,0.15); border: none; color: white; width: 34px; height: 34px; border-radius: 50%; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+    .tutorial-close:hover { background: rgba(255,255,255,0.28); }
+    .tutorial-tabs { display: flex; background: #1e293b; border-bottom: 1px solid #334155; overflow-x: auto; flex-shrink: 0; }
+    .tutorial-tab { padding: 11px 18px; color: #94a3b8; cursor: pointer; font-size: 12px; font-weight: 600; border-bottom: 2px solid transparent; white-space: nowrap; transition: all 0.2s; }
+    .tutorial-tab.active { color: #60a5fa; border-bottom-color: #60a5fa; }
+    .tutorial-tab:hover { color: #cbd5e1; }
+    .tutorial-content { padding: 24px 28px; overflow-y: auto; flex: 1; color: #cbd5e1; }
+    .tutorial-content h3 { color: #60a5fa; font-size: 16px; margin: 0 0 14px; display: flex; align-items: center; gap: 8px; }
+    .tutorial-content p { font-size: 13px; line-height: 1.7; margin: 0 0 12px; color: #94a3b8; }
+    .tutorial-step { display: flex; gap: 14px; margin-bottom: 16px; align-items: flex-start; }
+    .tutorial-step-num { background: linear-gradient(135deg, #1e40af, #7c3aed); color: white; border-radius: 50%; width: 28px; height: 28px; min-width: 28px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; margin-top: 2px; }
+    .tutorial-step-text { flex: 1; }
+    .tutorial-step-text strong { color: #e2e8f0; font-size: 13px; display: block; margin-bottom: 3px; }
+    .tutorial-step-text span { font-size: 12px; color: #64748b; line-height: 1.6; }
+    .tutorial-tip { background: #0a2a1a; border: 1px solid #10b981; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #6ee7b7; margin-top: 14px; display: flex; gap: 8px; }
+    .tutorial-warn { background: #1c1200; border: 1px solid var(--warning); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #fcd34d; margin-top: 10px; display: flex; gap: 8px; }
+    .tutorial-badge { display: inline-flex; align-items: center; gap: 4px; background: #1e3a5f; border: 1px solid #2563eb; border-radius: 6px; padding: 2px 8px; font-size: 11px; color: #93c5fd; font-weight: 700; margin: 2px; }
+    .tutorial-nav { display: flex; align-items: center; justify-content: space-between; padding: 14px 28px; border-top: 1px solid #1e293b; background: #0f172a; flex-shrink: 0; }
+    .tutorial-nav button { background: #1e3a5f; border: 1px solid #2563eb; color: #93c5fd; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s; }
+    .tutorial-nav button:hover { background: #2563eb; color: white; }
+    .tutorial-nav button:disabled { opacity: 0.3; cursor: not-allowed; }
+    .tutorial-nav button.primary { background: #2563eb; color: white; }
+    .tutorial-nav button.primary:hover { background: #1d4ed8; }
+    .tutorial-dots { display: flex; gap: 6px; }
+    .tutorial-dot { width: 8px; height: 8px; border-radius: 50%; background: #334155; transition: all 0.2s; }
+    .tutorial-dot.active { background: #60a5fa; transform: scale(1.3); }
+    .feature-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0; }
+    .feature-card { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 12px; }
+    .feature-card .fc-icon { font-size: 20px; margin-bottom: 6px; }
+    .feature-card .fc-title { font-size: 12px; font-weight: 700; color: #e2e8f0; margin-bottom: 3px; }
+    .feature-card .fc-desc { font-size: 11px; color: #64748b; line-height: 1.5; }
   </style>
 </head>
 <body>
@@ -206,9 +239,251 @@
   <script type="text/babel">
     const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
-    // =====================================================================
+    // ================================================================
+    // I18N — English (default) + Portuguese
+    // ================================================================
+    const TRANSLATIONS = {
+      en: {
+        appTitle: "Chat K10",
+        appSubtitle: "P2P Encrypted Chat",
+        contacts: "Contacts",
+        darkMode: "Dark Mode",
+        tutorial: "Tutorial",
+        language: "PT",
+        yourId: "Your ID:",
+        copy: "Copy",
+        copied: "ID copied!",
+        superNodeOff: "SuperNode OFF",
+        superNodeOn: "SuperNode ON",
+        djRadio: "DJ Radio",
+        generateInviteLink: "Generate Invite Link",
+        inviteLinkCopied: "Invite link copied! Paste it to share.",
+        yourName: "Your name",
+        typeName: "Type your name",
+        save: "Save",
+        edit: "Edit",
+        conversations: "Conversations",
+        deleteMessages: "Delete messages",
+        sendMessage: "Send message",
+        selectContact: "Select a contact...",
+        waitCooldown: "Wait {s}s...",
+        privateMsg: "🔒 Private message to {name}...",
+        groupMsg: "🛡️ Group encrypted message to {name}...",
+        regularMsg: "Message to {name}...",
+        voiceCall: "Voice call",
+        endVoiceCall: "End voice call",
+        camera: "Camera",
+        stopCamera: "Stop camera",
+        voiceCallWith: "Voice call with",
+        endCall: "End Call",
+        volume: "Volume:",
+        you: "You",
+        noMessages: "No messages yet.",
+        selectContactToChat: "Select a contact to start chatting.",
+        sendSecret: "Send / manage private secret",
+        serverSecret: "Server: use the 🛡️ button in the list",
+        attachFile: "Attach file",
+        recordAudio: "Record audio",
+        emojis: "Emojis",
+        scrollMore: "Scroll for more",
+        sendSecretTitle: "🔑 Send Private Secret",
+        sendSecretSubtitle: "Choose a contact. The secret is sent directly via P2P — only that person receives it.",
+        selectContactLabel: "Select contact",
+        noConnectedContacts: "⚠️ No connected contacts available (central servers are blocked).",
+        yourGeneratedSecret: "Your generated secret (will be sent automatically)",
+        secretSentDirect: "The secret is sent directly via P2P — no intermediary server sees this data.",
+        contactMustSendBack: "The other person also needs to send their secret to you so you can read their messages.",
+        sendSecretNow: "🚀 Send Secret Now",
+        close: "✅ Close",
+        cancel: "Cancel",
+        selectContactFirst: "Please select a contact.",
+        contactNotConnected: "Contact is not connected.",
+        secretSentSuccess: "Secret sent to {name}! You can now use Private Mode.",
+        sendFailed: "Failed to send: ",
+        serverTag: "SERVER",
+        offlineTag: "OFFLINE",
+        groupE2EETitle: "🛡️ Group Encryption on Server",
+        groupE2EESubtitle: "Extends your E2EE to server {id}. Messages go through already encrypted — the server cannot read them.",
+        e2eeAlreadyActive: "Group encryption is already active on this server. You can resend the secret or deactivate.",
+        contactsWithE2EE: "Contacts with E2EE active ({n}) — will receive the group secret",
+        noE2EEContacts: "⚠️ No contacts with E2EE configured.\nFirst exchange individual secrets using the 🔑 button.",
+        groupSecret: "Group secret (auto-generated)",
+        howItWorks: "How it works:",
+        howItWorksDesc: "The group secret is sent via direct P2P (never through the server) to all listed contacts. From then on, every message sent to the server is encrypted — the server only sees unreadable text.",
+        offlineWarn: "OFFLINE contacts won't receive the secret now. Resend when they come online.",
+        activateGroupE2EE: "🛡️ Activate Group Encryption",
+        resendSecret: "Resend Secret",
+        deactivate: "🔓 Deactivate",
+        groupE2EEActivated: "🛡️ Group encryption activated! Secret sent to {n} contact(s) online. Server messages are now encrypted.",
+        contactsTitle: "Contacts",
+        back: "← Back",
+        addContact: "Add",
+        contactName: "Contact name",
+        contactId: "Contact ID",
+        nameRequired: "Name is required",
+        idRequired: "ID is required",
+        noContacts: "No contacts added yet.",
+        e2eeSecretReceived: "🔑 E2EE secret received from {name}. Their messages will be decrypted automatically.",
+        groupInviteReceived: "🛡️ {name} activated group encryption for server \"{id}\". Your messages on this server are now encrypted automatically.",
+        pleaseSetName: "Please set your name before sending messages",
+        contactOffline: "Contact {name} is not connected.",
+        sendError: "Error sending message: ",
+        micError: "Error accessing microphone: ",
+        cameraError: "Error accessing camera: ",
+        callError: "Call error: ",
+        videoError: "Video error: ",
+        connectError: "Connection error: ",
+        connectFailed: "Failed to connect: ",
+        serverFull: "Server full. Could not connect.",
+        maxFileSizeErr: "Max 5MB.",
+        radioAlreadyPlaying: "A song is already playing!",
+        radioGlobal: "Global Radio",
+        djLabel: "DJ: ",
+        nowPlaying: "▶ Now Playing",
+        radioStartsIn: "Music starts in {s}s...",
+        downloading: " (Downloading...)",
+        totalE2EE: "Full encryption active",
+        sendingEncrypted: "Sending encrypted · waiting for contact's secret",
+        receivingEncrypted: "Reading contact's msgs · send your secret to encrypt your msgs",
+        groupEncryptionActive: "Group encryption ACTIVE — messages pass through the server encrypted",
+        groupEncryptionInactive: "Group encryption inactive on server",
+        manage: "Manage",
+        activate: "🛡️ Activate",
+        errApp: "Application Error",
+        tryAgain: "Try Again",
+        defineNameFirst: "Please set your name.",
+        selectContactFirst2: "Please select a contact.",
+        contactOffline2: "Contact is offline.",
+        fileReadError: "Error reading data",
+        connectionLost: "Connection lost.",
+        sendingError: "Error: ",
+      },
+      pt: {
+        appTitle: "Chat K10",
+        appSubtitle: "Chat P2P Criptografado",
+        contacts: "Contatos",
+        darkMode: "Modo Noturno",
+        tutorial: "Tutorial",
+        language: "EN",
+        yourId: "Seu ID:",
+        copy: "Copiar",
+        copied: "ID copiado!",
+        superNodeOff: "SuperNó OFF",
+        superNodeOn: "SuperNó ON",
+        djRadio: "DJ Rádio",
+        generateInviteLink: "Gerar Link de Convite",
+        inviteLinkCopied: "Link de convite copiado! Cole para compartilhar.",
+        yourName: "Seu nome",
+        typeName: "Digite seu nome",
+        save: "Salvar",
+        edit: "Editar",
+        conversations: "Conversas",
+        deleteMessages: "Apagar mensagens",
+        sendMessage: "Enviar mensagem",
+        selectContact: "Selecione um contato...",
+        waitCooldown: "Aguarde {s}s...",
+        privateMsg: "🔒 Mensagem privada para {name}...",
+        groupMsg: "🛡️ Mensagem criptografada no grupo {name}...",
+        regularMsg: "Mensagem para {name}...",
+        voiceCall: "Chamada de voz",
+        endVoiceCall: "Encerrar voz",
+        camera: "Câmera",
+        stopCamera: "Desligar câmera",
+        voiceCallWith: "Chamada de voz com",
+        endCall: "Encerrar",
+        volume: "Volume:",
+        you: "Você",
+        noMessages: "Nenhuma mensagem ainda.",
+        selectContactToChat: "Selecione um contato para começar a conversar.",
+        sendSecret: "Enviar / gerenciar segredo privado",
+        serverSecret: "Servidor: use o botão 🛡️ na lista",
+        attachFile: "Enviar arquivo",
+        recordAudio: "Gravar áudio",
+        emojis: "Emojis",
+        scrollMore: "Role para ver mais",
+        sendSecretTitle: "🔑 Enviar Segredo Privado",
+        sendSecretSubtitle: "Escolha com quem trocar o segredo. Ele será enviado diretamente via P2P — só essa pessoa recebe.",
+        selectContactLabel: "Selecione o contato",
+        noConnectedContacts: "⚠️ Nenhum contato conectado disponível (servidores centrais são bloqueados).",
+        yourGeneratedSecret: "Seu segredo gerado (será enviado automaticamente)",
+        secretSentDirect: "O segredo é enviado diretamente pela conexão P2P — nenhum servidor intermediário vê esse dado.",
+        contactMustSendBack: "A outra pessoa também precisa te enviar o segredo dela para que você possa ler as mensagens dela.",
+        sendSecretNow: "🚀 Enviar Segredo Agora",
+        close: "✅ Fechar",
+        cancel: "Cancelar",
+        selectContactFirst: "Selecione um contato.",
+        contactNotConnected: "Contato não está conectado.",
+        secretSentSuccess: "Segredo enviado para {name}! Você já pode usar o Modo Privado.",
+        sendFailed: "Falha ao enviar: ",
+        serverTag: "SERVIDOR",
+        offlineTag: "OFFLINE",
+        groupE2EETitle: "🛡️ Criptografia de Grupo no Servidor",
+        groupE2EESubtitle: "Estende sua criptografia E2EE para o servidor {id}. Mensagens passam pelo servidor já criptografadas — ele não consegue ler nada.",
+        e2eeAlreadyActive: "Criptografia de grupo já está ativa neste servidor. Você pode reenviar o segredo ou desativar.",
+        contactsWithE2EE: "Contatos com E2EE ativo ({n}) — receberão o segredo de grupo",
+        noE2EEContacts: "⚠️ Nenhum contato com E2EE configurado.\nPrimeiro troque segredos individuais usando o botão 🔑.",
+        groupSecret: "Segredo de grupo (gerado automaticamente)",
+        howItWorks: "Como funciona:",
+        howItWorksDesc: "O segredo de grupo é enviado via P2P direto para todos os contatos listados. A partir daí, toda mensagem enviada ao servidor sai criptografada — o servidor só vê texto ilegível.",
+        offlineWarn: "Contatos OFFLINE não receberão o segredo agora. Reenvie depois que ficarem online.",
+        activateGroupE2EE: "🛡️ Ativar Criptografia de Grupo",
+        resendSecret: "Reenviar Segredo",
+        deactivate: "🔓 Desativar",
+        groupE2EEActivated: "🛡️ Criptografia de grupo ativada! Segredo enviado para {n} contato(s) online.",
+        contactsTitle: "Lista de Contatos",
+        back: "← Voltar",
+        addContact: "Adicionar",
+        contactName: "Nome do contato",
+        contactId: "ID do contato",
+        nameRequired: "Nome é obrigatório",
+        idRequired: "ID é obrigatório",
+        noContacts: "Nenhum contato adicionado ainda.",
+        e2eeSecretReceived: "🔑 Segredo E2EE recebido de {name}. Suas mensagens dele(a) serão descriptografadas automaticamente.",
+        groupInviteReceived: "🛡️ {name} ativou criptografia de grupo para o servidor \"{id}\". Suas mensagens neste servidor agora são criptografadas automaticamente.",
+        pleaseSetName: "Por favor, defina seu nome antes de enviar mensagens",
+        contactOffline: "Contato {name} não está conectado.",
+        sendError: "Erro ao enviar mensagem: ",
+        micError: "Erro ao acessar o microfone: ",
+        cameraError: "Erro ao acessar câmera: ",
+        callError: "Erro chamada: ",
+        videoError: "Erro vídeo: ",
+        connectError: "Erro ao conectar: ",
+        connectFailed: "Erro ao conectar: ",
+        serverFull: "Servidor cheio.",
+        maxFileSizeErr: "Máx 5MB.",
+        radioAlreadyPlaying: "Já existe uma música tocando!",
+        radioGlobal: "Rádio Global",
+        djLabel: "DJ: ",
+        nowPlaying: "▶ Tocando agora",
+        radioStartsIn: "A música começa em {s}s...",
+        downloading: " (Baixando...)",
+        totalE2EE: "Criptografia total ativa",
+        sendingEncrypted: "Enviando criptografado · aguardando segredo do contato",
+        receivingEncrypted: "Lendo msgs do contato · envie seu segredo para criptografar suas msgs",
+        groupEncryptionActive: "Criptografia de grupo ATIVA — mensagens passam pelo servidor criptografadas",
+        groupEncryptionInactive: "Criptografia de grupo inativa no servidor",
+        manage: "Gerenciar",
+        activate: "🛡️ Ativar",
+        errApp: "Erro na aplicação",
+        tryAgain: "Tentar novamente",
+        defineNameFirst: "Por favor, defina seu nome.",
+        selectContactFirst2: "Selecione um contato.",
+        contactOffline2: "Contato offline.",
+        fileReadError: "Erro ao ler dados",
+        connectionLost: "Conexão perdida.",
+        sendingError: "Erro: ",
+      }
+    };
+
+    const t = (lang, key, vars = {}) => {
+      let str = TRANSLATIONS[lang][key] || TRANSLATIONS['en'][key] || key;
+      Object.entries(vars).forEach(([k, v]) => { str = str.replace(`{${k}}`, v); });
+      return str;
+    };
+
+    // ================================================================
     // AES-GCM E2EE HELPERS
-    // =====================================================================
+    // ================================================================
     async function deriveKey(secret) {
       const enc = new TextEncoder();
       const base = await crypto.subtle.importKey("raw", enc.encode(secret), "PBKDF2", false, ["deriveKey"]);
@@ -217,7 +492,6 @@
         base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
       );
     }
-
     async function encryptMsg(text, secret) {
       const key = await deriveKey(secret);
       const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -227,7 +501,6 @@
       combined.set(iv, 0); combined.set(new Uint8Array(cipher), 12);
       return btoa(String.fromCharCode(...combined));
     }
-
     async function decryptMsg(b64, secret) {
       const key = await deriveKey(secret);
       const data = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
@@ -235,23 +508,25 @@
       const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipher);
       return new TextDecoder().decode(plain);
     }
-
     function generateSecret() {
       return Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2,'0')).join('');
     }
 
     const E2EE_PREFIX = "\u{1F512}E2EE:";
     const GROUP_E2EE_PREFIX = "\u{1F6E1}GRP:";
-    // =====================================================================
 
+    // ================================================================
+    // ERROR BOUNDARY
+    // ================================================================
     class ErrorBoundary extends React.Component {
       state = { error: null };
       static getDerivedStateFromError(error) { return { error }; }
       render() {
         if (this.state.error) return (
           <div className="error-message">
-            <h1>Erro na aplicação</h1>
+            <h1>Application Error</h1>
             <p>{this.state.error.message}</p>
+            <button onClick={() => window.location.reload()}>Try Again</button>
           </div>
         );
         return this.props.children;
@@ -277,252 +552,369 @@
       return [peerId, setPeerId];
     };
 
-    // =====================================================================
-    // SendSecretModal — envia segredo via P2P direto, bloqueia servidor
-    // =====================================================================
-    const SendSecretModal = ({ connections, contacts, getContactName, isCentralServer, onSend, onClose, e2eeState }) => {
-      const [selectedPeer, setSelectedPeer] = useState(null);
-      const [mySecret] = useState(() => generateSecret());
-      const [status, setStatus] = useState(null);
-      const [sent, setSent] = useState(false);
-
-      const eligibleConns = connections.filter(c => c.open && !isCentralServer(c.peer));
-
-      const handleSend = () => {
-        if (!selectedPeer) { setStatus({ type: 'err', msg: 'Selecione um contato.' }); return; }
-        const conn = connections.find(c => c.peer === selectedPeer && c.open);
-        if (!conn) { setStatus({ type: 'err', msg: 'Contato não está conectado.' }); return; }
-        try {
-          conn.send({ type: 'e2ee-secret', secret: mySecret, direct: true });
-          onSend(selectedPeer, mySecret);
-          setSent(true);
-          setStatus({ type: 'ok', msg: `Segredo enviado para ${getContactName(selectedPeer)}! Você já pode usar o Modo Privado.` });
-        } catch (err) {
-          setStatus({ type: 'err', msg: 'Falha ao enviar: ' + err.message });
-        }
-      };
-
-      const copySecret = () => {
-        navigator.clipboard.writeText(mySecret);
-        setStatus({ type: 'info', msg: 'Segredo copiado! (Envie só como alternativa de backup)' });
-      };
-
-      return (
-        <div className="secret-modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-          <div className="secret-modal">
-            <h3>🔑 Enviar Segredo Privado</h3>
-            <p className="sm-subtitle">
-              Escolha com quem trocar o segredo. Ele será enviado diretamente via P2P — só essa pessoa recebe.
-            </p>
-
-            <div className="sm-section">
-              <span className="sm-label">Selecione o contato</span>
-              {eligibleConns.length === 0 ? (
-                <div style={{ color: '#f87171', fontSize: '13px', padding: '10px 0' }}>
-                  ⚠️ Nenhum contato conectado disponível (servidores centrais são bloqueados).
-                </div>
-              ) : (
-                <div className="sm-contact-list">
-                  {connections.map((conn, i) => {
-                    const isServer = isCentralServer(conn.peer);
-                    const hasE2EE = !!e2eeState[conn.peer];
-                    const isOpen = conn.open;
-                    return (
-                      <div key={i}
-                        className={`sm-contact-item${isServer ? ' is-server' : ''}${selectedPeer === conn.peer ? ' selected' : ''}${!isOpen ? ' is-server' : ''}`}
-                        onClick={() => { if (!isServer && isOpen) setSelectedPeer(conn.peer); }}
-                        title={isServer ? 'Não é possível enviar segredo ao servidor central' : !isOpen ? 'Contato offline' : ''}
-                      >
-                        <div>
-                          <div className="sm-contact-name">{getContactName(conn.peer)}</div>
-                          <div className="sm-contact-id">{conn.peer}</div>
-                        </div>
-                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                          {isServer && <span className="sm-server-tag">SERVIDOR</span>}
-                          {!isOpen && !isServer && <span className="sm-server-tag" style={{ background: '#dc2626', color: 'white' }}>OFFLINE</span>}
-                          {hasE2EE && !isServer && <span className="sm-e2ee-tag">🔒 E2EE</span>}
-                          {selectedPeer === conn.peer && <span style={{ color: '#10b981', fontSize: '18px' }}>✓</span>}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+    // ================================================================
+    // TUTORIAL MODAL
+    // ================================================================
+    const TUTORIAL_PAGES_EN = [
+      {
+        tab: "🏠 Overview",
+        title: "Welcome to Chat K10",
+        content: (
+          <div>
+            <p>Chat K10 is a fully <strong style={{color:'#60a5fa'}}>peer-to-peer (P2P) encrypted chat</strong>. Your messages travel directly between users — no central server stores your conversations.</p>
+            <div className="feature-grid">
+              <div className="feature-card"><div className="fc-icon">🔒</div><div className="fc-title">End-to-End Encryption</div><div className="fc-desc">AES-256-GCM encryption. Only you and your contact can read messages.</div></div>
+              <div className="feature-card"><div className="fc-icon">📡</div><div className="fc-title">P2P Direct</div><div className="fc-desc">Messages go directly between browsers. No third-party middleman.</div></div>
+              <div className="feature-card"><div className="fc-icon">🎙️</div><div className="fc-title">Voice & Video</div><div className="fc-desc">Real-time voice and video calls directly between contacts.</div></div>
+              <div className="feature-card"><div className="fc-icon">📁</div><div className="fc-title">File Transfer</div><div className="fc-desc">Send files and audio recordings directly to contacts.</div></div>
             </div>
+            <div className="tutorial-tip"><span>💡</span><span>Use the tabs above to learn about each feature step by step.</span></div>
+          </div>
+        )
+      },
+      {
+        tab: "🚀 Getting Started",
+        title: "Getting Started",
+        content: (
+          <div>
+            <div className="tutorial-step"><div className="tutorial-step-num">1</div><div className="tutorial-step-text"><strong>Set your name</strong><span>At the top, click <em>Edit</em> and type your display name. Others will see this name when you send messages.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">2</div><div className="tutorial-step-text"><strong>Copy your ID</strong><span>Your unique peer ID is shown below your name. Click <em>Copy</em> and share it with people you want to chat with.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">3</div><div className="tutorial-step-text"><strong>Add a contact</strong><span>Click the <span className="tutorial-badge">📋 Contacts</span> button in the header. Enter the contact's name and their Peer ID, then click Add.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">4</div><div className="tutorial-step-text"><strong>Connect & Chat</strong><span>Click a contact in the Contacts screen — this initiates a P2P connection. Once connected, they appear in the Conversations list.</span></div></div>
+            <div className="tutorial-tip"><span>🔗</span><span>Alternatively, use <strong>Generate Invite Link</strong> to create a shareable URL that automatically connects the recipient to you when opened.</span></div>
+          </div>
+        )
+      },
+      {
+        tab: "🔒 Encryption (E2EE)",
+        title: "End-to-End Encryption",
+        content: (
+          <div>
+            <p>Chat K10 uses <strong style={{color:'#34d399'}}>AES-256-GCM</strong> encryption derived via PBKDF2. This means only you and your contact can read messages — not even a server admin can.</p>
+            <div className="tutorial-step"><div className="tutorial-step-num">1</div><div className="tutorial-step-text"><strong>Click the 🔑 key button</strong><span>Found in the message input bar. This opens the secret exchange modal.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">2</div><div className="tutorial-step-text"><strong>Select a contact & send</strong><span>A unique 64-character secret is generated and sent <em>directly via P2P</em> — the server never sees it.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">3</div><div className="tutorial-step-text"><strong>Ask them to do the same</strong><span>For full two-way encryption, both sides must exchange secrets. Once done, the 🔒 icon appears in the conversation.</span></div></div>
+            <div className="tutorial-warn"><span>⚠️</span><span>Secrets cannot be recovered if lost. They are stored only in your browser's local storage.</span></div>
+            <div className="tutorial-tip"><span>🛡️</span><span>For server-relayed group chats, use the <strong>🛡️ shield button</strong> to activate Group Encryption — the server only sees encrypted ciphertext.</span></div>
+          </div>
+        )
+      },
+      {
+        tab: "📡 Voice & Video",
+        title: "Voice & Video Calls",
+        content: (
+          <div>
+            <p>Make real-time voice and video calls directly with your contacts using WebRTC — no call routing through servers.</p>
+            <div className="tutorial-step"><div className="tutorial-step-num">1</div><div className="tutorial-step-text"><strong>Start a voice call</strong><span>In the Conversations list, click the <span className="tutorial-badge">📞 phone</span> icon next to a contact. Your browser will ask for microphone permission.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">2</div><div className="tutorial-step-text"><strong>Start a video call</strong><span>Click the <span className="tutorial-badge">📷 camera</span> icon. Your local video appears with a blue border; the contact's video appears alongside.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">3</div><div className="tutorial-step-text"><strong>Adjust volume</strong><span>Use the volume slider in the active call bar shown at the top of the page.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">4</div><div className="tutorial-step-text"><strong>End the call</strong><span>Click the red <span className="tutorial-badge">📞 end</span> icon or the <em>End Call</em> button in the call bar.</span></div></div>
+            <div className="tutorial-tip"><span>💡</span><span>You can have simultaneous voice and video calls with different contacts.</span></div>
+          </div>
+        )
+      },
+      {
+        tab: "📁 Files & Audio",
+        title: "Sending Files & Audio",
+        content: (
+          <div>
+            <div className="tutorial-step"><div className="tutorial-step-num">1</div><div className="tutorial-step-text"><strong>Send a file</strong><span>Click the <span className="tutorial-badge">📎 paperclip</span> button. Select any file from your device. It transfers in chunks directly via P2P.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">2</div><div className="tutorial-step-text"><strong>Record & send audio</strong><span>Click the <span className="tutorial-badge">🎙️ microphone</span> button to start recording. Click again to stop — the audio is sent automatically.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">3</div><div className="tutorial-step-text"><strong>DJ Radio</strong><span>Click <span className="tutorial-badge">🎵 DJ Radio</span> in the top bar and select an MP3 (max 5MB). It broadcasts to all connected peers in sync!</span></div></div>
+            <div className="tutorial-warn"><span>⚠️</span><span>File transfers go directly between browsers. Both users must remain connected for the transfer to complete.</span></div>
+            <div className="tutorial-tip"><span>💡</span><span>Audio messages support playback with the built-in player — no need to download.</span></div>
+          </div>
+        )
+      },
+      {
+        tab: "⚙️ Advanced",
+        title: "Advanced Features",
+        content: (
+          <div>
+            <div className="tutorial-step"><div className="tutorial-step-num">⚡</div><div className="tutorial-step-text"><strong>SuperNode Mode</strong><span>Toggle <span className="tutorial-badge">⚡ SuperNode</span> to allow more connections (up to 50 vs 15 default). Great if you want to act as a relay hub.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">🌐</div><div className="tutorial-step-text"><strong>Peer Exchange (PEX)</strong><span>Every 30 seconds, connected peers share their known peer list with each other — growing the network organically without any server.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">🌙</div><div className="tutorial-step-text"><strong>Dark Mode</strong><span>Click the 🌙 button in the header to toggle dark mode. Your preference is saved automatically.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">🌍</div><div className="tutorial-step-text"><strong>Language</strong><span>Click the <span className="tutorial-badge">PT / EN</span> button in the header to switch between English and Portuguese at any time.</span></div></div>
+            <div className="tutorial-tip"><span>🔐</span><span>All secrets and message history are stored locally in your browser. Clearing browser data will erase them permanently.</span></div>
+          </div>
+        )
+      }
+    ];
 
-            {selectedPeer && (
-              <div className="sm-section">
-                <span className="sm-label">Seu segredo gerado (será enviado automaticamente)</span>
-                <div className="sm-secret-display">
-                  <span className="sm-secret-text">{mySecret.substring(0, 24)}...{mySecret.substring(mySecret.length - 8)}</span>
-                  <button className="sm-copy-btn" onClick={copySecret} title="Copiar segredo completo">📋 Copiar</button>
-                </div>
-                <div className="sm-info-box">
-                  <span>✅</span>
-                  <span>O segredo é enviado diretamente pela conexão P2P criptografada — <strong>nenhum servidor intermediário vê esse dado</strong>.</span>
-                </div>
-                <div className="sm-warning-box">
-                  <span>⚠️</span>
-                  <span>A outra pessoa também precisa te enviar o segredo <em>dela</em> para que você possa ler as mensagens dela.</span>
-                </div>
+    const TUTORIAL_PAGES_PT = [
+      {
+        tab: "🏠 Visão Geral",
+        title: "Bem-vindo ao Chat K10",
+        content: (
+          <div>
+            <p>O Chat K10 é um chat <strong style={{color:'#60a5fa'}}>ponto-a-ponto (P2P) totalmente criptografado</strong>. Suas mensagens viajam diretamente entre os usuários — nenhum servidor central armazena suas conversas.</p>
+            <div className="feature-grid">
+              <div className="feature-card"><div className="fc-icon">🔒</div><div className="fc-title">Criptografia de Ponta a Ponta</div><div className="fc-desc">Criptografia AES-256-GCM. Apenas você e seu contato podem ler as mensagens.</div></div>
+              <div className="feature-card"><div className="fc-icon">📡</div><div className="fc-title">P2P Direto</div><div className="fc-desc">Mensagens vão diretamente entre navegadores. Sem intermediários.</div></div>
+              <div className="feature-card"><div className="fc-icon">🎙️</div><div className="fc-title">Voz & Vídeo</div><div className="fc-desc">Chamadas de voz e vídeo em tempo real diretamente entre contatos.</div></div>
+              <div className="feature-card"><div className="fc-icon">📁</div><div className="fc-title">Transferência de Arquivos</div><div className="fc-desc">Envie arquivos e gravações de áudio diretamente para contatos.</div></div>
+            </div>
+            <div className="tutorial-tip"><span>💡</span><span>Use as abas acima para aprender sobre cada recurso passo a passo.</span></div>
+          </div>
+        )
+      },
+      {
+        tab: "🚀 Primeiros Passos",
+        title: "Primeiros Passos",
+        content: (
+          <div>
+            <div className="tutorial-step"><div className="tutorial-step-num">1</div><div className="tutorial-step-text"><strong>Defina seu nome</strong><span>No topo, clique em <em>Editar</em> e digite seu nome. Os outros verão este nome quando você enviar mensagens.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">2</div><div className="tutorial-step-text"><strong>Copie seu ID</strong><span>Seu ID único está abaixo do nome. Clique em <em>Copiar</em> e compartilhe com quem quiser conversar.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">3</div><div className="tutorial-step-text"><strong>Adicione um contato</strong><span>Clique em <span className="tutorial-badge">📋 Contatos</span> no cabeçalho. Insira o nome e o ID do contato, depois clique em Adicionar.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">4</div><div className="tutorial-step-text"><strong>Conecte e converse</strong><span>Clique em um contato na tela de Contatos para iniciar a conexão P2P. Após conectado, ele aparece na lista de Conversas.</span></div></div>
+            <div className="tutorial-tip"><span>🔗</span><span>Alternativamente, use <strong>Gerar Link de Convite</strong> para criar uma URL compartilhável que conecta automaticamente quem abrir.</span></div>
+          </div>
+        )
+      },
+      {
+        tab: "🔒 Criptografia",
+        title: "Criptografia de Ponta a Ponta",
+        content: (
+          <div>
+            <p>O Chat K10 usa criptografia <strong style={{color:'#34d399'}}>AES-256-GCM</strong> derivada via PBKDF2. Somente você e seu contato podem ler as mensagens.</p>
+            <div className="tutorial-step"><div className="tutorial-step-num">1</div><div className="tutorial-step-text"><strong>Clique no botão 🔑</strong><span>Está na barra de entrada de mensagens. Abre o modal de troca de segredo.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">2</div><div className="tutorial-step-text"><strong>Selecione o contato e envie</strong><span>Um segredo único de 64 caracteres é gerado e enviado <em>diretamente via P2P</em> — o servidor nunca vê.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">3</div><div className="tutorial-step-text"><strong>Peça para ele fazer o mesmo</strong><span>Para criptografia bidirecional, ambos devem trocar segredos. Feito isso, o ícone 🔒 aparece na conversa.</span></div></div>
+            <div className="tutorial-warn"><span>⚠️</span><span>Segredos não podem ser recuperados se perdidos. Ficam apenas no armazenamento local do navegador.</span></div>
+            <div className="tutorial-tip"><span>🛡️</span><span>Para chats em grupo via servidor, use o <strong>botão 🛡️</strong> para ativar a Criptografia de Grupo.</span></div>
+          </div>
+        )
+      },
+      {
+        tab: "📡 Voz & Vídeo",
+        title: "Chamadas de Voz & Vídeo",
+        content: (
+          <div>
+            <p>Faça chamadas em tempo real diretamente com seus contatos usando WebRTC — sem passar pelo servidor.</p>
+            <div className="tutorial-step"><div className="tutorial-step-num">1</div><div className="tutorial-step-text"><strong>Iniciar chamada de voz</strong><span>Na lista de Conversas, clique no ícone <span className="tutorial-badge">📞 telefone</span>. O navegador pedirá permissão para o microfone.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">2</div><div className="tutorial-step-text"><strong>Iniciar videochamada</strong><span>Clique no ícone <span className="tutorial-badge">📷 câmera</span>. Seu vídeo local aparece com borda azul.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">3</div><div className="tutorial-step-text"><strong>Ajustar volume</strong><span>Use o controle deslizante no banner de chamada ativa no topo da página.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">4</div><div className="tutorial-step-text"><strong>Encerrar a chamada</strong><span>Clique no ícone vermelho ou no botão <em>Encerrar</em> no banner da chamada.</span></div></div>
+          </div>
+        )
+      },
+      {
+        tab: "📁 Arquivos & Áudio",
+        title: "Envio de Arquivos & Áudio",
+        content: (
+          <div>
+            <div className="tutorial-step"><div className="tutorial-step-num">1</div><div className="tutorial-step-text"><strong>Enviar arquivo</strong><span>Clique no botão <span className="tutorial-badge">📎 clipe</span>. Selecione qualquer arquivo. Ele é transferido em partes via P2P.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">2</div><div className="tutorial-step-text"><strong>Gravar e enviar áudio</strong><span>Clique no botão <span className="tutorial-badge">🎙️ microfone</span> para iniciar a gravação. Clique novamente para parar — o áudio é enviado automaticamente.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">3</div><div className="tutorial-step-text"><strong>DJ Rádio</strong><span>Clique em <span className="tutorial-badge">🎵 DJ Rádio</span> e selecione um MP3 (máx 5MB). Transmite para todos os peers conectados em sincronia!</span></div></div>
+            <div className="tutorial-warn"><span>⚠️</span><span>As transferências vão diretamente entre navegadores. Ambos devem permanecer conectados para concluir.</span></div>
+          </div>
+        )
+      },
+      {
+        tab: "⚙️ Avançado",
+        title: "Recursos Avançados",
+        content: (
+          <div>
+            <div className="tutorial-step"><div className="tutorial-step-num">⚡</div><div className="tutorial-step-text"><strong>Modo SuperNó</strong><span>Ative <span className="tutorial-badge">⚡ SuperNó</span> para permitir mais conexões (até 50 vs 15 padrão).</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">🌐</div><div className="tutorial-step-text"><strong>Troca de Peers (PEX)</strong><span>A cada 30 segundos, os peers conectados trocam sua lista de peers conhecidos — expandindo a rede organicamente.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">🌙</div><div className="tutorial-step-text"><strong>Modo Noturno</strong><span>Clique no botão 🌙 no cabeçalho para alternar. Sua preferência é salva automaticamente.</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">🌍</div><div className="tutorial-step-text"><strong>Idioma</strong><span>Clique em <span className="tutorial-badge">PT / EN</span> para alternar entre inglês e português a qualquer momento.</span></div></div>
+            <div className="tutorial-tip"><span>🔐</span><span>Todos os segredos e histórico de mensagens ficam salvos localmente no navegador. Limpar os dados do navegador os apagará permanentemente.</span></div>
+          </div>
+        )
+      }
+    ];
+
+    const TutorialModal = ({ lang, onClose }) => {
+      const [page, setPage] = useState(0);
+      const pages = lang === 'pt' ? TUTORIAL_PAGES_PT : TUTORIAL_PAGES_EN;
+      const current = pages[page];
+      return (
+        <div className="tutorial-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+          <div className="tutorial-modal">
+            <div className="tutorial-header">
+              <h2>📖 {current.title}</h2>
+              <button className="tutorial-close" onClick={onClose}>✕</button>
+            </div>
+            <div className="tutorial-tabs">
+              {pages.map((p, i) => (
+                <div key={i} className={`tutorial-tab${page === i ? ' active' : ''}`} onClick={() => setPage(i)}>{p.tab}</div>
+              ))}
+            </div>
+            <div className="tutorial-content">{current.content}</div>
+            <div className="tutorial-nav">
+              <button onClick={() => setPage(p => p - 1)} disabled={page === 0}>← {lang === 'pt' ? 'Anterior' : 'Previous'}</button>
+              <div className="tutorial-dots">
+                {pages.map((_, i) => <div key={i} className={`tutorial-dot${page === i ? ' active' : ''}`} />)}
               </div>
-            )}
-
-            {status && (
-              <div className={`sm-status ${status.type}`}>{status.msg}</div>
-            )}
-
-            <div className="sm-btn-row">
-              {!sent ? (
-                <button className="sm-btn green" onClick={handleSend} disabled={!selectedPeer || eligibleConns.length === 0}>
-                  🚀 Enviar Segredo Agora
-                </button>
-              ) : (
-                <button className="sm-btn green" onClick={onClose}>✅ Fechar</button>
-              )}
-              <button className="sm-btn gray" onClick={onClose}>Cancelar</button>
+              {page < pages.length - 1
+                ? <button className="primary" onClick={() => setPage(p => p + 1)}>{lang === 'pt' ? 'Próximo' : 'Next'} →</button>
+                : <button className="primary" onClick={onClose}>{lang === 'pt' ? '✅ Concluir' : '✅ Done'}</button>
+              }
             </div>
           </div>
         </div>
       );
     };
 
-    // =====================================================================
-    // ServerE2EEModal — estende criptografia ao servidor (modo grupo)
-    // =====================================================================
-    const ServerE2EEModal = ({ serverId, connections, e2eeState, getContactName, onActivate, onDeactivate, onClose, currentServerE2EE }) => {
+    // ================================================================
+    // SendSecretModal
+    // ================================================================
+    const SendSecretModal = ({ lang, connections, contacts, getContactName, isCentralServer, onSend, onClose, e2eeState }) => {
+      const [selectedPeer, setSelectedPeer] = useState(null);
+      const [mySecret] = useState(() => generateSecret());
+      const [status, setStatus] = useState(null);
+      const [sent, setSent] = useState(false);
+      const eligibleConns = connections.filter(c => c.open && !isCentralServer(c.peer));
+
+      const handleSend = () => {
+        if (!selectedPeer) { setStatus({ type: 'err', msg: t(lang, 'selectContactFirst') }); return; }
+        const conn = connections.find(c => c.peer === selectedPeer && c.open);
+        if (!conn) { setStatus({ type: 'err', msg: t(lang, 'contactNotConnected') }); return; }
+        try {
+          conn.send({ type: 'e2ee-secret', secret: mySecret, direct: true });
+          onSend(selectedPeer, mySecret);
+          setSent(true);
+          setStatus({ type: 'ok', msg: t(lang, 'secretSentSuccess', { name: getContactName(selectedPeer) }) });
+        } catch (err) { setStatus({ type: 'err', msg: t(lang, 'sendFailed') + err.message }); }
+      };
+
+      const copySecret = () => {
+        navigator.clipboard.writeText(mySecret);
+        setStatus({ type: 'info', msg: lang === 'pt' ? 'Segredo copiado!' : 'Secret copied!' });
+      };
+
+      return (
+        <div className="secret-modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+          <div className="secret-modal">
+            <h3>{t(lang, 'sendSecretTitle')}</h3>
+            <p className="sm-subtitle">{t(lang, 'sendSecretSubtitle')}</p>
+            <div className="sm-section">
+              <span className="sm-label">{t(lang, 'selectContactLabel')}</span>
+              {eligibleConns.length === 0
+                ? <div style={{ color: '#f87171', fontSize: '13px', padding: '10px 0' }}>{t(lang, 'noConnectedContacts')}</div>
+                : <div className="sm-contact-list">
+                    {connections.map((conn, i) => {
+                      const isServer = isCentralServer(conn.peer);
+                      const hasE2EE = !!e2eeState[conn.peer];
+                      const isOpen = conn.open;
+                      return (
+                        <div key={i} className={`sm-contact-item${isServer ? ' is-server' : ''}${selectedPeer === conn.peer ? ' selected' : ''}${!isOpen ? ' is-server' : ''}`}
+                          onClick={() => { if (!isServer && isOpen) setSelectedPeer(conn.peer); }}>
+                          <div>
+                            <div className="sm-contact-name">{getContactName(conn.peer)}</div>
+                            <div className="sm-contact-id">{conn.peer}</div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+                            {isServer && <span className="sm-server-tag">{t(lang, 'serverTag')}</span>}
+                            {!isOpen && !isServer && <span className="sm-server-tag" style={{ background: '#dc2626', color: 'white' }}>{t(lang, 'offlineTag')}</span>}
+                            {hasE2EE && !isServer && <span className="sm-e2ee-tag">🔒 E2EE</span>}
+                            {selectedPeer === conn.peer && <span style={{ color: '#10b981', fontSize: '18px' }}>✓</span>}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>}
+            </div>
+            {selectedPeer && (
+              <div className="sm-section">
+                <span className="sm-label">{t(lang, 'yourGeneratedSecret')}</span>
+                <div className="sm-secret-display">
+                  <span className="sm-secret-text">{mySecret.substring(0, 24)}...{mySecret.substring(mySecret.length - 8)}</span>
+                  <button className="sm-copy-btn" onClick={copySecret}>📋 {lang === 'pt' ? 'Copiar' : 'Copy'}</button>
+                </div>
+                <div className="sm-info-box"><span>✅</span><span>{t(lang, 'secretSentDirect')}</span></div>
+                <div className="sm-warning-box"><span>⚠️</span><span>{t(lang, 'contactMustSendBack')}</span></div>
+              </div>
+            )}
+            {status && <div className={`sm-status ${status.type}`}>{status.msg}</div>}
+            <div className="sm-btn-row">
+              {!sent
+                ? <button className="sm-btn green" onClick={handleSend} disabled={!selectedPeer || eligibleConns.length === 0}>{t(lang, 'sendSecretNow')}</button>
+                : <button className="sm-btn green" onClick={onClose}>{t(lang, 'close')}</button>}
+              <button className="sm-btn gray" onClick={onClose}>{t(lang, 'cancel')}</button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // ================================================================
+    // ServerE2EEModal
+    // ================================================================
+    const ServerE2EEModal = ({ lang, serverId, connections, e2eeState, getContactName, onActivate, onDeactivate, onClose, currentServerE2EE }) => {
       const [groupSecret] = useState(() => currentServerE2EE?.groupSecret || generateSecret());
       const [status, setStatus] = useState(null);
       const [activated, setActivated] = useState(false);
       const isAlreadyActive = currentServerE2EE?.active;
-
-      // Contatos que já têm E2EE comigo (mySecret configurado) e não são o servidor
-      const eligiblePeers = Object.entries(e2eeState)
-        .filter(([pid, state]) => state.mySecret && pid !== serverId)
-        .map(([pid]) => ({ pid, isOnline: connections.some(c => c.peer === pid && c.open) }));
+      const eligiblePeers = Object.entries(e2eeState).filter(([pid, state]) => state.mySecret && pid !== serverId).map(([pid]) => ({ pid, isOnline: connections.some(c => c.peer === pid && c.open) }));
 
       const handleActivate = () => {
         let sentCount = 0;
         eligiblePeers.forEach(({ pid, isOnline }) => {
           if (!isOnline) return;
           const conn = connections.find(c => c.peer === pid && c.open);
-          if (conn) {
-            try {
-              conn.send({ type: 'server-e2ee-invite', serverId, groupSecret });
-              sentCount++;
-            } catch(e) {}
-          }
+          if (conn) { try { conn.send({ type: 'server-e2ee-invite', serverId, groupSecret }); sentCount++; } catch(e) {} }
         });
         onActivate(serverId, groupSecret);
         setActivated(true);
-        setStatus({
-          type: 'ok',
-          msg: `🛡️ Criptografia de grupo ativada! Segredo enviado para ${sentCount} contato(s) online. Mensagens no servidor agora são criptografadas.`
-        });
+        setStatus({ type: 'ok', msg: t(lang, 'groupE2EEActivated', { n: sentCount }) });
       };
 
-      const handleDeactivate = () => {
-        onDeactivate(serverId);
-        onClose();
-      };
+      const handleDeactivate = () => { onDeactivate(serverId); onClose(); };
 
       return (
         <div className="secret-modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
           <div className="secret-modal">
-            <h3>🛡️ Criptografia de Grupo no Servidor</h3>
-            <p className="sm-subtitle">
-              Estende sua criptografia E2EE para o servidor <strong style={{color:'#fbbf24'}}>{serverId}</strong>.
-              Mensagens passam pelo servidor já criptografadas — ele não consegue ler nada.
-            </p>
-
-            {isAlreadyActive && !activated && (
-              <div className="sm-info-box" style={{ marginBottom: '16px' }}>
-                <span>🟢</span>
-                <span><strong>Criptografia de grupo já está ativa</strong> neste servidor. Você pode reenviar o segredo para novos contatos ou desativar.</span>
-              </div>
-            )}
-
+            <h3>{t(lang, 'groupE2EETitle')}</h3>
+            <p className="sm-subtitle">{t(lang, 'groupE2EESubtitle', { id: serverId })}</p>
+            {isAlreadyActive && !activated && <div className="sm-info-box" style={{ marginBottom: '14px' }}><span>🟢</span><span>{t(lang, 'e2eeAlreadyActive')}</span></div>}
             <div className="sm-section">
-              <span className="sm-label">
-                Contatos com E2EE ativo ({eligiblePeers.length}) — receberão o segredo de grupo
-              </span>
-              {eligiblePeers.length === 0 ? (
-                <div style={{ color: '#f87171', fontSize: '13px', padding: '10px 0' }}>
-                  ⚠️ Nenhum contato com E2EE configurado.<br />
-                  Primeiro troque segredos individuais com seus contatos usando o botão 🔑.
-                </div>
-              ) : (
-                <div className="sm-contact-list">
-                  {eligiblePeers.map(({ pid, isOnline }) => (
-                    <div key={pid} className="sm-contact-item selected">
-                      <div>
-                        <div className="sm-contact-name">{getContactName(pid)}</div>
-                        <div className="sm-contact-id">{pid}</div>
+              <span className="sm-label">{t(lang, 'contactsWithE2EE', { n: eligiblePeers.length })}</span>
+              {eligiblePeers.length === 0
+                ? <div style={{ color: '#f87171', fontSize: '13px', padding: '10px 0', whiteSpace: 'pre-line' }}>{t(lang, 'noE2EEContacts')}</div>
+                : <div className="sm-contact-list">
+                    {eligiblePeers.map(({ pid, isOnline }) => (
+                      <div key={pid} className="sm-contact-item selected">
+                        <div><div className="sm-contact-name">{getContactName(pid)}</div><div className="sm-contact-id">{pid}</div></div>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <span className="sm-e2ee-tag">🔒 E2EE</span>
+                          {isOnline ? <span className="sm-e2ee-tag" style={{ background: '#3b82f6' }}>ONLINE</span> : <span className="sm-server-tag" style={{ background: '#dc2626', color: 'white' }}>{t(lang, 'offlineTag')}</span>}
+                        </div>
                       </div>
-                      <div style={{ display: 'flex', gap: '4px' }}>
-                        <span className="sm-e2ee-tag">🔒 E2EE</span>
-                        {isOnline
-                          ? <span className="sm-e2ee-tag" style={{ background: '#3b82f6' }}>ONLINE</span>
-                          : <span className="sm-server-tag" style={{ background: '#dc2626', color: 'white' }}>OFFLINE</span>
-                        }
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+                    ))}
+                  </div>}
             </div>
-
             <div className="sm-section">
-              <span className="sm-label">Segredo de grupo (gerado automaticamente)</span>
+              <span className="sm-label">{t(lang, 'groupSecret')}</span>
               <div className="sm-secret-display">
                 <span className="sm-secret-text">{groupSecret.substring(0, 20)}...{groupSecret.substring(groupSecret.length - 8)}</span>
-                <button className="sm-copy-btn" onClick={() => { navigator.clipboard.writeText(groupSecret); setStatus({ type: 'info', msg: 'Segredo copiado!' }); }}>📋 Copiar</button>
+                <button className="sm-copy-btn" onClick={() => { navigator.clipboard.writeText(groupSecret); setStatus({ type: 'info', msg: lang === 'pt' ? 'Segredo copiado!' : 'Secret copied!' }); }}>📋 {lang === 'pt' ? 'Copiar' : 'Copy'}</button>
               </div>
             </div>
-
-            <div className="sm-info-box">
-              <span>🛡️</span>
-              <div>
-                <strong>Como funciona:</strong><br />
-                O segredo de grupo é enviado via P2P direto (nunca pelo servidor) para todos os contatos listados.
-                A partir daí, toda mensagem enviada para o servidor sai criptografada — o servidor só vê texto ilegível.
-                Usuários sem o segredo não conseguem ler.
-              </div>
-            </div>
-
-            <div className="sm-warning-box">
-              <span>⚠️</span>
-              <span>Contatos OFFLINE não receberão o segredo agora. Reenvie depois que ficarem online.</span>
-            </div>
-
+            <div className="sm-info-box"><span>🛡️</span><div><strong>{t(lang, 'howItWorks')}</strong><br />{t(lang, 'howItWorksDesc')}</div></div>
+            <div className="sm-warning-box"><span>⚠️</span><span>{t(lang, 'offlineWarn')}</span></div>
             {status && <div className={`sm-status ${status.type}`}>{status.msg}</div>}
-
             <div className="sm-btn-row">
               {!activated ? (
                 <>
                   <button className="sm-btn green" onClick={handleActivate} disabled={eligiblePeers.length === 0}>
-                    🛡️ {isAlreadyActive ? 'Reenviar Segredo' : 'Ativar Criptografia de Grupo'}
+                    {isAlreadyActive ? t(lang, 'resendSecret') : t(lang, 'activateGroupE2EE')}
                   </button>
-                  {isAlreadyActive && (
-                    <button className="sm-btn gray" onClick={handleDeactivate} style={{ background: '#dc2626', color: 'white' }}>
-                      🔓 Desativar
-                    </button>
-                  )}
+                  {isAlreadyActive && <button className="sm-btn gray" onClick={handleDeactivate} style={{ background: '#dc2626', color: 'white' }}>{t(lang, 'deactivate')}</button>}
                 </>
-              ) : (
-                <button className="sm-btn green" onClick={onClose}>✅ Fechar</button>
-              )}
-              <button className="sm-btn gray" onClick={onClose}>Cancelar</button>
+              ) : <button className="sm-btn green" onClick={onClose}>{t(lang, 'close')}</button>}
+              <button className="sm-btn gray" onClick={onClose}>{t(lang, 'cancel')}</button>
             </div>
           </div>
         </div>
       );
     };
 
-    // =====================================================================
+    // ================================================================
     // VoiceRecorder
-    // =====================================================================
-    const VoiceRecorder = ({ onRecordingComplete, disabled, selectedContact }) => {
+    // ================================================================
+    const VoiceRecorder = ({ lang, onRecordingComplete, disabled, selectedContact }) => {
       const [isRecording, setIsRecording] = useState(false);
       const mediaRecorderRef = useRef(null);
       const audioChunksRef = useRef([]);
@@ -537,12 +929,12 @@
             const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
             onRecordingComplete(audioBlob, selectedContact);
             audioChunksRef.current = [];
-            stream.getTracks().forEach(t => t.stop());
+            stream.getTracks().forEach(tr => tr.stop());
           };
           audioChunksRef.current = [];
           mediaRecorderRef.current.start(200);
           setIsRecording(true);
-        } catch (err) { alert('Erro ao acessar o microfone: ' + err.message); }
+        } catch (err) { alert(t(lang, 'micError') + err.message); }
       };
 
       const stopRecording = () => {
@@ -555,16 +947,16 @@
       return (
         <button className={`voice-button ${isRecording ? 'recording' : ''}`}
           onClick={() => isRecording ? stopRecording() : startRecording()}
-          disabled={disabled} title="Gravar áudio">
+          disabled={disabled} title={t(lang, 'recordAudio')}>
           <i className="fas fa-microphone"></i>
         </button>
       );
     };
 
-    // =====================================================================
+    // ================================================================
     // ContactsScreen
-    // =====================================================================
-    const ContactsScreen = ({ contacts, setContacts, onBack, onSelectContact }) => {
+    // ================================================================
+    const ContactsScreen = ({ lang, contacts, setContacts, onBack, onSelectContact }) => {
       const [newName, setNewName] = useState('');
       const [newPeerId, setNewPeerId] = useState('');
       const [nameError, setNameError] = useState('');
@@ -573,41 +965,41 @@
       const handleAddContact = (e) => {
         e.preventDefault();
         let valid = true;
-        if (!newName.trim()) { setNameError('Nome é obrigatório'); valid = false; } else setNameError('');
-        if (!newPeerId.trim()) { setIdError('ID é obrigatório'); valid = false; } else setIdError('');
+        if (!newName.trim()) { setNameError(t(lang, 'nameRequired')); valid = false; } else setNameError('');
+        if (!newPeerId.trim()) { setIdError(t(lang, 'idRequired')); valid = false; } else setIdError('');
         if (!valid) return;
         const newContact = { name: newName, peerId: newPeerId };
         setContacts(prev => { const updated = [...prev, newContact]; localStorage.setItem('p2pContacts', JSON.stringify(updated)); return updated; });
         setNewName(''); setNewPeerId('');
       };
 
-      const handleRemoveContact = (peerId, e) => {
+      const handleRemoveContact = (pId, e) => {
         e.stopPropagation();
-        setContacts(prev => { const updated = prev.filter(c => c.peerId !== peerId); localStorage.setItem('p2pContacts', JSON.stringify(updated)); return updated; });
+        setContacts(prev => { const updated = prev.filter(c => c.peerId !== pId); localStorage.setItem('p2pContacts', JSON.stringify(updated)); return updated; });
       };
 
       return (
         <div>
-          <button onClick={onBack} style={{ marginBottom: '20px' }}>← Voltar</button>
-          <h2>Lista de Contatos</h2>
+          <button onClick={onBack} style={{ marginBottom: '16px', background: '#64748b', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: 600 }}>{t(lang, 'back')}</button>
+          <h2 style={{ marginTop: 0 }}>{t(lang, 'contactsTitle')}</h2>
           <form className="contact-form" onSubmit={handleAddContact}>
             <div className="contact-form-row">
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <input type="text" placeholder="Nome do contato" value={newName} onChange={e => setNewName(e.target.value)} style={{ borderColor: nameError ? 'red' : '#ddd' }} />
-                {nameError && <span style={{ color: 'red', fontSize: '12px' }}>{nameError}</span>}
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                <input type="text" placeholder={t(lang, 'contactName')} value={newName} onChange={e => setNewName(e.target.value)} style={{ borderColor: nameError ? 'var(--danger)' : '' }} />
+                {nameError && <span style={{ color: 'var(--danger)', fontSize: '11px', marginTop: '3px' }}>{nameError}</span>}
               </div>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <input type="text" placeholder="ID do contato" value={newPeerId} onChange={e => setNewPeerId(e.target.value)} style={{ borderColor: idError ? 'red' : '#ddd' }} />
-                {idError && <span style={{ color: 'red', fontSize: '12px' }}>{idError}</span>}
+              <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+                <input type="text" placeholder={t(lang, 'contactId')} value={newPeerId} onChange={e => setNewPeerId(e.target.value)} style={{ borderColor: idError ? 'var(--danger)' : '' }} />
+                {idError && <span style={{ color: 'var(--danger)', fontSize: '11px', marginTop: '3px' }}>{idError}</span>}
               </div>
-              <button type="submit">Adicionar</button>
+              <button type="submit">{t(lang, 'addContact')}</button>
             </div>
           </form>
           <div className="connected-peers">
-            {contacts.length === 0 ? <p>Nenhum contato adicionado ainda.</p> : contacts.map((contact, i) => (
+            {contacts.length === 0 ? <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>{t(lang, 'noContacts')}</p> : contacts.map((contact, i) => (
               <div key={i} className="peer-item" onClick={() => onSelectContact(contact.peerId)}>
-                <span style={{ flex: 1 }}>{contact.name} - {contact.peerId}</span>
-                <button onClick={(e) => handleRemoveContact(contact.peerId, e)} style={{ marginLeft: '10px' }}>🗑️</button>
+                <span style={{ flex: 1, fontSize: '14px' }}>{contact.name} <span style={{ color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace", fontSize: '12px' }}>— {contact.peerId}</span></span>
+                <button onClick={(e) => handleRemoveContact(contact.peerId, e)}>🗑️</button>
               </div>
             ))}
           </div>
@@ -615,18 +1007,17 @@
       );
     };
 
-    // =====================================================================
-    // UpdatedChatManager — E2EE + Server Group E2EE
-    // =====================================================================
-    const UpdatedChatManager = ({
-      connections, messages, setMessages, contacts, userName, peerId,
+    // ================================================================
+    // ChatManager
+    // ================================================================
+    const ChatManager = ({
+      lang, connections, messages, setMessages, contacts, userName, peerId,
       activeCalls, endCall, startVoiceCall, toggleVideoCall, remoteStreams,
       audioRefs, videoRefs, handleFileChange, fileInputRef, handleAudioRecording,
       newMessage, setNewMessage, showEmojiPanel, setShowEmojiPanel, populateEmojiPanel,
       getContactName, selectedContact, setSelectedContact, localVideoRef,
       registerSentMessage, cooldownRemaining, setCooldownRemaining, networkSize, centralServerId,
-      e2eeState, setE2eeState, isCentralServer,
-      serverE2EE, setServerE2EE
+      e2eeState, setE2eeState, isCentralServer, serverE2EE, setServerE2EE
     }) => {
       const messagesEndRef = useRef(null);
       const [showSendSecretModal, setShowSendSecretModal] = useState(false);
@@ -653,7 +1044,6 @@
         );
       }, [messages, selectedContact]);
 
-      // MessageText com suporte a E2EE individual e grupo
       const MessageText = ({ msg }) => {
         const [display, setDisplay] = useState(null);
         const contactPeer = msg.sender === 'you' ? msg.recipient : msg.sender;
@@ -662,125 +1052,77 @@
 
         useEffect(() => {
           if (!isE2EE && !isGroup) { setDisplay({ plain: msg.text, encrypted: false }); return; }
-
           if (isGroup) {
-            // Descriptografar com segredo de grupo do servidor
             const b64 = msg.text.slice(GROUP_E2EE_PREFIX.length);
-            // Tentar todos os segredos de grupo conhecidos
             const serverSecrets = Object.values(serverE2EE).filter(s => s.groupSecret).map(s => s.groupSecret);
             if (serverSecrets.length === 0) { setDisplay({ plain: null, encrypted: true, noKey: true, isGroup: true }); return; }
-
             const tryDecrypt = async () => {
               for (const secret of serverSecrets) {
-                try {
-                  const plain = await decryptMsg(b64, secret);
-                  setDisplay({ plain, encrypted: true, isGroup: true });
-                  return;
-                } catch(e) {}
+                try { const plain = await decryptMsg(b64, secret); setDisplay({ plain, encrypted: true, isGroup: true }); return; } catch(e) {}
               }
               setDisplay({ plain: null, encrypted: true, error: true, isGroup: true });
             };
-            tryDecrypt();
-            return;
+            tryDecrypt(); return;
           }
-
-          // E2EE individual
           const b64 = msg.text.slice(E2EE_PREFIX.length);
           const isMine = msg.sender === 'you';
-          const secret = isMine
-            ? e2eeState[contactPeer]?.mySecret
-            : e2eeState[contactPeer]?.contactSecret;
-
+          const secret = isMine ? e2eeState[contactPeer]?.mySecret : e2eeState[contactPeer]?.contactSecret;
           if (!secret) { setDisplay({ plain: null, encrypted: true, noKey: true }); return; }
-          decryptMsg(b64, secret)
-            .then(plain => setDisplay({ plain, encrypted: true }))
-            .catch(() => setDisplay({ plain: null, encrypted: true, error: true }));
+          decryptMsg(b64, secret).then(plain => setDisplay({ plain, encrypted: true })).catch(() => setDisplay({ plain: null, encrypted: true, error: true }));
         }, [msg.text, contactPeer, JSON.stringify(e2eeState[contactPeer]), JSON.stringify(serverE2EE)]);
 
         if (display === null) return <span style={{ color: '#aaa', fontSize: '12px' }}>...</span>;
         if (!display.encrypted) return <div>{display.plain}</div>;
         return (
           <div>
-            <div className={`msg-encrypted-badge${display.isGroup ? ' group' : ''}`}>
-              {display.isGroup ? '🛡️ GRUPO' : '🔒 PRIVADO'}
-            </div>
+            <div className={`msg-encrypted-badge${display.isGroup ? ' group' : ''}`}>{display.isGroup ? '🛡️ GROUP' : '🔒 PRIVATE'}</div>
             {display.plain
               ? <div>{display.plain}</div>
               : display.noKey
-                ? <div className="msg-no-key">🔑 {display.isGroup ? 'Sem segredo de grupo...' : 'Aguardando segredo do contato...'}</div>
-                : <div className="msg-encrypted-locked">{display.error ? '🔴 Segredo incorreto' : '🔒 Criptografado'}</div>
-            }
+                ? <div className="msg-no-key">🔑 {display.isGroup ? 'No group secret...' : 'Waiting for contact\'s secret...'}</div>
+                : <div className="msg-no-key" style={{ color: display.error ? '#f87171' : '#f59e0b' }}>{display.error ? '🔴 Wrong secret' : '🔒 Encrypted'}</div>}
           </div>
         );
       };
 
       const sendDirectMessage = async () => {
-        if (!userName.trim()) { alert('Por favor, defina seu nome antes de enviar mensagens'); return; }
+        if (!userName.trim()) { alert(t(lang, 'pleaseSetName')); return; }
         if (!newMessage.trim() || !selectedContact || cooldownRemaining > 0) return;
         const conn = connections.find(c => c.peer === selectedContact);
-        if (!conn || !conn.open) { alert(`Contato ${getContactName(selectedContact)} não está conectado.`); return; }
-
+        if (!conn || !conn.open) { alert(t(lang, 'contactOffline', { name: getContactName(selectedContact) })); return; }
         const currentCooldown = Math.max(1, Math.floor(networkSize / 1000));
         setCooldownRemaining(currentCooldown);
-
         try {
           const timestamp = new Date();
           const msgId = Date.now() + Math.random().toString(36).substring(7);
           if (registerSentMessage) registerSentMessage(msgId);
-
           let textToSend = newMessage;
-
-          // Criptografia de grupo para servidor
           if (selectedIsServer && serverGroupActive) {
-            const secret = serverE2EE[selectedContact].groupSecret;
-            textToSend = GROUP_E2EE_PREFIX + await encryptMsg(newMessage, secret);
+            textToSend = GROUP_E2EE_PREFIX + await encryptMsg(newMessage, serverE2EE[selectedContact].groupSecret);
+          } else if (!selectedIsServer && canSendPrivate) {
+            textToSend = E2EE_PREFIX + await encryptMsg(newMessage, e2eeState[selectedContact].mySecret);
           }
-          // Criptografia individual para P2P
-          else if (!selectedIsServer && canSendPrivate) {
-            const secret = e2eeState[selectedContact].mySecret;
-            textToSend = E2EE_PREFIX + await encryptMsg(newMessage, secret);
-          }
-
           conn.send({ type: 'message', id: msgId, ttl: 8, text: textToSend, senderName: userName, direct: true, time: formatTime(timestamp) });
-
-          const newMessageObj = {
-            text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName,
-            time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime()
-          };
-          setMessages(prev => { const updated = [...prev, newMessageObj]; localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
+          const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
+          setMessages(prev => { const updated = [...prev, newMsgObj]; localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
           setNewMessage('');
-        } catch (err) { alert(`Erro ao enviar mensagem: ${err.message}`); }
+        } catch (err) { alert(t(lang, 'sendError') + err.message); }
       };
 
       const handleSecretSent = (targetPeer, mySecret) => {
-        setE2eeState(prev => ({
-          ...prev,
-          [targetPeer]: { ...prev[targetPeer], mySecret }
-        }));
+        setE2eeState(prev => ({ ...prev, [targetPeer]: { ...prev[targetPeer], mySecret } }));
       };
-
       const handleServerE2EEActivate = (srvId, groupSecret) => {
         setServerE2EE(prev => ({ ...prev, [srvId]: { active: true, groupSecret } }));
       };
-
       const handleServerE2EEDeactivate = (srvId) => {
-        setServerE2EE(prev => {
-          const updated = { ...prev };
-          delete updated[srvId];
-          return updated;
-        });
+        setServerE2EE(prev => { const u = { ...prev }; delete u[srvId]; return u; });
       };
-
-      const deleteMessage = (messageTimestamp) => {
-        setMessages(prev => { const updated = prev.filter(msg => msg.timestamp !== messageTimestamp); localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
+      const deleteMessage = (ts) => {
+        setMessages(prev => { const u = prev.filter(m => m.timestamp !== ts); localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(u)); return u; });
       };
-
       const deleteMessagesByContact = (pId) => {
-        setMessages(prev => {
-          const updated = prev.filter(msg => !((msg.sender === pId && msg.recipient === 'you') || (msg.sender === 'you' && msg.recipient === pId) || msg.systemFor === pId));
-          localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated));
-          return updated;
-        });
+        setMessages(prev => { const u = prev.filter(m => !((m.sender === pId && m.recipient === 'you') || (m.sender === 'you' && m.recipient === pId) || m.systemFor === pId)); localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(u)); return u; });
       };
 
       useEffect(() => { if (messagesEndRef.current) messagesEndRef.current.scrollIntoView({ behavior: "smooth" }); }, [filteredMessages]);
@@ -792,15 +1134,14 @@
         });
       }, [remoteStreams]);
 
-      // Status bar texto
       const getInputStatus = () => {
-        if (!selectedContact) return { placeholder: "Selecione um contato...", style: {} };
-        if (cooldownRemaining > 0) return { placeholder: `Aguarde ${cooldownRemaining}s...`, style: {} };
+        if (!selectedContact) return { placeholder: t(lang, 'selectContact'), style: {} };
+        if (cooldownRemaining > 0) return { placeholder: t(lang, 'waitCooldown', { s: cooldownRemaining }), style: {} };
         if (selectedIsServer && serverGroupActive)
-          return { placeholder: `🛡️ Mensagem criptografada no grupo ${getContactName(selectedContact)}...`, style: { borderColor: '#3b82f6', boxShadow: '0 0 0 2px rgba(59,130,246,0.2)' } };
+          return { placeholder: t(lang, 'groupMsg', { name: getContactName(selectedContact) }), style: { borderColor: '#3b82f6', boxShadow: '0 0 0 2px rgba(59,130,246,0.2)' } };
         if (canSendPrivate && !selectedIsServer)
-          return { placeholder: `🔒 Mensagem privada para ${getContactName(selectedContact)}...`, style: { borderColor: '#10b981', boxShadow: '0 0 0 2px rgba(16,185,129,0.2)' } };
-        return { placeholder: `Mensagem para ${getContactName(selectedContact)}...`, style: {} };
+          return { placeholder: t(lang, 'privateMsg', { name: getContactName(selectedContact) }), style: { borderColor: '#10b981', boxShadow: '0 0 0 2px rgba(16,185,129,0.2)' } };
+        return { placeholder: t(lang, 'regularMsg', { name: getContactName(selectedContact) }), style: {} };
       };
 
       const inputStatus = getInputStatus();
@@ -808,77 +1149,57 @@
       return (
         <div>
           {showSendSecretModal && (
-            <SendSecretModal
-              connections={connections} contacts={contacts} getContactName={getContactName}
-              isCentralServer={isCentralServer} onSend={handleSecretSent}
-              onClose={() => setShowSendSecretModal(false)} e2eeState={e2eeState}
-            />
+            <SendSecretModal lang={lang} connections={connections} contacts={contacts} getContactName={getContactName}
+              isCentralServer={isCentralServer} onSend={handleSecretSent} onClose={() => setShowSendSecretModal(false)} e2eeState={e2eeState} />
           )}
-
           {showServerE2EEModal && selectedContact && isCentralServer(selectedContact) && (
-            <ServerE2EEModal
-              serverId={selectedContact}
-              connections={connections}
-              e2eeState={e2eeState}
-              getContactName={getContactName}
-              onActivate={handleServerE2EEActivate}
-              onDeactivate={handleServerE2EEDeactivate}
-              onClose={() => setShowServerE2EEModal(false)}
-              currentServerE2EE={serverE2EE[selectedContact]}
-            />
+            <ServerE2EEModal lang={lang} serverId={selectedContact} connections={connections} e2eeState={e2eeState}
+              getContactName={getContactName} onActivate={handleServerE2EEActivate} onDeactivate={handleServerE2EEDeactivate}
+              onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[selectedContact]} />
           )}
 
           <div className="chat-main-container">
+            {/* CONVERSATIONS LIST */}
             <div className="conversations-list">
-              <h4 style={{ padding: '10px', margin: '0', borderBottom: '1px solid #eee' }}>Conversas</h4>
+              <h4>{t(lang, 'conversations')}</h4>
+              {connections.length === 0 && <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center' }}>{t(lang, 'selectContactToChat')}</div>}
               {connections.map((conn, i) => {
                 const isSelected = selectedContact === conn.peer;
                 const hasVoice = activeCalls.some(c => c.peerId === conn.peer && c.type === 'voice');
                 const hasVideo = activeCalls.some(c => c.peerId === conn.peer && c.type === 'video' && c.localStream);
                 const e2ee = e2eeState[conn.peer];
-                const hasMine = !!e2ee?.mySecret;
-                const hasTheirs = !!e2ee?.contactSecret;
+                const hasMine = !!e2ee?.mySecret, hasTheirs = !!e2ee?.contactSecret;
                 const isServer = isCentralServer(conn.peer);
                 const srvGrpActive = isServer && serverE2EE[conn.peer]?.active;
-
                 return (
-                  <div key={i}
-                    className={`conversation-item ${isSelected ? 'selected' : ''} ${conn.peer === centralServerId ? 'central-server' : ''}`}
+                  <div key={i} className={`conversation-item${isSelected ? ' selected' : ''}${conn.peer === centralServerId ? ' central-server' : ''}`}
                     onClick={() => setSelectedContact(conn.peer)}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div>
                         <div className="conversation-name">
-                          {/* Ícones E2EE individual */}
-                          {!isServer && hasMine && hasTheirs && <span title="E2EE total ativo" style={{ marginRight: '4px' }}>🔒</span>}
-                          {!isServer && hasMine && !hasTheirs && <span title="Enviando criptografado" style={{ marginRight: '4px' }}>📤</span>}
-                          {!isServer && !hasMine && hasTheirs && <span title="Recebendo criptografado" style={{ marginRight: '4px' }}>📥</span>}
-                          {/* Ícone E2EE grupo servidor */}
-                          {isServer && srvGrpActive && <span title="Criptografia de grupo ativa" style={{ marginRight: '4px' }}>🛡️</span>}
+                          {!isServer && hasMine && hasTheirs && <span title="Full E2EE active" style={{ marginRight: '4px' }}>🔒</span>}
+                          {!isServer && hasMine && !hasTheirs && <span title="Sending encrypted" style={{ marginRight: '4px' }}>📤</span>}
+                          {!isServer && !hasMine && hasTheirs && <span title="Receiving encrypted" style={{ marginRight: '4px' }}>📥</span>}
+                          {isServer && srvGrpActive && <span title="Group encryption active" style={{ marginRight: '4px' }}>🛡️</span>}
                           {getContactName(conn.peer)}
                         </div>
                         <div className="conversation-peer-id">{conn.peer}</div>
                       </div>
-                      <div className="green-delete-icon" onClick={e => { e.stopPropagation(); deleteMessagesByContact(conn.peer); }} title="Apagar mensagens">
+                      <div className="green-delete-icon" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); deleteMessagesByContact(conn.peer); }} title={t(lang, 'deleteMessages')}>
                         <i className="fas fa-trash"></i>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '5px', marginTop: '5px', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: '5px', marginTop: '7px', flexWrap: 'wrap' }}>
                       {hasVoice
-                        ? <button onClick={e => { e.stopPropagation(); endCall(conn.peer, 'voice'); }} style={{ padding: '4px', background: '#ff5722', width: '30px', height: '30px', borderRadius: '50%', color: 'white', border: 'none', cursor: 'pointer' }} title="Encerrar voz"><i className="fas fa-phone-slash"></i></button>
-                        : <button onClick={e => { e.stopPropagation(); startVoiceCall(conn.peer); }} style={{ padding: '4px', background: '#4CAF50', width: '30px', height: '30px', borderRadius: '50%', color: 'white', border: 'none', cursor: 'pointer' }} title="Voz"><i className="fas fa-phone"></i></button>}
-                      <button onClick={e => { e.stopPropagation(); toggleVideoCall(conn.peer); }}
-                        style={{ padding: '4px', background: hasVideo ? '#ff5722' : '#4CAF50', width: '30px', height: '30px', borderRadius: '50%', color: 'white', border: 'none', cursor: 'pointer' }}
-                        title={hasVideo ? "Desligar câmera" : "Câmera"}>
+                        ? <button onClick={e => { e.stopPropagation(); endCall(conn.peer, 'voice'); }} className="call-btn" style={{ background: '#ef4444' }} title={t(lang, 'endVoiceCall')}><i className="fas fa-phone-slash"></i></button>
+                        : <button onClick={e => { e.stopPropagation(); startVoiceCall(conn.peer); }} className="call-btn" style={{ background: '#22c55e' }} title={t(lang, 'voiceCall')}><i className="fas fa-phone"></i></button>}
+                      <button onClick={e => { e.stopPropagation(); toggleVideoCall(conn.peer); }} className="call-btn" style={{ background: hasVideo ? '#ef4444' : '#22c55e' }} title={hasVideo ? t(lang, 'stopCamera') : t(lang, 'camera')}>
                         <i className={`fas ${hasVideo ? 'fa-video-slash' : 'fa-video'}`}></i>
                       </button>
-
-                      {/* 🛡️ Botão de criptografia de grupo — só aparece no servidor */}
                       {isServer && (
-                        <button
-                          className={`server-e2ee-btn ${srvGrpActive ? 'active' : 'inactive'}`}
+                        <button className={`server-e2ee-btn ${srvGrpActive ? 'active' : 'inactive'}`}
                           onClick={e => { e.stopPropagation(); setSelectedContact(conn.peer); setShowServerE2EEModal(true); }}
-                          title={srvGrpActive ? 'Criptografia de grupo ATIVA — clique para gerenciar' : 'Clique para ativar criptografia de grupo no servidor'}
-                        >
+                          title={srvGrpActive ? 'Group encryption ACTIVE — click to manage' : 'Click to activate group encryption on server'}>
                           🛡️
                         </button>
                       )}
@@ -888,82 +1209,83 @@
               })}
             </div>
 
+            {/* CHAT AREA */}
             <div className="chat-messages-container">
               <div className="chat-messages">
+                {filteredMessages.length === 0 && (
+                  <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px', marginTop: '40px' }}>
+                    {selectedContact ? t(lang, 'noMessages') : t(lang, 'selectContactToChat')}
+                  </div>
+                )}
                 {filteredMessages.map((msg, i) => (
-                  <div key={msg.timestamp || i} className={`message-bubble ${msg.sender === 'you' ? 'sent' : msg.sender === '__system__' ? 'received' : 'received'}`}
-                    style={msg.sender === '__system__' ? { background: '#f0f9ff', border: '1px solid #bae6fd', color: '#0369a1', fontSize: '12px', maxWidth: '90%' } : {}}>
+                  <div key={msg.timestamp || i}
+                    className={`message-bubble ${msg.sender === 'you' ? 'sent' : 'received'}`}
+                    style={msg.sender === '__system__' ? { background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', fontSize: '12px', maxWidth: '92%', borderRadius: '10px' } : {}}>
                     {msg.sender !== '__system__' && (
-                      <div className="chat-user-bubble">{msg.sender === 'you' ? userName : getContactName(msg.sender)}</div>
+                      <div className="chat-user-bubble">{msg.sender === 'you' ? (t(lang, 'you') + ' · ' + userName) : getContactName(msg.sender)}</div>
                     )}
-                    {msg.type === 'text' ? (
-                      <MessageText msg={msg} />
-                    ) : msg.type === 'file' ? (
-                      <div>
-                        {msg.fileData ? <a href={msg.fileData} download={msg.fileName} className="file-link">{msg.fileName}</a> : <span>{msg.fileName}</span>}
-                        {(msg.receiving || msg.sending) && <div className="progress-container"><div className="progress-bar"><div className="progress" style={{ width: `${msg.progress}%` }} /></div></div>}
-                      </div>
-                    ) : msg.type === 'audio' && (
-                      <div>
-                        {msg.audioData ? <audio controls src={msg.audioData} className="audio-player" /> : <span>Áudio</span>}
-                        {(msg.receiving || msg.sending) && <div className="progress-container"><div className="progress-bar"><div className="progress" style={{ width: `${msg.progress}%` }} /></div></div>}
-                      </div>
-                    )}
+                    {msg.type === 'text' ? <MessageText msg={msg} />
+                      : msg.type === 'file' ? (
+                        <div>
+                          {msg.fileData ? <a href={msg.fileData} download={msg.fileName} className="file-link">📎 {msg.fileName}</a> : <span>📎 {msg.fileName}</span>}
+                          {(msg.receiving || msg.sending) && <div className="progress-container"><div className="progress-bar"><div className="progress" style={{ width: `${msg.progress}%`, background: msg.sender === 'you' ? 'white' : 'var(--primary)' }} /></div></div>}
+                        </div>
+                      ) : msg.type === 'audio' && (
+                        <div>
+                          {msg.audioData ? <audio controls src={msg.audioData} className="audio-player" /> : <span>🎙️ Audio</span>}
+                          {(msg.receiving || msg.sending) && <div className="progress-container"><div className="progress-bar"><div className="progress" style={{ width: `${msg.progress}%`, background: msg.sender === 'you' ? 'white' : 'var(--primary)' }} /></div></div>}
+                        </div>
+                      )}
                     {msg.sender !== '__system__' && <div className="message-timestamp">{msg.time}</div>}
-                    {msg.sender !== '__system__' && <div className="green-delete-icon" onClick={() => deleteMessage(msg.timestamp)} title="Remover"><i className="fas fa-trash"></i></div>}
+                    {msg.sender !== '__system__' && <div className="green-delete-icon" onClick={() => deleteMessage(msg.timestamp)} title="Remove"><i className="fas fa-trash"></i></div>}
                   </div>
                 ))}
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Banner de status E2EE no servidor */}
+              {/* Server E2EE Banner */}
               {selectedIsServer && (
                 <div className={`server-e2ee-banner ${serverGroupActive ? 'active' : 'inactive'}`}>
                   {serverGroupActive
-                    ? <><span>🛡️</span><span>Criptografia de grupo <strong>ATIVA</strong> — mensagens passam pelo servidor criptografadas</span>
-                        <button onClick={() => setShowServerE2EEModal(true)} style={{ marginLeft: 'auto', background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', cursor: 'pointer', fontSize: '11px' }}>Gerenciar</button></>
-                    : <><span>⚠️</span><span>Criptografia de grupo <strong>inativa</strong> no servidor</span>
-                        <button onClick={() => setShowServerE2EEModal(true)} style={{ marginLeft: 'auto', background: '#f97316', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', cursor: 'pointer', fontSize: '11px' }}>🛡️ Ativar</button></>
+                    ? <><span>🛡️</span><span>{t(lang, 'groupEncryptionActive')}</span>
+                        <button onClick={() => setShowServerE2EEModal(true)} style={{ marginLeft: 'auto', background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', cursor: 'pointer', fontSize: '11px', fontWeight: 700 }}>{t(lang, 'manage')}</button></>
+                    : <><span>⚠️</span><span>{t(lang, 'groupEncryptionInactive')}</span>
+                        <button onClick={() => setShowServerE2EEModal(true)} style={{ marginLeft: 'auto', background: '#f97316', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', cursor: 'pointer', fontSize: '11px', fontWeight: 700 }}>{t(lang, 'activate')}</button></>
                   }
                 </div>
               )}
 
-              {/* Banner E2EE individual */}
+              {/* Individual E2EE Banner */}
               {!selectedIsServer && selectedContact && (e2eeState[selectedContact]?.mySecret || e2eeState[selectedContact]?.contactSecret) && (() => {
                 const s = e2eeState[selectedContact];
                 const hasMine = !!s?.mySecret, hasTheirs = !!s?.contactSecret;
                 let icon, color, label;
-                if (hasMine && hasTheirs) { icon = '🔒'; color = '#10b981'; label = 'Criptografia total ativa'; }
-                else if (hasMine) { icon = '📤'; color = '#3b82f6'; label = 'Enviando criptografado · aguardando segredo do contato'; }
-                else { icon = '📥'; color = '#8b5cf6'; label = 'Lendo msgs do contato · envie seu segredo para criptografar suas msgs'; }
+                if (hasMine && hasTheirs) { icon = '🔒'; color = '#10b981'; label = t(lang, 'totalE2EE'); }
+                else if (hasMine) { icon = '📤'; color = '#3b82f6'; label = t(lang, 'sendingEncrypted'); }
+                else { icon = '📥'; color = '#8b5cf6'; label = t(lang, 'receivingEncrypted'); }
                 return (
-                  <div style={{ padding: '6px 14px', background: '#f0fdf4', borderTop: '1px solid #d1fae5', fontSize: '12px', color, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <div style={{ padding: '6px 14px', background: '#f0fdf4', borderTop: '1px solid #d1fae5', fontSize: '12px', color, display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
                     <span>{icon}</span><span>{label}</span>
                   </div>
                 );
               })()}
 
+              {/* Input bar */}
               <div className="chat-input-container">
-                <VoiceRecorder onRecordingComplete={handleAudioRecording}
+                <VoiceRecorder lang={lang} onRecordingComplete={handleAudioRecording}
                   disabled={!selectedContact || !connections.some(c => c.peer === selectedContact)} selectedContact={selectedContact} />
-                <button onClick={() => fileInputRef.current.click()}
-                  disabled={!selectedContact || !connections.some(c => c.peer === selectedContact)} title="Enviar arquivo">
+                <button className="icon-btn" onClick={() => fileInputRef.current.click()}
+                  disabled={!selectedContact || !connections.some(c => c.peer === selectedContact)} title={t(lang, 'attachFile')}>
                   <i className="fas fa-paperclip"></i>
                 </button>
-
-                {/* 🔑 Botão de segredo individual — bloqueado no servidor */}
-                <button
-                  className={`private-mode-toggle${hasAnyE2EE && !selectedIsServer ? ' active' : ''}`}
+                <button className={`private-mode-toggle${hasAnyE2EE && !selectedIsServer ? ' active' : ''}`}
                   onClick={() => setShowSendSecretModal(true)}
                   disabled={selectedIsServer}
-                  title={selectedIsServer ? 'Servidor: use o botão 🛡️ na lista' : 'Enviar / gerenciar segredo privado'}
-                  style={{ flexShrink: 0 }}
-                >
+                  title={selectedIsServer ? t(lang, 'serverSecret') : t(lang, 'sendSecret')}>
                   🔑
                 </button>
-
                 <div className="message-input-container">
-                  <button className="emoji-button" onClick={() => setShowEmojiPanel(!showEmojiPanel)} title="Emojis">😊</button>
+                  <button className="emoji-button" onClick={() => setShowEmojiPanel(!showEmojiPanel)} title={t(lang, 'emojis')}>😊</button>
                   <input type="text" value={newMessage}
                     onChange={e => setNewMessage(e.target.value)}
                     placeholder={inputStatus.placeholder}
@@ -974,9 +1296,9 @@
                   />
                   {showEmojiPanel && populateEmojiPanel()}
                 </div>
-                <button onClick={sendDirectMessage}
+                <button className="send-btn" onClick={sendDirectMessage}
                   disabled={!newMessage.trim() || !selectedContact || !connections.some(c => c.peer === selectedContact) || cooldownRemaining > 0}
-                  title="Enviar">
+                  title={t(lang, 'sendMessage')}>
                   {cooldownRemaining > 0 ? `${cooldownRemaining}s` : <i className="fas fa-paper-plane"></i>}
                 </button>
               </div>
@@ -986,24 +1308,27 @@
       );
     };
 
-    // =====================================================================
+    // ================================================================
     // MAIN APP
-    // =====================================================================
+    // ================================================================
     const App = () => {
+      const [lang, setLang] = useState(() => localStorage.getItem('k10Lang') || 'en');
+      const [showTutorial, setShowTutorial] = useState(false);
+
       useEffect(() => {
-        if (localStorage.getItem('modo') === 'dark') {
-          document.body.classList.add('dark-mode');
-          const btn = document.getElementById('darkModeBtn');
-          if (btn) btn.textContent = '☀️';
-        }
+        if (localStorage.getItem('modo') === 'dark') { document.body.classList.add('dark-mode'); }
       }, []);
 
       const toggleDarkMode = () => {
         document.body.classList.toggle('dark-mode');
         const isDark = document.body.classList.contains('dark-mode');
         localStorage.setItem('modo', isDark ? 'dark' : 'light');
-        const btn = document.getElementById('darkModeBtn');
-        if (btn) btn.textContent = isDark ? '☀️' : '🌙';
+      };
+
+      const toggleLang = () => {
+        const newLang = lang === 'en' ? 'pt' : 'en';
+        setLang(newLang);
+        localStorage.setItem('k10Lang', newLang);
       };
 
       const [peerId, setPeerId] = usePersistentId();
@@ -1031,7 +1356,6 @@
       const [isSuperNode, setIsSuperNode] = useState(false);
       const [radioState, setRadioState] = useState({ status: 'idle', startTime: 0, duration: 0, audioUrl: null, fileName: '', sender: '' });
       const [e2eeState, setE2eeState] = useState({});
-      // NOVO: estado de criptografia de grupo por servidor
       const [serverE2EE, setServerE2EE] = useState({});
 
       const peerInstance = useRef(null);
@@ -1069,57 +1393,34 @@
       };
       const getContactName = (pId) => contacts.find(c => c.peerId === pId)?.name || pId;
       const saveUserName = () => { if (userName.trim()) { localStorage.setItem('p2pUserName', userName); setEditingName(false); } };
-      const formatTime = (date) => date.toLocaleTimeString('pt-BR');
+      const formatTime = (date) => date.toLocaleTimeString('en-US');
 
       const stopAndRemoveLocalStream = (pId) => {
         const stream = localStreamsRef.current.get(pId);
         if (stream) {
-          stream.getTracks().forEach(t => t.stop());
+          stream.getTracks().forEach(tr => tr.stop());
           localStreamsRef.current.delete(pId);
           if (localStreamsRef.current.size === 0) { setIsLocalVideoVisible(false); if (localVideoRef.current) localVideoRef.current.srcObject = null; }
           else { const first = localStreamsRef.current.values().next().value; if (localVideoRef.current && first) localVideoRef.current.srcObject = first; }
         }
       };
 
-      const sendHandshake = (conn) => {
-        try { conn.send({ type: 'handshake', peerId }); } catch(e) {}
-      };
+      const sendHandshake = (conn) => { try { conn.send({ type: 'handshake', peerId }); } catch(e) {} };
 
       const handleIncomingData = (data, pId) => {
-        if (data.type === 'handshake') {
-          if (isCentralServer(pId)) setCentralServerId(pId);
-          return;
-        }
+        if (data.type === 'handshake') { if (isCentralServer(pId)) setCentralServerId(pId); return; }
 
-        // Receber segredo individual E2EE via P2P
         if (data.type === 'e2ee-secret' && data.secret) {
-          setE2eeState(prev => ({
-            ...prev,
-            [pId]: { ...prev[pId], contactSecret: data.secret }
-          }));
+          setE2eeState(prev => ({ ...prev, [pId]: { ...prev[pId], contactSecret: data.secret } }));
           const name = getContactName(pId);
-          setMessages(prev => [...prev, {
-            text: `🔑 Segredo E2EE recebido de ${name}. Suas mensagens dele(a) serão descriptografadas automaticamente.`,
-            sender: '__system__', recipient: 'you', senderName: 'Sistema',
-            time: new Date().toLocaleTimeString('pt-BR'), type: 'text',
-            direct: true, timestamp: Date.now(), systemFor: pId
-          }]);
+          setMessages(prev => [...prev, { text: t(lang, 'e2eeSecretReceived', { name }), sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now(), systemFor: pId }]);
           return;
         }
 
-        // NOVO: Receber convite de criptografia de grupo do servidor via P2P
         if (data.type === 'server-e2ee-invite' && data.groupSecret && data.serverId) {
-          setServerE2EE(prev => ({
-            ...prev,
-            [data.serverId]: { active: true, groupSecret: data.groupSecret }
-          }));
+          setServerE2EE(prev => ({ ...prev, [data.serverId]: { active: true, groupSecret: data.groupSecret } }));
           const name = getContactName(pId);
-          setMessages(prev => [...prev, {
-            text: `🛡️ ${name} ativou criptografia de grupo para o servidor "${data.serverId}". Suas mensagens neste servidor agora são criptografadas automaticamente.`,
-            sender: '__system__', recipient: 'you', senderName: 'Sistema',
-            time: new Date().toLocaleTimeString('pt-BR'), type: 'text',
-            direct: true, timestamp: Date.now(), systemFor: data.serverId
-          }]);
+          setMessages(prev => [...prev, { text: t(lang, 'groupInviteReceived', { name, id: data.serverId }), sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now(), systemFor: data.serverId }]);
           return;
         }
 
@@ -1128,26 +1429,20 @@
           if (peerInstance.current) {
             const activeCount = Object.keys(peerInstance.current.connections).length;
             if (activeCount < maxConnections) {
-              data.peers.forEach(newPId => {
-                if (newPId !== peerId && !peerInstance.current.connections[newPId] && !bannedPeersRef.current.has(newPId)) connectToPeer(newPId);
-              });
+              data.peers.forEach(newPId => { if (newPId !== peerId && !peerInstance.current.connections[newPId] && !bannedPeersRef.current.has(newPId)) connectToPeer(newPId); });
             }
           }
           return;
         }
 
-        if (data.type === 'radio-request-sync') {
-          setConnections(cc => { const c = cc.find(x => x.peer === pId); if (c) sendRadioSync(c); return cc; });
-          return;
-        }
+        if (data.type === 'radio-request-sync') { setConnections(cc => { const c = cc.find(x => x.peer === pId); if (c) sendRadioSync(c); return cc; }); return; }
 
         if (data.type === 'radio-sync') {
           const now = Date.now(), endTime = data.startTime + data.duration * 1000;
           if (now < endTime) {
             setRadioState(prev => {
               if (prev.status === 'idle') {
-                const newStatus = now >= data.startTime ? 'playing' : 'buffering';
-                return { status: newStatus, startTime: data.startTime, duration: data.duration, audioUrl: null, fileName: data.fileName, sender: data.senderName };
+                return { status: now >= data.startTime ? 'playing' : 'buffering', startTime: data.startTime, duration: data.duration, audioUrl: null, fileName: data.fileName, sender: data.senderName };
               }
               return prev;
             });
@@ -1162,10 +1457,7 @@
           seenMessagesRef.current.add(data.id);
           if (seenMessagesRef.current.size > 5000) { const f = seenMessagesRef.current.values().next().value; seenMessagesRef.current.delete(f); }
           let ttl = data.ttl !== undefined ? data.ttl : 8;
-          if (ttl > 0) {
-            const relay = { ...data, ttl: ttl - 1 };
-            setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; });
-          }
+          if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
           if (data.type === 'radio-start') {
             pendingRadioFiles.current[data.radioId] = { chunks: new Uint8Array(data.fileSize), receivedBytes: 0, totalSize: data.fileSize };
             setRadioState({ status: 'buffering', startTime: data.startTime, duration: data.duration, audioUrl: null, fileName: data.fileName, sender: data.senderName });
@@ -1174,11 +1466,7 @@
             if (fd) {
               const chunk = data.chunk instanceof ArrayBuffer ? new Uint8Array(data.chunk) : new Uint8Array(Object.values(data.chunk));
               fd.chunks.set(chunk, data.offset); fd.receivedBytes += chunk.length;
-              if (fd.receivedBytes === fd.totalSize) {
-                const url = URL.createObjectURL(new Blob([fd.chunks], { type: 'audio/mpeg' }));
-                setRadioState(prev => ({ ...prev, audioUrl: url }));
-                delete pendingRadioFiles.current[data.radioId];
-              }
+              if (fd.receivedBytes === fd.totalSize) { const url = URL.createObjectURL(new Blob([fd.chunks], { type: 'audio/mpeg' })); setRadioState(prev => ({ ...prev, audioUrl: url })); delete pendingRadioFiles.current[data.radioId]; }
             }
           }
           return;
@@ -1200,10 +1488,7 @@
           seenMessagesRef.current.add(data.id);
           if (seenMessagesRef.current.size > 5000) { const f = seenMessagesRef.current.values().next().value; seenMessagesRef.current.delete(f); }
           let ttl = data.ttl !== undefined ? data.ttl : 8;
-          if (ttl > 0) {
-            const relay = { ...data, ttl: ttl - 1 };
-            setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; });
-          }
+          if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
         }
 
         const timestamp = data.timestamp || Date.now();
@@ -1213,7 +1498,7 @@
 
         if (data.type === 'message') {
           if (data.text === '#$%') {
-            if (radioStateRef.current.status === 'idle') setRadioState({ status: 'playing', startTime: Date.now(), duration: 300, audioUrl: null, fileName: 'Rádio Global', sender: data.senderName || 'Servidor' });
+            if (radioStateRef.current.status === 'idle') setRadioState({ status: 'playing', startTime: Date.now(), duration: 300, audioUrl: null, fileName: t(lang, 'radioGlobal'), sender: data.senderName || 'Server' });
             return;
           }
           messageToAdd = { ...baseMessage, text: data.text, type: 'text' };
@@ -1227,11 +1512,7 @@
             fd.chunks.set(chunk, data.offset); fd.receivedBytes += chunk.length;
             const progress = Math.min(100, Math.floor((fd.receivedBytes / fd.totalSize) * 100));
             setMessages(prev => prev.map(m => m.fileId === data.fileId ? { ...m, progress } : m));
-            if (fd.receivedBytes === fd.totalSize) {
-              const url = URL.createObjectURL(new Blob([fd.chunks], { type: fd.fileType || 'application/octet-stream' }));
-              setMessages(prev => prev.map(m => m.fileId === data.fileId ? { ...m, fileData: url, receiving: false, progress: 100 } : m));
-              delete pendingFiles.current[data.fileId];
-            }
+            if (fd.receivedBytes === fd.totalSize) { const url = URL.createObjectURL(new Blob([fd.chunks], { type: fd.fileType || 'application/octet-stream' })); setMessages(prev => prev.map(m => m.fileId === data.fileId ? { ...m, fileData: url, receiving: false, progress: 100 } : m)); delete pendingFiles.current[data.fileId]; }
           }
           return;
         } else if (data.type === 'audio-start') {
@@ -1244,11 +1525,7 @@
             ad.chunks.set(chunk, data.offset); ad.receivedBytes += chunk.length;
             const progress = Math.min(100, Math.floor((ad.receivedBytes / ad.totalSize) * 100));
             setMessages(prev => prev.map(m => m.audioId === data.audioId ? { ...m, progress } : m));
-            if (ad.receivedBytes === ad.totalSize) {
-              const url = URL.createObjectURL(new Blob([ad.chunks], { type: 'audio/webm' }));
-              setMessages(prev => prev.map(m => m.audioId === data.audioId ? { ...m, audioData: url, receiving: false, progress: 100 } : m));
-              delete pendingFiles.current[data.audioId];
-            }
+            if (ad.receivedBytes === ad.totalSize) { const url = URL.createObjectURL(new Blob([ad.chunks], { type: 'audio/webm' })); setMessages(prev => prev.map(m => m.audioId === data.audioId ? { ...m, audioData: url, receiving: false, progress: 100 } : m)); delete pendingFiles.current[data.audioId]; }
           }
           return;
         }
@@ -1272,12 +1549,12 @@
         if (connections.some(c => c.peer === peerIdToConnect && c.open)) return;
         try {
           const conn = peerInstance.current.connect(peerIdToConnect, { reliable: true });
-          if (!conn) throw new Error("Conexão falhou");
+          if (!conn) throw new Error("Connection failed");
           conn.on('open', () => { setConnections(prev => [...prev.filter(c => c.peer !== peerIdToConnect), conn]); sendHandshake(conn); });
-          conn.on('error', err => { setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)); alert(`Erro ao conectar: ${err.message || 'Contato offline'}`); });
+          conn.on('error', err => { setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)); alert(t(lang, 'connectFailed') + (err.message || 'Contact offline')); });
           conn.on('close', () => setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)));
           conn.on('data', data => handleIncomingData(data, peerIdToConnect));
-        } catch (err) { alert(`Erro ao conectar: ${err.message}`); }
+        } catch (err) { alert(t(lang, 'connectError') + err.message); }
       };
 
       useEffect(() => {
@@ -1324,7 +1601,7 @@
 
         peer.on('error', err => {
           if (err.type === 'unavailable-id') { const newId = generateNewId(); localStorage.setItem(PEER_ID_STORAGE_KEY, newId); window.location.reload(); }
-          else if (err.type !== 'peer-unavailable') setError(`Erro PeerJS: ${err.type}`);
+          else if (err.type !== 'peer-unavailable') setError(`PeerJS Error: ${err.type}`);
         });
 
         peer.on('connection', conn => {
@@ -1346,13 +1623,13 @@
             call.on('stream', remoteStream => setRemoteStreams(prev => [...prev.filter(s => !(s.peerId === call.peer && s.type === callType)), { peerId: call.peer, stream: remoteStream, type: callType }]));
             call.on('close', () => endCall(call.peer, callType));
             call.on('error', () => endCall(call.peer, callType));
-          } catch (err) { call.close(); alert('Erro ao acessar câmera/microfone: ' + err.message); }
+          } catch (err) { call.close(); alert(t(lang, 'cameraError') + err.message); }
         });
 
         peerInstance.current = peer;
         return () => {
           if (peerInstance.current) { peerInstance.current.destroy(); peerInstance.current = null; }
-          localStreamsRef.current.forEach(s => s.getTracks().forEach(t => t.stop()));
+          localStreamsRef.current.forEach(s => s.getTracks().forEach(tr => tr.stop()));
           localStreamsRef.current.clear();
           setActiveCalls([]); setRemoteStreams([]); setIsLocalVideoVisible(false);
           if (localVideoRef.current) localVideoRef.current.srcObject = null;
@@ -1393,10 +1670,9 @@
       }, []);
 
       const handleRadioUpload = (e) => {
-        if (radioStateRef.current.status !== 'idle') { alert("Já existe uma música tocando!"); e.target.value = ''; return; }
-        const file = e.target.files[0];
-        if (!file) return;
-        if (file.size > 5 * 1024 * 1024) { alert("Máx 5MB."); e.target.value = ''; return; }
+        if (radioStateRef.current.status !== 'idle') { alert(t(lang, 'radioAlreadyPlaying')); e.target.value = ''; return; }
+        const file = e.target.files[0]; if (!file) return;
+        if (file.size > 5 * 1024 * 1024) { alert(t(lang, 'maxFileSizeErr')); e.target.value = ''; return; }
         const url = URL.createObjectURL(file);
         const audio = new Audio(url);
         audio.onloadedmetadata = () => {
@@ -1424,11 +1700,11 @@
       };
 
       const handleFileChange = (e) => {
-        if (!userName.trim()) { alert('Defina seu nome.'); setEditingName(true); return; }
-        if (!selectedContact) { alert('Selecione um contato.'); return; }
+        if (!userName.trim()) { alert(t(lang, 'defineNameFirst')); setEditingName(true); return; }
+        if (!selectedContact) { alert(t(lang, 'selectContactFirst2')); return; }
         const file = e.target.files[0]; if (!file) return;
         const conn = connections.find(c => c.peer === selectedContact);
-        if (!conn || !conn.open) { alert(`Contato offline.`); return; }
+        if (!conn || !conn.open) { alert(t(lang, 'contactOffline2')); return; }
         sendChunkedData(conn, 'fileId', file, 'file', { fileName: file.name });
         fileInputRef.current.value = '';
       };
@@ -1441,10 +1717,10 @@
         const localUrl = URL.createObjectURL(dataBlob);
         setMessages(prev => { const msg = { ...metaData, [idKey]: id, sender: 'you', recipient: conn.peer, senderName: userName, time: formattedTime, type: isFile ? 'file' : 'audio', sending: true, progress: 0, direct: true, timestamp: timestamp.getTime(), [isFile ? 'fileData' : 'audioData']: localUrl }; const updated = [...prev, msg]; localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
         try { conn.send({ type: `${typePrefix}-start`, [idKey]: id, [isFile ? 'fileSize' : 'audioSize']: dataBlob.size, senderName: userName, time: formattedTime, direct: true, timestamp: timestamp.getTime(), ...(isFile && { fileName: metaData.fileName, fileType: dataBlob.type }) }); }
-        catch (err) { alert(`Erro ao iniciar envio: ${err.message}`); setMessages(prev => prev.filter(m => m[idKey] !== id)); return; }
+        catch (err) { alert(t(lang, 'sendError') + err.message); setMessages(prev => prev.filter(m => m[idKey] !== id)); return; }
         const readChunk = () => { const chunk = dataBlob.slice(offset, offset + CHUNK_SIZE); reader.readAsArrayBuffer(chunk); };
         reader.onload = ev => {
-          if (!conn || !conn.open) { alert(`Conexão perdida.`); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); return; }
+          if (!conn || !conn.open) { alert(t(lang, 'connectionLost')); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); return; }
           try {
             conn.send({ type: `${typePrefix}-chunk`, [idKey]: id, chunk: ev.target.result, offset, direct: true });
             offset += ev.target.result.byteLength;
@@ -1452,17 +1728,17 @@
             setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, progress } : m));
             if (offset < dataBlob.size) requestAnimationFrame(readChunk);
             else setMessages(prev => { const updated = prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: 100 } : m); localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
-          } catch (err) { alert(`Erro: ${err.message}`); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); }
+          } catch (err) { alert(t(lang, 'sendingError') + err.message); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); }
         };
-        reader.onerror = () => { alert('Erro ao ler dados'); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); };
+        reader.onerror = () => { alert(t(lang, 'fileReadError')); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); };
         readChunk();
       };
 
       const handleAudioRecording = (audioBlob, targetContact) => {
-        if (!userName.trim()) { alert('Defina seu nome.'); setEditingName(true); return; }
-        if (!targetContact) { alert('Selecione um contato.'); return; }
+        if (!userName.trim()) { alert(t(lang, 'defineNameFirst')); setEditingName(true); return; }
+        if (!targetContact) { alert(t(lang, 'selectContactFirst2')); return; }
         const conn = connections.find(c => c.peer === targetContact);
-        if (!conn || !conn.open) { alert('Contato offline.'); return; }
+        if (!conn || !conn.open) { alert(t(lang, 'contactOffline2')); return; }
         sendChunkedData(conn, 'audioId', audioBlob, 'audio', {});
       };
 
@@ -1470,7 +1746,7 @@
         if (!peerInstance.current || !peerIdToCall) return;
         if (activeCalls.some(c => c.peerId === peerIdToCall && c.type === 'voice')) return;
         const conn = connections.find(c => c.peer === peerIdToCall);
-        if (!conn || !conn.open) { alert('Contato offline.'); return; }
+        if (!conn || !conn.open) { alert(t(lang, 'contactOffline2')); return; }
         try {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
           localStreamsRef.current.set(peerIdToCall + '_voice', stream);
@@ -1478,8 +1754,8 @@
           setActiveCalls(prev => [...prev, { peerId: peerIdToCall, call, localStream: stream, type: 'voice', direction: 'outgoing', isTemporaryStream: false }]);
           call.on('stream', rs => setRemoteStreams(prev => [...prev.filter(s => !(s.peerId === peerIdToCall && s.type === 'voice')), { peerId: peerIdToCall, stream: rs, type: 'voice' }]));
           call.on('close', () => endCall(peerIdToCall, 'voice'));
-          call.on('error', err => { alert('Erro chamada: ' + err.message); endCall(peerIdToCall, 'voice'); });
-        } catch (err) { alert('Erro microfone: ' + err.message); }
+          call.on('error', err => { alert(t(lang, 'callError') + err.message); endCall(peerIdToCall, 'voice'); });
+        } catch (err) { alert(t(lang, 'micError') + err.message); }
       };
 
       const toggleVideoCall = async (peerIdToCall) => {
@@ -1488,11 +1764,11 @@
         const isSendingVideo = existingCall && existingCall.localStream;
         const conn = connections.find(c => c.peer === peerIdToCall);
         if (isSendingVideo) {
-          if (existingCall.localStream) { existingCall.localStream.getTracks().forEach(t => t.stop()); localStreamsRef.current.delete(peerIdToCall + '_video'); }
+          if (existingCall.localStream) { existingCall.localStream.getTracks().forEach(tr => tr.stop()); localStreamsRef.current.delete(peerIdToCall + '_video'); }
           setActiveCalls(prev => prev.map(c => c.peerId === peerIdToCall && c.type === 'video' ? { ...c, localStream: null } : c));
           if (localStreamsRef.current.size === 0) { setIsLocalVideoVisible(false); if (localVideoRef.current) localVideoRef.current.srcObject = null; }
         } else {
-          if (!conn || !conn.open) { alert('Contato offline.'); return; }
+          if (!conn || !conn.open) { alert(t(lang, 'contactOffline2')); return; }
           try {
             const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
             localStreamsRef.current.set(peerIdToCall + '_video', stream);
@@ -1502,8 +1778,8 @@
             setActiveCalls(prev => [...prev.filter(c => !(c.peerId === peerIdToCall && c.type === 'video')), { peerId: peerIdToCall, call, localStream: stream, type: 'video', direction: 'outgoing', isTemporaryStream: false }]);
             call.on('stream', rs => setRemoteStreams(prev => [...prev.filter(s => !(s.peerId === peerIdToCall && s.type === 'video')), { peerId: peerIdToCall, stream: rs, type: 'video' }]));
             call.on('close', () => endCall(peerIdToCall, 'video'));
-            call.on('error', err => { alert('Erro vídeo: ' + err.message); endCall(peerIdToCall, 'video'); });
-          } catch (err) { alert('Erro câmera: ' + err.message); }
+            call.on('error', err => { alert(t(lang, 'videoError') + err.message); endCall(peerIdToCall, 'video'); });
+          } catch (err) { alert(t(lang, 'cameraError') + err.message); }
         }
       };
 
@@ -1511,11 +1787,11 @@
         const callData = activeCalls.find(c => c.peerId === peerIdToEnd && c.type === callType);
         if (callData) {
           if (callData.call) callData.call.close();
-          if (callData.localStream) { callData.localStream.getTracks().forEach(t => t.stop()); stopAndRemoveLocalStream(peerIdToEnd + '_' + callType); }
+          if (callData.localStream) { callData.localStream.getTracks().forEach(tr => tr.stop()); stopAndRemoveLocalStream(peerIdToEnd + '_' + callType); }
         }
         setActiveCalls(prev => prev.filter(c => !(c.peerId === peerIdToEnd && c.type === callType)));
         setRemoteStreams(prev => prev.filter(s => !(s.peerId === peerIdToEnd && s.type === callType)));
-        const anyVideo = Array.from(localStreamsRef.current.values()).some(s => s.getVideoTracks().some(t => t.readyState === 'live'));
+        const anyVideo = Array.from(localStreamsRef.current.values()).some(s => s.getVideoTracks().some(tr => tr.readyState === 'live'));
         if (!anyVideo) { setIsLocalVideoVisible(false); if (localVideoRef.current) localVideoRef.current.srcObject = null; }
       };
 
@@ -1523,9 +1799,9 @@
         const emojis = ["😀","😁","😂","🤣","😃","😄","😅","😆","😉","😊","😋","😎","😍","😘","🥰","😗","😙","😚","🙂","🤗","🤩","🤔","🤨","😐","😑","😶","🙄","😏","😣","😥","😮","🤐","😴","😪","😵","😤","😭","😡","🤯","🥵","👍","👎","👌","✌️","🤞","👋","🤚","🖐️","👏","🙌","👐","🤲","🙏","💪","🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🙈","🙉","🙊","🍇","🍈","🍉","🍊","🍋","🍌","🍍","🥭","🍎","🍏","🍐","🍑","🍒","🍓","🥝","🍔","🍟","🍕","🌭","🥪","🌮","🌯","🍜","🍝","🍣","🍤","🍦","🍧","🍨","🍩","🍪","🎂","🍰","🧁","🍫","🍬","🍭","☕","🍵","🍷","🍸","🍹","🍺","🏠","🏡","🏢","🏰","🚂","🚗","✈️","🚀","🌍","🌈","⭐","🌙","☀️","❤️","💙","💚","💛","🧡","💜","🖤","🤍","💔","💯","🔥","⚡","✨","🎉","🎊","🎈","🎁","🏆","🥇","🎯","🎮","🎵","🎶","📱","💻","⌚","📷","🔑","💡","🔒","🔓","🛒","💰","📚","✏️","📝","🗓️"];
         return (
           <div className="emoji-panel">
-            <div className="emoji-panel-header">Emojis</div>
+            <div className="emoji-panel-header">{t(lang, 'emojis')}</div>
             <div className="emoji-panel-content">{emojis.map((e, i) => <span key={i} className="emoji-item" onClick={() => setNewMessage(prev => prev + e)}>{e}</span>)}</div>
-            <div className="emoji-panel-footer"><span className="barra-rolagem-label">Role para ver mais</span></div>
+            <div className="emoji-panel-footer">{t(lang, 'scrollMore')}</div>
           </div>
         );
       };
@@ -1538,73 +1814,95 @@
         url.searchParams.set('portas', allIds.join(','));
         const finalUrl = url.toString();
         navigator.clipboard.writeText(finalUrl);
-        prompt(`Link gerado! (${allIds.length} porta(s)). Copie:`, finalUrl);
+        prompt(t(lang, 'inviteLinkCopied'), finalUrl);
       };
 
-      if (error) return <div className="error-message"><h1>Erro</h1><p>{error}</p><button onClick={() => window.location.reload()}>Tentar novamente</button></div>;
+      if (error) return <div className="error-message"><h1>{t(lang, 'errApp')}</h1><p>{error}</p><button onClick={() => window.location.reload()}>{t(lang, 'tryAgain')}</button></div>;
 
       return (
         <div>
+          {showTutorial && <TutorialModal lang={lang} onClose={() => setShowTutorial(false)} />}
+
           <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
           <input type="file" id="radioInput" accept="audio/mp3,audio/mpeg" style={{ display: 'none' }} onChange={handleRadioUpload} />
           <audio ref={radioAudioRef} style={{ display: 'none' }} />
 
+          {/* HEADER */}
           <div className="app-header">
-            <h1 className="app-title">Chat K10</h1>
+            <h1 className="app-title">
+              Chat K10
+              <span>{t(lang, 'appSubtitle')}</span>
+            </h1>
             <div className="header-buttons">
-              <button onClick={() => setShowContacts(true)} className="header-button" title="Contatos"><i className="fas fa-address-book"></i></button>
-              <button onClick={toggleDarkMode} className="header-button" title="Modo Noturno" id="darkModeBtn">🌙</button>
+              <button onClick={() => setShowTutorial(true)} className="header-button" title={t(lang, 'tutorial')}>
+                <i className="fas fa-book-open"></i>
+              </button>
+              <button onClick={() => setShowContacts(true)} className="header-button" title={t(lang, 'contacts')}>
+                <i className="fas fa-address-book"></i>
+              </button>
+              <button onClick={toggleDarkMode} className="header-button" title={t(lang, 'darkMode')}>🌙</button>
+              <button onClick={toggleLang} className="lang-btn" title="Switch Language">
+                🌐 {t(lang, 'language')}
+              </button>
             </div>
           </div>
 
+          {/* RADIO BAR */}
           {radioState.status !== 'idle' && (
-            <div style={{ background: '#1e293b', color: 'white', padding: '10px', textAlign: 'center', borderBottom: '1px solid #334155' }}>
-              <div style={{ fontSize: '14px', fontWeight: 'bold' }}>🎵 Rádio Global: {radioState.fileName}</div>
-              <div style={{ fontSize: '12px', color: '#94a3b8' }}>DJ: {radioState.sender}</div>
+            <div className="radio-bar">
+              <div style={{ fontSize: '14px', fontWeight: '700' }}>🎵 {t(lang, 'radioGlobal')}: {radioState.fileName}</div>
+              <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>{t(lang, 'djLabel')}{radioState.sender}</div>
               {radioState.status === 'buffering'
-                ? <div style={{ color: '#f59e0b', marginTop: '5px', fontSize: '13px', fontWeight: 'bold' }}>A música começa em {Math.max(0, Math.ceil((radioState.startTime - Date.now()) / 1000))}s...{!radioState.audioUrl && " (Baixando...)"}</div>
-                : <div style={{ color: '#10b981', marginTop: '5px', fontSize: '13px', fontWeight: 'bold' }}>▶ Tocando agora</div>}
-              <div style={{ marginTop: '10px' }}>
-                <label style={{ fontSize: '12px', color: '#94a3b8' }}>Volume: </label>
+                ? <div style={{ color: '#f59e0b', marginTop: '4px', fontSize: '13px', fontWeight: '600' }}>
+                    {t(lang, 'radioStartsIn', { s: Math.max(0, Math.ceil((radioState.startTime - Date.now()) / 1000)) })}{!radioState.audioUrl && t(lang, 'downloading')}
+                  </div>
+                : <div style={{ color: '#10b981', marginTop: '4px', fontSize: '13px', fontWeight: '600' }}>{t(lang, 'nowPlaying')}</div>}
+              <div style={{ marginTop: '8px' }}>
+                <label style={{ fontSize: '12px', color: '#94a3b8' }}>{t(lang, 'volume')} </label>
                 <input type="range" min="0" max="1" step="0.1" defaultValue="0.5" onChange={e => { if (radioAudioRef.current) radioAudioRef.current.volume = parseFloat(e.target.value); }} />
               </div>
             </div>
           )}
 
+          {/* USER INFO */}
           <div className="user-info-container">
             {editingName ? (
               <div className="user-name-form">
-                <input type="text" value={userName} onChange={e => setUserName(e.target.value)} placeholder="Digite seu nome" autoFocus />
-                <button onClick={saveUserName} disabled={!userName.trim()}>Salvar</button>
+                <input type="text" value={userName} onChange={e => setUserName(e.target.value)} placeholder={t(lang, 'typeName')} autoFocus />
+                <button onClick={saveUserName} disabled={!userName.trim()}>{t(lang, 'save')}</button>
               </div>
             ) : (
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{t(lang, 'yourName')}:</span>
                 <span className="username">{userName}</span>
-                <button className="user-edit-button" onClick={() => setEditingName(true)}>Editar</button>
+                <button className="user-edit-button" onClick={() => setEditingName(true)}>{t(lang, 'edit')}</button>
               </div>
             )}
           </div>
 
+          {/* PEER ID */}
           <div className="peer-id-container">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', flexWrap: 'wrap' }}>
-              <span>Seu ID: <strong>{peerId}</strong></span>
-              <button onClick={() => setIsSuperNode(!isSuperNode)} style={{ backgroundColor: isSuperNode ? '#fef3c7' : 'white', color: isSuperNode ? '#b45309' : '#666', border: `1px solid ${isSuperNode ? '#f59e0b' : '#ddd'}`, padding: '5px 10px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
-                <i className="fas fa-bolt" style={{ color: isSuperNode ? '#d97706' : '#999' }}></i> {isSuperNode ? 'SuperNó ON' : 'SuperNó OFF'}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{t(lang, 'yourId')}</span>
+              <span className="peer-id-label">{peerId}</span>
+              <button onClick={() => setIsSuperNode(!isSuperNode)} style={{ backgroundColor: isSuperNode ? '#fef3c7' : 'white', color: isSuperNode ? '#b45309' : '#64748b', border: `1px solid ${isSuperNode ? '#f59e0b' : 'var(--border)'}`, padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
+                <i className="fas fa-bolt" style={{ color: isSuperNode ? '#d97706' : '#94a3b8' }}></i> {isSuperNode ? t(lang, 'superNodeOn') : t(lang, 'superNodeOff')}
               </button>
               <button onClick={() => document.getElementById('radioInput').click()} disabled={radioState.status !== 'idle'}
-                style={{ backgroundColor: radioState.status !== 'idle' ? '#f1f5f9' : '#8b5cf6', color: radioState.status !== 'idle' ? '#94a3b8' : 'white', border: 'none', padding: '5px 10px', borderRadius: '4px', cursor: radioState.status !== 'idle' ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: 'bold' }}>
-                <i className="fas fa-music"></i> DJ Rádio
+                style={{ backgroundColor: radioState.status !== 'idle' ? '#f1f5f9' : '#8b5cf6', color: radioState.status !== 'idle' ? '#94a3b8' : 'white', border: 'none', padding: '5px 12px', borderRadius: '6px', cursor: radioState.status !== 'idle' ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '700' }}>
+                <i className="fas fa-music"></i> {t(lang, 'djRadio')}
               </button>
             </div>
-            <div>
-              <button onClick={() => { navigator.clipboard.writeText(peerId); alert('ID copiado!'); }}>Copiar</button>
-              <button onClick={generateInviteLink} style={{ marginLeft: '10px', backgroundColor: '#10b981', color: 'white', border: 'none' }}>Gerar Link de Convite</button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button onClick={() => { navigator.clipboard.writeText(peerId); alert(t(lang, 'copied')); }}>{t(lang, 'copy')}</button>
+              <button onClick={generateInviteLink} className="invite-btn">{t(lang, 'generateInviteLink')}</button>
             </div>
           </div>
 
+          {/* VIDEO */}
           {(remoteStreams.length > 0 || isLocalVideoVisible) && (
             <div className="video-container">
-              {isLocalVideoVisible && <div><div className="video-label">Você</div><video className="local-video-player" ref={localVideoRef} autoPlay muted></video></div>}
+              {isLocalVideoVisible && <div><div className="video-label">{t(lang, 'you')}</div><video className="local-video-player" ref={localVideoRef} autoPlay muted></video></div>}
               {remoteStreams.map((sd, idx) => sd.type === 'video' && (
                 <div key={idx}><div className="video-label">{getContactName(sd.peerId)}</div>
                 <video className="video-player" ref={el => videoRefs.current[sd.peerId] = el} autoPlay></video></div>
@@ -1612,23 +1910,27 @@
             </div>
           )}
 
+          {/* ACTIVE CALLS */}
           {activeCalls.map((call, idx) => call.type === 'voice' && (
             <div key={idx} className="audio-call-container">
-              <span>Chamada de voz com {getContactName(call.peerId)}</span>
-              <button className="call-end-button" onClick={() => endCall(call.peerId, 'voice')}>Encerrar</button>
+              <i className="fas fa-phone" style={{ color: '#22c55e' }}></i>
+              <span style={{ fontSize: '14px', fontWeight: 600 }}>{t(lang, 'voiceCallWith')} {getContactName(call.peerId)}</span>
+              <button className="call-end-button" onClick={() => endCall(call.peerId, 'voice')}>{t(lang, 'endCall')}</button>
               <audio ref={el => audioRefs.current[call.peerId] = el} autoPlay></audio>
-              <div style={{ marginTop: '5px' }}>
-                <label style={{ fontSize: '10px' }}>Volume: </label>
+              <div style={{ marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <label style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{t(lang, 'volume')}</label>
                 <input type="range" min="0" max="1" step="0.1" defaultValue="1" onChange={e => { if (audioRefs.current[call.peerId]) audioRefs.current[call.peerId].volume = parseFloat(e.target.value); }} />
               </div>
             </div>
           ))}
 
+          {/* MAIN CONTENT */}
           {showContacts ? (
-            <ContactsScreen contacts={contacts} setContacts={setContacts} onBack={() => setShowContacts(false)}
+            <ContactsScreen lang={lang} contacts={contacts} setContacts={setContacts} onBack={() => setShowContacts(false)}
               onSelectContact={(pId) => { connectToPeer(pId); setSelectedContact(pId); setShowContacts(false); }} />
           ) : (
-            <UpdatedChatManager
+            <ChatManager
+              lang={lang}
               connections={connections} messages={messages} setMessages={setMessages}
               contacts={contacts} userName={userName} peerId={peerId}
               activeCalls={activeCalls} endCall={endCall} startVoiceCall={startVoiceCall}
