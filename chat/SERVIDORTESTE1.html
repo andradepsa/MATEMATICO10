@@ -13,8 +13,8 @@
     h2 { font-size: 16px; color: #333; margin-bottom: 12px; }
     .header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
     .status-dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 6px; flex-shrink: 0; }
-    .dot-online  { background: #22c55e; }
-    .dot-offline { background: #ef4444; }
+    .dot-online     { background: #22c55e; }
+    .dot-offline    { background: #ef4444; }
     .dot-connecting { background: #f59e0b; animation: blink 1s infinite; }
     @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
     .status-text { font-size: 14px; color: #555; display: flex; align-items: center; }
@@ -49,60 +49,138 @@
   const { useState, useRef } = React;
   const STORAGE_KEY = 'k10ServerId';
 
+  // ── Criptografia idêntica ao cliente ────────────────────────────────────
+  const encryptMessage = (text, key) => {
+    let result = '';
+    for (let i = 0; i < text.length; i++)
+      result += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+    return btoa(encodeURIComponent(result));
+  };
+
+  const decryptMessage = (encoded, key) => {
+    try {
+      const text = decodeURIComponent(atob(encoded));
+      let result = '';
+      for (let i = 0; i < text.length; i++)
+        result += String.fromCharCode(text.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+      return result;
+    } catch (e) { return null; }
+  };
+  // ────────────────────────────────────────────────────────────────────────
+
   const App = () => {
-    const [rawId, setRawId]         = useState(() => localStorage.getItem(STORAGE_KEY) || 'SERVIDOR');
-    const [editId, setEditId]       = useState('');
-    const [editing, setEditing]     = useState(false);
-    const [status, setStatus]       = useState('desconectado');
+    const [rawId, setRawId]             = useState(() => localStorage.getItem(STORAGE_KEY) || 'SERVIDOR');
+    const [editId, setEditId]           = useState('');
+    const [editing, setEditing]         = useState(false);
+    const [status, setStatus]           = useState('desconectado');
     const [connections, setConnections] = useState([]);
-    const [stats, setStats]         = useState({ received: 0, distributed: 0 });
+    const [stats, setStats]             = useState({ received: 0, distributed: 0 });
 
     const peerId   = rawId.endsWith('-CENTRAL') ? rawId : rawId + '-CENTRAL';
     const peerRef  = useRef(null);
-    const connsRef = useRef(new Map());
+    const connsRef = useRef(new Map());   // pid → conn
     const seenRef  = useRef(new Set());
+    const peerIdRef = useRef(peerId);     // sempre atualizado
+    peerIdRef.current = peerId;
 
     const isConnected = status === 'conectado' || status === 'conectando';
+    const syncConns   = () => setConnections(Array.from(connsRef.current.keys()));
 
-    const syncConns = () => setConnections(Array.from(connsRef.current.keys()));
-
-    const distribute = (data, sourceId) => {
+    // ── Repasse simples (mensagens de rádio, etc.) ───────────────────────
+    const relay = (data, sourceId) => {
       const ttl = (data.ttl !== undefined ? data.ttl : 8) - 1;
-      if (ttl < 0) return;
-      const relay = { ...data, ttl };
+      if (ttl < 0) return 0;
+      const msg = { ...data, ttl };
       let count = 0;
       connsRef.current.forEach((conn, pid) => {
         if (pid !== sourceId && conn.open) {
-          try { conn.send(relay); count++; } catch(e) {}
+          try { conn.send(msg); count++; } catch(e) {}
         }
       });
-      if (count > 0) setStats(prev => ({ ...prev, distributed: prev.distributed + count }));
+      return count;
     };
 
+    // ── Repasse com re-cifragem por destinatário ─────────────────────────
+    // O servidor decifra com seu próprio ID e cifra novamente com o ID de
+    // cada peer de destino, para que cada um consiga ler a mensagem.
+    const relayEncrypted = (data, sourceId, decryptedText) => {
+      const ttl = (data.ttl !== undefined ? data.ttl : 8) - 1;
+      if (ttl < 0) return 0;
+      let count = 0;
+      connsRef.current.forEach((conn, pid) => {
+        if (pid !== sourceId && conn.open) {
+          try {
+            conn.send({
+              ...data,
+              ttl,
+              text: encryptMessage(decryptedText, pid),   // cifra com ID do destinatário
+              recipientId: pid                             // atualiza o recipientId
+            });
+            count++;
+          } catch(e) {}
+        }
+      });
+      return count;
+    };
+
+    // ── Processamento de dados recebidos ─────────────────────────────────
     const handleData = (data, sourceId) => {
       if (!data || !data.type) return;
       if (data.type === 'pex') return;
 
-      const relayTypes = ['message','radio-start','radio-chunk','radio-sync','radio-request-sync'];
-      if (relayTypes.includes(data.type)) {
+      // Mensagem de texto
+      if (data.type === 'message') {
+        // Deduplicação
         if (data.id) {
           if (seenRef.current.has(data.id)) return;
           seenRef.current.add(data.id);
           if (seenRef.current.size > 10000)
             seenRef.current.delete(seenRef.current.values().next().value);
         }
-        if (data.type === 'message')
-          setStats(prev => ({ ...prev, received: prev.received + 1 }));
-        distribute(data, sourceId);
+
+        setStats(prev => ({ ...prev, received: prev.received + 1 }));
+
+        let count = 0;
+
+        if (data.encrypted && data.recipientId === peerIdRef.current) {
+          // Mensagem cifrada para o servidor → decifra e re-cifra para cada peer
+          const plain = decryptMessage(data.text, peerIdRef.current);
+          if (plain !== null) {
+            count = relayEncrypted(data, sourceId, plain);
+          }
+        } else {
+          // Mensagem não cifrada ou não endereçada ao servidor → repasse simples
+          count = relay(data, sourceId);
+        }
+
+        if (count > 0)
+          setStats(prev => ({ ...prev, distributed: prev.distributed + count }));
+        return;
+      }
+
+      // Rádio e outros → repasse simples com deduplicação
+      const radioTypes = ['radio-start','radio-chunk','radio-sync','radio-request-sync'];
+      if (radioTypes.includes(data.type)) {
+        if (data.id) {
+          if (seenRef.current.has(data.id)) return;
+          seenRef.current.add(data.id);
+        }
+        relay(data, sourceId);
       }
     };
 
+    // ── Configurar eventos de uma conexão ────────────────────────────────
     const setupConn = (conn) => {
       conn.on('open', () => {
         connsRef.current.set(conn.peer, conn);
         syncConns();
         try {
-          conn.send({ type: 'handshake', isServer: true, peerId, radio: { status: 'idle' } });
+          conn.send({
+            type: 'handshake',
+            isServer: true,
+            peerId: peerIdRef.current,
+            radio: { status: 'idle' }
+          });
         } catch(e) {}
       });
       conn.on('data',  (data) => handleData(data, conn.peer));
@@ -110,6 +188,7 @@
       conn.on('error', () => { connsRef.current.delete(conn.peer); syncConns(); });
     };
 
+    // ── Conectar ─────────────────────────────────────────────────────────
     const connect = () => {
       setStatus('conectando');
       if (peerRef.current) { try { peerRef.current.destroy(); } catch(e) {} }
@@ -123,9 +202,9 @@
         debug: 0
       });
 
-      peer.on('open',         () => setStatus('conectado'));
-      peer.on('disconnected', () => setStatus('desconectado'));
-      peer.on('error', (err) => {
+      peer.on('open',         ()    => setStatus('conectado'));
+      peer.on('disconnected', ()    => setStatus('desconectado'));
+      peer.on('error',        (err) => {
         if (err.type === 'unavailable-id') alert('ID já em uso. Troque o ID.');
         else setStatus('erro: ' + err.type);
       });
@@ -140,6 +219,7 @@
       peerRef.current = peer;
     };
 
+    // ── Desconectar ──────────────────────────────────────────────────────
     const disconnect = () => {
       connsRef.current.forEach(c => { try { c.close(); } catch(e) {} });
       connsRef.current.clear();
@@ -147,6 +227,7 @@
       setConnections([]);
       setStatus('desconectado');
       setStats({ received: 0, distributed: 0 });
+      seenRef.current.clear();
     };
 
     const saveId = () => {
@@ -185,8 +266,8 @@
                 autoFocus
               />
               <span style={{fontSize:13,color:'#64748b'}}>-CENTRAL</span>
-              <button className="btn btn-green"  onClick={saveId}>Salvar</button>
-              <button className="btn btn-red"    onClick={() => setEditing(false)}>Cancelar</button>
+              <button className="btn btn-green" onClick={saveId}>Salvar</button>
+              <button className="btn btn-red"   onClick={() => setEditing(false)}>Cancelar</button>
             </div>
           ) : (
             <div className="id-row">
@@ -218,8 +299,8 @@
             </div>
           </div>
           <div className="actions">
-            <button className="btn btn-green" onClick={connect}     disabled={isConnected}>Conectar</button>
-            <button className="btn btn-red"   onClick={disconnect}  disabled={!isConnected}>Desconectar</button>
+            <button className="btn btn-green" onClick={connect}    disabled={isConnected}>Conectar</button>
+            <button className="btn btn-red"   onClick={disconnect} disabled={!isConnected}>Desconectar</button>
           </div>
         </div>
 
@@ -239,7 +320,7 @@
         </div>
 
         <div className="warn">
-          O servidor apenas repassa mensagens — não lê nem armazena o conteúdo. Arquivos e áudios são bloqueados para proteger a banda da rede.
+          O servidor decifra cada mensagem e re-cifra individualmente para cada destinatário. Arquivos e áudios são bloqueados para proteger a banda da rede.
         </div>
       </div>
     );
