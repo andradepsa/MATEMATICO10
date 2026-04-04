@@ -179,6 +179,33 @@
     /* CALL BTN STYLES */
     .call-btn { padding: 4px; width: 28px; height: 28px; border-radius: 50%; color: white; border: none; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; }
 
+    /* TORRENT STYLES */
+    .torrent-card { background: #0f172a; border: 1px solid #1e4d8c; border-radius: 12px; padding: 12px; margin-top: 8px; color: #e0f0ff; }
+    .torrent-card-header { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-weight: 700; font-size: 13px; color: #34d399; }
+    .torrent-info { font-size: 11px; color: #94a3b8; margin-bottom: 8px; font-family: 'JetBrains Mono', monospace; }
+    .torrent-btn { width: 100%; padding: 8px; border: none; border-radius: 8px; font-weight: 700; font-size: 12px; cursor: pointer; transition: all 0.2s; }
+    .torrent-btn.download { background: #10b981; color: white; }
+    .torrent-btn.stop { background: #ef4444; color: white; }
+    .torrent-progress-container { height: 6px; background: #1e293b; border-radius: 3px; overflow: hidden; margin: 8px 0; }
+    .torrent-progress-bar { height: 100%; background: #34d399; transition: width 0.3s ease; }
+    .torrent-manager-btn { background: #8b5cf6; color: white; border: none; width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all 0.2s; }
+    .torrent-manager-btn:hover { background: #7c3aed; transform: scale(1.05); }
+    .torrent-manager-badge { position: absolute; top: -2px; right: -2px; background: #ef4444; color: white; font-size: 9px; font-weight: 700; width: 16px; height: 16px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid var(--surface); }
+    
+    .torrent-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 1500; display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .torrent-modal { background: #0f172a; border: 1px solid #1e4d8c; border-radius: 16px; width: 100%; max-width: 600px; max-height: 80vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+    .torrent-modal-header { padding: 16px 20px; background: #1e293b; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }
+    .torrent-modal-header h3 { margin: 0; font-size: 16px; color: #34d399; display: flex; align-items: center; gap: 8px; }
+    .torrent-modal-content { padding: 16px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 12px; }
+    .torrent-item { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 12px; }
+    .torrent-item-name { font-weight: 700; font-size: 13px; color: #e2e8f0; margin-bottom: 4px; word-break: break-all; }
+    .torrent-item-stats { display: flex; justify-content: space-between; font-size: 11px; color: #94a3b8; font-family: 'JetBrains Mono', monospace; }
+    .torrent-item-actions { display: flex; gap: 8px; margin-top: 10px; }
+    .torrent-item-btn { flex: 1; padding: 6px; border: none; border-radius: 6px; font-size: 11px; font-weight: 700; cursor: pointer; }
+    .torrent-item-btn.remove { background: #334155; color: #94a3b8; }
+    .torrent-item-btn.remove:hover { background: #ef4444; color: white; }
+    .torrent-empty { text-align: center; padding: 40px 20px; color: #64748b; font-size: 13px; }
+
     /* DARK MODE */
     body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #e2e8f0; --text-muted: #94a3b8; --bubble-recv: #1e293b; }
     .dark-mode .chat-messages { background: #0f172a; }
@@ -245,6 +272,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.1/peerjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
   <script src="https://www.youtube.com/iframe_api"></script>
 
   <script type="text/babel">
@@ -381,6 +409,21 @@
         small: "Small",
         medium: "Medium",
         large: "Large",
+        torrentManager: "Torrent Manager",
+        generateTorrent: "Generate Torrent Link",
+        downloadTorrent: "Download via Torrent",
+        seeding: "Seeding",
+        downloadingTorrent: "Downloading",
+        peers: "Peers",
+        speed: "Speed",
+        completed: "Completed",
+        noTorrents: "No active torrents.",
+        torrentStarted: "Torrent started: {name}",
+        torrentError: "Torrent error: ",
+        copyMagnet: "Copy Magnet Link",
+        magnetCopied: "Magnet link copied!",
+        stopTorrent: "Stop & Remove",
+        torrentLimit: "Max 500MB for seeding.",
       },
       pt: {
         appTitle: "Chat K10",
@@ -509,6 +552,21 @@
         small: "Pequeno",
         medium: "Médio",
         large: "Grande",
+        torrentManager: "Gerenciador de Torrents",
+        generateTorrent: "Gerar Link Torrent",
+        downloadTorrent: "Baixar via Torrent",
+        seeding: "Semeando",
+        downloadingTorrent: "Baixando",
+        peers: "Peers",
+        speed: "Velocidade",
+        completed: "Concluído",
+        noTorrents: "Nenhum torrent ativo.",
+        torrentStarted: "Torrent iniciado: {name}",
+        torrentError: "Erro no torrent: ",
+        copyMagnet: "Copiar Magnet Link",
+        magnetCopied: "Magnet link copiado!",
+        stopTorrent: "Parar e Remover",
+        torrentLimit: "Máx 500MB para semear.",
       }
     };
 
@@ -810,7 +868,9 @@
           <div>
             <div className="tutorial-step"><div className="tutorial-step-num">1</div><div className="tutorial-step-text"><strong>Send a file</strong><span>Click the <span className="tutorial-badge">📎 paperclip</span> button. Select any file from your device. It transfers in chunks directly via P2P.</span></div></div>
             <div className="tutorial-step"><div className="tutorial-step-num">2</div><div className="tutorial-step-text"><strong>Record & send audio</strong><span>Click the <span className="tutorial-badge">🎙️ microphone</span> button to start recording. Click again to stop — the audio is sent automatically.</span></div></div>
-            <div className="tutorial-step"><div className="tutorial-step-num">3</div><div className="tutorial-step-text"><strong>DJ Radio</strong><span>Click <span className="tutorial-badge">🎵 DJ Radio</span> in the top bar and select an MP3 (max 5MB). It broadcasts to all connected peers in sync!</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">3</div><div className="tutorial-step-text"><strong>DJ Radio</strong><span>Click <span className="tutorial-badge">🎵 DJ Radio</span> and select an MP3 (max 5MB). It broadcasts to all connected peers in sync!</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">4</div><div className="tutorial-step-text"><strong>YouTube Radio</strong><span>Click <span className="tutorial-badge">🔴 YouTube Radio</span> and paste a link. Audio (and optional video) is synced for everyone (max 5 min).</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">🧲</div><div className="tutorial-step-text"><strong>Torrent Sharing</strong><span>Click the <span className="tutorial-badge">🧲 magnet</span> icon to generate a torrent link for large files (up to 500MB). Others can download directly from you!</span></div></div>
             <div className="tutorial-warn"><span>⚠️</span><span>File transfers go directly between browsers. Both users must remain connected for the transfer to complete.</span></div>
             <div className="tutorial-tip"><span>💡</span><span>Audio messages support playback with the built-in player — no need to download.</span></div>
           </div>
@@ -1044,7 +1104,9 @@
           <div>
             <div className="tutorial-step"><div className="tutorial-step-num">1</div><div className="tutorial-step-text"><strong>Enviar arquivo</strong><span>Clique no botão <span className="tutorial-badge">📎 clipe</span>. Selecione qualquer arquivo. Ele é transferido em partes via P2P.</span></div></div>
             <div className="tutorial-step"><div className="tutorial-step-num">2</div><div className="tutorial-step-text"><strong>Gravar e enviar áudio</strong><span>Clique no botão <span className="tutorial-badge">🎙️ microfone</span> para iniciar a gravação. Clique novamente para parar — o áudio é enviado automaticamente.</span></div></div>
-            <div className="tutorial-step"><div className="tutorial-step-num">3</div><div className="tutorial-step-text"><strong>DJ Rádio</strong><span>Clique em <span className="tutorial-badge">🎵 DJ Rádio</span> e selecione um MP3 (máx 5MB). Transmite para todos os peers conectados em sincronia!</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">3</div><div className="tutorial-step-text"><strong>DJ Rádio</strong><span>Clique em <span className="tutorial-badge">🎵 DJ Rádio</span> e selecione um MP3 (máx 5MB). Transmite para todos os peers em sincronia!</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">4</div><div className="tutorial-step-text"><strong>Rádio YouTube</strong><span>Clique no botão <span className="tutorial-badge">🔴 YouTube Radio</span> e cole um link. O áudio (e vídeo opcional) é sincronizado para todos (máx 5 min).</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">🧲</div><div className="tutorial-step-text"><strong>Compartilhamento Torrent</strong><span>Clique no ícone de <span className="tutorial-badge">🧲 imã</span> para gerar um link torrent para arquivos grandes (até 500MB). Outros podem baixar direto de você!</span></div></div>
             <div className="tutorial-warn"><span>⚠️</span><span>As transferências vão diretamente entre navegadores. Ambos devem permanecer conectados para concluir.</span></div>
           </div>
         )
@@ -1356,7 +1418,8 @@
       newMessage, setNewMessage, showEmojiPanel, setShowEmojiPanel, populateEmojiPanel,
       getContactName, selectedContact, setSelectedContact, localVideoRef,
       registerSentMessage, cooldownRemaining, setCooldownRemaining, networkSize, centralServerId,
-      e2eeState, setE2eeState, isCentralServer, serverE2EE, setServerE2EE, connectToPeer
+      e2eeState, setE2eeState, isCentralServer, serverE2EE, setServerE2EE, connectToPeer,
+      handleTorrentSeed, handleTorrentDownload
     }) => {
       const messagesEndRef = useRef(null);
       const messagesContainerRef = useRef(null);
@@ -1679,8 +1742,19 @@
                     {msg.sender !== '__system__' && (
                       <div className="chat-user-bubble">{msg.sender === 'you' ? (t(lang, 'you') + ' · ' + userName) : getContactName(msg.sender)}</div>
                     )}
-                    {msg.type === 'text' ? <MessageText msg={msg} onContentChange={() => scrollToBottom("smooth")} />
-                      : msg.type === 'file' ? (
+                    {msg.type === 'text' ? (
+                      msg.text && msg.text.includes('🧲 TORRENT:') ? (
+                        <div className="torrent-card">
+                          <div className="torrent-card-header">
+                            <i className="fas fa-magnet"></i> {msg.text.split('\n')[0].replace('🧲 TORRENT: ', '')}
+                          </div>
+                          <div className="torrent-info">Magnet Link Detected</div>
+                          <button className="torrent-btn download" onClick={() => handleTorrentDownload(msg.text.split('\n')[1])}>
+                            <i className="fas fa-download"></i> {t(lang, 'downloadTorrent')}
+                          </button>
+                        </div>
+                      ) : <MessageText msg={msg} onContentChange={() => scrollToBottom("smooth")} />
+                    ) : msg.type === 'file' ? (
                         <div>
                           {msg.fileData ? <a href={msg.fileData} download={msg.fileName} className="file-link">📎 {msg.fileName}</a> : <span>📎 {msg.fileName}</span>}
                           {(msg.receiving || msg.sending) && <div className="progress-container"><div className="progress-bar"><div className="progress" style={{ width: `${msg.progress}%`, background: msg.sender === 'you' ? 'white' : 'var(--primary)' }} /></div></div>}
@@ -1736,6 +1810,10 @@
                   title={selectedIsServer ? t(lang, 'serverSecret') : t(lang, 'sendSecret')}>
                   🔑
                 </button>
+                <button className="icon-btn" onClick={() => document.getElementById('torrentInput').click()} title={t(lang, 'generateTorrent')}>
+                  <i className="fas fa-magnet"></i>
+                </button>
+                <input type="file" id="torrentInput" style={{ display: 'none' }} onChange={handleTorrentSeed} />
                 <div className="message-input-container">
                   <button className="emoji-button" onClick={() => setShowEmojiPanel(!showEmojiPanel)} title={t(lang, 'emojis')}>😊</button>
                   <input type="text" value={newMessage}
@@ -1820,6 +1898,8 @@
       });
       const [e2eeState, setE2eeState] = useState({});
       const [serverE2EE, setServerE2EE] = useState({});
+      const [torrents, setTorrents] = useState([]);
+      const [showTorrentManager, setShowTorrentManager] = useState(false);
 
       const peerInstance = useRef(null);
       const fileInputRef = useRef(null);
@@ -1833,6 +1913,7 @@
       const radioAudioRef = useRef(null);
       const youtubePlayerRef = useRef(null);
       const youtubeContainerRef = useRef(null);
+      const torrentClientRef = useRef(null);
       const pendingRadioFiles = useRef({});
       const radioIntervalRef = useRef(null);
       const knownUsersRef = useRef(new Set());
@@ -2143,6 +2224,32 @@
       }, [peerId]);
 
       useEffect(() => {
+        if (window.WebTorrent) {
+          torrentClientRef.current = new window.WebTorrent();
+          const iv = setInterval(() => {
+            if (torrentClientRef.current) {
+              const active = torrentClientRef.current.torrents.map(t => ({
+                infoHash: t.infoHash,
+                name: t.name,
+                progress: t.progress,
+                downloadSpeed: t.downloadSpeed,
+                uploadSpeed: t.uploadSpeed,
+                numPeers: t.numPeers,
+                done: t.done,
+                magnetURI: t.magnetURI,
+                timeRemaining: t.timeRemaining
+              }));
+              setTorrents(active);
+            }
+          }, 1000);
+          return () => {
+            clearInterval(iv);
+            if (torrentClientRef.current) torrentClientRef.current.destroy();
+          };
+        }
+      }, []);
+
+      useEffect(() => {
         const iv = setInterval(() => {
           if (connections.length > 0) {
             const allKnown = Array.from(new Set([...connections.map(c => c.peer), ...Array.from(knownUsersRef.current)]));
@@ -2299,6 +2406,62 @@
         });
       };
 
+      const handleTorrentSeed = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.size > 500 * 1024 * 1024) { alert(t(lang, 'torrentLimit')); return; }
+        
+        if (torrentClientRef.current) {
+          torrentClientRef.current.seed(file, (torrent) => {
+            const magnet = torrent.magnetURI;
+            const text = `🧲 TORRENT: ${file.name}\n${magnet}`;
+            sendMessage(text);
+            setMessages(prev => [...prev, { text: t(lang, 'torrentStarted', { name: file.name }), sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
+          });
+        }
+      };
+
+      const handleTorrentDownload = (magnet) => {
+        if (torrentClientRef.current) {
+          const existing = torrentClientRef.current.get(magnet);
+          if (existing) {
+            if (existing.done) {
+              existing.files.forEach(f => f.getBlob((err, blob) => {
+                if (err) return;
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = f.name;
+                a.click();
+              }));
+            }
+            return;
+          }
+          
+          torrentClientRef.current.add(magnet, (torrent) => {
+            torrent.on('done', () => {
+              setMessages(prev => [...prev, { text: `✅ Torrent ${torrent.name} ${t(lang, 'completed')}!`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
+              torrent.files.forEach(f => f.getBlob((err, blob) => {
+                if (err) return;
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = f.name;
+                a.click();
+              }));
+            });
+          });
+          setShowTorrentManager(true);
+        }
+      };
+
+      const stopTorrent = (infoHash) => {
+        if (torrentClientRef.current) {
+          const t = torrentClientRef.current.get(infoHash);
+          if (t) t.destroy();
+        }
+      };
+
       const handleFileChange = (e) => {
         if (!userName.trim()) { alert(t(lang, 'defineNameFirst')); setEditingName(true); return; }
         if (!selectedContact) { alert(t(lang, 'selectContactFirst2')); return; }
@@ -2422,6 +2585,14 @@
       return (
         <div>
           {showTutorial && <TutorialModal lang={lang} onClose={() => setShowTutorial(false)} />}
+          {showTorrentManager && (
+            <TorrentManagerModal 
+              lang={lang} 
+              torrents={torrents} 
+              onClose={() => setShowTorrentManager(false)} 
+              onStop={stopTorrent} 
+            />
+          )}
 
           <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
           <input type="file" id="radioInput" accept="audio/mp3,audio/mpeg" style={{ display: 'none' }} onChange={handleRadioUpload} />
@@ -2438,6 +2609,10 @@
               </button>
               <button onClick={() => setShowContacts(true)} className="header-button" title={t(lang, 'contacts')}>
                 <i className="fas fa-address-book"></i>
+              </button>
+              <button className="torrent-manager-btn" onClick={() => setShowTorrentManager(true)} title={t(lang, 'torrentManager')} style={{ position: 'relative', width: '32px', height: '32px' }}>
+                <i className="fas fa-download"></i>
+                {torrents.length > 0 && <div className="torrent-manager-badge">{torrents.length}</div>}
               </button>
               <button onClick={toggleDarkMode} className="header-button" title={t(lang, 'darkMode')}>🌙</button>
               <button onClick={toggleLang} className="lang-btn" title="Switch Language">
@@ -2596,6 +2771,7 @@
               e2eeState={e2eeState} setE2eeState={setE2eeState}
               isCentralServer={isCentralServer}
               serverE2EE={serverE2EE} setServerE2EE={setServerE2EE} connectToPeer={connectToPeer}
+              handleTorrentSeed={handleTorrentSeed} handleTorrentDownload={handleTorrentDownload}
             />
           )}
         </div>
