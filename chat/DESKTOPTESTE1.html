@@ -424,6 +424,7 @@
         magnetCopied: "Magnet link copied!",
         stopTorrent: "Stop & Remove",
         torrentLimit: "Max 500MB for seeding.",
+        sendTorrent: "Send Torrent File",
       },
       pt: {
         appTitle: "Chat K10",
@@ -567,6 +568,7 @@
         magnetCopied: "Magnet link copiado!",
         stopTorrent: "Parar e Remover",
         torrentLimit: "Máx 500MB para semear.",
+        sendTorrent: "Enviar Arquivo Torrent",
       }
     };
 
@@ -871,6 +873,7 @@
             <div className="tutorial-step"><div className="tutorial-step-num">3</div><div className="tutorial-step-text"><strong>DJ Radio</strong><span>Click <span className="tutorial-badge">🎵 DJ Radio</span> and select an MP3 (max 5MB). It broadcasts to all connected peers in sync!</span></div></div>
             <div className="tutorial-step"><div className="tutorial-step-num">4</div><div className="tutorial-step-text"><strong>YouTube Radio</strong><span>Click <span className="tutorial-badge">🔴 YouTube Radio</span> and paste a link. Audio (and optional video) is synced for everyone (max 5 min).</span></div></div>
             <div className="tutorial-step"><div className="tutorial-step-num">🧲</div><div className="tutorial-step-text"><strong>Torrent Manager</strong><span>Click the <span className="tutorial-badge">🧲 magnet</span> icon to open the manager. There you can share new files or view your active downloads!</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">🧲+</div><div className="tutorial-step-text"><strong>Direct Torrent Sending</strong><span>Click the <span className="tutorial-badge">🧲 magnet</span> icon next to a contact's name to send a file directly to them. They will see an Accept or Decline option in their conversation list.</span></div></div>
             <div className="tutorial-warn"><span>⚠️</span><span>File transfers go directly between browsers. Both users must remain connected for the transfer to complete.</span></div>
             <div className="tutorial-tip"><span>💡</span><span>Audio messages support playback with the built-in player — no need to download.</span></div>
           </div>
@@ -1107,6 +1110,7 @@
             <div className="tutorial-step"><div className="tutorial-step-num">3</div><div className="tutorial-step-text"><strong>DJ Rádio</strong><span>Clique em <span className="tutorial-badge">🎵 DJ Rádio</span> e selecione um MP3 (máx 5MB). Transmite para todos os peers em sincronia!</span></div></div>
             <div className="tutorial-step"><div className="tutorial-step-num">4</div><div className="tutorial-step-text"><strong>Rádio YouTube</strong><span>Clique no botão <span className="tutorial-badge">🔴 YouTube Radio</span> e cole um link. O áudio (e vídeo opcional) é sincronizado para todos (máx 5 min).</span></div></div>
             <div className="tutorial-step"><div className="tutorial-step-num">🧲</div><div className="tutorial-step-text"><strong>Gerenciador Torrent</strong><span>Clique no ícone de <span className="tutorial-badge">🧲 imã</span> para abrir o gerenciador. Lá você pode compartilhar arquivos novos ou ver seus downloads ativos!</span></div></div>
+            <div className="tutorial-step"><div className="tutorial-step-num">🧲+</div><div className="tutorial-step-text"><strong>Enviar Torrent Direto</strong><span>Clique no ícone <span className="tutorial-badge">🧲 imã</span> ao lado do nome de um contato para enviar um arquivo diretamente para ele. Ele verá uma opção para Aceitar ou Recusar na lista de conversas.</span></div></div>
             <div className="tutorial-warn"><span>⚠️</span><span>As transferências vão diretamente entre navegadores. Ambos devem permanecer conectados para concluir.</span></div>
           </div>
         )
@@ -1158,24 +1162,13 @@
       );
     };
 
-    const TorrentManagerModal = ({ lang, torrents, onClose, onStop, onSeed, onDownload, contacts, getContactName, initialRecipient }) => {
-      const [magnetInput, setMagnetInput] = useState('');
-      const [selectedRecipient, setSelectedRecipient] = useState(initialRecipient || '');
+    const TorrentManagerModal = ({ lang, torrents, onClose, onStop, onSeed }) => {
       const formatSize = (bytes) => {
         if (bytes === 0) return '0 B';
         const k = 1024;
         const sizes = ['B', 'KB', 'MB', 'GB'];
         const i = Math.floor(Math.log(bytes) / Math.log(k));
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-      };
-
-      const handlePasteDownload = () => {
-        if (!magnetInput.trim().startsWith('magnet:?')) {
-          alert(lang === 'pt' ? 'Link magnet inválido!' : 'Invalid magnet link!');
-          return;
-        }
-        onDownload(magnetInput.trim());
-        setMagnetInput('');
       };
 
       return (
@@ -1185,50 +1178,12 @@
               <h3><i className="fas fa-magnet"></i> {t(lang, 'torrentManager')}</h3>
               <button className="tutorial-close" onClick={onClose}>✕</button>
             </div>
-            
-            <div style={{ padding: '16px', borderBottom: '1px solid #334155', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <label style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600 }}>{lang === 'pt' ? 'Compartilhar arquivo (Seed)' : 'Share file (Seed)'}</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <select 
-                    value={selectedRecipient} 
-                    onChange={e => setSelectedRecipient(e.target.value)}
-                    style={{ flex: 1, background: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '6px', padding: '6px', fontSize: '13px' }}
-                  >
-                    <option value="">{lang === 'pt' ? 'Escolher destinatário...' : 'Choose recipient...'}</option>
-                    {contacts.map(c => (
-                      <option key={c.peerId} value={c.peerId}>{c.name} ({c.peerId})</option>
-                    ))}
-                  </select>
-                  <button 
-                    className="torrent-btn download" 
-                    disabled={!selectedRecipient}
-                    onClick={() => document.getElementById('torrentInputModal').click()}
-                    style={{ opacity: selectedRecipient ? 1 : 0.5 }}
-                  >
-                    <i className="fas fa-plus"></i> {t(lang, 'generateTorrent')}
-                  </button>
-                </div>
-                <input type="file" id="torrentInputModal" style={{ display: 'none' }} onChange={(e) => { onSeed(e, selectedRecipient); onClose(); }} />
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', paddingTop: '12px', borderTop: '1px solid #1e293b' }}>
-                <label style={{ fontSize: '12px', color: '#94a3b8', fontWeight: 600 }}>{lang === 'pt' ? 'Baixar de Link Magnet' : 'Download from Magnet Link'}</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input 
-                    type="text" 
-                    value={magnetInput}
-                    onChange={e => setMagnetInput(e.target.value)}
-                    placeholder="magnet:?xt=urn:btih:..."
-                    style={{ flex: 1, background: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '6px', padding: '6px', fontSize: '13px' }}
-                  />
-                  <button className="torrent-btn download" onClick={handlePasteDownload} disabled={!magnetInput.trim()}>
-                    <i className="fas fa-download"></i> {t(lang, 'downloadTorrent')}
-                  </button>
-                </div>
-              </div>
+            <div style={{ padding: '16px', borderBottom: '1px solid #334155' }}>
+              <button className="torrent-btn download" onClick={() => document.getElementById('torrentInputModal').click()}>
+                <i className="fas fa-plus"></i> {t(lang, 'generateTorrent')}
+              </button>
+              <input type="file" id="torrentInputModal" style={{ display: 'none' }} onChange={(e) => { onSeed(e); onClose(); }} />
             </div>
-
             <div className="torrent-modal-content">
               {torrents.length === 0 ? (
                 <div className="torrent-empty">{t(lang, 'noTorrents')}</div>
@@ -1525,7 +1480,8 @@
       getContactName, selectedContact, setSelectedContact, localVideoRef,
       registerSentMessage, cooldownRemaining, setCooldownRemaining, networkSize, centralServerId,
       e2eeState, setE2eeState, isCentralServer, serverE2EE, setServerE2EE, connectToPeer,
-      handleTorrentSeed, handleTorrentDownload, setShowTorrentManager
+      handleTorrentSeed, handleTorrentDownload, setShowTorrentManager,
+      pendingTorrentRequests, setPendingTorrentRequests, handleTorrentDirectSeed
     }) => {
       const messagesEndRef = useRef(null);
       const messagesContainerRef = useRef(null);
@@ -1828,7 +1784,25 @@
                           🛡️
                         </button>
                       )}
+                      <button onClick={e => { e.stopPropagation(); const input = document.createElement('input'); input.type = 'file'; input.onchange = (ev) => handleTorrentDirectSeed(ev.target.files[0], conn.peer); input.click(); }} className="call-btn" style={{ background: '#8b5cf6' }} title={t(lang, 'sendTorrent')}>
+                        <i className="fas fa-magnet"></i>
+                      </button>
                     </div>
+                    {pendingTorrentRequests[conn.peer] && (
+                      <div style={{ marginTop: '8px', padding: '8px', background: '#fff7ed', borderRadius: '6px', border: '1px solid #ffedd5', fontSize: '11px' }}>
+                        <div style={{ fontWeight: '600', color: '#9a3412', marginBottom: '4px' }}>🧲 Torrent: {pendingTorrentRequests[conn.peer].fileName}</div>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); handleTorrentDownload(pendingTorrentRequests[conn.peer].magnet); setPendingTorrentRequests(prev => { const u = {...prev}; delete u[conn.peer]; return u; }); }}
+                            style={{ flex: 1, background: '#22c55e', color: 'white', border: 'none', padding: '4px', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}
+                          >ACEITAR</button>
+                          <button 
+                            onClick={(e) => { e.stopPropagation(); setPendingTorrentRequests(prev => { const u = {...prev}; delete u[conn.peer]; return u; }); }}
+                            style={{ flex: 1, background: '#ef4444', color: 'white', border: 'none', padding: '4px', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}
+                          >RECUSAR</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1849,16 +1823,13 @@
                       <div className="chat-user-bubble">{msg.sender === 'you' ? (t(lang, 'you') + ' · ' + userName) : getContactName(msg.sender)}</div>
                     )}
                     {msg.type === 'text' ? (
-                      (msg.text && (msg.text.includes('🧲 TORRENT:') || msg.text.trim().startsWith('magnet:?'))) ? (
+                      msg.text && msg.text.includes('🧲 TORRENT:') ? (
                         <div className="torrent-card">
                           <div className="torrent-card-header">
-                            <i className="fas fa-magnet"></i> {msg.text.includes('🧲 TORRENT:') ? msg.text.split('\n')[0].replace('🧲 TORRENT: ', '') : 'Magnet Link'}
+                            <i className="fas fa-magnet"></i> {msg.text.split('\n')[0].replace('🧲 TORRENT: ', '')}
                           </div>
-                          <div className="torrent-info">{msg.text.includes('🧲 TORRENT:') ? 'Magnet Link Detected' : 'Raw Magnet Link Detected'}</div>
-                          <button className="torrent-btn download" onClick={() => {
-                            const magnet = msg.text.includes('🧲 TORRENT:') ? msg.text.split('\n')[1] : msg.text.trim();
-                            handleTorrentDownload(magnet);
-                          }}>
+                          <div className="torrent-info">Magnet Link Detected</div>
+                          <button className="torrent-btn download" onClick={() => handleTorrentDownload(msg.text.split('\n')[1])}>
                             <i className="fas fa-download"></i> {t(lang, 'downloadTorrent')}
                           </button>
                         </div>
@@ -1992,6 +1963,7 @@
       const [cooldownRemaining, setCooldownRemaining] = useState(0);
       const [networkSize, setNetworkSize] = useState(1);
       const [isSuperNode, setIsSuperNode] = useState(false);
+      const [pendingTorrentRequests, setPendingTorrentRequests] = useState({});
       const [radioState, setRadioState] = useState({ 
         status: 'idle', 
         type: 'file',
@@ -2221,6 +2193,9 @@
             setMessages(prev => prev.map(m => m.audioId === data.audioId ? { ...m, progress } : m));
             if (ad.receivedBytes === ad.totalSize) { const url = URL.createObjectURL(new Blob([ad.chunks], { type: 'audio/webm' })); setMessages(prev => prev.map(m => m.audioId === data.audioId ? { ...m, audioData: url, receiving: false, progress: 100 } : m)); delete pendingFiles.current[data.audioId]; }
           }
+          return;
+        } else if (data.type === 'torrent-request') {
+          setPendingTorrentRequests(prev => ({ ...prev, [pId]: { magnet: data.magnet, fileName: data.fileName } }));
           return;
         }
 
@@ -2514,7 +2489,7 @@
         });
       };
 
-      const handleTorrentSeed = (e, targetPeer = selectedContact) => {
+      const handleTorrentSeed = (e) => {
         const file = e.target.files[0];
         if (!file) return;
         if (file.size > 500 * 1024 * 1024) { alert(t(lang, 'torrentLimit')); return; }
@@ -2523,14 +2498,24 @@
           torrentClientRef.current.seed(file, (torrent) => {
             const magnet = torrent.magnetURI;
             const text = `🧲 TORRENT: ${file.name}\n${magnet}`;
-            if (targetPeer) {
-              sendMessage(text, targetPeer);
-            } else {
-              // If no recipient, just show it in system messages or alert
-              alert(lang === 'pt' ? `Torrent gerado! Magnet copiado.` : `Torrent generated! Magnet copied.`);
-              navigator.clipboard.writeText(magnet);
-            }
+            sendMessage(text);
             setMessages(prev => [...prev, { text: t(lang, 'torrentStarted', { name: file.name }), sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
+          });
+        }
+      };
+
+      const handleTorrentDirectSeed = (file, targetPeer) => {
+        if (!file || !targetPeer) return;
+        if (file.size > 500 * 1024 * 1024) { alert(t(lang, 'torrentLimit')); return; }
+        
+        if (torrentClientRef.current) {
+          torrentClientRef.current.seed(file, (torrent) => {
+            const magnet = torrent.magnetURI;
+            const conn = connections.find(c => c.peer === targetPeer);
+            if (conn && conn.open) {
+              conn.send({ type: 'torrent-request', magnet, fileName: file.name });
+              setMessages(prev => [...prev, { text: `📤 Torrent request sent to ${getContactName(targetPeer)}: ${file.name}`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
+            }
           });
         }
       };
@@ -2706,10 +2691,6 @@
               onClose={() => setShowTorrentManager(false)} 
               onStop={stopTorrent} 
               onSeed={handleTorrentSeed}
-              onDownload={handleTorrentDownload}
-              contacts={contacts}
-              getContactName={getContactName}
-              initialRecipient={selectedContact}
             />
           )}
 
@@ -2888,6 +2869,9 @@
               serverE2EE={serverE2EE} setServerE2EE={setServerE2EE} connectToPeer={connectToPeer}
               handleTorrentSeed={handleTorrentSeed} handleTorrentDownload={handleTorrentDownload}
               setShowTorrentManager={setShowTorrentManager}
+              pendingTorrentRequests={pendingTorrentRequests}
+              setPendingTorrentRequests={setPendingTorrentRequests}
+              handleTorrentDirectSeed={handleTorrentDirectSeed}
             />
           )}
         </div>
