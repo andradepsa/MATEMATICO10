@@ -187,9 +187,7 @@
     .dark-mode .emoji-panel { background: #1e293b; }
     .dark-mode .emoji-item:hover { background: #334155; }
 
-    /* ============================================================
-       TUTORIAL MODAL
-       ============================================================ */
+    /* TUTORIAL MODAL */
     .tutorial-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 16px; animation: fadeIn 0.25s ease; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
     .tutorial-modal { background: #0f172a; border-radius: 20px; max-width: 680px; width: 100%; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column; border: 1px solid #1e3a5f; box-shadow: 0 24px 80px rgba(0,0,0,0.7); }
@@ -206,12 +204,17 @@
     .tutorial-content p { font-size: 13px; line-height: 1.7; margin: 0 0 12px; color: #94a3b8; }
     .tutorial-step { display: flex; gap: 14px; margin-bottom: 16px; align-items: flex-start; }
     .tutorial-step-num { background: linear-gradient(135deg, #1e40af, #7c3aed); color: white; border-radius: 50%; width: 28px; height: 28px; min-width: 28px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; margin-top: 2px; }
+    .tutorial-step-num.server { background: linear-gradient(135deg, #f59e0b, #d97706); }
+    .tutorial-step-num.shield { background: linear-gradient(135deg, #10b981, #059669); }
     .tutorial-step-text { flex: 1; }
     .tutorial-step-text strong { color: #e2e8f0; font-size: 13px; display: block; margin-bottom: 3px; }
     .tutorial-step-text span { font-size: 12px; color: #64748b; line-height: 1.6; }
     .tutorial-tip { background: #0a2a1a; border: 1px solid #10b981; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #6ee7b7; margin-top: 14px; display: flex; gap: 8px; }
     .tutorial-warn { background: #1c1200; border: 1px solid var(--warning); border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #fcd34d; margin-top: 10px; display: flex; gap: 8px; }
+    .tutorial-info { background: #0c1a33; border: 1px solid #3b82f6; border-radius: 8px; padding: 10px 14px; font-size: 12px; color: #93c5fd; margin-top: 10px; display: flex; gap: 8px; }
     .tutorial-badge { display: inline-flex; align-items: center; gap: 4px; background: #1e3a5f; border: 1px solid #2563eb; border-radius: 6px; padding: 2px 8px; font-size: 11px; color: #93c5fd; font-weight: 700; margin: 2px; }
+    .tutorial-badge.green { background: #0a2a1a; border-color: #10b981; color: #34d399; }
+    .tutorial-badge.yellow { background: #1c1200; border-color: #f59e0b; color: #fcd34d; }
     .tutorial-nav { display: flex; align-items: center; justify-content: space-between; padding: 14px 28px; border-top: 1px solid #1e293b; background: #0f172a; flex-shrink: 0; }
     .tutorial-nav button { background: #1e3a5f; border: 1px solid #2563eb; color: #93c5fd; padding: 8px 18px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; transition: all 0.2s; }
     .tutorial-nav button:hover { background: #2563eb; color: white; }
@@ -226,6 +229,13 @@
     .feature-card .fc-icon { font-size: 20px; margin-bottom: 6px; }
     .feature-card .fc-title { font-size: 12px; font-weight: 700; color: #e2e8f0; margin-bottom: 3px; }
     .feature-card .fc-desc { font-size: 11px; color: #64748b; line-height: 1.5; }
+    .server-diagram { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 16px; margin: 14px 0; }
+    .server-diagram-row { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 8px 0; font-size: 12px; color: #94a3b8; }
+    .server-diagram-node { background: #0f172a; border: 1px solid #3b82f6; border-radius: 8px; padding: 6px 12px; font-size: 11px; font-weight: 700; color: #93c5fd; text-align: center; }
+    .server-diagram-node.server { border-color: #f59e0b; color: #fcd34d; }
+    .server-diagram-node.encrypted { border-color: #10b981; color: #34d399; }
+    .server-diagram-arrow { color: #475569; font-size: 16px; }
+    .code-block { background: #0a1a33; border: 1px solid #1e4d8c; border-radius: 8px; padding: 10px 14px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #fcd34d; margin: 10px 0; word-break: break-all; line-height: 1.7; }
   </style>
 </head>
 <body>
@@ -553,7 +563,7 @@
     };
 
     // ================================================================
-    // TUTORIAL MODAL
+    // TUTORIAL MODAL — WITH SERVER PAGES ADDED
     // ================================================================
     const TUTORIAL_PAGES_EN = [
       {
@@ -565,10 +575,10 @@
             <div className="feature-grid">
               <div className="feature-card"><div className="fc-icon">🔒</div><div className="fc-title">End-to-End Encryption</div><div className="fc-desc">AES-256-GCM encryption. Only you and your contact can read messages.</div></div>
               <div className="feature-card"><div className="fc-icon">📡</div><div className="fc-title">P2P Direct</div><div className="fc-desc">Messages go directly between browsers. No third-party middleman.</div></div>
-              <div className="feature-card"><div className="fc-icon">🎙️</div><div className="fc-title">Voice & Video</div><div className="fc-desc">Real-time voice and video calls directly between contacts.</div></div>
-              <div className="feature-card"><div className="fc-icon">📁</div><div className="fc-title">File Transfer</div><div className="fc-desc">Send files and audio recordings directly to contacts.</div></div>
+              <div className="feature-card"><div className="fc-icon">🌐</div><div className="fc-title">Central Server (optional)</div><div className="fc-desc">Use the K10 Server to relay messages to many users simultaneously.</div></div>
+              <div className="feature-card"><div className="fc-icon">🛡️</div><div className="fc-title">Server Encryption</div><div className="fc-desc">Even when using a server, messages can be encrypted — the server never reads them.</div></div>
             </div>
-            <div className="tutorial-tip"><span>💡</span><span>Use the tabs above to learn about each feature step by step.</span></div>
+            <div className="tutorial-tip"><span>💡</span><span>Use the tabs above to learn about each feature. <strong>Check the 🌐 Server and 🛡️ Server Encryption tabs</strong> to learn about the server setup!</span></div>
           </div>
         )
       },
@@ -595,7 +605,149 @@
             <div className="tutorial-step"><div className="tutorial-step-num">2</div><div className="tutorial-step-text"><strong>Select a contact & send</strong><span>A unique 64-character secret is generated and sent <em>directly via P2P</em> — the server never sees it.</span></div></div>
             <div className="tutorial-step"><div className="tutorial-step-num">3</div><div className="tutorial-step-text"><strong>Ask them to do the same</strong><span>For full two-way encryption, both sides must exchange secrets. Once done, the 🔒 icon appears in the conversation.</span></div></div>
             <div className="tutorial-warn"><span>⚠️</span><span>Secrets cannot be recovered if lost. They are stored only in your browser's local storage.</span></div>
-            <div className="tutorial-tip"><span>🛡️</span><span>For server-relayed group chats, use the <strong>🛡️ shield button</strong> to activate Group Encryption — the server only sees encrypted ciphertext.</span></div>
+            <div className="tutorial-tip"><span>🛡️</span><span>For server-relayed group chats, see the <strong>🛡️ Server Encryption</strong> tab to learn how to encrypt messages even through the server.</span></div>
+          </div>
+        )
+      },
+      // ============================================================
+      // NEW: SERVER PAGE
+      // ============================================================
+      {
+        tab: "🌐 Server",
+        title: "Using the Central Server (K10 Server)",
+        content: (
+          <div>
+            <p>The <strong style={{color:'#fcd34d'}}>K10 Server</strong> is a separate HTML file (<code style={{background:'#1e293b',padding:'1px 6px',borderRadius:'4px',fontSize:'11px'}}>servidor-k10.html</code>) that acts as a <strong>message relay hub</strong> — it connects everyone in a room and forwards messages to all participants.</p>
+
+            <div className="server-diagram">
+              <div style={{fontSize:'11px',color:'#64748b',marginBottom:'10px',textAlign:'center',fontWeight:700}}>HOW THE SERVER WORKS</div>
+              <div className="server-diagram-row">
+                <div className="server-diagram-node">User A</div>
+                <div className="server-diagram-arrow">→</div>
+                <div className="server-diagram-node server">🌐 K10 Server</div>
+                <div className="server-diagram-arrow">→</div>
+                <div className="server-diagram-node">User B, C, D…</div>
+              </div>
+              <div style={{fontSize:'11px',color:'#64748b',marginTop:'8px',textAlign:'center'}}>The server receives and re-distributes messages to all connected users</div>
+            </div>
+
+            <div className="tutorial-step">
+              <div className="tutorial-step-num server">1</div>
+              <div className="tutorial-step-text">
+                <strong>Open the Server file</strong>
+                <span>Open <span className="tutorial-badge yellow">servidor-k10.html</span> in any browser (on your own machine or a hosted URL). Click <strong>Conectar</strong> to bring the server online.</span>
+              </div>
+            </div>
+            <div className="tutorial-step">
+              <div className="tutorial-step-num server">2</div>
+              <div className="tutorial-step-text">
+                <strong>Note the Server ID</strong>
+                <span>The server shows a <span className="tutorial-badge yellow">Distributor ID</span> — it always ends in <span className="tutorial-badge yellow">-CENTRAL</span> (e.g. <code style={{fontSize:'11px'}}>AAAAAA-CENTRAL</code>). Copy it.</span>
+              </div>
+            </div>
+            <div className="tutorial-step">
+              <div className="tutorial-step-num server">3</div>
+              <div className="tutorial-step-text">
+                <strong>Add the server as a contact in the Chat</strong>
+                <span>In Chat K10, go to <span className="tutorial-badge">📋 Contacts</span> → add a new contact with the server's full ID (e.g. <code style={{fontSize:'11px'}}>AAAAAA-CENTRAL</code>). Click the contact to connect.</span>
+              </div>
+            </div>
+            <div className="tutorial-step">
+              <div className="tutorial-step-num server">4</div>
+              <div className="tutorial-step-text">
+                <strong>Share the invite link</strong>
+                <span>Once connected to the server, click <span className="tutorial-badge">Generate Invite Link</span>. The link encodes your ID <em>and</em> the server's ID. Anyone who opens it auto-connects to both you and the server.</span>
+              </div>
+            </div>
+            <div className="tutorial-step">
+              <div className="tutorial-step-num server">5</div>
+              <div className="tutorial-step-text">
+                <strong>Start chatting through the server</strong>
+                <span>Select the server from your Conversations list and send a message. The server will relay it to <em>all users</em> currently connected to it — even those not directly connected to you.</span>
+              </div>
+            </div>
+
+            <div className="tutorial-tip">
+              <span>💡</span>
+              <span>The server ID always ends in <strong>-CENTRAL</strong>. The chat recognizes this suffix automatically and marks it with a ⚠️ orange border in your conversations list.</span>
+            </div>
+            <div className="tutorial-warn">
+              <span>⚠️</span>
+              <span>By default, the server <strong>can read messages</strong> passing through it. To prevent this, activate <strong>🛡️ Server Encryption</strong> (see the next tab).</span>
+            </div>
+          </div>
+        )
+      },
+      // ============================================================
+      // NEW: SERVER ENCRYPTION PAGE
+      // ============================================================
+      {
+        tab: "🛡️ Server Encryption",
+        title: "Server Encryption (Group E2EE)",
+        content: (
+          <div>
+            <p>Even when messages pass through the K10 Server, you can make them <strong style={{color:'#34d399'}}>unreadable to the server</strong> using Group Encryption. The server only ever sees encrypted ciphertext.</p>
+
+            <div className="server-diagram">
+              <div style={{fontSize:'11px',color:'#64748b',marginBottom:'10px',textAlign:'center',fontWeight:700}}>WITH SERVER ENCRYPTION ACTIVE</div>
+              <div className="server-diagram-row">
+                <div className="server-diagram-node encrypted">🔒 Encrypted msg</div>
+                <div className="server-diagram-arrow">→</div>
+                <div className="server-diagram-node server" style={{opacity:0.6}}>🌐 Server<br/><span style={{fontSize:'9px'}}>(sees gibberish)</span></div>
+                <div className="server-diagram-arrow">→</div>
+                <div className="server-diagram-node encrypted">🔒 Decrypted by peers</div>
+              </div>
+              <div style={{fontSize:'11px',color:'#64748b',marginTop:'8px',textAlign:'center'}}>The shared group secret is <em>never</em> sent through the server — only exchanged P2P</div>
+            </div>
+
+            <div className="tutorial-step">
+              <div className="tutorial-step-num shield">PRE</div>
+              <div className="tutorial-step-text">
+                <strong>Prerequisite: E2EE with your contacts first</strong>
+                <span>Before activating server encryption, you must exchange individual 🔑 secrets with the people who will share the server. Use the <span className="tutorial-badge green">🔑 key button</span> in the chat input bar for each contact.</span>
+              </div>
+            </div>
+            <div className="tutorial-step">
+              <div className="tutorial-step-num shield">1</div>
+              <div className="tutorial-step-text">
+                <strong>Select the server in Conversations</strong>
+                <span>Click the server (e.g. <span className="tutorial-badge yellow">AAAAAA-CENTRAL</span>) from your conversations list so it becomes the active chat.</span>
+              </div>
+            </div>
+            <div className="tutorial-step">
+              <div className="tutorial-step-num shield">2</div>
+              <div className="tutorial-step-text">
+                <strong>Click the 🛡️ shield button</strong>
+                <span>In the conversations list, next to the server entry, there is a <span className="tutorial-badge green">🛡️</span> shield button. Click it to open the Group Encryption modal. You can also use the <strong>🛡️ Activate</strong> button in the banner at the bottom of the chat area.</span>
+              </div>
+            </div>
+            <div className="tutorial-step">
+              <div className="tutorial-step-num shield">3</div>
+              <div className="tutorial-step-text">
+                <strong>Activate Group Encryption</strong>
+                <span>The modal shows all your contacts that already have E2EE active. A new <strong>group secret</strong> is auto-generated. Click <span className="tutorial-badge green">🛡️ Activate Group Encryption</span> — this sends the group secret to each listed contact <em>directly via P2P</em>, never through the server.</span>
+              </div>
+            </div>
+            <div className="tutorial-step">
+              <div className="tutorial-step-num shield">4</div>
+              <div className="tutorial-step-text">
+                <strong>All messages are now encrypted end-to-end through the server</strong>
+                <span>From this point, every message you send to the server is automatically encrypted with the group secret. Contacts who received the group secret can decrypt them. The server only sees unreadable ciphertext. A <span className="tutorial-badge green">🛡️ GROUP</span> badge appears on each message.</span>
+              </div>
+            </div>
+
+            <div className="tutorial-info">
+              <span>ℹ️</span>
+              <div>
+                <strong>Status indicators in the Conversations list:</strong><br/>
+                <span className="tutorial-badge green">🛡️</span> before a server name = Group encryption ACTIVE<br/>
+                <span style={{fontSize:'12px',color:'#94a3b8'}}>No badge = messages are unencrypted through the server</span>
+              </div>
+            </div>
+            <div className="tutorial-warn">
+              <span>⚠️</span>
+              <span>Contacts that are <strong>OFFLINE</strong> when you activate will not receive the group secret automatically. Resend it from the 🛡️ modal when they come back online.</span>
+            </div>
           </div>
         )
       },
@@ -651,10 +803,10 @@
             <div className="feature-grid">
               <div className="feature-card"><div className="fc-icon">🔒</div><div className="fc-title">Criptografia de Ponta a Ponta</div><div className="fc-desc">Criptografia AES-256-GCM. Apenas você e seu contato podem ler as mensagens.</div></div>
               <div className="feature-card"><div className="fc-icon">📡</div><div className="fc-title">P2P Direto</div><div className="fc-desc">Mensagens vão diretamente entre navegadores. Sem intermediários.</div></div>
-              <div className="feature-card"><div className="fc-icon">🎙️</div><div className="fc-title">Voz & Vídeo</div><div className="fc-desc">Chamadas de voz e vídeo em tempo real diretamente entre contatos.</div></div>
-              <div className="feature-card"><div className="fc-icon">📁</div><div className="fc-title">Transferência de Arquivos</div><div className="fc-desc">Envie arquivos e gravações de áudio diretamente para contatos.</div></div>
+              <div className="feature-card"><div className="fc-icon">🌐</div><div className="fc-title">Servidor Central (opcional)</div><div className="fc-desc">Use o Servidor K10 para retransmitir mensagens a vários usuários ao mesmo tempo.</div></div>
+              <div className="feature-card"><div className="fc-icon">🛡️</div><div className="fc-title">Criptografia no Servidor</div><div className="fc-desc">Mesmo usando um servidor, as mensagens podem ser criptografadas — ele nunca as lê.</div></div>
             </div>
-            <div className="tutorial-tip"><span>💡</span><span>Use as abas acima para aprender sobre cada recurso passo a passo.</span></div>
+            <div className="tutorial-tip"><span>💡</span><span>Use as abas acima para aprender sobre cada recurso. <strong>Veja as abas 🌐 Servidor e 🛡️ Criptografia no Servidor</strong> para entender como usar o servidor!</span></div>
           </div>
         )
       },
@@ -681,7 +833,149 @@
             <div className="tutorial-step"><div className="tutorial-step-num">2</div><div className="tutorial-step-text"><strong>Selecione o contato e envie</strong><span>Um segredo único de 64 caracteres é gerado e enviado <em>diretamente via P2P</em> — o servidor nunca vê.</span></div></div>
             <div className="tutorial-step"><div className="tutorial-step-num">3</div><div className="tutorial-step-text"><strong>Peça para ele fazer o mesmo</strong><span>Para criptografia bidirecional, ambos devem trocar segredos. Feito isso, o ícone 🔒 aparece na conversa.</span></div></div>
             <div className="tutorial-warn"><span>⚠️</span><span>Segredos não podem ser recuperados se perdidos. Ficam apenas no armazenamento local do navegador.</span></div>
-            <div className="tutorial-tip"><span>🛡️</span><span>Para chats em grupo via servidor, use o <strong>botão 🛡️</strong> para ativar a Criptografia de Grupo.</span></div>
+            <div className="tutorial-tip"><span>🛡️</span><span>Para chats em grupo via servidor, veja a aba <strong>🛡️ Criptografia no Servidor</strong> para saber como criptografar mensagens mesmo passando pelo servidor.</span></div>
+          </div>
+        )
+      },
+      // ============================================================
+      // NOVO: PÁGINA DO SERVIDOR (PT)
+      // ============================================================
+      {
+        tab: "🌐 Servidor",
+        title: "Usando o Servidor Central (Servidor K10)",
+        content: (
+          <div>
+            <p>O <strong style={{color:'#fcd34d'}}>Servidor K10</strong> é um arquivo HTML separado (<code style={{background:'#1e293b',padding:'1px 6px',borderRadius:'4px',fontSize:'11px'}}>servidor-k10.html</code>) que funciona como um <strong>hub de retransmissão de mensagens</strong> — ele conecta todos em uma sala e encaminha as mensagens para todos os participantes.</p>
+
+            <div className="server-diagram">
+              <div style={{fontSize:'11px',color:'#64748b',marginBottom:'10px',textAlign:'center',fontWeight:700}}>COMO O SERVIDOR FUNCIONA</div>
+              <div className="server-diagram-row">
+                <div className="server-diagram-node">Usuário A</div>
+                <div className="server-diagram-arrow">→</div>
+                <div className="server-diagram-node server">🌐 Servidor K10</div>
+                <div className="server-diagram-arrow">→</div>
+                <div className="server-diagram-node">Usuário B, C, D…</div>
+              </div>
+              <div style={{fontSize:'11px',color:'#64748b',marginTop:'8px',textAlign:'center'}}>O servidor recebe e redistribui as mensagens para todos os usuários conectados</div>
+            </div>
+
+            <div className="tutorial-step">
+              <div className="tutorial-step-num server">1</div>
+              <div className="tutorial-step-text">
+                <strong>Abra o arquivo do Servidor</strong>
+                <span>Abra <span className="tutorial-badge yellow">servidor-k10.html</span> em qualquer navegador (na sua máquina ou em uma URL hospedada). Clique em <strong>Conectar</strong> para colocar o servidor online.</span>
+              </div>
+            </div>
+            <div className="tutorial-step">
+              <div className="tutorial-step-num server">2</div>
+              <div className="tutorial-step-text">
+                <strong>Anote o ID do Servidor</strong>
+                <span>O servidor exibe um <span className="tutorial-badge yellow">Distributor ID</span> — ele sempre termina com <span className="tutorial-badge yellow">-CENTRAL</span> (ex: <code style={{fontSize:'11px'}}>AAAAAA-CENTRAL</code>). Copie-o.</span>
+              </div>
+            </div>
+            <div className="tutorial-step">
+              <div className="tutorial-step-num server">3</div>
+              <div className="tutorial-step-text">
+                <strong>Adicione o servidor como contato no Chat</strong>
+                <span>No Chat K10, vá em <span className="tutorial-badge">📋 Contatos</span> → adicione um novo contato com o ID completo do servidor (ex: <code style={{fontSize:'11px'}}>AAAAAA-CENTRAL</code>). Clique no contato para conectar.</span>
+              </div>
+            </div>
+            <div className="tutorial-step">
+              <div className="tutorial-step-num server">4</div>
+              <div className="tutorial-step-text">
+                <strong>Compartilhe o link de convite</strong>
+                <span>Após conectado ao servidor, clique em <span className="tutorial-badge">Gerar Link de Convite</span>. O link codifica o seu ID <em>e</em> o ID do servidor. Quem abrir o link se conecta automaticamente aos dois.</span>
+              </div>
+            </div>
+            <div className="tutorial-step">
+              <div className="tutorial-step-num server">5</div>
+              <div className="tutorial-step-text">
+                <strong>Comece a conversar pelo servidor</strong>
+                <span>Selecione o servidor na lista de Conversas e envie uma mensagem. O servidor irá retransmiti-la para <em>todos os usuários</em> conectados a ele — mesmo os que não estão conectados diretamente a você.</span>
+              </div>
+            </div>
+
+            <div className="tutorial-tip">
+              <span>💡</span>
+              <span>O ID do servidor sempre termina em <strong>-CENTRAL</strong>. O chat reconhece esse sufixo automaticamente e o marca com uma borda laranja ⚠️ na lista de conversas.</span>
+            </div>
+            <div className="tutorial-warn">
+              <span>⚠️</span>
+              <span>Por padrão, o servidor <strong>pode ler as mensagens</strong> que passam por ele. Para evitar isso, ative a <strong>🛡️ Criptografia no Servidor</strong> (veja a próxima aba).</span>
+            </div>
+          </div>
+        )
+      },
+      // ============================================================
+      // NOVO: CRIPTOGRAFIA NO SERVIDOR (PT)
+      // ============================================================
+      {
+        tab: "🛡️ Criptografia no Servidor",
+        title: "Criptografia no Servidor (E2EE de Grupo)",
+        content: (
+          <div>
+            <p>Mesmo quando as mensagens passam pelo Servidor K10, você pode torná-las <strong style={{color:'#34d399'}}>ilegíveis para o servidor</strong> usando a Criptografia de Grupo. O servidor só vê texto cifrado indecifrável.</p>
+
+            <div className="server-diagram">
+              <div style={{fontSize:'11px',color:'#64748b',marginBottom:'10px',textAlign:'center',fontWeight:700}}>COM CRIPTOGRAFIA NO SERVIDOR ATIVA</div>
+              <div className="server-diagram-row">
+                <div className="server-diagram-node encrypted">🔒 Msg criptografada</div>
+                <div className="server-diagram-arrow">→</div>
+                <div className="server-diagram-node server" style={{opacity:0.6}}>🌐 Servidor<br/><span style={{fontSize:'9px'}}>(vê texto ilegível)</span></div>
+                <div className="server-diagram-arrow">→</div>
+                <div className="server-diagram-node encrypted">🔒 Decriptado pelos peers</div>
+              </div>
+              <div style={{fontSize:'11px',color:'#64748b',marginTop:'8px',textAlign:'center'}}>O segredo de grupo <em>nunca</em> passa pelo servidor — é trocado diretamente P2P</div>
+            </div>
+
+            <div className="tutorial-step">
+              <div className="tutorial-step-num shield">PRÉ</div>
+              <div className="tutorial-step-text">
+                <strong>Pré-requisito: E2EE individual com seus contatos primeiro</strong>
+                <span>Antes de ativar a criptografia no servidor, você precisa trocar segredos 🔑 individuais com as pessoas que compartilharão o servidor. Use o <span className="tutorial-badge green">botão 🔑</span> na barra de entrada para cada contato.</span>
+              </div>
+            </div>
+            <div className="tutorial-step">
+              <div className="tutorial-step-num shield">1</div>
+              <div className="tutorial-step-text">
+                <strong>Selecione o servidor nas Conversas</strong>
+                <span>Clique no servidor (ex: <span className="tutorial-badge yellow">AAAAAA-CENTRAL</span>) na lista de conversas para que ele fique ativo.</span>
+              </div>
+            </div>
+            <div className="tutorial-step">
+              <div className="tutorial-step-num shield">2</div>
+              <div className="tutorial-step-text">
+                <strong>Clique no botão 🛡️</strong>
+                <span>Na lista de conversas, ao lado do servidor, há um botão <span className="tutorial-badge green">🛡️</span>. Clique nele para abrir o modal de Criptografia de Grupo. Você também pode usar o botão <strong>🛡️ Ativar</strong> no banner inferior da área de chat.</span>
+              </div>
+            </div>
+            <div className="tutorial-step">
+              <div className="tutorial-step-num shield">3</div>
+              <div className="tutorial-step-text">
+                <strong>Ative a Criptografia de Grupo</strong>
+                <span>O modal mostra todos os seus contatos que já têm E2EE ativo. Um novo <strong>segredo de grupo</strong> é gerado automaticamente. Clique em <span className="tutorial-badge green">🛡️ Ativar Criptografia de Grupo</span> — o segredo é enviado a cada contato listado <em>diretamente via P2P</em>, nunca pelo servidor.</span>
+              </div>
+            </div>
+            <div className="tutorial-step">
+              <div className="tutorial-step-num shield">4</div>
+              <div className="tutorial-step-text">
+                <strong>Todas as mensagens agora são criptografadas ponta a ponta pelo servidor</strong>
+                <span>A partir desse momento, toda mensagem enviada ao servidor é criptografada automaticamente com o segredo de grupo. Os contatos que receberam o segredo conseguem descriptografar. O servidor vê apenas texto ilegível. Um badge <span className="tutorial-badge green">🛡️ GROUP</span> aparece em cada mensagem.</span>
+              </div>
+            </div>
+
+            <div className="tutorial-info">
+              <span>ℹ️</span>
+              <div>
+                <strong>Indicadores de status na lista de Conversas:</strong><br/>
+                <span className="tutorial-badge green">🛡️</span> antes do nome do servidor = Criptografia de grupo ATIVA<br/>
+                <span style={{fontSize:'12px',color:'#94a3b8'}}>Sem badge = mensagens não são criptografadas pelo servidor</span>
+              </div>
+            </div>
+            <div className="tutorial-warn">
+              <span>⚠️</span>
+              <span>Contatos que estiverem <strong>OFFLINE</strong> quando você ativar não receberão o segredo de grupo automaticamente. Reenvie pelo modal 🛡️ quando eles voltarem.</span>
+            </div>
           </div>
         )
       },
@@ -1159,7 +1453,6 @@
           )}
 
           <div className="chat-main-container">
-            {/* CONVERSATIONS LIST */}
             <div className="conversations-list">
               <h4>{t(lang, 'conversations')}</h4>
               {connections.length === 0 && <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center' }}>{t(lang, 'selectContactToChat')}</div>}
@@ -1209,7 +1502,6 @@
               })}
             </div>
 
-            {/* CHAT AREA */}
             <div className="chat-messages-container">
               <div className="chat-messages">
                 {filteredMessages.length === 0 && (
@@ -1243,7 +1535,6 @@
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Server E2EE Banner */}
               {selectedIsServer && (
                 <div className={`server-e2ee-banner ${serverGroupActive ? 'active' : 'inactive'}`}>
                   {serverGroupActive
@@ -1255,7 +1546,6 @@
                 </div>
               )}
 
-              {/* Individual E2EE Banner */}
               {!selectedIsServer && selectedContact && (e2eeState[selectedContact]?.mySecret || e2eeState[selectedContact]?.contactSecret) && (() => {
                 const s = e2eeState[selectedContact];
                 const hasMine = !!s?.mySecret, hasTheirs = !!s?.contactSecret;
@@ -1270,7 +1560,6 @@
                 );
               })()}
 
-              {/* Input bar */}
               <div className="chat-input-container">
                 <VoiceRecorder lang={lang} onRecordingComplete={handleAudioRecording}
                   disabled={!selectedContact || !connections.some(c => c.peer === selectedContact)} selectedContact={selectedContact} />
@@ -1827,7 +2116,6 @@
           <input type="file" id="radioInput" accept="audio/mp3,audio/mpeg" style={{ display: 'none' }} onChange={handleRadioUpload} />
           <audio ref={radioAudioRef} style={{ display: 'none' }} />
 
-          {/* HEADER */}
           <div className="app-header">
             <h1 className="app-title">
               Chat K10
@@ -1847,7 +2135,6 @@
             </div>
           </div>
 
-          {/* RADIO BAR */}
           {radioState.status !== 'idle' && (
             <div className="radio-bar">
               <div style={{ fontSize: '14px', fontWeight: '700' }}>🎵 {t(lang, 'radioGlobal')}: {radioState.fileName}</div>
@@ -1864,7 +2151,6 @@
             </div>
           )}
 
-          {/* USER INFO */}
           <div className="user-info-container">
             {editingName ? (
               <div className="user-name-form">
@@ -1880,7 +2166,6 @@
             )}
           </div>
 
-          {/* PEER ID */}
           <div className="peer-id-container">
             <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{t(lang, 'yourId')}</span>
@@ -1899,7 +2184,6 @@
             </div>
           </div>
 
-          {/* VIDEO */}
           {(remoteStreams.length > 0 || isLocalVideoVisible) && (
             <div className="video-container">
               {isLocalVideoVisible && <div><div className="video-label">{t(lang, 'you')}</div><video className="local-video-player" ref={localVideoRef} autoPlay muted></video></div>}
@@ -1910,7 +2194,6 @@
             </div>
           )}
 
-          {/* ACTIVE CALLS */}
           {activeCalls.map((call, idx) => call.type === 'voice' && (
             <div key={idx} className="audio-call-container">
               <i className="fas fa-phone" style={{ color: '#22c55e' }}></i>
@@ -1924,7 +2207,6 @@
             </div>
           ))}
 
-          {/* MAIN CONTENT */}
           {showContacts ? (
             <ContactsScreen lang={lang} contacts={contacts} setContacts={setContacts} onBack={() => setShowContacts(false)}
               onSelectContact={(pId) => { connectToPeer(pId); setSelectedContact(pId); setShowContacts(false); }} />
