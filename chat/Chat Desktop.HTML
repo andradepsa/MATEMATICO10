@@ -1492,6 +1492,7 @@
       const messagesContainerRef = useRef(null);
       const [showSendSecretModal, setShowSendSecretModal] = useState(false);
       const [showServerE2EEModal, setShowServerE2EEModal] = useState(false);
+      const [hiddenMessages, setHiddenMessages] = useState(new Set());
 
       const [isSending, setIsSending] = useState(false);
       const decryptionCache = useRef(new Map());
@@ -1520,7 +1521,7 @@
         );
       }, [messages, selectedContact, isCentralServer]);
 
-      const MessageText = ({ msg, onContentChange }) => {
+      const MessageText = ({ msg, onContentChange, onHide }) => {
         const contactPeer = msg.sender === 'you' ? msg.recipient : msg.sender;
         const isE2EE = typeof msg.text === 'string' && msg.text.startsWith(E2EE_PREFIX);
         const isGroup = typeof msg.text === 'string' && msg.text.startsWith(GROUP_E2EE_PREFIX);
@@ -1535,6 +1536,12 @@
         useEffect(() => {
           if (onContentChange) onContentChange();
         }, [display, onContentChange]);
+
+        useEffect(() => {
+          if (display && (display.noKey || display.error)) {
+            if (onHide) onHide(msg.timestamp);
+          }
+        }, [display, msg.timestamp, onHide]);
 
         useEffect(() => {
           if (!isE2EE && !isGroup) return;
@@ -1621,16 +1628,13 @@
           );
         }
 
-        if (display === null) return <span style={{ color: '#aaa', fontSize: '12px' }}>...</span>;
+        if (display === null) return null;
         if (!display.encrypted) return <div>{display.plain}</div>;
+        if (display.noKey || display.error) return null;
         return (
           <div>
             <div className={`msg-encrypted-badge${display.isGroup ? ' group' : ''}`}>{display.isGroup ? '🛡️ GROUP' : '🔒 PRIVATE'}</div>
-            {display.plain
-              ? <div>{display.plain}</div>
-              : display.noKey
-                ? <div className="msg-no-key">🔑 {display.isGroup ? 'No group secret...' : 'Waiting for contact\'s secret...'}</div>
-                : <div className="msg-no-key" style={{ color: display.error ? '#f87171' : '#f59e0b' }}>{display.error ? '🔴 Wrong secret' : '🔒 Encrypted'}</div>}
+            <div>{display.plain}</div>
           </div>
         );
       };
@@ -1820,7 +1824,9 @@
                     {selectedContact ? t(lang, 'noMessages') : t(lang, 'selectContactToChat')}
                   </div>
                 )}
-                {filteredMessages.map((msg, i) => (
+                {filteredMessages.map((msg, i) => {
+                  if (hiddenMessages.has(msg.timestamp)) return null;
+                  return (
                   <div key={msg.timestamp || i}
                     className={`message-bubble ${msg.sender === 'you' ? 'sent' : 'received'}`}
                     style={msg.sender === '__system__' ? { background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', fontSize: '12px', maxWidth: '92%', borderRadius: '10px' } : {}}>
@@ -1838,7 +1844,7 @@
                             <i className="fas fa-download"></i> {t(lang, 'downloadTorrent')}
                           </button>
                         </div>
-                      ) : <MessageText msg={msg} onContentChange={() => scrollToBottom("smooth")} />
+                      ) : <MessageText msg={msg} onContentChange={() => scrollToBottom("smooth")} onHide={(ts) => setHiddenMessages(prev => new Set(prev).add(ts))} />
                     ) : msg.type === 'file' ? (
                         <div>
                           {msg.fileData ? <a href={msg.fileData} download={msg.fileName} className="file-link">📎 {msg.fileName}</a> : <span>📎 {msg.fileName}</span>}
@@ -1853,7 +1859,7 @@
                     {msg.sender !== '__system__' && <div className="message-timestamp">{msg.time}</div>}
                     {msg.sender !== '__system__' && <div className="green-delete-icon" onClick={() => deleteMessage(msg.timestamp)} title="Remove"><i className="fas fa-trash"></i></div>}
                   </div>
-                ))}
+                )})}
                 <div ref={messagesEndRef} />
               </div>
 
