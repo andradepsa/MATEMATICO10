@@ -1339,12 +1339,15 @@
 
       const filteredMessages = useMemo(() => {
         if (!selectedContact) return [];
+        const isSrv = isCentralServer(selectedContact);
         return messages.filter(msg =>
           (msg.sender === selectedContact && msg.recipient === 'you') ||
           (msg.sender === 'you' && msg.recipient === selectedContact) ||
-          (msg.systemFor === selectedContact)
+          (msg.systemFor === selectedContact) ||
+          (isSrv && msg.recipient === selectedContact) ||
+          (isSrv && msg.sender === selectedContact)
         );
-      }, [messages, selectedContact]);
+      }, [messages, selectedContact, isCentralServer]);
 
       const MessageText = ({ msg }) => {
         const contactPeer = msg.sender === 'you' ? msg.recipient : msg.sender;
@@ -1850,7 +1853,15 @@
 
         const timestamp = data.timestamp || Date.now();
         const messageTime = data.time || formatTime(new Date(timestamp));
-        const baseMessage = { sender: pId, senderName: data.senderName || getContactName(pId), time: messageTime, direct: data.direct || false, timestamp, recipient: data.direct ? 'you' : undefined };
+        const isFromSrv = isCentralServer(pId);
+        const baseMessage = { 
+          sender: pId, 
+          senderName: data.senderName || getContactName(pId), 
+          time: messageTime, 
+          direct: data.direct || false, 
+          timestamp, 
+          recipient: data.direct ? 'you' : (isFromSrv ? pId : undefined) 
+        };
         let messageToAdd = null;
 
         if (data.type === 'message') {
