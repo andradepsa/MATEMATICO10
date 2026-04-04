@@ -245,6 +245,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.1/peerjs.min.js"></script>
+  <script src="https://www.youtube.com/iframe_api"></script>
 
   <script type="text/babel">
     const { useState, useEffect, useRef, useMemo, useCallback } = React;
@@ -371,6 +372,15 @@
         decline: "Decline",
         joinedGroup: "You joined group {id}.",
         declinedGroup: "You declined the invite to group {id}.",
+        youtubeRadio: "YouTube Radio",
+        enterYoutubeUrl: "Enter YouTube URL",
+        invalidYoutubeUrl: "Invalid YouTube URL",
+        showVideo: "Show Video",
+        hideVideo: "Hide Video",
+        videoSize: "Video Size:",
+        small: "Small",
+        medium: "Medium",
+        large: "Large",
       },
       pt: {
         appTitle: "Chat K10",
@@ -490,6 +500,15 @@
         decline: "Recusar",
         joinedGroup: "Você entrou no grupo {id}.",
         declinedGroup: "Você recusou o convite para o grupo {id}.",
+        youtubeRadio: "Rádio YouTube",
+        enterYoutubeUrl: "Digite a URL do YouTube",
+        invalidYoutubeUrl: "URL do YouTube inválida",
+        showVideo: "Exibir Vídeo",
+        hideVideo: "Ocultar Vídeo",
+        videoSize: "Tamanho do Vídeo:",
+        small: "Pequeno",
+        medium: "Médio",
+        large: "Grande",
       }
     };
 
@@ -1787,7 +1806,18 @@
       const [cooldownRemaining, setCooldownRemaining] = useState(0);
       const [networkSize, setNetworkSize] = useState(1);
       const [isSuperNode, setIsSuperNode] = useState(false);
-      const [radioState, setRadioState] = useState({ status: 'idle', startTime: 0, duration: 0, audioUrl: null, fileName: '', sender: '' });
+      const [radioState, setRadioState] = useState({ 
+        status: 'idle', 
+        type: 'file',
+        startTime: 0, 
+        duration: 0, 
+        audioUrl: null, 
+        youtubeId: null,
+        fileName: '', 
+        sender: '',
+        showVideo: false,
+        videoSize: 'medium'
+      });
       const [e2eeState, setE2eeState] = useState({});
       const [serverE2EE, setServerE2EE] = useState({});
 
@@ -1801,6 +1831,8 @@
       const seenMessagesRef = useRef(new Set());
       const radioStateRef = useRef(radioState);
       const radioAudioRef = useRef(null);
+      const youtubePlayerRef = useRef(null);
+      const youtubeContainerRef = useRef(null);
       const pendingRadioFiles = useRef({});
       const radioIntervalRef = useRef(null);
       const knownUsersRef = useRef(new Set());
@@ -1894,6 +1926,27 @@
           return;
         }
 
+        if (data.type === 'radio-youtube-start') {
+          if (seenMessagesRef.current.has(data.id)) return;
+          if (radioStateRef.current.status !== 'idle') return;
+          seenMessagesRef.current.add(data.id);
+          let ttl = data.ttl !== undefined ? data.ttl : 8;
+          if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+          setRadioState({ 
+            status: 'playing', 
+            type: 'youtube', 
+            startTime: data.startTime, 
+            duration: data.duration || 300, 
+            audioUrl: null, 
+            youtubeId: data.youtubeId, 
+            fileName: 'YouTube Video', 
+            sender: data.senderName,
+            showVideo: true,
+            videoSize: 'medium'
+          });
+          return;
+        }
+
         if (data.type === 'radio-start' || data.type === 'radio-chunk') {
           if (seenMessagesRef.current.has(data.id)) return;
           if (data.type === 'radio-start' && radioStateRef.current.status !== 'idle') return;
@@ -1904,7 +1957,7 @@
           if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
           if (data.type === 'radio-start') {
             pendingRadioFiles.current[data.radioId] = { chunks: new Uint8Array(data.fileSize), receivedBytes: 0, totalSize: data.fileSize };
-            setRadioState({ status: 'buffering', startTime: data.startTime, duration: data.duration, audioUrl: null, fileName: data.fileName, sender: data.senderName });
+            setRadioState({ status: 'buffering', type: 'file', startTime: data.startTime, duration: data.duration, audioUrl: null, youtubeId: null, fileName: data.fileName, sender: data.senderName, showVideo: false, videoSize: 'medium' });
           } else {
             const fd = pendingRadioFiles.current[data.radioId];
             if (fd) {
@@ -2105,14 +2158,54 @@
         const check = () => {
           setRadioState(current => {
             if (current.status === 'idle') return current;
-            const now = Date.now(), endTime = current.startTime + current.duration * 1000;
-            if (now >= endTime) { if (radioAudioRef.current) { radioAudioRef.current.pause(); radioAudioRef.current.src = ''; } return { status: 'idle', startTime: 0, duration: 0, audioUrl: null, fileName: '', sender: '' }; }
-            if (current.status === 'buffering') {
-              if (now >= current.startTime) {
-                if (current.audioUrl && radioAudioRef.current) { const off = (now - current.startTime) / 1000; radioAudioRef.current.src = current.audioUrl; radioAudioRef.current.currentTime = off; radioAudioRef.current.play().catch(() => {}); }
-                return { ...current, status: 'playing' };
+            const now = Date.now();
+            
+            if (current.type === 'file') {
+              const endTime = current.startTime + current.duration * 1000;
+              if (now >= endTime) { 
+                if (radioAudioRef.current) { radioAudioRef.current.pause(); radioAudioRef.current.src = ''; } 
+                return { status: 'idle', type: 'file', startTime: 0, duration: 0, audioUrl: null, youtubeId: null, fileName: '', sender: '', showVideo: false, videoSize: 'medium' }; 
               }
-              return { ...current, _tick: now };
+              if (current.status === 'buffering') {
+                if (now >= current.startTime) {
+                  if (current.audioUrl && radioAudioRef.current) { 
+                    const off = (now - current.startTime) / 1000; 
+                    radioAudioRef.current.src = current.audioUrl; 
+                    radioAudioRef.current.currentTime = off; 
+                    radioAudioRef.current.play().catch(() => {}); 
+                  }
+                  return { ...current, status: 'playing' };
+                }
+                return { ...current, _tick: now };
+              }
+            } else if (current.type === 'youtube') {
+              const endTime = current.startTime + (current.duration || 300) * 1000;
+              if (now >= endTime) {
+                if (youtubePlayerRef.current) {
+                  try { youtubePlayerRef.current.destroy(); } catch(e) {}
+                  youtubePlayerRef.current = null;
+                }
+                return { status: 'idle', type: 'file', startTime: 0, duration: 0, audioUrl: null, youtubeId: null, fileName: '', sender: '', showVideo: false, videoSize: 'medium' };
+              }
+              if (now >= current.startTime && current.status === 'playing') {
+                if (window.YT && window.YT.Player && !youtubePlayerRef.current && youtubeContainerRef.current) {
+                  youtubePlayerRef.current = new window.YT.Player(youtubeContainerRef.current, {
+                    height: '100%',
+                    width: '100%',
+                    videoId: current.youtubeId,
+                    playerVars: {
+                      autoplay: 1,
+                      controls: 1,
+                      start: Math.floor((now - current.startTime) / 1000)
+                    },
+                    events: {
+                      onReady: (event) => {
+                        event.target.playVideo();
+                      }
+                    }
+                  });
+                }
+              }
             }
             return current;
           });
@@ -2120,6 +2213,15 @@
         radioIntervalRef.current = setInterval(check, 500);
         return () => clearInterval(radioIntervalRef.current);
       }, []);
+
+      const stopRadio = () => {
+        if (radioAudioRef.current) { radioAudioRef.current.pause(); radioAudioRef.current.src = ''; }
+        if (youtubePlayerRef.current) {
+          try { youtubePlayerRef.current.destroy(); } catch(e) {}
+          youtubePlayerRef.current = null;
+        }
+        setRadioState({ status: 'idle', type: 'file', startTime: 0, duration: 0, audioUrl: null, youtubeId: null, fileName: '', sender: '', showVideo: false, videoSize: 'medium' });
+      };
 
       const handleRadioUpload = (e) => {
         if (radioStateRef.current.status !== 'idle') { alert(t(lang, 'radioAlreadyPlaying')); e.target.value = ''; return; }
@@ -2136,7 +2238,7 @@
           const fallbackMsg = { type: 'message', text: '#$%', id: radioId + '_fallback', sender: peerId, senderName: userName, ttl: 8 };
           seenMessagesRef.current.add(startMsg.id); seenMessagesRef.current.add(fallbackMsg.id);
           setConnections(cc => { cc.forEach(c => { if (c.open) try { c.send(startMsg); c.send(fallbackMsg); } catch(e){} }); return cc; });
-          setRadioState({ status: 'buffering', startTime, duration, audioUrl: null, fileName: file.name, sender: userName });
+          setRadioState({ status: 'buffering', type: 'file', startTime, duration, audioUrl: null, youtubeId: null, fileName: file.name, sender: userName, showVideo: false, videoSize: 'medium' });
           const reader = new FileReader(); let offset = 0;
           reader.onload = ev => {
             const buffer = ev.target.result;
@@ -2149,6 +2251,52 @@
           };
           reader.readAsArrayBuffer(file.slice(0, 64 * 1024));
         };
+      };
+
+      const handleYoutubeRadio = () => {
+        if (radioStateRef.current.status !== 'idle') { alert(t(lang, 'radioAlreadyPlaying')); return; }
+        const url = prompt(t(lang, 'enterYoutubeUrl'));
+        if (!url) return;
+        
+        let videoId = '';
+        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+        const match = url.match(regExp);
+        if (match && match[2].length === 11) {
+          videoId = match[2];
+        } else {
+          alert(t(lang, 'invalidYoutubeUrl'));
+          return;
+        }
+
+        const startTime = Date.now() + 5000; // 5s delay for sync
+        const duration = 300; // 5 minutes limit
+        const radioId = peerId + '_yt_' + Date.now();
+        const startMsg = { 
+          type: 'radio-youtube-start', 
+          id: radioId + '_start', 
+          radioId, 
+          youtubeId: videoId, 
+          startTime, 
+          duration,
+          sender: peerId, 
+          senderName: userName, 
+          ttl: 8 
+        };
+        
+        seenMessagesRef.current.add(startMsg.id);
+        setConnections(cc => { cc.forEach(c => { if (c.open) try { c.send(startMsg); } catch(e){} }); return cc; });
+        setRadioState({ 
+          status: 'playing', 
+          type: 'youtube', 
+          startTime, 
+          duration, 
+          audioUrl: null, 
+          youtubeId: videoId, 
+          fileName: 'YouTube Video', 
+          sender: userName,
+          showVideo: true,
+          videoSize: 'medium'
+        });
       };
 
       const handleFileChange = (e) => {
@@ -2300,17 +2448,69 @@
 
           {radioState.status !== 'idle' && (
             <div className="radio-bar">
-              <div style={{ fontSize: '14px', fontWeight: '700' }}>🎵 {t(lang, 'radioGlobal')}: {radioState.fileName}</div>
-              <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>{t(lang, 'djLabel')}{radioState.sender}</div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div style={{ textAlign: 'left' }}>
+                  <div style={{ fontSize: '14px', fontWeight: '700' }}>🎵 {t(lang, 'radioGlobal')}: {radioState.fileName}</div>
+                  <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>{t(lang, 'djLabel')}{radioState.sender}</div>
+                </div>
+                <button onClick={stopRadio} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
+                  <i className="fas fa-stop"></i> STOP
+                </button>
+              </div>
+
+              {radioState.type === 'youtube' && (
+                <div style={{ marginBottom: '10px' }}>
+                  <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginBottom: '8px' }}>
+                    <button 
+                      onClick={() => setRadioState(prev => ({ ...prev, showVideo: !prev.showVideo }))}
+                      style={{ background: '#3b82f6', color: 'white', border: 'none', padding: '4px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
+                    >
+                      {radioState.showVideo ? t(lang, 'hideVideo') : t(lang, 'showVideo')}
+                    </button>
+                    {radioState.showVideo && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>{t(lang, 'videoSize')}</span>
+                        <select 
+                          value={radioState.videoSize} 
+                          onChange={e => setRadioState(prev => ({ ...prev, videoSize: e.target.value }))}
+                          style={{ background: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '4px', fontSize: '11px', padding: '2px' }}
+                        >
+                          <option value="small">{t(lang, 'small')}</option>
+                          <option value="medium">{t(lang, 'medium')}</option>
+                          <option value="large">{t(lang, 'large')}</option>
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div style={{ 
+                    display: radioState.showVideo ? 'block' : 'none',
+                    margin: '0 auto',
+                    width: radioState.videoSize === 'small' ? '320px' : radioState.videoSize === 'medium' ? '560px' : '854px',
+                    height: radioState.videoSize === 'small' ? '180px' : radioState.videoSize === 'medium' ? '315px' : '480px',
+                    maxWidth: '100%',
+                    aspectRatio: '16/9',
+                    background: '#000',
+                    borderRadius: '8px',
+                    overflow: 'hidden'
+                  }}>
+                    <div ref={youtubeContainerRef} id="youtube-player"></div>
+                  </div>
+                </div>
+              )}
+
               {radioState.status === 'buffering'
                 ? <div style={{ color: '#f59e0b', marginTop: '4px', fontSize: '13px', fontWeight: '600' }}>
-                    {t(lang, 'radioStartsIn', { s: Math.max(0, Math.ceil((radioState.startTime - Date.now()) / 1000)) })}{!radioState.audioUrl && t(lang, 'downloading')}
+                    {t(lang, 'radioStartsIn', { s: Math.max(0, Math.ceil((radioState.startTime - Date.now()) / 1000)) })}{!radioState.audioUrl && radioState.type === 'file' && t(lang, 'downloading')}
                   </div>
                 : <div style={{ color: '#10b981', marginTop: '4px', fontSize: '13px', fontWeight: '600' }}>{t(lang, 'nowPlaying')}</div>}
-              <div style={{ marginTop: '8px' }}>
-                <label style={{ fontSize: '12px', color: '#94a3b8' }}>{t(lang, 'volume')} </label>
-                <input type="range" min="0" max="1" step="0.1" defaultValue="0.5" onChange={e => { if (radioAudioRef.current) radioAudioRef.current.volume = parseFloat(e.target.value); }} />
-              </div>
+              
+              {radioState.type === 'file' && (
+                <div style={{ marginTop: '8px' }}>
+                  <label style={{ fontSize: '12px', color: '#94a3b8' }}>{t(lang, 'volume')} </label>
+                  <input type="range" min="0" max="1" step="0.1" defaultValue="0.5" onChange={e => { if (radioAudioRef.current) radioAudioRef.current.volume = parseFloat(e.target.value); }} />
+                </div>
+              )}
             </div>
           )}
 
@@ -2339,6 +2539,10 @@
               <button onClick={() => document.getElementById('radioInput').click()} disabled={radioState.status !== 'idle'}
                 style={{ backgroundColor: radioState.status !== 'idle' ? '#f1f5f9' : '#8b5cf6', color: radioState.status !== 'idle' ? '#94a3b8' : 'white', border: 'none', padding: '5px 12px', borderRadius: '6px', cursor: radioState.status !== 'idle' ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '700' }}>
                 <i className="fas fa-music"></i> {t(lang, 'djRadio')}
+              </button>
+              <button onClick={handleYoutubeRadio} disabled={radioState.status !== 'idle'}
+                style={{ backgroundColor: radioState.status !== 'idle' ? '#f1f5f9' : '#ef4444', color: radioState.status !== 'idle' ? '#94a3b8' : 'white', border: 'none', padding: '5px 12px', borderRadius: '6px', cursor: radioState.status !== 'idle' ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '700' }}>
+                <i className="fab fa-youtube"></i> {t(lang, 'youtubeRadio')}
               </button>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
