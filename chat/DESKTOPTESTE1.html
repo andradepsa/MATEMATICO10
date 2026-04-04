@@ -1936,7 +1936,7 @@
             status: 'playing', 
             type: 'youtube', 
             startTime: data.startTime, 
-            duration: 0, 
+            duration: data.duration || 300, 
             audioUrl: null, 
             youtubeId: data.youtubeId, 
             fileName: 'YouTube Video', 
@@ -2179,6 +2179,14 @@
                 return { ...current, _tick: now };
               }
             } else if (current.type === 'youtube') {
+              const endTime = current.startTime + (current.duration || 300) * 1000;
+              if (now >= endTime) {
+                if (youtubePlayerRef.current) {
+                  try { youtubePlayerRef.current.destroy(); } catch(e) {}
+                  youtubePlayerRef.current = null;
+                }
+                return { status: 'idle', type: 'file', startTime: 0, duration: 0, audioUrl: null, youtubeId: null, fileName: '', sender: '', showVideo: false, videoSize: 'medium' };
+              }
               if (now >= current.startTime && current.status === 'playing') {
                 if (window.YT && window.YT.Player && !youtubePlayerRef.current && youtubeContainerRef.current) {
                   youtubePlayerRef.current = new window.YT.Player(youtubeContainerRef.current, {
@@ -2261,6 +2269,7 @@
         }
 
         const startTime = Date.now() + 5000; // 5s delay for sync
+        const duration = 300; // 5 minutes limit
         const radioId = peerId + '_yt_' + Date.now();
         const startMsg = { 
           type: 'radio-youtube-start', 
@@ -2268,6 +2277,7 @@
           radioId, 
           youtubeId: videoId, 
           startTime, 
+          duration,
           sender: peerId, 
           senderName: userName, 
           ttl: 8 
@@ -2279,7 +2289,7 @@
           status: 'playing', 
           type: 'youtube', 
           startTime, 
-          duration: 0, 
+          duration, 
           audioUrl: null, 
           youtubeId: videoId, 
           fileName: 'YouTube Video', 
