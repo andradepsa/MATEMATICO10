@@ -1706,15 +1706,6 @@
       }, [filteredMessages]);
 
       useEffect(() => {
-        if (!messagesContainerRef.current) return;
-        const observer = new MutationObserver(() => {
-          scrollToBottom("smooth");
-        });
-        observer.observe(messagesContainerRef.current, { childList: true, subtree: true });
-        return () => observer.disconnect();
-      }, []);
-
-      useEffect(() => {
         remoteStreams.forEach(({ peerId: rPeerId, stream, type }) => {
           if (type === 'voice') { const el = audioRefs.current[rPeerId]; if (el && el.srcObject !== stream) { el.srcObject = stream; el.play().catch(() => {}); } }
           else if (type === 'video') { const el = videoRefs.current[rPeerId]; if (el && el.srcObject !== stream) { el.srcObject = stream; el.play().catch(() => {}); } }
@@ -1866,14 +1857,10 @@
                 <div ref={messagesEndRef} />
               </div>
 
-              {selectedIsServer && (
-                <div className={`server-e2ee-banner ${serverGroupActive ? 'active' : 'inactive'}`}>
-                  {serverGroupActive
-                    ? <><span>🛡️</span><span>{t(lang, 'groupEncryptionActive')}</span>
-                        <button onClick={() => setShowServerE2EEModal(true)} style={{ marginLeft: 'auto', background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', cursor: 'pointer', fontSize: '11px', fontWeight: 700 }}>{t(lang, 'manage')}</button></>
-                    : <><span>⚠️</span><span>{t(lang, 'groupEncryptionInactive')}</span>
-                        <button onClick={() => setShowServerE2EEModal(true)} style={{ marginLeft: 'auto', background: '#f97316', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', cursor: 'pointer', fontSize: '11px', fontWeight: 700 }}>{t(lang, 'activate')}</button></>
-                  }
+              {selectedIsServer && serverGroupActive && (
+                <div className="server-e2ee-banner active">
+                  <span>🛡️</span><span>{t(lang, 'groupEncryptionActive')}</span>
+                  <button onClick={() => setShowServerE2EEModal(true)} style={{ marginLeft: 'auto', background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', cursor: 'pointer', fontSize: '11px', fontWeight: 700 }}>{t(lang, 'manage')}</button>
                 </div>
               )}
 
