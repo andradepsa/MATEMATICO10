@@ -1221,6 +1221,9 @@
         </div>
       );
     };
+
+    // ================================================================
+    // SendSecretModal
     // ================================================================
     const SendSecretModal = ({ lang, connections, contacts, getContactName, isCentralServer, onSend, onClose, e2eeState }) => {
       const [selectedPeer, setSelectedPeer] = useState(null);
@@ -1427,10 +1430,12 @@
       const handleAddContact = (e) => {
         e.preventDefault();
         let valid = true;
-        if (!newName.trim()) { setNameError(t(lang, 'nameRequired')); valid = false; } else setNameError('');
-        if (!newPeerId.trim()) { setIdError(t(lang, 'idRequired')); valid = false; } else setIdError('');
+        const name = newName.trim();
+        const pId = newPeerId.trim();
+        if (!name) { setNameError(t(lang, 'nameRequired')); valid = false; } else setNameError('');
+        if (!pId) { setIdError(t(lang, 'idRequired')); valid = false; } else setIdError('');
         if (!valid) return;
-        const newContact = { name: newName.trim(), peerId: newPeerId.trim() };
+        const newContact = { name: name, peerId: pId };
         setContacts(prev => { const updated = [...prev, newContact]; localStorage.setItem('p2pContacts', JSON.stringify(updated)); return updated; });
         setNewName(''); setNewPeerId('');
       };
@@ -2226,27 +2231,17 @@
           const conn = peerInstance.current.connect(peerIdToConnect, { reliable: true });
           if (!conn) throw new Error("Connection failed");
           
-          let isOpened = false;
-          const timeout = setTimeout(() => {
-            if (!isOpened) {
-              alert(t(lang, 'connectFailed') + ' (Timeout/Firewall)');
-              setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect));
+          const timeoutId = setTimeout(() => {
+            if (conn && !conn.open) {
+              console.warn(`Connection to ${peerIdToConnect} timed out. Closing attempt.`);
+              conn.close();
+              setMessages(prev => [...prev, { text: `⚠️ ${t(lang, 'connectionFailed')} ${peerIdToConnect} (Timeout)`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
             }
-          }, 15000);
+          }, 10000);
 
-          conn.on('open', () => { 
-            isOpened = true;
-            clearTimeout(timeout);
-            setConnections(prev => [...prev.filter(c => c.peer !== peerIdToConnect), conn]); 
-            sendHandshake(conn); 
-          });
-          conn.on('error', err => { 
-            isOpened = true;
-            clearTimeout(timeout);
-            setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)); 
-            alert(t(lang, 'connectFailed') + (err.message || 'Contact offline')); 
-          });
-          conn.on('close', () => setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)));
+          conn.on('open', () => { clearTimeout(timeoutId); setConnections(prev => [...prev.filter(c => c.peer !== peerIdToConnect), conn]); sendHandshake(conn); });
+          conn.on('error', err => { clearTimeout(timeoutId); setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)); alert(t(lang, 'connectFailed') + (err.message || 'Contact offline')); });
+          conn.on('close', () => { clearTimeout(timeoutId); setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)); });
           conn.on('data', data => handleIncomingData(data, peerIdToConnect));
         } catch (err) { alert(t(lang, 'connectError') + err.message); }
       };
@@ -2259,13 +2254,8 @@
             iceServers: [
               { urls: 'stun:stun.l.google.com:19302' },
               { urls: 'stun:stun1.l.google.com:19302' },
-              { urls: 'stun:stun2.l.google.com:19302' },
-              { urls: 'stun:stun3.l.google.com:19302' },
-              { urls: 'stun:stun4.l.google.com:19302' },
               { urls: 'stun:stun.ekiga.net:3478' },
-              { urls: 'stun:stun.stunprotocol.org:3478' },
-              { urls: 'stun:stun.services.mozilla.com' },
-              { urls: 'stun:stun.twilio.com:3478' }
+              { urls: 'stun:stun.stunprotocol.org:3478' }
             ],
             sdpSemantics: 'unified-plan', iceTransportPolicy: 'all', bundlePolicy: 'max-bundle',
             rtcpMuxPolicy: 'require', iceCandidatePoolSize: 10
@@ -2307,7 +2297,6 @@
           if (bannedPeersRef.current.has(conn.peer)) { setTimeout(() => conn.close(), 500); return; }
           const maxConns = isSuperNode ? 50 : 15;
           if (connections.length >= maxConns) { setTimeout(() => conn.close(), 500); return; }
-          
           conn.on('open', () => { setConnections(prev => [...prev.filter(c => c.peer !== conn.peer), conn]); sendHandshake(conn); });
           conn.on('data', data => handleIncomingData(data, conn.peer));
           conn.on('close', () => { setConnections(prev => prev.filter(c => c.peer !== conn.peer)); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); });
