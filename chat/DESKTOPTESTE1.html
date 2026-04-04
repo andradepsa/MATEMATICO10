@@ -94,8 +94,9 @@
     }
     .secret-modal {
       background: #0f2744; border-radius: 16px; padding: 32px 36px;
-      max-width: 460px; width: 95%; box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+      max-width: 500px; width: 95%; box-shadow: 0 8px 40px rgba(0,0,0,0.6);
       border: 1px solid #1e4d8c; color: #e0f0ff;
+      max-height: 90vh; overflow-y: auto;
     }
     .secret-modal h3 { margin: 0 0 6px; font-size: 20px; color: #10b981; }
     .secret-modal .sm-subtitle { margin: 0 0 20px; font-size: 13px; color: #7eb3d8; }
@@ -140,12 +141,35 @@
     }
     .sm-btn:hover { opacity: 0.88; }
     .sm-btn.green { background: #10b981; color: white; }
+    .sm-btn.blue { background: #3b82f6; color: white; }
     .sm-btn.gray { background: #334155; color: #94a3b8; }
     .sm-btn:disabled { opacity: 0.4; cursor: not-allowed; }
     .sm-status { margin-top: 12px; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: bold; text-align: center; }
     .sm-status.ok { background: #0a2210; color: #34d399; border: 1px solid #10b981; }
     .sm-status.err { background: #2a0a0a; color: #f87171; border: 1px solid #ef4444; }
     .sm-status.info { background: #0c1a33; color: #93c5fd; border: 1px solid #3b82f6; }
+
+    /* ---- Server E2EE badge in conversation list ---- */
+    .server-e2ee-btn {
+      padding: 4px; width: 30px; height: 30px; border-radius: 50%;
+      color: white; border: none; cursor: pointer; font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s;
+    }
+    .server-e2ee-btn.active { background: #10b981 !important; box-shadow: 0 0 8px rgba(16,185,129,0.5); }
+    .server-e2ee-btn.inactive { background: #475569; }
+
+    /* ---- Server E2EE banner in chat ---- */
+    .server-e2ee-banner {
+      padding: 8px 14px; display: flex; align-items: center; gap: 8px;
+      font-size: 12px; font-weight: bold; border-top: 1px solid;
+    }
+    .server-e2ee-banner.active {
+      background: #f0fdf4; border-color: #bbf7d0; color: #059669;
+    }
+    .server-e2ee-banner.inactive {
+      background: #fff7ed; border-color: #fed7aa; color: #c2410c;
+    }
 
     /* ---- E2EE badge in bubbles ---- */
     .msg-encrypted-badge {
@@ -154,6 +178,7 @@
       border-radius: 4px; padding: 1px 6px; font-size: 10px; color: #10b981;
       margin-bottom: 4px; font-weight: bold;
     }
+    .msg-encrypted-badge.group { background: rgba(59,130,246,0.15); border-color: rgba(59,130,246,0.4); color: #3b82f6; }
     .msg-encrypted-locked { font-size: 12px; color: #f59e0b; font-style: italic; }
     .msg-no-key { font-size: 11px; color: #94a3b8; font-style: italic; }
 
@@ -216,6 +241,7 @@
     }
 
     const E2EE_PREFIX = "\u{1F512}E2EE:";
+    const GROUP_E2EE_PREFIX = "\u{1F6E1}GRP:";
     // =====================================================================
 
     class ErrorBoundary extends React.Component {
@@ -257,10 +283,9 @@
     const SendSecretModal = ({ connections, contacts, getContactName, isCentralServer, onSend, onClose, e2eeState }) => {
       const [selectedPeer, setSelectedPeer] = useState(null);
       const [mySecret] = useState(() => generateSecret());
-      const [status, setStatus] = useState(null); // {type:'ok'|'err'|'info', msg}
+      const [status, setStatus] = useState(null);
       const [sent, setSent] = useState(false);
 
-      // Apenas conexões abertas que NÃO são servidor central
       const eligibleConns = connections.filter(c => c.open && !isCentralServer(c.peer));
 
       const handleSend = () => {
@@ -352,6 +377,138 @@
                 <button className="sm-btn green" onClick={handleSend} disabled={!selectedPeer || eligibleConns.length === 0}>
                   🚀 Enviar Segredo Agora
                 </button>
+              ) : (
+                <button className="sm-btn green" onClick={onClose}>✅ Fechar</button>
+              )}
+              <button className="sm-btn gray" onClick={onClose}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // =====================================================================
+    // ServerE2EEModal — estende criptografia ao servidor (modo grupo)
+    // =====================================================================
+    const ServerE2EEModal = ({ serverId, connections, e2eeState, getContactName, onActivate, onDeactivate, onClose, currentServerE2EE }) => {
+      const [groupSecret] = useState(() => currentServerE2EE?.groupSecret || generateSecret());
+      const [status, setStatus] = useState(null);
+      const [activated, setActivated] = useState(false);
+      const isAlreadyActive = currentServerE2EE?.active;
+
+      // Contatos que já têm E2EE comigo (mySecret configurado) e não são o servidor
+      const eligiblePeers = Object.entries(e2eeState)
+        .filter(([pid, state]) => state.mySecret && pid !== serverId)
+        .map(([pid]) => ({ pid, isOnline: connections.some(c => c.peer === pid && c.open) }));
+
+      const handleActivate = () => {
+        let sentCount = 0;
+        eligiblePeers.forEach(({ pid, isOnline }) => {
+          if (!isOnline) return;
+          const conn = connections.find(c => c.peer === pid && c.open);
+          if (conn) {
+            try {
+              conn.send({ type: 'server-e2ee-invite', serverId, groupSecret });
+              sentCount++;
+            } catch(e) {}
+          }
+        });
+        onActivate(serverId, groupSecret);
+        setActivated(true);
+        setStatus({
+          type: 'ok',
+          msg: `🛡️ Criptografia de grupo ativada! Segredo enviado para ${sentCount} contato(s) online. Mensagens no servidor agora são criptografadas.`
+        });
+      };
+
+      const handleDeactivate = () => {
+        onDeactivate(serverId);
+        onClose();
+      };
+
+      return (
+        <div className="secret-modal-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+          <div className="secret-modal">
+            <h3>🛡️ Criptografia de Grupo no Servidor</h3>
+            <p className="sm-subtitle">
+              Estende sua criptografia E2EE para o servidor <strong style={{color:'#fbbf24'}}>{serverId}</strong>.
+              Mensagens passam pelo servidor já criptografadas — ele não consegue ler nada.
+            </p>
+
+            {isAlreadyActive && !activated && (
+              <div className="sm-info-box" style={{ marginBottom: '16px' }}>
+                <span>🟢</span>
+                <span><strong>Criptografia de grupo já está ativa</strong> neste servidor. Você pode reenviar o segredo para novos contatos ou desativar.</span>
+              </div>
+            )}
+
+            <div className="sm-section">
+              <span className="sm-label">
+                Contatos com E2EE ativo ({eligiblePeers.length}) — receberão o segredo de grupo
+              </span>
+              {eligiblePeers.length === 0 ? (
+                <div style={{ color: '#f87171', fontSize: '13px', padding: '10px 0' }}>
+                  ⚠️ Nenhum contato com E2EE configurado.<br />
+                  Primeiro troque segredos individuais com seus contatos usando o botão 🔑.
+                </div>
+              ) : (
+                <div className="sm-contact-list">
+                  {eligiblePeers.map(({ pid, isOnline }) => (
+                    <div key={pid} className="sm-contact-item selected">
+                      <div>
+                        <div className="sm-contact-name">{getContactName(pid)}</div>
+                        <div className="sm-contact-id">{pid}</div>
+                      </div>
+                      <div style={{ display: 'flex', gap: '4px' }}>
+                        <span className="sm-e2ee-tag">🔒 E2EE</span>
+                        {isOnline
+                          ? <span className="sm-e2ee-tag" style={{ background: '#3b82f6' }}>ONLINE</span>
+                          : <span className="sm-server-tag" style={{ background: '#dc2626', color: 'white' }}>OFFLINE</span>
+                        }
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="sm-section">
+              <span className="sm-label">Segredo de grupo (gerado automaticamente)</span>
+              <div className="sm-secret-display">
+                <span className="sm-secret-text">{groupSecret.substring(0, 20)}...{groupSecret.substring(groupSecret.length - 8)}</span>
+                <button className="sm-copy-btn" onClick={() => { navigator.clipboard.writeText(groupSecret); setStatus({ type: 'info', msg: 'Segredo copiado!' }); }}>📋 Copiar</button>
+              </div>
+            </div>
+
+            <div className="sm-info-box">
+              <span>🛡️</span>
+              <div>
+                <strong>Como funciona:</strong><br />
+                O segredo de grupo é enviado via P2P direto (nunca pelo servidor) para todos os contatos listados.
+                A partir daí, toda mensagem enviada para o servidor sai criptografada — o servidor só vê texto ilegível.
+                Usuários sem o segredo não conseguem ler.
+              </div>
+            </div>
+
+            <div className="sm-warning-box">
+              <span>⚠️</span>
+              <span>Contatos OFFLINE não receberão o segredo agora. Reenvie depois que ficarem online.</span>
+            </div>
+
+            {status && <div className={`sm-status ${status.type}`}>{status.msg}</div>}
+
+            <div className="sm-btn-row">
+              {!activated ? (
+                <>
+                  <button className="sm-btn green" onClick={handleActivate} disabled={eligiblePeers.length === 0}>
+                    🛡️ {isAlreadyActive ? 'Reenviar Segredo' : 'Ativar Criptografia de Grupo'}
+                  </button>
+                  {isAlreadyActive && (
+                    <button className="sm-btn gray" onClick={handleDeactivate} style={{ background: '#dc2626', color: 'white' }}>
+                      🔓 Desativar
+                    </button>
+                  )}
+                </>
               ) : (
                 <button className="sm-btn green" onClick={onClose}>✅ Fechar</button>
               )}
@@ -459,10 +616,7 @@
     };
 
     // =====================================================================
-    // UpdatedChatManager — E2EE integrado com dois segredos por contato
-    // e2eeState[peerId] = { mySecret, contactSecret }
-    //   mySecret     = segredo que eu gero e envio pra ele (criptografa minhas msgs)
-    //   contactSecret = segredo que ele me envia (descriptografa msgs dele)
+    // UpdatedChatManager — E2EE + Server Group E2EE
     // =====================================================================
     const UpdatedChatManager = ({
       connections, messages, setMessages, contacts, userName, peerId,
@@ -471,10 +625,12 @@
       newMessage, setNewMessage, showEmojiPanel, setShowEmojiPanel, populateEmojiPanel,
       getContactName, selectedContact, setSelectedContact, localVideoRef,
       registerSentMessage, cooldownRemaining, setCooldownRemaining, networkSize, centralServerId,
-      e2eeState, setE2eeState, isCentralServer
+      e2eeState, setE2eeState, isCentralServer,
+      serverE2EE, setServerE2EE
     }) => {
       const messagesEndRef = useRef(null);
       const [showSendSecretModal, setShowSendSecretModal] = useState(false);
+      const [showServerE2EEModal, setShowServerE2EEModal] = useState(false);
 
       const formatTime = (date) => {
         const h = date.getHours().toString().padStart(2,'0');
@@ -483,55 +639,75 @@
         return `${h}:${m}:${s}`;
       };
 
-      // Minha criptografia está ativa para envio se eu tenho mySecret para esse contato
       const canSendPrivate = selectedContact && !!e2eeState[selectedContact]?.mySecret;
-      // Posso descriptografar se tenho contactSecret
-      const canDecrypt = selectedContact && !!e2eeState[selectedContact]?.contactSecret;
-      // Ícone ativo se pelo menos um lado está configurado
-      const hasAnyE2EE = selectedContact && (canSendPrivate || canDecrypt);
+      const hasAnyE2EE = selectedContact && (!!e2eeState[selectedContact]?.mySecret || !!e2eeState[selectedContact]?.contactSecret);
+      const selectedIsServer = selectedContact && isCentralServer(selectedContact);
+      const serverGroupActive = selectedIsServer && serverE2EE[selectedContact]?.active;
 
       const filteredMessages = useMemo(() => {
         if (!selectedContact) return [];
         return messages.filter(msg =>
           (msg.sender === selectedContact && msg.recipient === 'you') ||
-          (msg.sender === 'you' && msg.recipient === selectedContact)
+          (msg.sender === 'you' && msg.recipient === selectedContact) ||
+          (msg.systemFor === selectedContact)
         );
       }, [messages, selectedContact]);
 
-      // Componente de texto de mensagem com E2EE
+      // MessageText com suporte a E2EE individual e grupo
       const MessageText = ({ msg }) => {
         const [display, setDisplay] = useState(null);
         const contactPeer = msg.sender === 'you' ? msg.recipient : msg.sender;
-        const isEncrypted = typeof msg.text === 'string' && msg.text.startsWith(E2EE_PREFIX);
+        const isE2EE = typeof msg.text === 'string' && msg.text.startsWith(E2EE_PREFIX);
+        const isGroup = typeof msg.text === 'string' && msg.text.startsWith(GROUP_E2EE_PREFIX);
 
         useEffect(() => {
-          if (!isEncrypted) { setDisplay({ plain: msg.text, encrypted: false }); return; }
+          if (!isE2EE && !isGroup) { setDisplay({ plain: msg.text, encrypted: false }); return; }
+
+          if (isGroup) {
+            // Descriptografar com segredo de grupo do servidor
+            const b64 = msg.text.slice(GROUP_E2EE_PREFIX.length);
+            // Tentar todos os segredos de grupo conhecidos
+            const serverSecrets = Object.values(serverE2EE).filter(s => s.groupSecret).map(s => s.groupSecret);
+            if (serverSecrets.length === 0) { setDisplay({ plain: null, encrypted: true, noKey: true, isGroup: true }); return; }
+
+            const tryDecrypt = async () => {
+              for (const secret of serverSecrets) {
+                try {
+                  const plain = await decryptMsg(b64, secret);
+                  setDisplay({ plain, encrypted: true, isGroup: true });
+                  return;
+                } catch(e) {}
+              }
+              setDisplay({ plain: null, encrypted: true, error: true, isGroup: true });
+            };
+            tryDecrypt();
+            return;
+          }
+
+          // E2EE individual
           const b64 = msg.text.slice(E2EE_PREFIX.length);
-          // Se a mensagem é minha, uso mySecret para exibir
-          // Se a mensagem é do contato, uso contactSecret
           const isMine = msg.sender === 'you';
           const secret = isMine
             ? e2eeState[contactPeer]?.mySecret
             : e2eeState[contactPeer]?.contactSecret;
 
-          if (!secret) {
-            setDisplay({ plain: null, encrypted: true, noKey: true });
-            return;
-          }
+          if (!secret) { setDisplay({ plain: null, encrypted: true, noKey: true }); return; }
           decryptMsg(b64, secret)
             .then(plain => setDisplay({ plain, encrypted: true }))
             .catch(() => setDisplay({ plain: null, encrypted: true, error: true }));
-        }, [msg.text, contactPeer, JSON.stringify(e2eeState[contactPeer])]);
+        }, [msg.text, contactPeer, JSON.stringify(e2eeState[contactPeer]), JSON.stringify(serverE2EE)]);
 
         if (display === null) return <span style={{ color: '#aaa', fontSize: '12px' }}>...</span>;
         if (!display.encrypted) return <div>{display.plain}</div>;
         return (
           <div>
-            <div className="msg-encrypted-badge">🔒 PRIVADO</div>
+            <div className={`msg-encrypted-badge${display.isGroup ? ' group' : ''}`}>
+              {display.isGroup ? '🛡️ GRUPO' : '🔒 PRIVADO'}
+            </div>
             {display.plain
               ? <div>{display.plain}</div>
               : display.noKey
-                ? <div className="msg-no-key">🔑 Aguardando segredo do contato...</div>
+                ? <div className="msg-no-key">🔑 {display.isGroup ? 'Sem segredo de grupo...' : 'Aguardando segredo do contato...'}</div>
                 : <div className="msg-encrypted-locked">{display.error ? '🔴 Segredo incorreto' : '🔒 Criptografado'}</div>
             }
           </div>
@@ -552,9 +728,15 @@
           const msgId = Date.now() + Math.random().toString(36).substring(7);
           if (registerSentMessage) registerSentMessage(msgId);
 
-          // Encripta com mySecret se disponível
           let textToSend = newMessage;
-          if (canSendPrivate) {
+
+          // Criptografia de grupo para servidor
+          if (selectedIsServer && serverGroupActive) {
+            const secret = serverE2EE[selectedContact].groupSecret;
+            textToSend = GROUP_E2EE_PREFIX + await encryptMsg(newMessage, secret);
+          }
+          // Criptografia individual para P2P
+          else if (!selectedIsServer && canSendPrivate) {
             const secret = e2eeState[selectedContact].mySecret;
             textToSend = E2EE_PREFIX + await encryptMsg(newMessage, secret);
           }
@@ -570,12 +752,23 @@
         } catch (err) { alert(`Erro ao enviar mensagem: ${err.message}`); }
       };
 
-      // Chamado quando o modal confirma o envio do segredo
       const handleSecretSent = (targetPeer, mySecret) => {
         setE2eeState(prev => ({
           ...prev,
           [targetPeer]: { ...prev[targetPeer], mySecret }
         }));
+      };
+
+      const handleServerE2EEActivate = (srvId, groupSecret) => {
+        setServerE2EE(prev => ({ ...prev, [srvId]: { active: true, groupSecret } }));
+      };
+
+      const handleServerE2EEDeactivate = (srvId) => {
+        setServerE2EE(prev => {
+          const updated = { ...prev };
+          delete updated[srvId];
+          return updated;
+        });
       };
 
       const deleteMessage = (messageTimestamp) => {
@@ -584,7 +777,7 @@
 
       const deleteMessagesByContact = (pId) => {
         setMessages(prev => {
-          const updated = prev.filter(msg => !((msg.sender === pId && msg.recipient === 'you') || (msg.sender === 'you' && msg.recipient === pId)));
+          const updated = prev.filter(msg => !((msg.sender === pId && msg.recipient === 'you') || (msg.sender === 'you' && msg.recipient === pId) || msg.systemFor === pId));
           localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated));
           return updated;
         });
@@ -599,32 +792,39 @@
         });
       }, [remoteStreams]);
 
-      // Indicador de status E2EE na barra de input
-      const getE2EEStatus = () => {
-        if (!selectedContact) return null;
-        const s = e2eeState[selectedContact];
-        if (!s) return null;
-        const hasMine = !!s.mySecret;
-        const hasTheirs = !!s.contactSecret;
-        if (hasMine && hasTheirs) return { icon: '🔒', color: '#10b981', label: 'Criptografia total ativa' };
-        if (hasMine) return { icon: '📤', color: '#3b82f6', label: 'Enviando criptografado · aguardando segredo do contato' };
-        if (hasTheirs) return { icon: '📥', color: '#8b5cf6', label: 'Lendo msgs do contato · envie seu segredo para criptografar suas msgs' };
-        return null;
+      // Status bar texto
+      const getInputStatus = () => {
+        if (!selectedContact) return { placeholder: "Selecione um contato...", style: {} };
+        if (cooldownRemaining > 0) return { placeholder: `Aguarde ${cooldownRemaining}s...`, style: {} };
+        if (selectedIsServer && serverGroupActive)
+          return { placeholder: `🛡️ Mensagem criptografada no grupo ${getContactName(selectedContact)}...`, style: { borderColor: '#3b82f6', boxShadow: '0 0 0 2px rgba(59,130,246,0.2)' } };
+        if (canSendPrivate && !selectedIsServer)
+          return { placeholder: `🔒 Mensagem privada para ${getContactName(selectedContact)}...`, style: { borderColor: '#10b981', boxShadow: '0 0 0 2px rgba(16,185,129,0.2)' } };
+        return { placeholder: `Mensagem para ${getContactName(selectedContact)}...`, style: {} };
       };
 
-      const e2eeStatus = getE2EEStatus();
+      const inputStatus = getInputStatus();
 
       return (
         <div>
           {showSendSecretModal && (
             <SendSecretModal
+              connections={connections} contacts={contacts} getContactName={getContactName}
+              isCentralServer={isCentralServer} onSend={handleSecretSent}
+              onClose={() => setShowSendSecretModal(false)} e2eeState={e2eeState}
+            />
+          )}
+
+          {showServerE2EEModal && selectedContact && isCentralServer(selectedContact) && (
+            <ServerE2EEModal
+              serverId={selectedContact}
               connections={connections}
-              contacts={contacts}
-              getContactName={getContactName}
-              isCentralServer={isCentralServer}
-              onSend={handleSecretSent}
-              onClose={() => setShowSendSecretModal(false)}
               e2eeState={e2eeState}
+              getContactName={getContactName}
+              onActivate={handleServerE2EEActivate}
+              onDeactivate={handleServerE2EEDeactivate}
+              onClose={() => setShowServerE2EEModal(false)}
+              currentServerE2EE={serverE2EE[selectedContact]}
             />
           )}
 
@@ -638,6 +838,9 @@
                 const e2ee = e2eeState[conn.peer];
                 const hasMine = !!e2ee?.mySecret;
                 const hasTheirs = !!e2ee?.contactSecret;
+                const isServer = isCentralServer(conn.peer);
+                const srvGrpActive = isServer && serverE2EE[conn.peer]?.active;
+
                 return (
                   <div key={i}
                     className={`conversation-item ${isSelected ? 'selected' : ''} ${conn.peer === centralServerId ? 'central-server' : ''}`}
@@ -645,9 +848,12 @@
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div>
                         <div className="conversation-name">
-                          {hasMine && hasTheirs && <span title="E2EE total ativo" style={{ marginRight: '4px' }}>🔒</span>}
-                          {hasMine && !hasTheirs && <span title="Enviando criptografado" style={{ marginRight: '4px' }}>📤</span>}
-                          {!hasMine && hasTheirs && <span title="Recebendo criptografado" style={{ marginRight: '4px' }}>📥</span>}
+                          {/* Ícones E2EE individual */}
+                          {!isServer && hasMine && hasTheirs && <span title="E2EE total ativo" style={{ marginRight: '4px' }}>🔒</span>}
+                          {!isServer && hasMine && !hasTheirs && <span title="Enviando criptografado" style={{ marginRight: '4px' }}>📤</span>}
+                          {!isServer && !hasMine && hasTheirs && <span title="Recebendo criptografado" style={{ marginRight: '4px' }}>📥</span>}
+                          {/* Ícone E2EE grupo servidor */}
+                          {isServer && srvGrpActive && <span title="Criptografia de grupo ativa" style={{ marginRight: '4px' }}>🛡️</span>}
                           {getContactName(conn.peer)}
                         </div>
                         <div className="conversation-peer-id">{conn.peer}</div>
@@ -656,7 +862,7 @@
                         <i className="fas fa-trash"></i>
                       </div>
                     </div>
-                    <div style={{ display: 'flex', gap: '5px', marginTop: '5px' }}>
+                    <div style={{ display: 'flex', gap: '5px', marginTop: '5px', flexWrap: 'wrap' }}>
                       {hasVoice
                         ? <button onClick={e => { e.stopPropagation(); endCall(conn.peer, 'voice'); }} style={{ padding: '4px', background: '#ff5722', width: '30px', height: '30px', borderRadius: '50%', color: 'white', border: 'none', cursor: 'pointer' }} title="Encerrar voz"><i className="fas fa-phone-slash"></i></button>
                         : <button onClick={e => { e.stopPropagation(); startVoiceCall(conn.peer); }} style={{ padding: '4px', background: '#4CAF50', width: '30px', height: '30px', borderRadius: '50%', color: 'white', border: 'none', cursor: 'pointer' }} title="Voz"><i className="fas fa-phone"></i></button>}
@@ -665,6 +871,17 @@
                         title={hasVideo ? "Desligar câmera" : "Câmera"}>
                         <i className={`fas ${hasVideo ? 'fa-video-slash' : 'fa-video'}`}></i>
                       </button>
+
+                      {/* 🛡️ Botão de criptografia de grupo — só aparece no servidor */}
+                      {isServer && (
+                        <button
+                          className={`server-e2ee-btn ${srvGrpActive ? 'active' : 'inactive'}`}
+                          onClick={e => { e.stopPropagation(); setSelectedContact(conn.peer); setShowServerE2EEModal(true); }}
+                          title={srvGrpActive ? 'Criptografia de grupo ATIVA — clique para gerenciar' : 'Clique para ativar criptografia de grupo no servidor'}
+                        >
+                          🛡️
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -674,8 +891,11 @@
             <div className="chat-messages-container">
               <div className="chat-messages">
                 {filteredMessages.map((msg, i) => (
-                  <div key={msg.timestamp || i} className={`message-bubble ${msg.sender === 'you' ? 'sent' : 'received'}`}>
-                    <div className="chat-user-bubble">{msg.sender === 'you' ? userName : getContactName(msg.sender)}</div>
+                  <div key={msg.timestamp || i} className={`message-bubble ${msg.sender === 'you' ? 'sent' : msg.sender === '__system__' ? 'received' : 'received'}`}
+                    style={msg.sender === '__system__' ? { background: '#f0f9ff', border: '1px solid #bae6fd', color: '#0369a1', fontSize: '12px', maxWidth: '90%' } : {}}>
+                    {msg.sender !== '__system__' && (
+                      <div className="chat-user-bubble">{msg.sender === 'you' ? userName : getContactName(msg.sender)}</div>
+                    )}
                     {msg.type === 'text' ? (
                       <MessageText msg={msg} />
                     ) : msg.type === 'file' ? (
@@ -689,19 +909,39 @@
                         {(msg.receiving || msg.sending) && <div className="progress-container"><div className="progress-bar"><div className="progress" style={{ width: `${msg.progress}%` }} /></div></div>}
                       </div>
                     )}
-                    <div className="message-timestamp">{msg.time}</div>
-                    <div className="green-delete-icon" onClick={() => deleteMessage(msg.timestamp)} title="Remover"><i className="fas fa-trash"></i></div>
+                    {msg.sender !== '__system__' && <div className="message-timestamp">{msg.time}</div>}
+                    {msg.sender !== '__system__' && <div className="green-delete-icon" onClick={() => deleteMessage(msg.timestamp)} title="Remover"><i className="fas fa-trash"></i></div>}
                   </div>
                 ))}
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Status bar E2EE */}
-              {e2eeStatus && (
-                <div style={{ padding: '6px 14px', background: '#f0fdf4', borderTop: '1px solid #d1fae5', fontSize: '12px', color: e2eeStatus.color, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <span>{e2eeStatus.icon}</span> <span>{e2eeStatus.label}</span>
+              {/* Banner de status E2EE no servidor */}
+              {selectedIsServer && (
+                <div className={`server-e2ee-banner ${serverGroupActive ? 'active' : 'inactive'}`}>
+                  {serverGroupActive
+                    ? <><span>🛡️</span><span>Criptografia de grupo <strong>ATIVA</strong> — mensagens passam pelo servidor criptografadas</span>
+                        <button onClick={() => setShowServerE2EEModal(true)} style={{ marginLeft: 'auto', background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', cursor: 'pointer', fontSize: '11px' }}>Gerenciar</button></>
+                    : <><span>⚠️</span><span>Criptografia de grupo <strong>inativa</strong> no servidor</span>
+                        <button onClick={() => setShowServerE2EEModal(true)} style={{ marginLeft: 'auto', background: '#f97316', color: 'white', border: 'none', borderRadius: '4px', padding: '3px 8px', cursor: 'pointer', fontSize: '11px' }}>🛡️ Ativar</button></>
+                  }
                 </div>
               )}
+
+              {/* Banner E2EE individual */}
+              {!selectedIsServer && selectedContact && (e2eeState[selectedContact]?.mySecret || e2eeState[selectedContact]?.contactSecret) && (() => {
+                const s = e2eeState[selectedContact];
+                const hasMine = !!s?.mySecret, hasTheirs = !!s?.contactSecret;
+                let icon, color, label;
+                if (hasMine && hasTheirs) { icon = '🔒'; color = '#10b981'; label = 'Criptografia total ativa'; }
+                else if (hasMine) { icon = '📤'; color = '#3b82f6'; label = 'Enviando criptografado · aguardando segredo do contato'; }
+                else { icon = '📥'; color = '#8b5cf6'; label = 'Lendo msgs do contato · envie seu segredo para criptografar suas msgs'; }
+                return (
+                  <div style={{ padding: '6px 14px', background: '#f0fdf4', borderTop: '1px solid #d1fae5', fontSize: '12px', color, display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <span>{icon}</span><span>{label}</span>
+                  </div>
+                );
+              })()}
 
               <div className="chat-input-container">
                 <VoiceRecorder onRecordingComplete={handleAudioRecording}
@@ -711,11 +951,12 @@
                   <i className="fas fa-paperclip"></i>
                 </button>
 
-                {/* Botão Enviar Segredo — abre o modal */}
+                {/* 🔑 Botão de segredo individual — bloqueado no servidor */}
                 <button
-                  className={`private-mode-toggle${hasAnyE2EE ? ' active' : ''}`}
+                  className={`private-mode-toggle${hasAnyE2EE && !selectedIsServer ? ' active' : ''}`}
                   onClick={() => setShowSendSecretModal(true)}
-                  title="Enviar / gerenciar segredo privado"
+                  disabled={selectedIsServer}
+                  title={selectedIsServer ? 'Servidor: use o botão 🛡️ na lista' : 'Enviar / gerenciar segredo privado'}
                   style={{ flexShrink: 0 }}
                 >
                   🔑
@@ -725,19 +966,11 @@
                   <button className="emoji-button" onClick={() => setShowEmojiPanel(!showEmojiPanel)} title="Emojis">😊</button>
                   <input type="text" value={newMessage}
                     onChange={e => setNewMessage(e.target.value)}
-                    placeholder={
-                      cooldownRemaining > 0
-                        ? `Aguarde ${cooldownRemaining}s...`
-                        : canSendPrivate
-                          ? `🔒 Mensagem privada para ${getContactName(selectedContact)}...`
-                          : selectedContact
-                            ? `Mensagem para ${getContactName(selectedContact)}...`
-                            : "Selecione um contato..."
-                    }
+                    placeholder={inputStatus.placeholder}
                     onKeyPress={e => { if (e.key === 'Enter' && selectedContact && cooldownRemaining === 0) sendDirectMessage(); }}
                     className="message-input"
                     disabled={!selectedContact || cooldownRemaining > 0}
-                    style={canSendPrivate ? { borderColor: '#10b981', boxShadow: '0 0 0 2px rgba(16,185,129,0.2)' } : {}}
+                    style={inputStatus.style}
                   />
                   {showEmojiPanel && populateEmojiPanel()}
                 </div>
@@ -797,8 +1030,9 @@
       const [networkSize, setNetworkSize] = useState(1);
       const [isSuperNode, setIsSuperNode] = useState(false);
       const [radioState, setRadioState] = useState({ status: 'idle', startTime: 0, duration: 0, audioUrl: null, fileName: '', sender: '' });
-      // e2eeState[peerId] = { mySecret, contactSecret }
       const [e2eeState, setE2eeState] = useState({});
+      // NOVO: estado de criptografia de grupo por servidor
+      const [serverE2EE, setServerE2EE] = useState({});
 
       const peerInstance = useRef(null);
       const fileInputRef = useRef(null);
@@ -857,23 +1091,35 @@
           return;
         }
 
-        // *** Receber segredo do contato via P2P direto ***
+        // Receber segredo individual E2EE via P2P
         if (data.type === 'e2ee-secret' && data.secret) {
           setE2eeState(prev => ({
             ...prev,
             [pId]: { ...prev[pId], contactSecret: data.secret }
           }));
-          // Notificação visual
           const name = getContactName(pId);
-          setMessages(prev => {
-            const sysMsg = {
-              text: `🔑 Segredo E2EE recebido de ${name}. Suas mensagens dele(a) serão descriptografadas automaticamente.`,
-              sender: '__system__', recipient: 'you', senderName: 'Sistema',
-              time: new Date().toLocaleTimeString('pt-BR'), type: 'text',
-              direct: true, timestamp: Date.now(), systemFor: pId
-            };
-            return [...prev, sysMsg];
-          });
+          setMessages(prev => [...prev, {
+            text: `🔑 Segredo E2EE recebido de ${name}. Suas mensagens dele(a) serão descriptografadas automaticamente.`,
+            sender: '__system__', recipient: 'you', senderName: 'Sistema',
+            time: new Date().toLocaleTimeString('pt-BR'), type: 'text',
+            direct: true, timestamp: Date.now(), systemFor: pId
+          }]);
+          return;
+        }
+
+        // NOVO: Receber convite de criptografia de grupo do servidor via P2P
+        if (data.type === 'server-e2ee-invite' && data.groupSecret && data.serverId) {
+          setServerE2EE(prev => ({
+            ...prev,
+            [data.serverId]: { active: true, groupSecret: data.groupSecret }
+          }));
+          const name = getContactName(pId);
+          setMessages(prev => [...prev, {
+            text: `🛡️ ${name} ativou criptografia de grupo para o servidor "${data.serverId}". Suas mensagens neste servidor agora são criptografadas automaticamente.`,
+            sender: '__system__', recipient: 'you', senderName: 'Sistema',
+            time: new Date().toLocaleTimeString('pt-BR'), type: 'text',
+            direct: true, timestamp: Date.now(), systemFor: data.serverId
+          }]);
           return;
         }
 
@@ -1398,6 +1644,7 @@
               networkSize={networkSize} centralServerId={centralServerId}
               e2eeState={e2eeState} setE2eeState={setE2eeState}
               isCentralServer={isCentralServer}
+              serverE2EE={serverE2EE} setServerE2EE={setServerE2EE}
             />
           )}
         </div>
