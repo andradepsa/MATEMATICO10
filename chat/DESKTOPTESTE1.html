@@ -1478,17 +1478,17 @@
       audioRefs, videoRefs, handleFileChange, fileInputRef, handleAudioRecording,
       newMessage, setNewMessage, showEmojiPanel, setShowEmojiPanel, populateEmojiPanel,
       getContactName, selectedContact, setSelectedContact, localVideoRef,
-      registerSentMessage, cooldownRemaining, setCooldownRemaining, networkSize, centralServerId,
+      cooldownRemaining, setCooldownRemaining, networkSize, centralServerId,
       e2eeState, setE2eeState, isCentralServer, serverE2EE, setServerE2EE, connectToPeer,
       handleTorrentSeed, handleTorrentDownload, setShowTorrentManager,
-      pendingTorrentRequests, setPendingTorrentRequests, handleTorrentDirectSeed
+      pendingTorrentRequests, setPendingTorrentRequests, handleTorrentDirectSeed,
+      sendMessage, isSending
     }) => {
       const messagesEndRef = useRef(null);
       const messagesContainerRef = useRef(null);
       const [showSendSecretModal, setShowSendSecretModal] = useState(false);
       const [showServerE2EEModal, setShowServerE2EEModal] = useState(false);
 
-      const [isSending, setIsSending] = useState(false);
       const decryptionCache = useRef(new Map());
 
       const formatTime = (date) => {
@@ -1628,35 +1628,6 @@
                 : <div className="msg-no-key" style={{ color: display.error ? '#f87171' : '#f59e0b' }}>{display.error ? '🔴 Wrong secret' : '🔒 Encrypted'}</div>}
           </div>
         );
-      };
-
-      const sendDirectMessage = async () => {
-        if (!userName.trim()) { alert(t(lang, 'pleaseSetName')); return; }
-        if (!newMessage.trim() || !selectedContact || cooldownRemaining > 0 || isSending) return;
-        
-        const conn = connections.find(c => c.peer === selectedContact);
-        if (!conn || !conn.open) { alert(t(lang, 'contactOffline', { name: getContactName(selectedContact) })); return; }
-        
-        setIsSending(true);
-        const currentCooldown = Math.max(1, Math.floor(networkSize / 1000));
-        setCooldownRemaining(currentCooldown);
-        
-        try {
-          const timestamp = new Date();
-          const msgId = Date.now() + Math.random().toString(36).substring(7);
-          if (registerSentMessage) registerSentMessage(msgId);
-          let textToSend = newMessage;
-          if (selectedIsServer && serverGroupActive) {
-            textToSend = GROUP_E2EE_PREFIX + await encryptMsg(newMessage, serverE2EE[selectedContact].groupSecret);
-          } else if (!selectedIsServer && canSendPrivate) {
-            textToSend = E2EE_PREFIX + await encryptMsg(newMessage, e2eeState[selectedContact].mySecret);
-          }
-          conn.send({ type: 'message', id: msgId, ttl: 8, text: textToSend, senderName: userName, direct: true, time: formatTime(timestamp) });
-          const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
-          setMessages(prev => { const updated = [...prev, newMsgObj]; localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
-          setNewMessage('');
-        } catch (err) { alert(t(lang, 'sendError') + err.message); }
-        finally { setIsSending(false); }
       };
 
       const handleSecretSent = (targetPeer, mySecret) => {
@@ -1905,7 +1876,7 @@
                   />
                   {showEmojiPanel && populateEmojiPanel()}
                 </div>
-                <button className="send-btn" onClick={sendDirectMessage}
+                <button className="send-btn" onClick={() => sendMessage()}
                   disabled={!newMessage.trim() || !selectedContact || !connections.some(c => c.peer === selectedContact) || cooldownRemaining > 0 || isSending}
                   title={t(lang, 'sendMessage')}>
                   {isSending ? <i className="fas fa-spinner fa-spin"></i> : (cooldownRemaining > 0 ? `${cooldownRemaining}s` : <i className="fas fa-paper-plane"></i>)}
@@ -1980,6 +1951,7 @@
       const [serverE2EE, setServerE2EE] = useState({});
       const [torrents, setTorrents] = useState([]);
       const [showTorrentManager, setShowTorrentManager] = useState(false);
+      const [isSending, setIsSending] = useState(false);
 
       const peerInstance = useRef(null);
       const fileInputRef = useRef(null);
@@ -2130,7 +2102,7 @@
           return;
         }
 
-        if (data.type === 'message' && data.id) {
+        if ((data.type === 'message' || data.type === 'torrent-request') && data.id) {
           if (data.sender) {
             if (!knownUsersRef.current.has(data.sender)) { knownUsersRef.current.add(data.sender); setNetworkSize(knownUsersRef.current.size); }
             const now = Date.now(), lastTime = lastMessageTimeRef.current.get(data.sender) || 0;
@@ -2195,7 +2167,9 @@
           }
           return;
         } else if (data.type === 'torrent-request') {
-          setPendingTorrentRequests(prev => ({ ...prev, [pId]: { magnet: data.magnet, fileName: data.fileName } }));
+          if (data.recipient === peerId || data.recipient === 'all') {
+            setPendingTorrentRequests(prev => ({ ...prev, [data.sender || pId]: { magnet: data.magnet, fileName: data.fileName } }));
+          }
           return;
         }
 
@@ -2489,6 +2463,81 @@
         });
       };
 
+      const formatTime = (date) => {
+        const h = date.getHours().toString().padStart(2,'0');
+        const m = date.getMinutes().toString().padStart(2,'0');
+        const s = date.getSeconds().toString().padStart(2,'0');
+        return `${h}:${m}:${s}`;
+      };
+
+      const sendMessage = async (textOverride = null) => {
+        const text = textOverride !== null ? textOverride : newMessage;
+        if (!userName.trim()) { alert(t(lang, 'pleaseSetName')); return; }
+        if (!text.trim() || !selectedContact || cooldownRemaining > 0 || isSending) return;
+        
+        const conn = connections.find(c => c.peer === selectedContact);
+        // If no direct connection, we'll rely on relaying via SuperNode
+        // But we still need at least one open connection to send the message
+        if (connections.length === 0) { alert(t(lang, 'noConnectedContacts')); return; }
+        
+        setIsSending(true);
+        const currentCooldown = Math.max(1, Math.floor(networkSize / 1000));
+        setCooldownRemaining(currentCooldown);
+        
+        try {
+          const timestamp = new Date();
+          const msgId = Date.now() + Math.random().toString(36).substring(7);
+          seenMessagesRef.current.add(msgId);
+          
+          let textToSend = text;
+          const selectedIsServer = isCentralServer(selectedContact);
+          const serverGroupActive = selectedIsServer && serverE2EE[selectedContact]?.active;
+          const canSendPrivate = !selectedIsServer && !!e2eeState[selectedContact]?.mySecret;
+
+          if (selectedIsServer && serverGroupActive) {
+            textToSend = GROUP_E2EE_PREFIX + await encryptMsg(text, serverE2EE[selectedContact].groupSecret);
+          } else if (!selectedIsServer && canSendPrivate) {
+            textToSend = E2EE_PREFIX + await encryptMsg(text, e2eeState[selectedContact].mySecret);
+          }
+          
+          const msgPayload = { 
+            type: 'message', 
+            id: msgId, 
+            ttl: 8, 
+            text: textToSend, 
+            senderName: userName, 
+            sender: peerId,
+            direct: true, 
+            recipient: selectedContact,
+            time: formatTime(timestamp) 
+          };
+
+          // Send to all connections to ensure relaying
+          setConnections(cc => { 
+            cc.forEach(c => { if (c.open) try { c.send(msgPayload); } catch(e){} }); 
+            return cc; 
+          });
+
+          const newMsgObj = { 
+            text: textToSend, 
+            sender: 'you', 
+            recipient: selectedContact, 
+            senderName: userName, 
+            time: formatTime(timestamp), 
+            type: 'text', 
+            direct: true, 
+            timestamp: timestamp.getTime() 
+          };
+          setMessages(prev => { 
+            const updated = [...prev, newMsgObj]; 
+            localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); 
+            return updated; 
+          });
+          if (textOverride === null) setNewMessage('');
+        } catch (err) { alert(t(lang, 'sendError') + err.message); }
+        finally { setIsSending(false); }
+      };
+
       const handleTorrentSeed = (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -2511,11 +2560,27 @@
         if (torrentClientRef.current) {
           torrentClientRef.current.seed(file, (torrent) => {
             const magnet = torrent.magnetURI;
-            const conn = connections.find(c => c.peer === targetPeer);
-            if (conn && conn.open) {
-              conn.send({ type: 'torrent-request', magnet, fileName: file.name });
-              setMessages(prev => [...prev, { text: `📤 Torrent request sent to ${getContactName(targetPeer)}: ${file.name}`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
-            }
+            const msgId = Date.now() + Math.random().toString(36).substring(7);
+            const torrentMsg = { 
+              type: 'torrent-request', 
+              id: msgId,
+              ttl: 8,
+              magnet, 
+              fileName: file.name,
+              recipient: targetPeer,
+              sender: peerId
+            };
+            
+            seenMessagesRef.current.add(msgId);
+            // Send to everyone to ensure it reaches the target via relay if needed
+            setConnections(cc => { 
+              cc.forEach(c => { 
+                if (c.open) try { c.send(torrentMsg); } catch(e){} 
+              }); 
+              return cc; 
+            });
+            
+            setMessages(prev => [...prev, { text: `📤 Torrent request sent to ${getContactName(targetPeer)}: ${file.name}`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
           });
         }
       };
@@ -2861,7 +2926,7 @@
               showEmojiPanel={showEmojiPanel} setShowEmojiPanel={setShowEmojiPanel}
               populateEmojiPanel={populateEmojiPanel} getContactName={getContactName}
               selectedContact={selectedContact} setSelectedContact={setSelectedContact}
-              localVideoRef={localVideoRef} registerSentMessage={(id) => seenMessagesRef.current.add(id)}
+              localVideoRef={localVideoRef}
               cooldownRemaining={cooldownRemaining} setCooldownRemaining={setCooldownRemaining}
               networkSize={networkSize} centralServerId={centralServerId}
               e2eeState={e2eeState} setE2eeState={setE2eeState}
@@ -2872,6 +2937,8 @@
               pendingTorrentRequests={pendingTorrentRequests}
               setPendingTorrentRequests={setPendingTorrentRequests}
               handleTorrentDirectSeed={handleTorrentDirectSeed}
+              sendMessage={sendMessage}
+              isSending={isSending}
             />
           )}
         </div>
