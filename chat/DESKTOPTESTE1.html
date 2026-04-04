@@ -2495,13 +2495,21 @@
         });
       };
 
+      const announceList = [
+        'wss://tracker.btorrent.xyz',
+        'wss://tracker.openwebtorrent.com',
+        'wss://tracker.webtorrent.dev',
+        'wss://tracker.files.fm:7073/announce',
+        'wss://hub.bugout.link'
+      ];
+
       const handleTorrentSeed = (e) => {
         const file = e.target.files[0];
         if (!file) return;
         if (file.size > 500 * 1024 * 1024) { alert(t(lang, 'torrentLimit')); return; }
         
         if (torrentClientRef.current) {
-          torrentClientRef.current.seed(file, (torrent) => {
+          torrentClientRef.current.seed(file, { announce: announceList }, (torrent) => {
             const magnet = torrent.magnetURI;
             const text = `🧲 TORRENT: ${file.name}\n${magnet}`;
             sendMessage(text);
@@ -2515,7 +2523,7 @@
         if (file.size > 500 * 1024 * 1024) { alert(t(lang, 'torrentLimit')); return; }
         
         if (torrentClientRef.current) {
-          torrentClientRef.current.seed(file, (torrent) => {
+          torrentClientRef.current.seed(file, { announce: announceList }, (torrent) => {
             const magnet = torrent.magnetURI;
             const conn = connections.find(c => c.peer === targetPeer);
             if (conn && conn.open) {
@@ -2543,7 +2551,7 @@
             return;
           }
           
-          torrentClientRef.current.add(magnet, (torrent) => {
+          torrentClientRef.current.add(magnet, { announce: announceList }, (torrent) => {
             torrent.on('done', () => {
               setMessages(prev => [...prev, { text: `✅ Torrent ${torrent.name} ${t(lang, 'completed')}!`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
               torrent.files.forEach(f => f.getBlob((err, blob) => {
