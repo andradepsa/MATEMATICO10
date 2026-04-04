@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Servidor K10</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background: #f0f2f5; padding: 20px; }
+    #root { max-width: 700px; margin: 0 auto; }
+    .card { background: white; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); padding: 20px; margin-bottom: 16px; }
+    h1 { font-size: 22px; color: #1a1a2e; }
+    h2 { font-size: 16px; color: #333; margin-bottom: 12px; }
+    .header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+    .status-dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; margin-right: 6px; flex-shrink: 0; }
+    .dot-online  { background: #22c55e; }
+    .dot-offline { background: #ef4444; }
+    .dot-connecting { background: #f59e0b; animation: blink 1s infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+    .status-text { font-size: 14px; color: #555; display: flex; align-items: center; }
+    .btn { border: none; padding: 9px 18px; border-radius: 5px; cursor: pointer; font-size: 14px; font-weight: bold; color: white; }
+    .btn-green  { background: #22c55e; }
+    .btn-red    { background: #ef4444; }
+    .btn-blue   { background: #3b82f6; }
+    .btn-purple { background: #6366f1; }
+    .btn:disabled { background: #ccc; cursor: not-allowed; }
+    .id-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .id-display { font-family: monospace; font-size: 16px; font-weight: bold; color: #1d4ed8; background: #eff6ff; padding: 6px 12px; border-radius: 5px; letter-spacing: 1px; }
+    .id-input { font-family: monospace; font-size: 15px; padding: 7px 11px; border: 1px solid #93c5fd; border-radius: 5px; width: 220px; }
+    .stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .stat-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 7px; padding: 14px; text-align: center; }
+    .stat-value { font-size: 28px; font-weight: bold; color: #1d4ed8; }
+    .stat-label { font-size: 12px; color: #64748b; margin-top: 4px; }
+    .peer-list { max-height: 300px; overflow-y: auto; }
+    .peer-item { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-bottom: 1px solid #f1f5f9; font-size: 13px; font-family: monospace; color: #334155; }
+    .peer-item:last-child { border-bottom: none; }
+    .empty { color: #94a3b8; font-size: 13px; padding: 14px 0; text-align: center; }
+    .warn { background: #fef3c7; border: 1px solid #fde68a; border-radius: 6px; padding: 10px 14px; font-size: 13px; color: #92400e; }
+    .actions { display: flex; gap: 10px; margin-top: 16px; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.1/peerjs.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+  const { useState, useRef } = React;
+  const STORAGE_KEY = 'k10ServerId';
+
+  const App = () => {
+    const [rawId, setRawId]         = useState(() => localStorage.getItem(STORAGE_KEY) || 'SERVIDOR');
+    const [editId, setEditId]       = useState('');
+    const [editing, setEditing]     = useState(false);
+    const [status, setStatus]       = useState('desconectado');
+    const [connections, setConnections] = useState([]);
+    const [stats, setStats]         = useState({ received: 0, distributed: 0 });
+
+    const peerId   = rawId.endsWith('-CENTRAL') ? rawId : rawId + '-CENTRAL';
+    const peerRef  = useRef(null);
+    const connsRef = useRef(new Map());
+    const seenRef  = useRef(new Set());
+
+    const isConnected = status === 'conectado' || status === 'conectando';
+
+    const syncConns = () => setConnections(Array.from(connsRef.current.keys()));
+
+    const distribute = (data, sourceId) => {
+      const ttl = (data.ttl !== undefined ? data.ttl : 8) - 1;
+      if (ttl < 0) return;
+      const relay = { ...data, ttl };
+      let count = 0;
+      connsRef.current.forEach((conn, pid) => {
+        if (pid !== sourceId && conn.open) {
+          try { conn.send(relay); count++; } catch(e) {}
+        }
+      });
+      if (count > 0) setStats(prev => ({ ...prev, distributed: prev.distributed + count }));
+    };
+
+    const handleData = (data, sourceId) => {
+      if (!data || !data.type) return;
+      if (data.type === 'pex') return;
+
+      const relayTypes = ['message','radio-start','radio-chunk','radio-sync','radio-request-sync'];
+      if (relayTypes.includes(data.type)) {
+        if (data.id) {
+          if (seenRef.current.has(data.id)) return;
+          seenRef.current.add(data.id);
+          if (seenRef.current.size > 10000)
+            seenRef.current.delete(seenRef.current.values().next().value);
+        }
+        if (data.type === 'message')
+          setStats(prev => ({ ...prev, received: prev.received + 1 }));
+        distribute(data, sourceId);
+      }
+    };
+
+    const setupConn = (conn) => {
+      conn.on('open', () => {
+        connsRef.current.set(conn.peer, conn);
+        syncConns();
+        try {
+          conn.send({ type: 'handshake', isServer: true, peerId, radio: { status: 'idle' } });
+        } catch(e) {}
+      });
+      conn.on('data',  (data) => handleData(data, conn.peer));
+      conn.on('close', () => { connsRef.current.delete(conn.peer); syncConns(); });
+      conn.on('error', () => { connsRef.current.delete(conn.peer); syncConns(); });
+    };
+
+    const connect = () => {
+      setStatus('conectando');
+      if (peerRef.current) { try { peerRef.current.destroy(); } catch(e) {} }
+
+      const peer = new Peer(peerId, {
+        host: '0.peerjs.com', port: 443, secure: true,
+        config: { iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' }
+        ]},
+        debug: 0
+      });
+
+      peer.on('open',         () => setStatus('conectado'));
+      peer.on('disconnected', () => setStatus('desconectado'));
+      peer.on('error', (err) => {
+        if (err.type === 'unavailable-id') alert('ID já em uso. Troque o ID.');
+        else setStatus('erro: ' + err.type);
+      });
+      peer.on('connection', (conn) => {
+        if (connsRef.current.size >= 200) {
+          setTimeout(() => { try { conn.close(); } catch(e) {} }, 300);
+          return;
+        }
+        setupConn(conn);
+      });
+
+      peerRef.current = peer;
+    };
+
+    const disconnect = () => {
+      connsRef.current.forEach(c => { try { c.close(); } catch(e) {} });
+      connsRef.current.clear();
+      if (peerRef.current) { try { peerRef.current.destroy(); } catch(e) {} peerRef.current = null; }
+      setConnections([]);
+      setStatus('desconectado');
+      setStats({ received: 0, distributed: 0 });
+    };
+
+    const saveId = () => {
+      const clean = editId.trim().replace(/-CENTRAL$/i, '').toUpperCase();
+      if (!clean) { alert('ID inválido'); return; }
+      localStorage.setItem(STORAGE_KEY, clean);
+      setRawId(clean);
+      setEditing(false);
+    };
+
+    const dotClass =
+      status === 'conectado'  ? 'dot-online' :
+      status === 'conectando' ? 'dot-connecting' : 'dot-offline';
+
+    return (
+      <div>
+        <div className="card">
+          <div className="header">
+            <h1>Servidor K10</h1>
+            <div className="status-text">
+              <span className={`status-dot ${dotClass}`}></span>
+              {status}
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <h2>ID do Servidor</h2>
+          {editing ? (
+            <div className="id-row">
+              <input
+                className="id-input"
+                value={editId}
+                onChange={e => setEditId(e.target.value.toUpperCase())}
+                placeholder="Ex: MEUSERV"
+                autoFocus
+              />
+              <span style={{fontSize:13,color:'#64748b'}}>-CENTRAL</span>
+              <button className="btn btn-green"  onClick={saveId}>Salvar</button>
+              <button className="btn btn-red"    onClick={() => setEditing(false)}>Cancelar</button>
+            </div>
+          ) : (
+            <div className="id-row">
+              <span className="id-display">{peerId}</span>
+              <button className="btn btn-blue" onClick={() => { navigator.clipboard.writeText(peerId); alert('ID copiado!'); }}>
+                Copiar
+              </button>
+              <button className="btn btn-purple" disabled={isConnected} onClick={() => { setEditId(rawId); setEditing(true); }}>
+                Editar
+              </button>
+            </div>
+          )}
+          {isConnected && <p style={{fontSize:12,color:'#94a3b8',marginTop:8}}>Desconecte para editar o ID.</p>}
+        </div>
+
+        <div className="card">
+          <div className="stats-grid">
+            <div className="stat-box">
+              <div className="stat-value">{connections.length}</div>
+              <div className="stat-label">Conexões ativas</div>
+            </div>
+            <div className="stat-box">
+              <div className="stat-value">{stats.received}</div>
+              <div className="stat-label">Mensagens recebidas</div>
+            </div>
+            <div className="stat-box">
+              <div className="stat-value">{stats.distributed}</div>
+              <div className="stat-label">Mensagens repassadas</div>
+            </div>
+          </div>
+          <div className="actions">
+            <button className="btn btn-green" onClick={connect}     disabled={isConnected}>Conectar</button>
+            <button className="btn btn-red"   onClick={disconnect}  disabled={!isConnected}>Desconectar</button>
+          </div>
+        </div>
+
+        <div className="card">
+          <h2>Conexões ativas ({connections.length})</h2>
+          <div className="peer-list">
+            {connections.length === 0
+              ? <div className="empty">Nenhuma conexão ainda.</div>
+              : connections.map((pid, i) => (
+                  <div className="peer-item" key={i}>
+                    <span className="status-dot dot-online"></span>
+                    {pid}
+                  </div>
+                ))
+            }
+          </div>
+        </div>
+
+        <div className="warn">
+          O servidor apenas repassa mensagens — não lê nem armazena o conteúdo. Arquivos e áudios são bloqueados para proteger a banda da rede.
+        </div>
+      </div>
+    );
+  };
+
+  ReactDOM.render(<App />, document.getElementById('root'));
+</script>
+</body>
+</html>
