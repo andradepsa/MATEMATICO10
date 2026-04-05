@@ -1225,7 +1225,7 @@
     // ================================================================
     // SendSecretModal
     // ================================================================
-    const SendSecretModal = ({ lang, connections, contacts, getContactName, onSend, onClose, e2eeState }) => {
+    const SendSecretModal = ({ lang, connections, contacts, getContactName, isCentralServer, onSend, onClose, e2eeState }) => {
       const [selectedPeer, setSelectedPeer] = useState(null);
       const [mySecret] = useState(() => generateSecret());
       const [status, setStatus] = useState(null);
@@ -1259,7 +1259,7 @@
               {eligibleConns.length === 0
                 ? <div style={{ color: '#f87171', fontSize: '13px', padding: '10px 0' }}>{t(lang, 'noConnectedContacts')}</div>
                 : <div className="sm-contact-list">
-                    {eligibleConns.map((conn, i) => {
+                    {connections.map((conn, i) => {
                       const isServer = isCentralServer(conn.peer);
                       const hasE2EE = !!e2eeState[conn.peer];
                       const isOpen = conn.open;
@@ -1484,7 +1484,7 @@
       newMessage, setNewMessage, showEmojiPanel, setShowEmojiPanel, populateEmojiPanel,
       getContactName, selectedContact, setSelectedContact, localVideoRef,
       registerSentMessage, cooldownRemaining, setCooldownRemaining, networkSize, centralServerId,
-      e2eeState, setE2eeState, serverE2EE, setServerE2EE, connectToPeer,
+      e2eeState, setE2eeState, isCentralServer, serverE2EE, setServerE2EE, connectToPeer,
       handleTorrentSeed, handleTorrentDownload, setShowTorrentManager,
       pendingTorrentRequests, setPendingTorrentRequests, handleTorrentDirectSeed
     }) => {
@@ -1519,16 +1519,7 @@
           (isSrv && msg.recipient === selectedContact) ||
           (isSrv && msg.sender === selectedContact)
         );
-      }, [messages, selectedContact]);
-
-      const displayConnections = useMemo(() => {
-        return connections.filter(conn => {
-          if (isCentralServer(conn.peer)) return true;
-          if (contacts.some(c => c.peerId === conn.peer)) return true;
-          if (messages.some(m => (m.sender === conn.peer && m.recipient === 'you') || (m.sender === 'you' && m.recipient === conn.peer))) return true;
-          return false;
-        });
-      }, [connections, contacts, messages]);
+      }, [messages, selectedContact, isCentralServer]);
 
       const MessageText = ({ msg, onContentChange, onHide }) => {
         const contactPeer = msg.sender === 'you' ? msg.recipient : msg.sender;
@@ -1740,8 +1731,8 @@
       return (
         <div>
           {showSendSecretModal && (
-            <SendSecretModal lang={lang} connections={displayConnections} contacts={contacts} getContactName={getContactName}
-              onSend={handleSecretSent} onClose={() => setShowSendSecretModal(false)} e2eeState={e2eeState} />
+            <SendSecretModal lang={lang} connections={connections} contacts={contacts} getContactName={getContactName}
+              isCentralServer={isCentralServer} onSend={handleSecretSent} onClose={() => setShowSendSecretModal(false)} e2eeState={e2eeState} />
           )}
           {showServerE2EEModal && selectedContact && isCentralServer(selectedContact) && (
             <ServerE2EEModal lang={lang} serverId={selectedContact} connections={connections} e2eeState={e2eeState}
@@ -1757,8 +1748,8 @@
                   <i className="fas fa-magnet"></i>
                 </button>
               </div>
-              {displayConnections.length === 0 && <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center' }}>{t(lang, 'selectContactToChat')}</div>}
-              {displayConnections.map((conn, i) => {
+              {connections.length === 0 && <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center' }}>{t(lang, 'selectContactToChat')}</div>}
+              {connections.map((conn, i) => {
                 const isSelected = selectedContact === conn.peer;
                 const hasVoice = activeCalls.some(c => c.peerId === conn.peer && c.type === 'voice');
                 const hasVideo = activeCalls.some(c => c.peerId === conn.peer && c.type === 'video' && c.localStream);
@@ -1879,12 +1870,6 @@
                 </div>
               )}
 
-              {selectedIsServer && selectedContact && serverGroupActive && (
-                <div style={{ padding: '6px 14px', background: '#f0fdf4', borderTop: '1px solid #d1fae5', fontSize: '12px', color: '#10b981', display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}>
-                  <span>🔒</span><span>{t(lang, 'totalE2EE')}</span>
-                </div>
-              )}
-
               {!selectedIsServer && selectedContact && (e2eeState[selectedContact]?.mySecret || e2eeState[selectedContact]?.contactSecret) && (() => {
                 const s = e2eeState[selectedContact];
                 const hasMine = !!s?.mySecret, hasTheirs = !!s?.contactSecret;
@@ -1937,10 +1922,93 @@
     };
 
     // ================================================================
+    // FloatingWindow
+    // ================================================================
+    const FloatingWindow = ({ title, onClose, children, initialPosition }) => {
+      const [pos, setPos] = useState(initialPosition || { x: 50, y: 50 });
+      const [isDragging, setIsDragging] = useState(false);
+      const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+
+      const handleMouseDown = (e) => {
+        setIsDragging(true);
+        setDragOffset({
+          x: e.clientX - pos.x,
+          y: e.clientY - pos.y
+        });
+      };
+
+      const handleMouseMove = (e) => {
+        if (isDragging) {
+          setPos({
+            x: e.clientX - dragOffset.x,
+            y: e.clientY - dragOffset.y
+          });
+        }
+      };
+
+      const handleMouseUp = () => {
+        setIsDragging(false);
+      };
+
+      useEffect(() => {
+        if (isDragging) {
+          window.addEventListener('mousemove', handleMouseMove);
+          window.addEventListener('mouseup', handleMouseUp);
+        } else {
+          window.removeEventListener('mousemove', handleMouseMove);
+          window.removeEventListener('mouseup', handleMouseUp);
+        }
+        return () => {
+          window.removeEventListener('mousemove', handleMouseMove);
+          window.removeEventListener('mouseup', handleMouseUp);
+        };
+      }, [isDragging, dragOffset]);
+
+      return (
+        <div style={{
+          position: 'fixed',
+          left: pos.x,
+          top: pos.y,
+          width: '320px',
+          backgroundColor: 'var(--bg-panel)',
+          border: '1px solid var(--border-color)',
+          borderRadius: '8px',
+          boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+          zIndex: 1000,
+          display: 'flex',
+          flexDirection: 'column',
+          overflow: 'hidden'
+        }}>
+          <div 
+            onMouseDown={handleMouseDown}
+            style={{
+              padding: '8px 12px',
+              backgroundColor: 'var(--primary-color)',
+              color: '#fff',
+              cursor: 'move',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              userSelect: 'none'
+            }}
+          >
+            <span style={{ fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
+            {onClose && (
+              <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '0 4px' }}>
+                <i className="fas fa-times"></i>
+              </button>
+            )}
+          </div>
+          <div style={{ padding: '0', position: 'relative', backgroundColor: '#000', display: 'flex', flexDirection: 'column' }}>
+            {children}
+          </div>
+        </div>
+      );
+    };
+
+    // ================================================================
     // MAIN APP
     // ================================================================
-    const isCentralServer = (id) => id && id.endsWith('-CENTRAL');
-
     const App = () => {
       const [lang, setLang] = useState(() => localStorage.getItem('k10Lang') || 'en');
       const [showTutorial, setShowTutorial] = useState(false);
@@ -2031,6 +2099,7 @@
         }
       }, [cooldownRemaining]);
 
+      const isCentralServer = (id) => id && id.endsWith('-CENTRAL');
       const generateNewId = () => {
         const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
         const buffer = new Uint8Array(9);
@@ -2056,30 +2125,32 @@
       const handleIncomingData = (data, pId) => {
         if (data.type === 'handshake') { if (isCentralServer(pId)) setCentralServerId(pId); return; }
 
-        if (data.type === 'server-info') {
-          if (data.isServer) {
-            setCentralServerId(pId);
-          }
-          return;
-        }
-
         if (data.type === 'e2ee-secret' && data.secret) {
           setE2eeState(prev => ({ ...prev, [pId]: { ...prev[pId], contactSecret: data.secret } }));
+          const name = getContactName(pId);
+          setMessages(prev => [...prev, { text: t(lang, 'e2eeSecretReceived', { name }), sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now(), systemFor: pId }]);
           return;
         }
 
         if (data.type === 'server-e2ee-invite' && data.groupSecret && data.serverId) {
-          // Auto-accept group invite
-          setServerE2EE(prev => ({ ...prev, [data.serverId]: { active: true, groupSecret: data.groupSecret } }));
-          connectToPeer(data.serverId);
+          const name = getContactName(pId);
+          setMessages(prev => [...prev, { 
+            text: t(lang, 'groupInviteReceived', { name, id: data.serverId }), 
+            sender: '__system__', 
+            recipient: 'you', 
+            senderName: 'System', 
+            time: new Date().toLocaleTimeString(), 
+            type: 'text', 
+            direct: true, 
+            timestamp: Date.now(), 
+            systemFor: pId,
+            isInvite: true,
+            inviteData: { serverId: data.serverId, groupSecret: data.groupSecret }
+          }]);
           return;
         }
 
         if (data.type === 'pex' && Array.isArray(data.peers)) {
-          // Se estivermos conectados a um servidor central, não conectar automaticamente a outros peers
-          // para manter a topologia cliente-servidor-cliente.
-          if (centralServerId) return;
-          
           const maxConnections = isSuperNode ? 50 : 15;
           if (peerInstance.current) {
             const activeCount = Object.keys(peerInstance.current.connections).length;
@@ -2360,7 +2431,7 @@
 
       useEffect(() => {
         const iv = setInterval(() => {
-          if (connections.length > 0 && !centralServerId) {
+          if (connections.length > 0) {
             const allKnown = Array.from(new Set([...connections.map(c => c.peer), ...Array.from(knownUsersRef.current)]));
             connections.forEach(conn => {
               if (conn.open) try { conn.send({ type: 'pex', peers: [...allKnown].sort(() => 0.5 - Math.random()).slice(0, isSuperNode ? 100 : 50) }); } catch(e) {}
@@ -2368,7 +2439,7 @@
           }
         }, 30000);
         return () => clearInterval(iv);
-      }, [connections, centralServerId]);
+      }, [connections]);
 
       useEffect(() => {
         const check = () => {
@@ -2856,15 +2927,16 @@
             </div>
           </div>
 
-          {(remoteStreams.length > 0 || isLocalVideoVisible) && (
-            <div className="video-container">
-              {isLocalVideoVisible && <div><div className="video-label">{t(lang, 'you')}</div><video className="local-video-player" ref={localVideoRef} autoPlay muted></video></div>}
-              {remoteStreams.map((sd, idx) => sd.type === 'video' && (
-                <div key={idx}><div className="video-label">{getContactName(sd.peerId)}</div>
-                <video className="video-player" ref={el => videoRefs.current[sd.peerId] = el} autoPlay></video></div>
-              ))}
-            </div>
+          {isLocalVideoVisible && (
+            <FloatingWindow title={t(lang, 'you')} initialPosition={{ x: 20, y: 20 }} onClose={() => setIsLocalVideoVisible(false)}>
+              <video className="local-video-player" ref={localVideoRef} autoPlay muted style={{ display: 'block', width: '100%', height: 'auto' }}></video>
+            </FloatingWindow>
           )}
+          {remoteStreams.map((sd, idx) => sd.type === 'video' && (
+            <FloatingWindow key={sd.peerId} title={getContactName(sd.peerId)} initialPosition={{ x: 40 + (idx * 30), y: 40 + (idx * 30) }} onClose={() => endCall(sd.peerId, 'video')}>
+              <video className="video-player" ref={el => videoRefs.current[sd.peerId] = el} autoPlay style={{ display: 'block', width: '100%', height: 'auto' }}></video>
+            </FloatingWindow>
+          ))}
 
           {activeCalls.map((call, idx) => call.type === 'voice' && (
             <div key={idx} className="audio-call-container">
@@ -2899,6 +2971,7 @@
               cooldownRemaining={cooldownRemaining} setCooldownRemaining={setCooldownRemaining}
               networkSize={networkSize} centralServerId={centralServerId}
               e2eeState={e2eeState} setE2eeState={setE2eeState}
+              isCentralServer={isCentralServer}
               serverE2EE={serverE2EE} setServerE2EE={setServerE2EE} connectToPeer={connectToPeer}
               handleTorrentSeed={handleTorrentSeed} handleTorrentDownload={handleTorrentDownload}
               setShowTorrentManager={setShowTorrentManager}
