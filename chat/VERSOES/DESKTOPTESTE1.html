@@ -109,6 +109,7 @@
     /* VIDEO */
     .video-container { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 14px; }
     .video-player, .local-video-player { width: 280px; height: 210px; background: #0f172a; border-radius: 10px; object-fit: cover; }
+    .floating-window .video-player, .floating-window .local-video-player { width: 100%; height: 100%; border-radius: 0; }
     .local-video-player { border: 2px solid var(--primary); }
     .video-label { font-size: 12px; font-weight: 600; margin-bottom: 4px; color: var(--text-muted); }
     .audio-call-container { background: var(--surface); padding: 12px 16px; border-radius: 10px; margin-bottom: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); display: flex; align-items: center; gap: 12px; }
@@ -1926,14 +1927,33 @@
     // ================================================================
     const FloatingWindow = ({ title, onClose, children, initialPosition }) => {
       const [pos, setPos] = useState(initialPosition || { x: 50, y: 50 });
+      const [size, setSize] = useState({ width: 320, height: 240 });
       const [isDragging, setIsDragging] = useState(false);
+      const [isResizing, setIsResizing] = useState(false);
       const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+      const [resizeStart, setResizeStart] = useState({ x: 0, y: 0, w: 0, h: 0 });
+      const [showSettings, setShowSettings] = useState(false);
+      const [opacity, setOpacity] = useState(1);
+      const [headerColor, setHeaderColor] = useState('#2563eb');
 
       const handleMouseDown = (e) => {
+        if (e.target.closest('.window-controls')) return;
         setIsDragging(true);
         setDragOffset({
           x: e.clientX - pos.x,
           y: e.clientY - pos.y
+        });
+      };
+
+      const handleResizeDown = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsResizing(true);
+        setResizeStart({
+          x: e.clientX,
+          y: e.clientY,
+          w: size.width,
+          h: size.height
         });
       };
 
@@ -1944,14 +1964,23 @@
             y: e.clientY - dragOffset.y
           });
         }
+        if (isResizing) {
+          const dw = e.clientX - resizeStart.x;
+          const dh = e.clientY - resizeStart.y;
+          setSize({
+            width: Math.max(200, resizeStart.w + dw),
+            height: Math.max(150, resizeStart.h + dh)
+          });
+        }
       };
 
       const handleMouseUp = () => {
         setIsDragging(false);
+        setIsResizing(false);
       };
 
       useEffect(() => {
-        if (isDragging) {
+        if (isDragging || isResizing) {
           window.addEventListener('mousemove', handleMouseMove);
           window.addEventListener('mouseup', handleMouseUp);
         } else {
@@ -1962,46 +1991,143 @@
           window.removeEventListener('mousemove', handleMouseMove);
           window.removeEventListener('mouseup', handleMouseUp);
         };
-      }, [isDragging, dragOffset]);
+      }, [isDragging, isResizing, dragOffset, resizeStart]);
 
       return (
-        <div style={{
+        <div className="floating-window" style={{
           position: 'fixed',
           left: pos.x,
           top: pos.y,
-          width: '320px',
-          backgroundColor: 'var(--bg-panel)',
-          border: '1px solid var(--border-color)',
-          borderRadius: '8px',
-          boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+          width: size.width + 'px',
+          height: size.height + 'px',
+          backgroundColor: 'var(--surface)',
+          border: '1px solid var(--border)',
+          borderRadius: '10px',
+          boxShadow: '0 12px 30px rgba(0,0,0,0.3)',
           zIndex: 1000,
           display: 'flex',
           flexDirection: 'column',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          opacity: opacity,
+          transition: 'opacity 0.2s'
         }}>
           <div 
             onMouseDown={handleMouseDown}
             style={{
-              padding: '8px 12px',
-              backgroundColor: 'var(--primary-color)',
+              padding: '10px 14px',
+              backgroundColor: headerColor,
               color: '#fff',
               cursor: 'move',
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'center',
-              userSelect: 'none'
+              userSelect: 'none',
+              flexShrink: 0
             }}
           >
-            <span style={{ fontSize: '14px', fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{title}</span>
-            {onClose && (
-              <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '0 4px' }}>
-                <i className="fas fa-times"></i>
+            <span style={{ fontSize: '13px', fontWeight: '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{title}</span>
+            <div className="window-controls" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button 
+                onClick={() => setShowSettings(!showSettings)} 
+                style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '4px', fontSize: '14px', opacity: 0.8 }}
+                title="Configurações"
+              >
+                <i className="fas fa-cog"></i>
               </button>
+              {onClose && (
+                <button 
+                  onClick={onClose} 
+                  style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '4px', fontSize: '14px' }}
+                  title="Fechar"
+                >
+                  <i className="fas fa-times"></i>
+                </button>
+              )}
+            </div>
+          </div>
+          
+          <div style={{ flex: 1, position: 'relative', backgroundColor: '#000', overflow: 'hidden' }}>
+            {children}
+            
+            {showSettings && (
+              <div style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                backgroundColor: 'rgba(15, 23, 42, 0.95)',
+                color: '#fff',
+                padding: '15px',
+                zIndex: 10,
+                fontSize: '12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid rgba(255,255,255,0.1)', paddingBottom: '8px' }}>
+                  <span style={{ fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Configurações da Janela</span>
+                  <button onClick={() => setShowSettings(false)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer' }}>
+                    <i className="fas fa-times"></i>
+                  </button>
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '5px' }}>
+                  <label style={{ opacity: 0.7 }}>Opacidade: {Math.round(opacity * 100)}%</label>
+                  <input 
+                    type="range" 
+                    min="0.2" 
+                    max="1" 
+                    step="0.1" 
+                    value={opacity} 
+                    onChange={(e) => setOpacity(parseFloat(e.target.value))}
+                    style={{ width: '100%', cursor: 'pointer' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <label style={{ opacity: 0.7 }}>Cor do Cabeçalho:</label>
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    {['#2563eb', '#10b981', '#ef4444', '#f59e0b', '#8b5cf6', '#1e293b'].map(color => (
+                      <div 
+                        key={color}
+                        onClick={() => setHeaderColor(color)}
+                        style={{
+                          width: '24px',
+                          height: '24px',
+                          borderRadius: '50%',
+                          backgroundColor: color,
+                          cursor: 'pointer',
+                          border: headerColor === color ? '2px solid #fff' : '1px solid rgba(255,255,255,0.2)',
+                          boxShadow: headerColor === color ? '0 0 5px rgba(255,255,255,0.5)' : 'none'
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div style={{ marginTop: 'auto', textAlign: 'center', opacity: 0.5, fontSize: '10px' }}>
+                  Arraste o canto inferior direito para redimensionar
+                </div>
+              </div>
             )}
           </div>
-          <div style={{ padding: '0', position: 'relative', backgroundColor: '#000', display: 'flex', flexDirection: 'column' }}>
-            {children}
-          </div>
+
+          {/* Resize handle */}
+          <div 
+            onMouseDown={handleResizeDown}
+            style={{
+              position: 'absolute',
+              bottom: 0,
+              right: 0,
+              width: '15px',
+              height: '15px',
+              cursor: 'nwse-resize',
+              zIndex: 1001,
+              background: 'linear-gradient(135deg, transparent 50%, rgba(255,255,255,0.3) 50%)',
+              borderBottomRightRadius: '10px'
+            }}
+          />
         </div>
       );
     };
@@ -2929,12 +3055,12 @@
 
           {isLocalVideoVisible && (
             <FloatingWindow title={t(lang, 'you')} initialPosition={{ x: 20, y: 20 }} onClose={() => setIsLocalVideoVisible(false)}>
-              <video className="local-video-player" ref={localVideoRef} autoPlay muted style={{ display: 'block', width: '100%', height: 'auto' }}></video>
+              <video className="local-video-player" ref={localVideoRef} autoPlay muted style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>
             </FloatingWindow>
           )}
           {remoteStreams.map((sd, idx) => sd.type === 'video' && (
             <FloatingWindow key={sd.peerId} title={getContactName(sd.peerId)} initialPosition={{ x: 40 + (idx * 30), y: 40 + (idx * 30) }} onClose={() => endCall(sd.peerId, 'video')}>
-              <video className="video-player" ref={el => videoRefs.current[sd.peerId] = el} autoPlay style={{ display: 'block', width: '100%', height: 'auto' }}></video>
+              <video className="video-player" ref={el => videoRefs.current[sd.peerId] = el} autoPlay style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>
             </FloatingWindow>
           ))}
 
