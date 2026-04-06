@@ -2225,7 +2225,7 @@
                     className={`message-bubble ${msg.sender === 'you' ? 'sent' : 'received'}`}
                     style={msg.sender === '__system__' ? { background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', fontSize: '12px', maxWidth: '92%', borderRadius: '10px' } : {}}>
                     {msg.sender !== '__system__' && (
-                      <div className="chat-user-bubble">{msg.sender === 'you' ? (t(lang, 'you') + ' · ' + userName) : getContactName(msg.sender)}</div>
+                      <div className="chat-user-bubble">{msg.sender === 'you' ? (t(lang, 'you') + ' · ' + userName) : (msg.senderName || getContactName(msg.sender))}</div>
                     )}
                     {msg.type === 'text' ? (
                       msg.text && msg.text.includes('🧲 TORRENT:') ? (
@@ -2614,6 +2614,14 @@
       useEffect(() => { radioStateRef.current = radioState; }, [radioState]);
 
       useEffect(() => {
+        if (!centralServerId) {
+          setNetworkSize(connections.length + 1);
+        } else {
+          setNetworkSize(prev => Math.max(prev, connections.length + 1));
+        }
+      }, [connections.length, centralServerId]);
+
+      useEffect(() => {
         if (cooldownRemaining > 0) {
           const timer = setTimeout(() => setCooldownRemaining(prev => prev - 1), 1000);
           return () => clearTimeout(timer);
@@ -2645,7 +2653,7 @@
 
       const handleIncomingData = (data, pId) => {
         if (data.type === 'network-stats' && data.totalOnline !== undefined) {
-          setNetworkSize(data.totalOnline);
+          setNetworkSize(prev => Math.max(data.totalOnline, connections.length + 1));
           // Relay stats to other peers to spread the info
           let ttl = data.ttl !== undefined ? data.ttl : 5;
           if (ttl > 0) {
@@ -2777,7 +2785,10 @@
 
         if (data.type === 'message' && data.id) {
           if (data.sender) {
-            if (!knownUsersRef.current.has(data.sender)) { knownUsersRef.current.add(data.sender); setNetworkSize(knownUsersRef.current.size); }
+            if (!knownUsersRef.current.has(data.sender)) { 
+              knownUsersRef.current.add(data.sender); 
+              setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1)); 
+            }
             const now = Date.now(), lastTime = lastMessageTimeRef.current.get(data.sender) || 0;
             const requiredMs = Math.max(500, Math.floor(knownUsersRef.current.size / 1000)) * 1000;
             if (now - lastTime < requiredMs) {
@@ -2879,7 +2890,15 @@
             }
           }, 10000);
 
-          conn.on('open', () => { clearTimeout(timeoutId); setConnections(prev => [...prev.filter(c => c.peer !== peerIdToConnect), conn]); sendHandshake(conn); });
+          conn.on('open', () => { 
+            clearTimeout(timeoutId); 
+            setConnections(prev => [...prev.filter(c => c.peer !== peerIdToConnect), conn]); 
+            sendHandshake(conn); 
+            if (!knownUsersRef.current.has(peerIdToConnect)) {
+              knownUsersRef.current.add(peerIdToConnect);
+              setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
+            }
+          });
           conn.on('error', err => { clearTimeout(timeoutId); setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)); alert(t(lang, 'connectFailed') + (err.message || 'Contact offline')); });
           conn.on('close', () => { clearTimeout(timeoutId); setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)); });
           conn.on('data', data => handleIncomingData(data, peerIdToConnect));
@@ -2937,7 +2956,14 @@
           if (bannedPeersRef.current.has(conn.peer)) { setTimeout(() => conn.close(), 500); return; }
           const maxConns = isSuperNode ? 50 : 15;
           if (connections.length >= maxConns) { setTimeout(() => conn.close(), 500); return; }
-          conn.on('open', () => { setConnections(prev => [...prev.filter(c => c.peer !== conn.peer), conn]); sendHandshake(conn); });
+          conn.on('open', () => { 
+            setConnections(prev => [...prev.filter(c => c.peer !== conn.peer), conn]); 
+            sendHandshake(conn); 
+            if (!knownUsersRef.current.has(conn.peer)) {
+              knownUsersRef.current.add(conn.peer);
+              setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
+            }
+          });
           conn.on('data', data => handleIncomingData(data, conn.peer));
           conn.on('close', () => { setConnections(prev => prev.filter(c => c.peer !== conn.peer)); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); });
           conn.on('error', () => { setConnections(prev => prev.filter(c => c.peer !== conn.peer)); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); });
