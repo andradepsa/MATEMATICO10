@@ -310,6 +310,9 @@
         privateMsg: "🔒 Private message to {name}...",
         groupMsg: "🛡️ Group encrypted message to {name}...",
         regularMsg: "Message to {name}...",
+        generalMsg: "Message to General Web...",
+        generalChatWelcome: "Welcome to the General Web! Messages here are sent to everyone.",
+        noConnectionsGeneral: "Waiting for connections to join the Web...",
         voiceCall: "Voice call",
         endVoiceCall: "End voice call",
         camera: "Camera",
@@ -454,6 +457,9 @@
         privateMsg: "🔒 Mensagem privada para {name}...",
         groupMsg: "🛡️ Mensagem criptografada no grupo {name}...",
         regularMsg: "Mensagem para {name}...",
+        generalMsg: "Mensagem para a Teia Geral...",
+        generalChatWelcome: "Bem-vindo à Teia Geral! Mensagens aqui são enviadas para todos.",
+        noConnectionsGeneral: "Aguardando conexões para entrar na Teia...",
         voiceCall: "Chamada de voz",
         endVoiceCall: "Encerrar voz",
         camera: "Câmera",
@@ -1690,7 +1696,9 @@
       const serverGroupActive = selectedIsServer && serverE2EE[selectedContact]?.active;
 
       const filteredMessages = useMemo(() => {
-        if (!selectedContact) return [];
+        if (!selectedContact) {
+          return messages.filter(msg => !msg.recipient || msg.recipient === 'general');
+        }
         const isSrv = isCentralServer(selectedContact);
         return messages.filter(msg =>
           (msg.sender === selectedContact && msg.recipient === 'you') ||
@@ -1821,10 +1829,14 @@
 
       const sendDirectMessage = async () => {
         if (!userName.trim()) { alert(t(lang, 'pleaseSetName')); return; }
-        if (!newMessage.trim() || !selectedContact || cooldownRemaining > 0 || isSending) return;
+        if (!newMessage.trim() || cooldownRemaining > 0 || isSending) return;
         
-        const conn = connections.find(c => c.peer === selectedContact);
-        if (!conn || !conn.open) { alert(t(lang, 'contactOffline', { name: getContactName(selectedContact) })); return; }
+        if (selectedContact) {
+          const conn = connections.find(c => c.peer === selectedContact);
+          if (!conn || !conn.open) { alert(t(lang, 'contactOffline', { name: getContactName(selectedContact) })); return; }
+        } else if (connections.length === 0) {
+          return;
+        }
         
         setIsSending(true);
         const currentCooldown = Math.max(1, Math.floor(networkSize / 1000));
@@ -1835,14 +1847,23 @@
           const msgId = Date.now() + Math.random().toString(36).substring(7);
           if (registerSentMessage) registerSentMessage(msgId);
           let textToSend = newMessage;
-          if (selectedIsServer && serverGroupActive) {
-            textToSend = GROUP_E2EE_PREFIX + await encryptMsg(newMessage, serverE2EE[selectedContact].groupSecret);
-          } else if (!selectedIsServer && canSendPrivate) {
-            textToSend = E2EE_PREFIX + await encryptMsg(newMessage, e2eeState[selectedContact].mySecret);
+          
+          if (selectedContact) {
+            if (selectedIsServer && serverGroupActive) {
+              textToSend = GROUP_E2EE_PREFIX + await encryptMsg(newMessage, serverE2EE[selectedContact].groupSecret);
+            } else if (!selectedIsServer && canSendPrivate) {
+              textToSend = E2EE_PREFIX + await encryptMsg(newMessage, e2eeState[selectedContact].mySecret);
+            }
+            const conn = connections.find(c => c.peer === selectedContact);
+            conn.send({ type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: true, time: formatTime(timestamp) });
+            const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
+            setMessages(prev => { const updated = [...prev, newMsgObj]; localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
+          } else {
+            const msgData = { type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: false, time: formatTime(timestamp) };
+            connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
+            const newMsgObj = { text: textToSend, sender: 'you', recipient: 'general', senderName: userName, time: formatTime(timestamp), type: 'text', direct: false, timestamp: timestamp.getTime() };
+            setMessages(prev => { const updated = [...prev, newMsgObj]; localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
           }
-          conn.send({ type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: true, time: formatTime(timestamp) });
-          const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
-          setMessages(prev => { const updated = [...prev, newMsgObj]; localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
           setNewMessage('');
         } catch (err) { alert(t(lang, 'sendError') + err.message); }
         finally { setIsSending(false); }
@@ -1897,7 +1918,7 @@
       }, [remoteStreams]);
 
       const getInputStatus = () => {
-        if (!selectedContact) return { placeholder: t(lang, 'selectContact'), style: {} };
+        if (!selectedContact) return { placeholder: t(lang, 'generalMsg'), style: {} };
         if (cooldownRemaining > 0) return { placeholder: t(lang, 'waitCooldown', { s: cooldownRemaining }), style: {} };
         if (selectedIsServer && serverGroupActive)
           return { placeholder: t(lang, 'groupMsg', { name: getContactName(selectedContact) }), style: { borderColor: '#3b82f6', boxShadow: '0 0 0 2px rgba(59,130,246,0.2)' } };
@@ -1928,7 +1949,7 @@
                   <i className="fas fa-magnet"></i>
                 </button>
               </div>
-              {connections.length === 0 && <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center' }}>{t(lang, 'selectContactToChat')}</div>}
+              {connections.length === 0 && <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center' }}>{t(lang, 'noConnectionsGeneral')}</div>}
               {connections.map((conn, i) => {
                 const isSelected = selectedContact === conn.peer;
                 const hasVoice = activeCalls.some(c => c.peerId === conn.peer && c.type === 'voice');
@@ -1939,7 +1960,7 @@
                 const srvGrpActive = isServer && serverE2EE[conn.peer]?.active;
                 return (
                   <div key={i} className={`conversation-item${isSelected ? ' selected' : ''}${conn.peer === centralServerId ? ' central-server' : ''}`}
-                    onClick={() => setSelectedContact(conn.peer)}>
+                    onClick={() => setSelectedContact(isSelected ? null : conn.peer)}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <div>
                         <div className="conversation-name">
@@ -2001,7 +2022,7 @@
               <div className="chat-messages" ref={messagesContainerRef}>
                 {filteredMessages.length === 0 && (
                   <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px', marginTop: '40px' }}>
-                    {selectedContact ? t(lang, 'noMessages') : t(lang, 'selectContactToChat')}
+                    {selectedContact ? t(lang, 'noMessages') : (connections.length === 0 ? t(lang, 'noConnectionsGeneral') : t(lang, 'generalChatWelcome'))}
                   </div>
                 )}
                 {filteredMessages.map((msg, i) => {
@@ -2082,15 +2103,15 @@
                   <input type="text" value={newMessage}
                     onChange={e => setNewMessage(e.target.value)}
                     placeholder={inputStatus.placeholder}
-                    onKeyPress={e => { if (e.key === 'Enter' && selectedContact && cooldownRemaining === 0) sendDirectMessage(); }}
+                    onKeyPress={e => { if (e.key === 'Enter' && cooldownRemaining === 0) sendDirectMessage(); }}
                     className="message-input"
-                    disabled={!selectedContact || cooldownRemaining > 0}
+                    disabled={cooldownRemaining > 0 || (selectedContact ? !connections.some(c => c.peer === selectedContact) : connections.length === 0)}
                     style={inputStatus.style}
                   />
                   {showEmojiPanel && populateEmojiPanel()}
                 </div>
                 <button className="send-btn" onClick={sendDirectMessage}
-                  disabled={!newMessage.trim() || !selectedContact || !connections.some(c => c.peer === selectedContact) || cooldownRemaining > 0 || isSending}
+                  disabled={!newMessage.trim() || cooldownRemaining > 0 || isSending || (selectedContact ? !connections.some(c => c.peer === selectedContact) : connections.length === 0)}
                   title={t(lang, 'sendMessage')}>
                   {isSending ? <i className="fas fa-spinner fa-spin"></i> : (cooldownRemaining > 0 ? `${cooldownRemaining}s` : <i className="fas fa-paper-plane"></i>)}
                 </button>
@@ -2563,7 +2584,7 @@
           time: messageTime, 
           direct: data.direct || false, 
           timestamp, 
-          recipient: data.direct ? 'you' : (isFromSrv ? pId : undefined) 
+          recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general') 
         };
         let messageToAdd = null;
 
