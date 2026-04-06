@@ -2769,7 +2769,7 @@
             data.peers.forEach(newPId => {
               const activeCount = Object.keys(peerInstance.current.connections).length;
               if (activeCount < maxConnections && newPId !== peerId && !peerInstance.current.connections[newPId] && !bannedPeersRef.current.has(newPId)) {
-                setTimeout(() => connectToPeer(newPId), Math.random() * 3000); // Random delay to prevent connection storms
+                setTimeout(() => connectToPeer(newPId, true), Math.random() * 3000); // Random delay to prevent connection storms
               }
             });
           }
@@ -2811,7 +2811,7 @@
             if (activeCount < maxConnections) {
               data.peers.forEach(newPId => {
                 if (newPId !== peerId && !peerInstance.current.connections[newPId] && !bannedPeersRef.current.has(newPId)) {
-                  setTimeout(() => connectToPeer(newPId), 2000);
+                  setTimeout(() => connectToPeer(newPId, true), 2000);
                 }
               });
             }
@@ -2986,7 +2986,7 @@
         }
       };
 
-      const connectToPeer = (peerIdToConnect) => {
+      const connectToPeer = (peerIdToConnect, silent = false) => {
         if (!peerIdToConnect || !peerInstance.current || !isPeerInitialized) return;
         if (bannedPeersRef.current.has(peerIdToConnect)) return;
         if (connections.some(c => c.peer === peerIdToConnect && c.open)) return;
@@ -2998,7 +2998,7 @@
             if (conn && !conn.open) {
               console.warn(`Connection to ${peerIdToConnect} timed out. Closing attempt.`);
               conn.close();
-              setMessages(prev => [...prev, { text: `⚠️ ${t(lang, 'connectionFailed')} ${peerIdToConnect} (Timeout)`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
+              if (!silent) setMessages(prev => [...prev, { text: `⚠️ ${t(lang, 'connectionFailed')} ${peerIdToConnect} (Timeout)`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
             }
           }, 10000);
 
@@ -3011,10 +3011,16 @@
               setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
             }
           });
-          conn.on('error', err => { clearTimeout(timeoutId); setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)); alert(t(lang, 'connectFailed') + (err.message || 'Contact offline')); });
+          conn.on('error', err => { 
+            clearTimeout(timeoutId); 
+            setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)); 
+            if (!silent) alert(t(lang, 'connectFailed') + (err.message || 'Contact offline')); 
+          });
           conn.on('close', () => { clearTimeout(timeoutId); setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)); });
           conn.on('data', data => handleIncomingData(data, peerIdToConnect));
-        } catch (err) { alert(t(lang, 'connectError') + err.message); }
+        } catch (err) { 
+          if (!silent) alert(t(lang, 'connectError') + err.message); 
+        }
       };
 
       useEffect(() => {
@@ -3147,6 +3153,9 @@
                 tempConn.on('open', () => {
                   try { tempConn.send(heartbeatMsg); } catch(e) {}
                   setTimeout(() => tempConn.close(), 2000);
+                });
+                tempConn.on('error', () => {
+                  // Ignore heartbeat connection errors
                 });
               }
             }
@@ -3752,7 +3761,7 @@
             <ContactsScreen lang={lang} contacts={contacts} setContacts={setContacts} onBack={() => setShowContacts(false)}
               onSelectContact={(pId) => { connectToPeer(pId); setSelectedContact(pId); setShowContacts(false); }} />
           ) : (
-            <ChatManagera
+            <ChatManager
               lang={lang}
               connections={connections} messages={messages} setMessages={setMessages}
               contacts={contacts} userName={userName} peerId={peerId}
