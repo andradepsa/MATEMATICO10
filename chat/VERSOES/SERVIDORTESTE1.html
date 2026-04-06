@@ -304,6 +304,9 @@
       });
       // New state to control the mode
       const [pureServerMode, setPureServerMode] = useState(true);
+      const [youtubeChatId, setYoutubeChatId] = useState(null);
+      const youtubeChatIdRef = useRef(null);
+      useEffect(() => { youtubeChatIdRef.current = youtubeChatId; }, [youtubeChatId]);
       const radioStateRef = useRef({ status: 'idle', startTime: 0, duration: 0 });
       
       const peerInstance = useRef(null);
@@ -578,12 +581,14 @@
         else if (data.type === 'file-start' || data.type === 'file-chunk') {
           console.log("Bloqueado: O servidor agora só repassa mensagens de texto, emojis, torrents e áudio para proteger a banda da rede.");
         }
-        else if (data.type === 'e2ee-secret' || data.type === 'server-e2ee-invite' || data.type === 'youtube-cam-start' || data.type === 'youtube-cam-stop') {
-           // Relay para segredos E2EE e YouTube Cam
+        else if (data.type === 'e2ee-secret' || data.type === 'server-e2ee-invite' || data.type === 'youtube-cam-start' || data.type === 'youtube-cam-stop' || data.type === 'youtube-chat-start' || data.type === 'youtube-chat-stop') {
+           // Relay para segredos E2EE, YouTube Cam e YouTube Chat
            if (data.id) {
              if (seenMessagesRef.current.has(data.id)) return;
              seenMessagesRef.current.add(data.id);
            }
+           if (data.type === 'youtube-chat-start') setYoutubeChatId(data.youtubeId);
+           if (data.type === 'youtube-chat-stop') setYoutubeChatId(null);
            distributeMessage(data, sourceConn.peer);
         }
       };
@@ -697,6 +702,9 @@
           // Always send handshake from server so clients know it's a central server
           try {
             conn.send({ type: 'handshake', peerId });
+            if (youtubeChatIdRef.current) {
+              conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
+            }
           } catch (e) {}
 
           // Here is the critical change to ensure we operate in pure server mode:
@@ -763,6 +771,32 @@
         conn.on('error', (err) => {
           console.error(`Erro na conexão com ${conn.peer}:`, err);
         });
+      };
+
+      const broadcastYoutubeChat = () => {
+        const url = prompt('Digite a URL do YouTube Live para o Chat:');
+        if (!url) return;
+        let yId = null;
+        try {
+          let parsedUrl = url;
+          if (!parsedUrl.startsWith('http')) parsedUrl = 'https://' + parsedUrl;
+          if (parsedUrl.includes('youtu.be/')) yId = parsedUrl.split('youtu.be/')[1].split('?')[0];
+          else if (parsedUrl.includes('youtube.com/watch')) yId = new URL(parsedUrl).searchParams.get('v');
+          else if (parsedUrl.includes('youtube.com/live/')) yId = parsedUrl.split('youtube.com/live/')[1].split('?')[0];
+        } catch (e) {}
+        if (!yId) { alert('URL do YouTube inválida'); return; }
+        
+        setYoutubeChatId(yId);
+        const msgId = Date.now() + Math.random().toString(36).substring(7);
+        const msgData = { type: 'youtube-chat-start', id: msgId, youtubeId: yId, ttl: 15 };
+        activeConnectionsRef.current.forEach(c => { try { c.send(msgData); } catch(e){} });
+      };
+
+      const stopYoutubeChat = () => {
+        setYoutubeChatId(null);
+        const msgId = Date.now() + Math.random().toString(36).substring(7);
+        const msgData = { type: 'youtube-chat-stop', id: msgId, ttl: 15 };
+        activeConnectionsRef.current.forEach(c => { try { c.send(msgData); } catch(e){} });
       };
 
       return (
@@ -838,23 +872,35 @@
           
           {/* New component for controlling server mode */}
           <div className="server-mode-container">
-            <strong>Modo Servidor Puro:</strong>
-            <input 
-              type="checkbox" 
-              checked={pureServerMode} 
-              onChange={(e) => {
-                setPureServerMode(e.target.checked);
-                // If we're changing mode while connected, it's best to disconnect and reconnect
-                if (connectionStatus === 'conectado') {
-                  disconnectPeer();
-                  setTimeout(setupPeer, 500);
-                }
-              }} 
-              id="serverModeCheckbox"
-            />
-            <label htmlFor="serverModeCheckbox">
-              Ativar modo servidor puro (impede que clientes se conectem entre si)
-            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+              <strong>Modo Servidor Puro:</strong>
+              <input 
+                type="checkbox" 
+                checked={pureServerMode} 
+                onChange={(e) => {
+                  setPureServerMode(e.target.checked);
+                  // If we're changing mode while connected, it's best to disconnect and reconnect
+                  if (connectionStatus === 'conectado') {
+                    disconnectPeer();
+                    setTimeout(setupPeer, 500);
+                  }
+                }} 
+                id="serverModeCheckbox"
+              />
+              <label htmlFor="serverModeCheckbox">
+                Ativar modo servidor puro
+              </label>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={broadcastYoutubeChat} style={{ backgroundColor: '#eab308' }}>
+                <i className="fab fa-youtube"></i> Iniciar Chat YT
+              </button>
+              {youtubeChatId && (
+                <button onClick={stopYoutubeChat} style={{ backgroundColor: '#ef4444' }}>
+                  <i className="fas fa-times"></i> Parar Chat YT
+                </button>
+              )}
+            </div>
           </div>
           
           <div className="distribution-stats">
