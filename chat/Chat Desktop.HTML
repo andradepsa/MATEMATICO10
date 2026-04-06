@@ -347,7 +347,6 @@
         sendMessage: "Send message",
         selectContact: "Select a contact...",
         waitCooldown: "Wait {s}s...",
-        messageTooLong: "Message exceeds the 500-character limit.",
         privateMsg: "🔒 Private message to {name}...",
         groupMsg: "🛡️ Group encrypted message to {name}...",
         regularMsg: "Message to {name}...",
@@ -648,7 +647,6 @@
         noTorrents: "Nenhum torrent ativo.",
         torrentStarted: "Torrent iniciado: {name}",
         torrentError: "Erro no torrent: ",
-        messageTooLong: "A mensagem excede o limite de 500 caracteres.",
         copyMagnet: "Copiar Magnet Link",
         magnetCopied: "Magnet link copiado!",
         stopTorrent: "Parar e Remover",
@@ -2114,7 +2112,6 @@
           const msgId = Date.now() + Math.random().toString(36).substring(7);
           if (registerSentMessage) registerSentMessage(msgId);
           let textToSend = newMessage;
-          if (newMessage.length > 500) { alert(t(lang, 'messageTooLong') || 'Message too long (max 500 characters)'); return; }
           
           if (selectedContact) {
             if (selectedIsServer && serverGroupActive) {
@@ -2125,12 +2122,12 @@
             const conn = connections.find(c => c.peer === selectedContact);
             conn.send({ type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: true, time: formatTime(timestamp) });
             const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
-            setMessages(prev => { const updated = [...prev, newMsgObj].slice(-50); return updated; });
+            setMessages(prev => { const updated = [...prev, newMsgObj]; localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
           } else {
             const msgData = { type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: false, time: formatTime(timestamp) };
             connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
             const newMsgObj = { text: textToSend, sender: 'you', recipient: 'general', senderName: userName, time: formatTime(timestamp), type: 'text', direct: false, timestamp: timestamp.getTime() };
-            setMessages(prev => { const updated = [...prev, newMsgObj].slice(-50); return updated; });
+            setMessages(prev => { const updated = [...prev, newMsgObj]; localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
           }
           setNewMessage('');
         } catch (err) { alert(t(lang, 'sendError') + err.message); }
@@ -2147,10 +2144,10 @@
         setServerE2EE(prev => { const u = { ...prev }; delete u[srvId]; return u; });
       };
       const deleteMessage = (ts) => {
-        setMessages(prev => { const u = prev.filter(m => m.timestamp !== ts); return u; });
+        setMessages(prev => { const u = prev.filter(m => m.timestamp !== ts); localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(u)); return u; });
       };
       const deleteMessagesByContact = (pId) => {
-        setMessages(prev => { const u = prev.filter(m => !((m.sender === pId && m.recipient === 'you') || (m.sender === 'you' && m.recipient === pId) || m.systemFor === pId)); return u; });
+        setMessages(prev => { const u = prev.filter(m => !((m.sender === pId && m.recipient === 'you') || (m.sender === 'you' && m.recipient === pId) || m.systemFor === pId)); localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(u)); return u; });
       };
 
       const scrollToBottom = (behavior = "smooth", force = false) => {
@@ -2249,14 +2246,9 @@
                         ? <button onClick={e => { e.stopPropagation(); endCall(conn.peer, 'voice'); }} className="call-btn" style={{ background: '#ef4444' }} title={t(lang, 'endVoiceCall')}><i className="fas fa-phone-slash"></i></button>
                         : <button onClick={e => { e.stopPropagation(); startVoiceCall(conn.peer); }} className="call-btn" style={{ background: '#22c55e' }} title={t(lang, 'voiceCall')}><i className="fas fa-phone"></i></button>)}
                       {!isServer && (
-                        <>
-                          <button onClick={e => { e.stopPropagation(); toggleVideoCall(conn.peer); }} className="call-btn" style={{ background: hasVideo ? '#ef4444' : '#22c55e' }} title={hasVideo ? t(lang, 'stopCamera') : t(lang, 'camera')}>
-                            <i className={`fas ${hasVideo ? 'fa-video-slash' : 'fa-video'}`}></i>
-                          </button>
-                          <button onClick={e => { e.stopPropagation(); toggleYoutubeCam(); }} className="call-btn" style={{ background: youtubeCams['local'] ? '#ef4444' : '#eab308' }} title={youtubeCams['local'] ? 'Stop YouTube Camera' : 'Broadcast YouTube Camera'}>
-                            <i className="fab fa-youtube"></i>
-                          </button>
-                        </>
+                        <button onClick={e => { e.stopPropagation(); toggleVideoCall(conn.peer); }} className="call-btn" style={{ background: hasVideo ? '#ef4444' : '#22c55e' }} title={hasVideo ? t(lang, 'stopCamera') : t(lang, 'camera')}>
+                          <i className={`fas ${hasVideo ? 'fa-video-slash' : 'fa-video'}`}></i>
+                        </button>
                       )}
                       {isServer && (
                         <button className={`server-e2ee-btn ${srvGrpActive ? 'active' : 'inactive'}`}
@@ -2609,7 +2601,7 @@
     // MAIN APP
     // ================================================================
     const App = () => {
-      const [lang, setLang] = useState('en');
+      const [lang, setLang] = useState(() => localStorage.getItem('k10Lang') || 'en');
       const [showTutorial, setShowTutorial] = useState(false);
       const [showGeneralModeInfo, setShowGeneralModeInfo] = useState(false);
 
@@ -2620,37 +2612,35 @@
       const toggleDarkMode = () => {
         document.body.classList.toggle('dark-mode');
         const isDark = document.body.classList.contains('dark-mode');
-        // localStorage.setItem('modo', isDark ? 'dark' : 'light');
+        localStorage.setItem('modo', isDark ? 'dark' : 'light');
       };
 
       const toggleLang = () => {
         const newLang = lang === 'en' ? 'pt' : 'en';
         setLang(newLang);
+        localStorage.setItem('k10Lang', newLang);
       };
 
       const [peerId, setPeerId] = usePersistentId();
       const [userName, setUserName] = useState(() => localStorage.getItem('p2pUserName') || '');
       const [editingName, setEditingName] = useState(!localStorage.getItem('p2pUserName'));
       const [connections, setConnections] = useState([]);
-      const [messages, setMessages] = useState([]);
+      const [messages, setMessages] = useState(() => {
+        const saved = localStorage.getItem(MESSAGES_STORAGE_KEY);
+        try { const parsed = saved ? JSON.parse(saved) : []; return parsed.map((msg, i) => ({ ...msg, timestamp: msg.timestamp || Date.now() + i })); }
+        catch { localStorage.removeItem(MESSAGES_STORAGE_KEY); return []; }
+      });
       const [newMessage, setNewMessage] = useState('');
       const [showContacts, setShowContacts] = useState(false);
-      const [contacts, setContacts] = useState(() => { 
-        try { 
-          const saved = localStorage.getItem('p2pContacts');
-          if (saved) return JSON.parse(saved);
-          return [{ name: 'Servidor Padrão', peerId: 'k10-CENTRAL' }];
-        } catch { return [{ name: 'Servidor Padrão', peerId: 'k10-CENTRAL' }]; } 
-      });
+      const [contacts, setContacts] = useState(() => { try { return JSON.parse(localStorage.getItem('p2pContacts') || '[]'); } catch { return []; } });
       const [activeCalls, setActiveCalls] = useState([]);
       const [remoteStreams, setRemoteStreams] = useState([]);
-      const [youtubeCams, setYoutubeCams] = useState({});
       const [error, setError] = useState(null);
       const [isLocalVideoVisible, setIsLocalVideoVisible] = useState(false);
       const [showEmojiPanel, setShowEmojiPanel] = useState(false);
       const [selectedContact, setSelectedContact] = useState(null);
       const [isPeerInitialized, setIsPeerInitialized] = useState(false);
-      const [centralServerId, setCentralServerId] = useState('k10-CENTRAL');
+      const [centralServerId, setCentralServerId] = useState(null);
       const [cooldownRemaining, setCooldownRemaining] = useState(0);
       const [networkSize, setNetworkSize] = useState(1);
       const [isSuperNode, setIsSuperNode] = useState(false);
@@ -2865,24 +2855,6 @@
           return;
         }
 
-        if (data.type === 'youtube-cam-start') {
-          if (seenMessagesRef.current.has(data.id)) return;
-          seenMessagesRef.current.add(data.id);
-          let ttl = data.ttl !== undefined ? data.ttl : 8;
-          if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
-          setYoutubeCams(prev => ({ ...prev, [data.senderPeerId]: { youtubeId: data.youtubeId, senderName: data.senderName } }));
-          return;
-        }
-
-        if (data.type === 'youtube-cam-stop') {
-          if (seenMessagesRef.current.has(data.id)) return;
-          seenMessagesRef.current.add(data.id);
-          let ttl = data.ttl !== undefined ? data.ttl : 8;
-          if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
-          setYoutubeCams(prev => { const next = { ...prev }; delete next[data.senderPeerId]; return next; });
-          return;
-        }
-
         if (data.type === 'message' && data.id) {
           if (data.sender) {
             if (!knownUsersRef.current.has(data.sender)) { 
@@ -2962,7 +2934,7 @@
         }
 
         if (messageToAdd) {
-          setMessages(prev => { const updated = [...prev, messageToAdd].slice(-50); return updated; });
+          setMessages(prev => { const updated = [...prev, messageToAdd]; if (messageToAdd.type === 'text' || messageToAdd.receiving) localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
         }
       };
 
@@ -3404,7 +3376,7 @@
         const timestamp = new Date(), formattedTime = formatTime(timestamp);
         const isFile = typePrefix === 'file';
         const localUrl = URL.createObjectURL(dataBlob);
-        setMessages(prev => { const msg = { ...metaData, [idKey]: id, sender: 'you', recipient: conn.peer, senderName: userName, time: formattedTime, type: isFile ? 'file' : 'audio', sending: true, progress: 0, direct: true, timestamp: timestamp.getTime(), [isFile ? 'fileData' : 'audioData']: localUrl }; const updated = [...prev, msg].slice(-50); return updated; });
+        setMessages(prev => { const msg = { ...metaData, [idKey]: id, sender: 'you', recipient: conn.peer, senderName: userName, time: formattedTime, type: isFile ? 'file' : 'audio', sending: true, progress: 0, direct: true, timestamp: timestamp.getTime(), [isFile ? 'fileData' : 'audioData']: localUrl }; const updated = [...prev, msg]; localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
         try { conn.send({ type: `${typePrefix}-start`, [idKey]: id, [isFile ? 'fileSize' : 'audioSize']: dataBlob.size, senderName: userName, time: formattedTime, direct: true, timestamp: timestamp.getTime(), ...(isFile && { fileName: metaData.fileName, fileType: dataBlob.type }) }); }
         catch (err) { alert(t(lang, 'sendError') + err.message); setMessages(prev => prev.filter(m => m[idKey] !== id)); return; }
         const readChunk = () => { const chunk = dataBlob.slice(offset, offset + CHUNK_SIZE); reader.readAsArrayBuffer(chunk); };
@@ -3416,7 +3388,7 @@
             const progress = Math.min(100, Math.floor((offset / dataBlob.size) * 100));
             setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, progress } : m));
             if (offset < dataBlob.size) requestAnimationFrame(readChunk);
-            else setMessages(prev => { const updated = prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: 100 } : m); return updated; });
+            else setMessages(prev => { const updated = prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: 100 } : m); localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
           } catch (err) { alert(t(lang, 'sendingError') + err.message); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); }
         };
         reader.onerror = () => { alert(t(lang, 'fileReadError')); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); };
@@ -3469,33 +3441,6 @@
             call.on('close', () => endCall(peerIdToCall, 'video'));
             call.on('error', err => { alert(t(lang, 'videoError') + err.message); endCall(peerIdToCall, 'video'); });
           } catch (err) { alert(t(lang, 'cameraError') + err.message); }
-        }
-      };
-
-      const toggleYoutubeCam = (targetPeer) => {
-        const isSending = youtubeCams['local'];
-        if (isSending) {
-          // Stop sending
-          setYoutubeCams(prev => { const next = { ...prev }; delete next['local']; return next; });
-          const msgId = Date.now() + Math.random().toString(36).substring(7);
-          const msgData = { type: 'youtube-cam-stop', id: msgId, senderPeerId: peerId, senderName: userName, ttl: 15 };
-          connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
-        } else {
-          // Start sending
-          const url = prompt(t(lang, 'enterYoutubeUrl') || 'Enter YouTube Live URL:');
-          if (!url) return;
-          let youtubeId = null;
-          try {
-            if (url.includes('youtu.be/')) youtubeId = url.split('youtu.be/')[1].split('?')[0];
-            else if (url.includes('youtube.com/watch')) youtubeId = new URL(url).searchParams.get('v');
-            else if (url.includes('youtube.com/live/')) youtubeId = url.split('youtube.com/live/')[1].split('?')[0];
-          } catch (e) {}
-          if (!youtubeId) { alert(t(lang, 'invalidYoutubeUrl') || 'Invalid YouTube URL'); return; }
-          
-          setYoutubeCams(prev => ({ ...prev, ['local']: { youtubeId, senderName: userName } }));
-          const msgId = Date.now() + Math.random().toString(36).substring(7);
-          const msgData = { type: 'youtube-cam-start', id: msgId, youtubeId, senderPeerId: peerId, senderName: userName, ttl: 15 };
-          connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
         }
       };
 
@@ -3698,22 +3643,6 @@
           {remoteStreams.map((sd, idx) => sd.type === 'video' && (
             <FloatingWindow key={sd.peerId} title={getContactName(sd.peerId)} initialPosition={{ x: 40 + (idx * 30), y: 40 + (idx * 30) }} onClose={() => endCall(sd.peerId, 'video')}>
               <video className="video-player" ref={el => videoRefs.current[sd.peerId] = el} autoPlay style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>
-            </FloatingWindow>
-          ))}
-          {Object.entries(youtubeCams).map(([pId, cam], idx) => (
-            <FloatingWindow key={`ytcam-${pId}`} title={pId === 'local' ? t(lang, 'you') : cam.senderName} initialPosition={{ x: 60 + (idx * 30), y: 60 + (idx * 30) }} onClose={() => {
-              if (pId === 'local') toggleYoutubeCam();
-              else setYoutubeCams(prev => { const next = { ...prev }; delete next[pId]; return next; });
-            }}>
-              <iframe 
-                width="100%" 
-                height="100%" 
-                src={`https://www.youtube.com/embed/${cam.youtubeId}?autoplay=1&mute=${pId === 'local' ? '1' : '0'}`} 
-                frameBorder="0" 
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                allowFullScreen
-                style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}
-              ></iframe>
             </FloatingWindow>
           ))}
 
