@@ -1,0 +1,1039 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Servidor K10 - Distribuidor</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    #root {
+      max-width: 800px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .peer-id-container {
+      display: flex;
+      align-items: center;
+      margin-bottom: 10px;
+      padding: 10px;
+      background: #f8f9fa;
+      border-radius: 5px;
+    }
+    .message {
+      margin-bottom: 10px;
+      padding: 10px;
+      border-radius: 5px;
+    }
+    .message.you {
+      background-color: #e3f2fd;
+      margin-left: 20%;
+    }
+    .message.other {
+      background-color: #f1f1f1;
+      margin-right: 20%;
+    }
+    .file-link {
+      color: #1976d2;
+      text-decoration: none;
+      font-weight: bold;
+    }
+    .progress-container {
+      margin-top: 5px;
+    }
+    .progress-bar {
+      height: 5px;
+      background: #ddd;
+      border-radius: 3px;
+      overflow: hidden;
+    }
+    .progress {
+      height: 100%;
+      background: #4CAF50;
+      width: 0%;
+      transition: width 0.3s ease;
+    }
+    .connected-peers {
+      margin-top: 10px;
+      padding: 10px;
+      background: #f9f9f9;
+      border-radius: 4px;
+    }
+    .peer-item {
+      margin: 5px 0;
+      padding: 5px;
+      background: #e3f2fd;
+      border-radius: 3px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+    }
+    button {
+      background: #4CAF50;
+      color: white;
+      border: none;
+      padding: 8px 15px;
+      border-radius: 4px;
+      cursor: pointer;
+      margin-left: 10px;
+    }
+    button:disabled {
+      background: #cccccc;
+      cursor: not-allowed;
+    }
+    .file-input-container {
+      display: flex;
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .audio-player {
+      margin-top: 5px;
+      width: 100%;
+    }
+    .contact-form {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-bottom: 20px;
+    }
+    .contact-form-row {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .contact-form input {
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    .contacts-list {
+      max-height: 300px;
+      overflow-y: auto;
+      border-right: 4px solid #4CAF50;
+      padding-right: 10px;
+    }
+    .id-backup-container {
+      margin: 10px 0;
+      padding: 10px;
+      background-color: #fff3cd;
+      border-radius: 4px;
+      border: 1px solid #ffeeba;
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .id-input {
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      width: 100px;
+      margin-right: 10px;
+    }
+    .copy-button {
+      background: #007bff;
+    }
+    .status-indicator {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      margin-right: 5px;
+    }
+    .status-online {
+      background-color: #4CAF50;
+    }
+    .status-offline {
+      background-color: #ff0000;
+    }
+    .status-connecting {
+      background-color: #FFC107;
+    }
+    .distribution-stats {
+      margin-top: 15px;
+      padding: 10px;
+      background-color: #e3f2fd;
+      border-radius: 5px;
+    }
+    .message-source {
+      font-size: 0.8em;
+      color: #666;
+      margin-top: 3px;
+    }
+    .debug-container {
+      margin-top: 15px;
+      padding: 10px;
+      background-color: #e8f5e9;
+      border-radius: 5px;
+      border: 1px solid #c8e6c9;
+    }
+    .server-mode-container {
+      margin-top: 15px;
+      padding: 10px;
+      background-color: #e8f5e9;
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+  </style>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.1/peerjs.min.js"></script>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const PEER_ID_STORAGE_KEY = 'p2pChatDistributorId';
+    const DEFAULT_ID = 'AAAAAA';
+
+    const usePersistentId = () => {
+      const [peerId, setPeerId] = useState(() => {
+        try {
+          const saved = localStorage.getItem(PEER_ID_STORAGE_KEY) || DEFAULT_ID;
+          return saved.endsWith('-CENTRAL') ? saved : saved + '-CENTRAL';
+        } catch (e) {
+          return DEFAULT_ID + '-CENTRAL';
+        }
+      });
+
+      useEffect(() => {
+        try {
+          const formattedId = peerId.endsWith('-CENTRAL') ? peerId : peerId + '-CENTRAL';
+          if (formattedId !== peerId) {
+            setPeerId(formattedId);
+            return;
+          }
+          localStorage.setItem(PEER_ID_STORAGE_KEY, formattedId);
+          sessionStorage.setItem(PEER_ID_STORAGE_KEY, formattedId);
+          document.cookie = `${PEER_ID_STORAGE_KEY}=${formattedId}; max-age=31536000; path=/`;
+        } catch (e) {
+          console.error("Erro ao persistir ID:", e);
+        }
+      }, [peerId]);
+
+      return [peerId, setPeerId];
+    };
+
+    const IdBackupTools = ({ peerId, setPeerId, onSaveId, isConnected }) => {
+      const [editableId, setEditableId] = useState(peerId);
+      const [isEditing, setIsEditing] = useState(false);
+
+      const copyToClipboard = () => {
+        navigator.clipboard.writeText(peerId).then(() => {
+          alert("ID copiado para a área de transferência!");
+        });
+      };
+
+      const startEditing = () => {
+        setEditableId(peerId);
+        setIsEditing(true);
+      };
+
+      const saveId = () => {
+        if (editableId.trim() === '') {
+          alert("O ID não pode estar vazio!");
+          return;
+        }
+        
+        if (editableId !== peerId) {
+          setPeerId(editableId);
+          if (onSaveId) onSaveId(editableId);
+        }
+        
+        setIsEditing(false);
+      };
+
+      return (
+        <div className="id-backup-container">
+          <div>
+            <strong>Distributor ID:</strong> 
+            {isEditing ? (
+              <>
+                <input 
+                  type="text" 
+                  className="id-input"
+                  value={editableId}
+                  onChange={(e) => setEditableId(e.target.value)}
+                  placeholder="Insira o ID"
+                />
+                <button onClick={saveId}>Salvar</button>
+                <button onClick={() => setIsEditing(false)}>Cancelar</button>
+              </>
+            ) : (
+              <>
+                {peerId}
+                <button onClick={copyToClipboard} className="copy-button">
+                  Copiar
+                </button>
+                <button 
+                  onClick={startEditing}
+                  disabled={isConnected}
+                >
+                  Editar
+                </button>
+              </>
+            )}
+          </div>
+          {isConnected && !isEditing && (
+            <p><small>Log out to edit ID</small></p>
+          )}
+        </div>
+      );
+    };
+
+    const DistributorApp = () => {
+      const [peerId, setPeerId] = usePersistentId();
+      const [connections, setConnections] = useState([]);
+      const [messages, setMessages] = useState([]);
+      const [connectionStatus, setConnectionStatus] = useState('desconectado');
+      const [stats, setStats] = useState({
+        messagesReceived: 0,
+        messagesDistributed: 0,
+        activeConnections: 0,
+        hydraNodes: 0
+      });
+      // New state to control the mode
+      const [pureServerMode, setPureServerMode] = useState(true);
+      const [youtubeChatId, setYoutubeChatId] = useState(null);
+      const [youtubeBroadcasts, setYoutubeBroadcasts] = useState({}); // Track active broadcasts
+      const youtubeChatIdRef = useRef(null);
+      useEffect(() => { youtubeChatIdRef.current = youtubeChatId; }, [youtubeChatId]);
+      const radioStateRef = useRef({ status: 'idle', startTime: 0, duration: 0 });
+      
+      const peerInstance = useRef(null);
+      const pendingFiles = useRef({});
+      const messagesEndRef = useRef(null);
+      const activeConnectionsRef = useRef(new Map());
+      const seenMessagesRef = useRef(new Set());
+      const isHydraModeRef = useRef(false);
+      const recentPeersRef = useRef([]);
+      const heartbeatsRef = useRef(new Map()); // Track all active peers (direct or indirect)
+      const HYDRA_THRESHOLD = 150; // Automatic migration threshold
+      const CHUNK_SIZE = 16 * 1024;
+
+      useEffect(() => {
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+        }
+      }, [messages]);
+
+      const toggleConnection = () => {
+        if (connectionStatus === 'conectado' || connectionStatus === 'conectando') {
+          disconnectPeer();
+        } else {
+          setupPeer();
+        }
+      };
+
+      const disconnectPeer = () => {
+        if (peerInstance.current) {
+          try {
+            console.log("Desconectando peer...");
+            
+            activeConnectionsRef.current.forEach((conn) => {
+              try {
+                conn.close();
+              } catch (e) {
+                console.error("Erro ao fechar conexão:", e);
+              }
+            });
+            
+            activeConnectionsRef.current.clear();
+            setConnections([]);
+            
+            peerInstance.current.destroy();
+            peerInstance.current = null;
+            
+            setConnectionStatus('desconectado');
+            
+            setStats({
+              messagesReceived: 0,
+              messagesDistributed: 0,
+              activeConnections: 0
+            });
+            
+            console.log("Peer desconectado com sucesso");
+          } catch (err) {
+            console.error("Erro ao desconectar peer:", err);
+          }
+        }
+      };
+
+      const setupPeer = () => {
+        if (!peerId) return;
+
+        console.log("Configurando distribuidor com ID:", peerId);
+        setConnectionStatus('conectando');
+        
+        if (peerInstance.current) {
+          try {
+            peerInstance.current.destroy();
+          } catch (err) {
+            console.error("Erro ao destruir instância anterior:", err);
+          }
+        }
+        
+        const peer = new Peer(peerId, {
+          host: '0.peerjs.com',
+          port: 443,
+          secure: true,
+          config: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+          },
+          debug: 2
+        });
+
+        peer.on('open', (id) => {
+          console.log("Distribuidor conectado com ID:", id);
+          setConnectionStatus('conectado');
+        });
+
+        peer.on('connection', (conn) => {
+          console.log("Nova conexão recebida de:", conn.peer);
+          
+          // Se já estamos no modo Hydra, aceitamos a conexão apenas para enviar a lista de peers e depois fechamos
+          if (isHydraModeRef.current) {
+            setupConnection(conn);
+            return;
+          }
+
+          // Limite de segurança para o servidor rodando no navegador (evita travamento)
+          const MAX_SERVER_CONNECTIONS = 200;
+          if (activeConnectionsRef.current.size >= MAX_SERVER_CONNECTIONS) {
+            console.log("Servidor cheio. Rejeitando conexão de:", conn.peer);
+            setTimeout(() => {
+              try { conn.close(); } catch (e) {}
+            }, 500);
+            return;
+          }
+          
+          setupConnection(conn);
+        });
+
+        peer.on('error', (err) => {
+          console.error("Erro no peer:", err);
+          setConnectionStatus('erro');
+        });
+
+        peer.on('disconnected', () => {
+          console.log("Peer desconectado");
+          setConnectionStatus('desconectado');
+        });
+
+        peerInstance.current = peer;
+      };
+
+      useEffect(() => {
+        if (connectionStatus !== 'conectado' && connectionStatus !== 'conectando') return;
+        
+        const checkConnectionInterval = setInterval(() => {
+          if (peerInstance.current && peerInstance.current.disconnected) {
+            console.log("Tentando reconectar...");
+            try {
+              peerInstance.current.reconnect();
+            } catch (e) {
+              console.error("Falha na reconexão, recriando peer:", e);
+              setupPeer();
+            }
+          }
+          
+          // Clean up stale heartbeats (older than 45 seconds)
+          const now = Date.now();
+          let changed = false;
+          heartbeatsRef.current.forEach((time, id) => {
+            if (now - time > 45000) {
+              heartbeatsRef.current.delete(id);
+              changed = true;
+            }
+          });
+          
+          if (changed) {
+            setStats(prev => ({
+              ...prev,
+              hydraNodes: heartbeatsRef.current.size
+            }));
+          }
+          
+          // Broadcast network stats to all direct connections
+          const statsMsg = {
+            type: 'network-stats',
+            totalOnline: heartbeatsRef.current.size,
+            timestamp: now
+          };
+          
+          activeConnectionsRef.current.forEach(conn => {
+            try { conn.send(statsMsg); } catch(e) {}
+          });
+          
+        }, 15000); // Check every 15s instead of 30s for more responsive stats
+
+        return () => {
+          clearInterval(checkConnectionInterval);
+        };
+      }, [connectionStatus]);
+
+      const handleIdChange = (newId) => {
+        disconnectPeer();
+      };
+
+      const broadcastMyYoutubeVideo = () => {
+        const url = prompt('Digite a URL do vídeo do YouTube para transmitir:');
+        if (!url) return;
+        
+        let videoId = '';
+        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+        const match = url.match(regExp);
+        if (match && match[2].length === 11) {
+          videoId = match[2];
+        } else {
+          alert('URL do YouTube inválida');
+          return;
+        }
+
+        const pId = peerInstance.current ? peerInstance.current.id : 'SERVER';
+        const msg = { 
+          type: 'youtube-video-broadcast', 
+          id: pId + '_yt_video_' + Date.now(), 
+          videoId, 
+          senderId: pId,
+          senderName: 'SERVIDOR',
+          ttl: 15 
+        };
+        
+        setYoutubeBroadcasts(prev => ({ ...prev, [pId]: { videoId, senderName: 'SERVIDOR' } }));
+        distributeMessage(msg, null);
+      };
+
+      const stopMyYoutubeVideo = () => {
+        const pId = peerInstance.current ? peerInstance.current.id : 'SERVER';
+        const msg = { 
+          type: 'stop-youtube-video-broadcast', 
+          id: pId + '_stop_yt_video_' + Date.now(), 
+          senderId: pId,
+          ttl: 15 
+        };
+        
+        setYoutubeBroadcasts(prev => {
+          const next = { ...prev };
+          delete next[pId];
+          return next;
+        });
+        distributeMessage(msg, null);
+      };
+
+      const handleIncomingData = (data, sourceConn) => {
+        // Handle Heartbeat from any user (even if not directly connected long-term)
+        if (data && data.type === 'heartbeat') {
+          heartbeatsRef.current.set(sourceConn.peer, Date.now());
+          setStats(prev => ({
+            ...prev,
+            hydraNodes: heartbeatsRef.current.size
+          }));
+          
+          // If it's just a heartbeat and we are in Hydra Mode, we can close the connection to save resources
+          if (isHydraModeRef.current) {
+            setTimeout(() => {
+              try { sourceConn.close(); } catch(e) {}
+            }, 1000);
+          }
+          return;
+        }
+
+        // Se estiver no modo Hydra, ignora qualquer mensagem de chat/dados
+        if (isHydraModeRef.current) return;
+
+        console.log(`Recebendo dados de ${sourceConn.peer}:`, data);
+        
+        if (data.type === 'pex') {
+          return; // Servidor não precisa processar PEX de clientes
+        }
+
+        if (data.type === 'message' || data.type === 'torrent-request') {
+          if (data.id) {
+            if (seenMessagesRef.current.has(data.id)) {
+              console.log(`Servidor: ${data.type} repetido ignorado (Anti-Loop).`);
+              return;
+            }
+            seenMessagesRef.current.add(data.id);
+            if (seenMessagesRef.current.size > 10000) {
+              const firstItem = seenMessagesRef.current.values().next().value;
+              seenMessagesRef.current.delete(firstItem);
+            }
+          }
+
+          if (data.type === 'message') {
+            if (data.text && data.text.length > 500) {
+              console.log("Servidor: Mensagem muito longa ignorada.");
+              return;
+            }
+            setStats(prev => ({
+              ...prev,
+              messagesReceived: prev.messagesReceived + 1
+            }));
+
+            const senderName = data.senderName || sourceConn.peer;
+            
+            const newMessage = {
+              id: data.id || (Date.now() + Math.random().toString(36).substring(7)),
+              text: data.text,
+              sender: senderName,
+              timestamp: new Date().toISOString(),
+              source: sourceConn.peer
+            };
+            
+            setMessages(prev => [...prev, newMessage]);
+          }
+          
+          distributeMessage(data, sourceConn.peer);
+        }
+        else if (data.type === 'radio-start' || data.type === 'radio-chunk' || data.type === 'radio-sync' || data.type === 'radio-request-sync' || data.type === 'radio-youtube-start') {
+          if (data.id) {
+            if (seenMessagesRef.current.has(data.id)) return;
+            seenMessagesRef.current.add(data.id);
+          }
+          
+          if (data.type === 'radio-start' || data.type === 'radio-sync') {
+            radioStateRef.current = {
+              status: 'playing',
+              startTime: data.startTime,
+              duration: data.duration
+            };
+          }
+          
+          // O Servidor também atua como um relay para a rádio
+          distributeMessage(data, sourceConn.peer);
+        }
+        else if (data.type === 'audio-start' || data.type === 'audio-chunk') {
+          // Servidor agora aceita mensagens de áudio gravado
+          if (data.id) {
+            if (seenMessagesRef.current.has(data.id)) return;
+            seenMessagesRef.current.add(data.id);
+          }
+          distributeMessage(data, sourceConn.peer);
+        }
+        else if (data.type === 'file-start' || data.type === 'file-chunk') {
+          console.log("Bloqueado: O servidor agora só repassa mensagens de texto, emojis, torrents e áudio para proteger a banda da rede.");
+        }
+        else if (data.type === 'e2ee-secret' || data.type === 'server-e2ee-invite' || data.type === 'youtube-cam-start' || data.type === 'youtube-cam-stop' || data.type === 'youtube-chat-start' || data.type === 'youtube-chat-stop' || data.type === 'youtube-video-broadcast' || data.type === 'stop-youtube-video-broadcast') {
+           // Relay para segredos E2EE, YouTube Cam, YouTube Chat e YouTube Video Broadcast
+           if (data.id) {
+             if (seenMessagesRef.current.has(data.id)) return;
+             seenMessagesRef.current.add(data.id);
+           }
+           if (data.type === 'youtube-chat-start') setYoutubeChatId(data.youtubeId);
+           if (data.type === 'youtube-chat-stop') setYoutubeChatId(null);
+           if (data.type === 'youtube-video-broadcast') {
+             setYoutubeBroadcasts(prev => ({ ...prev, [data.senderId || sourceConn.peer]: { videoId: data.videoId, senderName: data.senderName } }));
+           }
+           if (data.type === 'stop-youtube-video-broadcast') {
+             setYoutubeBroadcasts(prev => {
+               const next = { ...prev };
+               delete next[data.senderId || sourceConn.peer];
+               return next;
+             });
+           }
+           distributeMessage(data, sourceConn.peer);
+        }
+      };
+
+      const distributeMessage = (data, sourceId) => {
+        let distributionCount = 0;
+        
+        let currentTtl = data.ttl !== undefined ? data.ttl : 8;
+        if (currentTtl <= 0) {
+          console.log("Servidor: Mensagem descartada por TTL = 0");
+          return;
+        }
+        
+        const relayData = { ...data, ttl: currentTtl - 1 };
+        
+        activeConnectionsRef.current.forEach((conn, peerId) => {
+          if (peerId !== sourceId) {
+            try {
+              console.log(`Distribuindo mensagem para ${peerId}`);
+              conn.send(relayData);
+              distributionCount++;
+            } catch (err) {
+              console.error(`Erro ao enviar para ${peerId}:`, err);
+            }
+          }
+        });
+        
+        setStats(prev => ({
+          ...prev,
+          messagesDistributed: prev.messagesDistributed + distributionCount
+        }));
+        
+        console.log(`Mensagem distribuída para ${distributionCount} conexões`);
+      };
+
+      const setupConnection = (conn) => {
+        conn.on('open', () => {
+          console.log(`Conexão estabelecida com ${conn.peer}`);
+          
+          if (isHydraModeRef.current) {
+            // MODO HYDRA: Apenas envia a lista de peers e desconecta
+            if (!recentPeersRef.current.includes(conn.peer)) {
+              recentPeersRef.current.push(conn.peer);
+              if (recentPeersRef.current.length > 1000) recentPeersRef.current.shift();
+              
+              setStats(prev => ({
+                ...prev,
+                hydraNodes: recentPeersRef.current.length
+              }));
+            }
+            
+            const peersToSend = recentPeersRef.current.filter(p => p !== conn.peer).slice(-50);
+            
+            try {
+              conn.send({
+                type: 'migrate-to-p2p',
+                peers: peersToSend,
+                message: 'Servidor em modo Hydra. Conecte-se à rede global.'
+              });
+            } catch (err) {}
+            
+            // Desconecta após enviar a lista para não pesar o servidor
+            setTimeout(() => {
+              try { conn.close(); } catch(e) {}
+            }, 2000);
+            return;
+          }
+
+          activeConnectionsRef.current.set(conn.peer, conn);
+          
+          setConnections(Array.from(activeConnectionsRef.current.keys()));
+          
+          setStats(prev => ({
+            ...prev,
+            activeConnections: activeConnectionsRef.current.size,
+            hydraNodes: recentPeersRef.current.length
+          }));
+
+          // VERIFICA SE ATINGIU O LIMITE PARA VIRAR HYDRA AUTOMATICAMENTE
+          if (activeConnectionsRef.current.size >= HYDRA_THRESHOLD && !isHydraModeRef.current) {
+            console.log("LIMITE ATINGIDO! Ativando MODO HYDRA: Migrando todos para a Rede Global P2P...");
+            isHydraModeRef.current = true;
+            
+            const allPeers = Array.from(activeConnectionsRef.current.keys());
+            recentPeersRef.current = [...allPeers]; // Salva os peers atuais no cache do Hydra
+            
+            // Avisa todos os conectados para formarem a rede P2P
+            activeConnectionsRef.current.forEach(c => {
+              try {
+                c.send({
+                  type: 'migrate-to-p2p',
+                  peers: allPeers,
+                  message: 'O servidor lotou! Migrando você para a rede descentralizada.'
+                });
+              } catch (err) {}
+            });
+            
+            // Opcional: O servidor pode fechar as conexões depois de um tempo, 
+            // mas os próprios clientes vão se conectar entre si.
+            // Para garantir que o servidor fique leve, vamos desconectar todos após 5 segundos.
+            setTimeout(() => {
+              activeConnectionsRef.current.forEach(c => {
+                try { c.close(); } catch(e) {}
+              });
+              activeConnectionsRef.current.clear();
+              setConnections([]);
+              setStats(prev => ({ ...prev, activeConnections: 0 }));
+            }, 5000);
+          }
+          
+          // Always send handshake from server so clients know it's a central server
+          try {
+            conn.send({ type: 'handshake', peerId });
+            if (youtubeChatIdRef.current) {
+              conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
+            }
+          } catch (e) {}
+
+          // Here is the critical change to ensure we operate in pure server mode:
+          // We'll send a special message to mark this as a server connection
+          // when pure server mode is enabled
+          if (pureServerMode) {
+            try {
+              conn.send({
+                type: 'server-info',
+                isServer: true,
+                message: 'Connected to K10 server in pure server mode' 
+              });
+            } catch (err) {
+              console.error(`Erro ao enviar informação de servidor para ${conn.peer}:`, err);
+            }
+          }
+
+          // Se a rádio estiver tocando, avisa o novato imediatamente
+          if (radioStateRef.current.status === 'playing') {
+            const now = Date.now();
+            const endTime = radioStateRef.current.startTime + radioStateRef.current.duration * 1000;
+            if (now < endTime) {
+              try {
+                // Envia o radio-sync padrão
+                conn.send({
+                  type: 'radio-sync',
+                  startTime: radioStateRef.current.startTime,
+                  duration: radioStateRef.current.duration,
+                  fileName: 'Rádio Global',
+                  senderName: 'Servidor K10'
+                });
+                // Envia a string #$% solicitada pelo usuário como fallback de bloqueio
+                conn.send({
+                  type: 'message',
+                  text: '#$%',
+                  senderName: 'Servidor K10',
+                  id: 'radio_block_' + Date.now()
+                });
+              } catch (e) {}
+            } else {
+              radioStateRef.current.status = 'idle';
+            }
+          }
+        });
+
+        conn.on('data', (data) => {
+          handleIncomingData(data, conn);
+        });
+
+        conn.on('close', () => {
+          console.log(`Conexão fechada com ${conn.peer}`);
+          
+          activeConnectionsRef.current.delete(conn.peer);
+          
+          setConnections(Array.from(activeConnectionsRef.current.keys()));
+          
+          setStats(prev => ({
+            ...prev,
+            activeConnections: activeConnectionsRef.current.size,
+            hydraNodes: recentPeersRef.current.length
+          }));
+        });
+
+        conn.on('error', (err) => {
+          console.error(`Erro na conexão com ${conn.peer}:`, err);
+        });
+      };
+
+      const broadcastYoutubeChat = () => {
+        const url = prompt('Digite a URL do YouTube Live para o Chat:');
+        if (!url) return;
+        let yId = null;
+        try {
+          let parsedUrl = url;
+          if (!parsedUrl.startsWith('http')) parsedUrl = 'https://' + parsedUrl;
+          if (parsedUrl.includes('youtu.be/')) yId = parsedUrl.split('youtu.be/')[1].split('?')[0];
+          else if (parsedUrl.includes('youtube.com/watch')) yId = new URL(parsedUrl).searchParams.get('v');
+          else if (parsedUrl.includes('youtube.com/live/')) yId = parsedUrl.split('youtube.com/live/')[1].split('?')[0];
+        } catch (e) {}
+        if (!yId) { alert('URL do YouTube inválida'); return; }
+        
+        setYoutubeChatId(yId);
+        const msgId = Date.now() + Math.random().toString(36).substring(7);
+        const msgData = { type: 'youtube-chat-start', id: msgId, youtubeId: yId, ttl: 15 };
+        activeConnectionsRef.current.forEach(c => { try { c.send(msgData); } catch(e){} });
+      };
+
+      const stopYoutubeChat = () => {
+        setYoutubeChatId(null);
+        const msgId = Date.now() + Math.random().toString(36).substring(7);
+        const msgData = { type: 'youtube-chat-stop', id: msgId, ttl: 15 };
+        activeConnectionsRef.current.forEach(c => { try { c.send(msgData); } catch(e){} });
+      };
+
+      return (
+        <div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+            <h1 style={{ margin: 0 }}>Servidor K10</h1>
+            <a 
+              href="test-bench.html" 
+              target="_blank"
+              style={{ 
+                background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)', 
+                color: 'white', 
+                padding: '8px 16px', 
+                borderRadius: '20px', 
+                fontSize: '12px', 
+                fontWeight: 'bold',
+                textDecoration: 'none',
+                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
+              }}
+            >
+              🔬 ABRIR BANCADA DE TESTE (BILHÕES)
+            </a>
+          </div>
+
+          <div style={{ background: '#f0f7ff', border: '1px solid #007bff', padding: '15px', borderRadius: '8px', marginBottom: '20px', fontSize: '14px', color: '#004085' }}>
+            <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: '250px' }}>
+                <h3 style={{ marginTop: 0, color: '#007bff' }}>HOW IT WORKS (English)</h3>
+                <ul style={{ paddingLeft: '20px', marginBottom: 0 }}>
+                  <li><strong>Central Hub:</strong> Everyone connects to this ID to chat together.</li>
+                  <li><strong>Automatic:</strong> When one person sends a message, the server sends it to everyone else automatically.</li>
+                  <li><strong>Limit:</strong> This server supports <strong>200 people</strong> at the same time.</li>
+                  <li><strong>Infinite Users:</strong> For 10,000+ people, use the normal P2P chat (Spider Web mode).</li>
+                </ul>
+              </div>
+              <div style={{ flex: 1, minWidth: '250px', borderLeft: '1px solid #b8daff', paddingLeft: '20px' }}>
+                <h3 style={{ marginTop: 0, color: '#007bff' }}>COMO FUNCIONA (Português)</h3>
+                <ul style={{ paddingLeft: '20px', marginBottom: 0 }}>
+                  <li><strong>Hub Central:</strong> Todos se conectam a este ID para conversar juntos.</li>
+                  <li><strong>Automático:</strong> Quando uma pessoa envia uma mensagem, o servidor envia para todos os outros automaticamente.</li>
+                  <li><strong>Limite:</strong> Este servidor suporta <strong>200 pessoas</strong> ao mesmo tempo.</li>
+                  <li><strong>Usuários Infinitos:</strong> Para 10.000+ pessoas, use o chat P2P normal (modo Teia de Aranha).</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <p>O ID consiste em 6 caracteres alfanuméricos.</p>
+          <p>Mais especificamente:</p>
+          <p>Letras: A a Z (apenas maiúsculas)</p>
+          <p>Números: 2 a 9</p>    
+          <div className="peer-id-container">
+            <div>
+              <span 
+                className={`status-indicator status-${
+                  connectionStatus === 'conectado' ? 'online' : 
+                  connectionStatus === 'conectando' ? 'connecting' : 'offline'
+                }`}
+              ></span>
+              Status: {connectionStatus}
+              <button onClick={toggleConnection}>
+                {connectionStatus === 'conectado' || connectionStatus === 'conectando' ? 'Desconectar' : 'Conectar'}
+              </button>
+            </div>
+          </div>
+          
+          <IdBackupTools 
+            peerId={peerId} 
+            setPeerId={setPeerId} 
+            onSaveId={handleIdChange} 
+            isConnected={connectionStatus === 'conectado' || connectionStatus === 'conectando'}
+          />
+          
+          {/* New component for controlling server mode */}
+          <div className="server-mode-container">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+              <strong>Modo Servidor Puro:</strong>
+              <input 
+                type="checkbox" 
+                checked={pureServerMode} 
+                onChange={(e) => {
+                  setPureServerMode(e.target.checked);
+                  // If we're changing mode while connected, it's best to disconnect and reconnect
+                  if (connectionStatus === 'conectado') {
+                    disconnectPeer();
+                    setTimeout(setupPeer, 500);
+                  }
+                }} 
+                id="serverModeCheckbox"
+              />
+              <label htmlFor="serverModeCheckbox">
+                Ativar modo servidor puro
+              </label>
+            </div>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button onClick={broadcastYoutubeChat} disabled={Boolean(youtubeChatId)} style={{ backgroundColor: youtubeChatId ? '#cccccc' : '#eab308', cursor: youtubeChatId ? 'not-allowed' : 'pointer', color: youtubeChatId ? '#666666' : 'black' }}>
+                <i className="fab fa-youtube"></i> Iniciar Chat YT
+              </button>
+              {youtubeChatId && (
+                <button onClick={stopYoutubeChat} style={{ backgroundColor: '#ef4444' }}>
+                  <i className="fas fa-times"></i> Parar Chat YT
+                </button>
+              )}
+              <button 
+                onClick={youtubeBroadcasts[peerInstance.current?.id] ? stopMyYoutubeVideo : broadcastMyYoutubeVideo}
+                style={{ backgroundColor: youtubeBroadcasts[peerInstance.current?.id] ? '#ef4444' : '#3b82f6', color: 'white' }}
+              >
+                <i className={`fas ${youtubeBroadcasts[peerInstance.current?.id] ? 'fa-stop' : 'fa-video'}`}></i> 
+                {youtubeBroadcasts[peerInstance.current?.id] ? ' Parar Vídeo YT' : ' Transmitir Vídeo YT'}
+              </button>
+            </div>
+          </div>
+          
+          <div className="distribution-stats">
+            <h3>Estatísticas de Distribuição</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
+              <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase' }}>Mensagens Recebidas</div>
+                <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{stats.messagesReceived}</div>
+              </div>
+              <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase' }}>Mensagens Distribuídas</div>
+                <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{stats.messagesDistributed}</div>
+              </div>
+              <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase' }}>Conexões Ativas</div>
+                <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#3b82f6' }}>{stats.activeConnections}</div>
+              </div>
+              <div style={{ background: '#f0fdf4', padding: '10px', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                <div style={{ fontSize: '10px', color: '#166534', textTransform: 'uppercase' }}>Tamanho da Teia Hydra</div>
+                <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#15803d' }}>{stats.hydraNodes}</div>
+                <div style={{ fontSize: '9px', color: '#166534' }}>Nós P2P Estimados</div>
+              </div>
+            </div>
+          </div>
+          
+          <div className="connected-peers">
+            <h3>Conexões Ativas ({connections.length})</h3>
+            {connections.length === 0 ? (
+              <p>Nenhuma conexão ativa</p>
+            ) : (
+              <div>
+                {connections.map((peerId, index) => (
+                 <div key={index} className="peer-item">
+                    <span className="status-indicator status-online"></span>
+                    {peerId}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ marginTop: '20px' }}>
+            <h3>Mensagens</h3>
+            <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #ddd', padding: '10px' }}>
+              {messages.length === 0 ? (
+                <p>Nenhuma mensagem recebida</p>
+              ) : (
+                <div>
+                  {messages.map((msg, index) => (
+                    <div key={index} className={`message other`}>
+                      <div>{msg.text}</div>
+                      <div className="message-source">
+                        Origem: {msg.source} | {new Date(msg.timestamp).toLocaleTimeString()}
+                      </div>
+                    </div>
+                  ))}
+                  <div ref={messagesEndRef} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    ReactDOM.render(<DistributorApp />, document.getElementById('root'));
+  </script>
+</head>
+<body>
+ 
+  <div id="root"></div>
+</body>
+</html>
