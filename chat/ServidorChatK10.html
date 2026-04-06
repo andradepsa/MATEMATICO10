@@ -310,6 +310,9 @@
       const messagesEndRef = useRef(null);
       const activeConnectionsRef = useRef(new Map());
       const seenMessagesRef = useRef(new Set());
+      const isTrackerModeRef = useRef(false);
+      const recentPeersRef = useRef([]);
+      const TRACKER_THRESHOLD = 150; // Automatic migration threshold
       const CHUNK_SIZE = 16 * 1024;
 
       useEffect(() => {
@@ -395,6 +398,12 @@
         peer.on('connection', (conn) => {
           console.log("Nova conexão recebida de:", conn.peer);
           
+          // Se já estamos no modo Tracker, aceitamos a conexão apenas para enviar a lista de peers e depois fechamos
+          if (isTrackerModeRef.current) {
+            setupConnection(conn);
+            return;
+          }
+
           // Limite de segurança para o servidor rodando no navegador (evita travamento)
           const MAX_SERVER_CONNECTIONS = 200;
           if (activeConnectionsRef.current.size >= MAX_SERVER_CONNECTIONS) {
@@ -436,32 +445,8 @@
           }
         }, 30000);
 
-        // PEX interval for the server
-        const pexInterval = setInterval(() => {
-          if (connectionStatus === 'conectado') {
-            const peerList = Array.from(activeConnectionsRef.current.keys());
-            if (peerList.length > 0) {
-              console.log("Servidor enviando PEX com", peerList.length, "peers");
-              activeConnectionsRef.current.forEach((conn, peerId) => {
-                try {
-                  // Embaralha e envia no máximo 100 peers para não sobrecarregar a rede
-                  const shuffled = [...peerList].sort(() => 0.5 - Math.random());
-                  const subset = shuffled.slice(0, 100);
-                  conn.send({
-                    type: 'pex',
-                    peers: subset
-                  });
-                } catch (err) {
-                  console.error(`Erro ao enviar PEX para ${peerId}:`, err);
-                }
-              });
-            }
-          }
-        }, 30000);
-
         return () => {
           clearInterval(checkConnectionInterval);
-          clearInterval(pexInterval);
         };
       }, [connectionStatus]);
 
@@ -470,6 +455,9 @@
       };
 
       const handleIncomingData = (data, sourceConn) => {
+        // Se estiver no modo tracker, ignora qualquer mensagem de chat/dados
+        if (isTrackerModeRef.current) return;
+
         console.log(`Recebendo dados de ${sourceConn.peer}:`, data);
         
         if (data.type === 'pex') {
@@ -579,6 +567,28 @@
         conn.on('open', () => {
           console.log(`Conexão estabelecida com ${conn.peer}`);
           
+          if (isTrackerModeRef.current) {
+            // MODO TRACKER: Apenas envia a lista de peers e desconecta
+            recentPeersRef.current.push(conn.peer);
+            if (recentPeersRef.current.length > 1000) recentPeersRef.current.shift();
+            
+            const peersToSend = recentPeersRef.current.filter(p => p !== conn.peer).slice(-50);
+            
+            try {
+              conn.send({
+                type: 'migrate-to-p2p',
+                peers: peersToSend,
+                message: 'Servidor em modo Tracker. Conecte-se à rede global.'
+              });
+            } catch (err) {}
+            
+            // Desconecta após enviar a lista para não pesar o servidor
+            setTimeout(() => {
+              try { conn.close(); } catch(e) {}
+            }, 2000);
+            return;
+          }
+
           activeConnectionsRef.current.set(conn.peer, conn);
           
           setConnections(Array.from(activeConnectionsRef.current.keys()));
@@ -587,6 +597,38 @@
             ...prev,
             activeConnections: activeConnectionsRef.current.size
           }));
+
+          // VERIFICA SE ATINGIU O LIMITE PARA VIRAR TRACKER AUTOMATICAMENTE
+          if (activeConnectionsRef.current.size >= TRACKER_THRESHOLD && !isTrackerModeRef.current) {
+            console.log("LIMITE ATINGIDO! Migrando todos para a Rede Global P2P...");
+            isTrackerModeRef.current = true;
+            
+            const allPeers = Array.from(activeConnectionsRef.current.keys());
+            recentPeersRef.current = [...allPeers]; // Salva os peers atuais no cache do tracker
+            
+            // Avisa todos os conectados para formarem a rede P2P
+            activeConnectionsRef.current.forEach(c => {
+              try {
+                c.send({
+                  type: 'migrate-to-p2p',
+                  peers: allPeers,
+                  message: 'O servidor lotou! Migrando você para a rede descentralizada.'
+                });
+              } catch (err) {}
+            });
+            
+            // Opcional: O servidor pode fechar as conexões depois de um tempo, 
+            // mas os próprios clientes vão se conectar entre si.
+            // Para garantir que o servidor fique leve, vamos desconectar todos após 5 segundos.
+            setTimeout(() => {
+              activeConnectionsRef.current.forEach(c => {
+                try { c.close(); } catch(e) {}
+              });
+              activeConnectionsRef.current.clear();
+              setConnections([]);
+              setStats(prev => ({ ...prev, activeConnections: 0 }));
+            }, 5000);
+          }
           
           // Here is the critical change to ensure we operate in pure server mode:
           // We'll send a special message to mark this as a server connection
@@ -657,7 +699,47 @@
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
             <h1 style={{ margin: 0 }}>Servidor K10</h1>
+            <a 
+              href="test-bench.html" 
+              target="_blank"
+              style={{ 
+                background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)', 
+                color: 'white', 
+                padding: '8px 16px', 
+                borderRadius: '20px', 
+                fontSize: '12px', 
+                fontWeight: 'bold',
+                textDecoration: 'none',
+                boxShadow: '0 4px 12px rgba(59, 130, 246, 0.3)'
+              }}
+            >
+              🔬 ABRIR BANCADA DE TESTE (BILHÕES)
+            </a>
           </div>
+
+          <div style={{ background: '#f0f7ff', border: '1px solid #007bff', padding: '15px', borderRadius: '8px', marginBottom: '20px', fontSize: '14px', color: '#004085' }}>
+            <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: '250px' }}>
+                <h3 style={{ marginTop: 0, color: '#007bff' }}>HOW IT WORKS (English)</h3>
+                <ul style={{ paddingLeft: '20px', marginBottom: 0 }}>
+                  <li><strong>Central Hub:</strong> Everyone connects to this ID to chat together.</li>
+                  <li><strong>Automatic:</strong> When one person sends a message, the server sends it to everyone else automatically.</li>
+                  <li><strong>Limit:</strong> This server supports <strong>200 people</strong> at the same time.</li>
+                  <li><strong>Infinite Users:</strong> For 10,000+ people, use the normal P2P chat (Spider Web mode).</li>
+                </ul>
+              </div>
+              <div style={{ flex: 1, minWidth: '250px', borderLeft: '1px solid #b8daff', paddingLeft: '20px' }}>
+                <h3 style={{ marginTop: 0, color: '#007bff' }}>COMO FUNCIONA (Português)</h3>
+                <ul style={{ paddingLeft: '20px', marginBottom: 0 }}>
+                  <li><strong>Hub Central:</strong> Todos se conectam a este ID para conversar juntos.</li>
+                  <li><strong>Automático:</strong> Quando uma pessoa envia uma mensagem, o servidor envia para todos os outros automaticamente.</li>
+                  <li><strong>Limite:</strong> Este servidor suporta <strong>200 pessoas</strong> ao mesmo tempo.</li>
+                  <li><strong>Usuários Infinitos:</strong> Para 10.000+ pessoas, use o chat P2P normal (modo Teia de Aranha).</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
           <p>O ID consiste em 6 caracteres alfanuméricos.</p>
           <p>Mais especificamente:</p>
           <p>Letras: A a Z (apenas maiúsculas)</p>
