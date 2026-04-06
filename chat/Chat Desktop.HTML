@@ -490,9 +490,6 @@
         startYoutubeChat: "Start YouTube Chat",
         stopYoutubeChat: "Stop YouTube Chat",
         broadcastYoutubeChat: "Broadcast YouTube Chat Link",
-        transmitVideo: "Transmit Video",
-        stopTransmitVideo: "Stop Transmitting",
-        radioVideoActive: "Radio Video Active",
       },
       pt: {
         appTitle: "Chat K10",
@@ -661,9 +658,6 @@
         startYoutubeChat: "Iniciar Chat YouTube",
         stopYoutubeChat: "Parar Chat YouTube",
         broadcastYoutubeChat: "Enviar Link Chat YouTube",
-        transmitVideo: "Transmitir Vídeo",
-        stopTransmitVideo: "Parar Transmissão",
-        radioVideoActive: "Vídeo da Rádio Ativo",
       }
     };
 
@@ -2195,13 +2189,8 @@
 
       useEffect(() => {
         remoteStreams.forEach(({ peerId: rPeerId, stream, type }) => {
-          if (type === 'voice') { 
-            const el = audioRefs.current[rPeerId]; 
-            if (el && el.srcObject !== stream) { el.srcObject = stream; el.play().catch(() => {}); } 
-          } else if (type === 'video' || type === 'radio-video') { 
-            const el = videoRefs.current[rPeerId + '_' + type]; 
-            if (el && el.srcObject !== stream) { el.srcObject = stream; el.play().catch(() => {}); } 
-          }
+          if (type === 'voice') { const el = audioRefs.current[rPeerId]; if (el && el.srcObject !== stream) { el.srcObject = stream; el.play().catch(() => {}); } }
+          else if (type === 'video') { const el = videoRefs.current[rPeerId]; if (el && el.srcObject !== stream) { el.srcObject = stream; el.play().catch(() => {}); } }
         });
       }, [remoteStreams]);
 
@@ -2711,16 +2700,13 @@
         fileName: '', 
         sender: '',
         showVideo: false,
-        videoSize: 'medium',
-        videoBroadcasters: []
+        videoSize: 'medium'
       });
-      const [isRadioVideoBroadcasting, setIsRadioVideoBroadcasting] = useState(false);
-      const isRadioVideoBroadcastingRef = useRef(isRadioVideoBroadcasting);
-      useEffect(() => { isRadioVideoBroadcastingRef.current = isRadioVideoBroadcasting; }, [isRadioVideoBroadcasting]);
       const [e2eeState, setE2eeState] = useState({});
       const [serverE2EE, setServerE2EE] = useState({});
       const [torrents, setTorrents] = useState([]);
       const [showTorrentManager, setShowTorrentManager] = useState(false);
+      const [userYoutubeStreams, setUserYoutubeStreams] = useState({});
 
       const peerInstance = useRef(null);
       const fileInputRef = useRef(null);
@@ -2791,15 +2777,6 @@
       };
 
       const handleIncomingData = (data, pId) => {
-        if (data.type === 'radio-video-start') {
-          setRadioState(prev => ({ ...prev, videoBroadcasters: [...new Set([...prev.videoBroadcasters, pId])] }));
-          return;
-        }
-        if (data.type === 'radio-video-stop') {
-          setRadioState(prev => ({ ...prev, videoBroadcasters: prev.videoBroadcasters.filter(id => id !== pId) }));
-          return;
-        }
-
         if (data.type === 'network-stats' && data.totalOnline !== undefined) {
           setNetworkSize(prev => Math.max(data.totalOnline, connections.length + 1));
           // Relay stats to other peers to spread the info
@@ -2890,21 +2867,27 @@
 
         if (data.type === 'radio-youtube-start') {
           if (seenMessagesRef.current.has(data.id)) return;
-          if (radioStateRef.current.status !== 'idle') return;
           seenMessagesRef.current.add(data.id);
           let ttl = data.ttl !== undefined ? data.ttl : 8;
           if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
-          setRadioState({ 
-            status: 'playing', 
-            type: 'youtube', 
-            startTime: data.startTime, 
-            duration: data.duration || 300, 
-            audioUrl: null, 
-            youtubeId: data.youtubeId, 
-            fileName: 'YouTube Video', 
-            sender: data.senderName,
-            showVideo: true,
-            videoSize: 'medium'
+          
+          setUserYoutubeStreams(prev => ({
+            ...prev,
+            [data.sender]: data.youtubeId
+          }));
+          return;
+        }
+
+        if (data.type === 'radio-youtube-stop') {
+          if (seenMessagesRef.current.has(data.id)) return;
+          seenMessagesRef.current.add(data.id);
+          let ttl = data.ttl !== undefined ? data.ttl : 8;
+          if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+          
+          setUserYoutubeStreams(prev => {
+            const next = { ...prev };
+            delete next[data.sender];
+            return next;
           });
           return;
         }
@@ -3064,16 +3047,6 @@
               knownUsersRef.current.add(peerIdToConnect);
               setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
             }
-            if (isRadioVideoBroadcastingRef.current) {
-              const stream = localStreamsRef.current.get('radio-video');
-              if (stream) {
-                try {
-                  const call = peerInstance.current.call(peerIdToConnect, stream, { metadata: { type: 'radio-video' } });
-                  setActiveCalls(prev => [...prev, { peerId: peerIdToConnect, call, localStream: stream, type: 'radio-video', direction: 'outgoing', isTemporaryStream: false }]);
-                  conn.send({ type: 'radio-video-start' });
-                } catch(e){}
-              }
-            }
           });
           conn.on('error', err => { clearTimeout(timeoutId); setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)); alert(t(lang, 'connectFailed') + (err.message || 'Contact offline')); });
           conn.on('close', () => { clearTimeout(timeoutId); setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)); });
@@ -3112,21 +3085,7 @@
                 if (porta && porta !== id) {
                   const conn = peer.connect(porta, { reliable: true });
                   if (conn) {
-                    conn.on('open', () => { 
-                      setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]); 
-                      sendRadioSync(conn); 
-                      try { conn.send({ type: 'radio-request-sync' }); } catch(e){} 
-                      if (isRadioVideoBroadcastingRef.current) {
-                        const stream = localStreamsRef.current.get('radio-video');
-                        if (stream) {
-                          try {
-                            const call = peer.call(porta, stream, { metadata: { type: 'radio-video' } });
-                            setActiveCalls(prev => [...prev, { peerId: porta, call, localStream: stream, type: 'radio-video', direction: 'outgoing', isTemporaryStream: false }]);
-                            conn.send({ type: 'radio-video-start' });
-                          } catch(e){}
-                        }
-                      }
-                    });
+                    conn.on('open', () => { setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]); sendRadioSync(conn); try { conn.send({ type: 'radio-request-sync' }); } catch(e){} });
                     conn.on('data', data => handleIncomingData(data, porta));
                     conn.on('close', () => setConnections(prev => prev.filter(c => c.peer !== porta)));
                     conn.on('error', () => setConnections(prev => prev.filter(c => c.peer !== porta)));
@@ -3152,16 +3111,6 @@
             if (!knownUsersRef.current.has(conn.peer)) {
               knownUsersRef.current.add(conn.peer);
               setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
-            }
-            if (isRadioVideoBroadcastingRef.current) {
-              const stream = localStreamsRef.current.get('radio-video');
-              if (stream) {
-                try {
-                  const call = peer.call(conn.peer, stream, { metadata: { type: 'radio-video' } });
-                  setActiveCalls(prev => [...prev, { peerId: conn.peer, call, localStream: stream, type: 'radio-video', direction: 'outgoing', isTemporaryStream: false }]);
-                  conn.send({ type: 'radio-video-start' });
-                } catch(e){}
-              }
             }
           });
           conn.on('data', data => handleIncomingData(data, conn.peer));
@@ -3363,7 +3312,24 @@
       };
 
       const handleYoutubeRadio = () => {
-        if (radioStateRef.current.status !== 'idle') { alert(t(lang, 'radioAlreadyPlaying')); return; }
+        if (userYoutubeStreams[peerId]) {
+          const stopMsg = {
+            type: 'radio-youtube-stop',
+            id: peerId + '_yt_stop_' + Date.now(),
+            sender: peerId,
+            senderName: userName,
+            ttl: 15
+          };
+          seenMessagesRef.current.add(stopMsg.id);
+          setConnections(cc => { cc.forEach(c => { if (c.open) try { c.send(stopMsg); } catch(e){} }); return cc; });
+          setUserYoutubeStreams(prev => {
+            const next = { ...prev };
+            delete next[peerId];
+            return next;
+          });
+          return;
+        }
+
         const url = prompt(t(lang, 'enterYoutubeUrl'));
         if (!url) return;
         
@@ -3377,16 +3343,12 @@
           return;
         }
 
-        const startTime = Date.now() + 5000; // 5s delay for sync
-        const duration = 300; // 5 minutes limit
         const radioId = peerId + '_yt_' + Date.now();
         const startMsg = { 
           type: 'radio-youtube-start', 
           id: radioId + '_start', 
           radioId, 
           youtubeId: videoId, 
-          startTime, 
-          duration,
           sender: peerId, 
           senderName: userName, 
           ttl: 15 
@@ -3394,18 +3356,11 @@
         
         seenMessagesRef.current.add(startMsg.id);
         setConnections(cc => { cc.forEach(c => { if (c.open) try { c.send(startMsg); } catch(e){} }); return cc; });
-        setRadioState({ 
-          status: 'playing', 
-          type: 'youtube', 
-          startTime, 
-          duration, 
-          audioUrl: null, 
-          youtubeId: videoId, 
-          fileName: 'YouTube Video', 
-          sender: userName,
-          showVideo: true,
-          videoSize: 'medium'
-        });
+        setUserYoutubeStreams(prev => ({
+          ...prev,
+          [peerId]: videoId
+        }));
+        setIsLocalVideoVisible(true);
       };
 
       const announceList = [
@@ -3545,36 +3500,6 @@
           call.on('close', () => endCall(peerIdToCall, 'voice'));
           call.on('error', err => { alert(t(lang, 'callError') + err.message); endCall(peerIdToCall, 'voice'); });
         } catch (err) { alert(t(lang, 'micError') + err.message); }
-      };
-
-      const toggleRadioVideoBroadcast = async () => {
-        if (isRadioVideoBroadcasting) {
-          setIsRadioVideoBroadcasting(false);
-          stopAndRemoveLocalStream('radio-video');
-          activeCalls.filter(c => c.type === 'radio-video').forEach(c => {
-            if (c.call) c.call.close();
-          });
-          setActiveCalls(prev => prev.filter(c => c.type !== 'radio-video'));
-          connections.forEach(c => { if (c.open) try { c.send({ type: 'radio-video-stop' }); } catch(e){} });
-        } else {
-          try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-            localStreamsRef.current.set('radio-video', stream);
-            setIsRadioVideoBroadcasting(true);
-            setIsLocalVideoVisible(true);
-            if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-            
-            connections.forEach(c => {
-              if (c.open) {
-                try {
-                  const call = peerInstance.current.call(c.peer, stream, { metadata: { type: 'radio-video' } });
-                  setActiveCalls(prev => [...prev, { peerId: c.peer, call, localStream: stream, type: 'radio-video', direction: 'outgoing', isTemporaryStream: false }]);
-                  c.send({ type: 'radio-video-start' });
-                } catch(e){}
-              }
-            });
-          } catch (err) { alert(t(lang, 'cameraError') + err.message); }
-        }
       };
 
       const toggleVideoCall = async (peerIdToCall) => {
@@ -3808,13 +3733,9 @@
                 title={(!selectedContact || isCentralServer(selectedContact)) ? "DJ Radio is disabled in General/Server chat to prevent network overload." : ""}>
                 <i className="fas fa-music"></i> {t(lang, 'djRadio')}
               </button>
-              <button onClick={handleYoutubeRadio} disabled={radioState.status !== 'idle'}
-                style={{ backgroundColor: radioState.status !== 'idle' ? '#f1f5f9' : '#ef4444', color: radioState.status !== 'idle' ? '#94a3b8' : 'white', border: 'none', padding: '5px 12px', borderRadius: '6px', cursor: radioState.status !== 'idle' ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '700' }}>
+              <button onClick={handleYoutubeRadio}
+                style={{ backgroundColor: userYoutubeStreams[peerId] ? '#10b981' : '#ef4444', color: 'white', border: 'none', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
                 <i className="fab fa-youtube"></i> {t(lang, 'youtubeRadio')}
-              </button>
-              <button onClick={toggleRadioVideoBroadcast}
-                style={{ backgroundColor: isRadioVideoBroadcasting ? '#ef4444' : '#10b981', color: 'white', border: 'none', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
-                <i className="fas fa-video"></i> {isRadioVideoBroadcasting ? t(lang, 'stopTransmitVideo') : t(lang, 'transmitVideo')}
               </button>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
@@ -3824,15 +3745,68 @@
           </div>
 
           {isLocalVideoVisible && (
-            <FloatingWindow title={t(lang, 'you')} initialPosition={{ x: 20, y: 20 }} onClose={() => setIsLocalVideoVisible(false)}>
-              <video className="local-video-player" ref={localVideoRef} autoPlay muted style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>
+            <FloatingWindow title={t(lang, 'you')} initialPosition={{ x: 20, y: 20 }} onClose={() => {
+              if (userYoutubeStreams[peerId]) handleYoutubeRadio(); // Stop stream if active
+              setIsLocalVideoVisible(false);
+            }}>
+              {userYoutubeStreams[peerId] ? (
+                <iframe 
+                  width="100%" 
+                  height="100%" 
+                  src={`https://www.youtube.com/embed/${userYoutubeStreams[peerId]}?autoplay=1&mute=0`} 
+                  frameBorder="0" 
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                  allowFullScreen
+                  style={{ display: 'block' }}
+                ></iframe>
+              ) : (
+                <video className="local-video-player" ref={localVideoRef} autoPlay muted style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>
+              )}
             </FloatingWindow>
           )}
-          {remoteStreams.map((sd, idx) => (sd.type === 'video' || sd.type === 'radio-video') && (
-            <FloatingWindow key={sd.peerId + '_' + sd.type} title={(sd.type === 'radio-video' ? '📻 ' : '📹 ') + getContactName(sd.peerId)} initialPosition={{ x: 40 + (idx * 30), y: 40 + (idx * 30) }} onClose={() => endCall(sd.peerId, sd.type)}>
-              <video className="video-player" ref={el => videoRefs.current[sd.peerId + '_' + sd.type] = el} autoPlay playsInline style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>
+          {remoteStreams.map((sd, idx) => sd.type === 'video' && (
+            <FloatingWindow key={sd.peerId} title={getContactName(sd.peerId)} initialPosition={{ x: 40 + (idx * 30), y: 40 + (idx * 30) }} onClose={() => endCall(sd.peerId, 'video')}>
+              {userYoutubeStreams[sd.peerId] ? (
+                <iframe 
+                  width="100%" 
+                  height="100%" 
+                  src={`https://www.youtube.com/embed/${userYoutubeStreams[sd.peerId]}?autoplay=1&mute=0`} 
+                  frameBorder="0" 
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                  allowFullScreen
+                  style={{ display: 'block' }}
+                ></iframe>
+              ) : (
+                <video className="video-player" ref={el => videoRefs.current[sd.peerId] = el} autoPlay style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>
+              )}
             </FloatingWindow>
           ))}
+          {Object.entries(userYoutubeStreams).map(([pId, ytId], idx) => {
+            // Only show if not already showing as a video stream (to avoid duplicates)
+            if (pId === peerId) return null; // Handled by local video window
+            if (remoteStreams.some(s => s.peerId === pId && s.type === 'video')) return null;
+            
+            return (
+              <FloatingWindow key={pId} title={getContactName(pId)} initialPosition={{ x: 60 + (idx * 30), y: 60 + (idx * 30) }} onClose={() => {
+                // We can't stop someone else's stream, but we can hide the window locally
+                setUserYoutubeStreams(prev => {
+                  const next = { ...prev };
+                  delete next[pId];
+                  return next;
+                });
+              }}>
+                <iframe 
+                  width="100%" 
+                  height="100%" 
+                  src={`https://www.youtube.com/embed/${ytId}?autoplay=1&mute=0`} 
+                  frameBorder="0" 
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                  allowFullScreen
+                  style={{ display: 'block' }}
+                ></iframe>
+              </FloatingWindow>
+            );
+          })}
 
           {activeCalls.map((call, idx) => call.type === 'voice' && (
             <div key={idx} className="audio-call-container">
