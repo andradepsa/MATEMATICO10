@@ -2774,6 +2774,7 @@
           type: 'youtube-video-broadcast', 
           id: peerId + '_yt_video_' + Date.now(), 
           videoId, 
+          senderId: peerId,
           senderName: userName,
           ttl: 15 
         };
@@ -2786,6 +2787,7 @@
         const msg = { 
           type: 'stop-youtube-video-broadcast', 
           id: peerId + '_stop_yt_video_' + Date.now(), 
+          senderId: peerId,
           ttl: 15 
         };
         setYoutubeBroadcasts(prev => {
@@ -2919,7 +2921,7 @@
           seenMessagesRef.current.add(data.id);
           let ttl = data.ttl !== undefined ? data.ttl : 8;
           if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
-          setYoutubeBroadcasts(prev => ({ ...prev, [pId]: { videoId: data.videoId, senderName: data.senderName } }));
+          setYoutubeBroadcasts(prev => ({ ...prev, [data.senderId || pId]: { videoId: data.videoId, senderName: data.senderName } }));
           return;
         }
 
@@ -2930,7 +2932,7 @@
           if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
           setYoutubeBroadcasts(prev => {
             const next = { ...prev };
-            delete next[pId];
+            delete next[data.senderId || pId];
             return next;
           });
           return;
