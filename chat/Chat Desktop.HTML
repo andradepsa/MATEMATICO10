@@ -2249,9 +2249,14 @@
                         ? <button onClick={e => { e.stopPropagation(); endCall(conn.peer, 'voice'); }} className="call-btn" style={{ background: '#ef4444' }} title={t(lang, 'endVoiceCall')}><i className="fas fa-phone-slash"></i></button>
                         : <button onClick={e => { e.stopPropagation(); startVoiceCall(conn.peer); }} className="call-btn" style={{ background: '#22c55e' }} title={t(lang, 'voiceCall')}><i className="fas fa-phone"></i></button>)}
                       {!isServer && (
-                        <button onClick={e => { e.stopPropagation(); toggleVideoCall(conn.peer); }} className="call-btn" style={{ background: hasVideo ? '#ef4444' : '#22c55e' }} title={hasVideo ? t(lang, 'stopCamera') : t(lang, 'camera')}>
-                          <i className={`fas ${hasVideo ? 'fa-video-slash' : 'fa-video'}`}></i>
-                        </button>
+                        <>
+                          <button onClick={e => { e.stopPropagation(); toggleVideoCall(conn.peer); }} className="call-btn" style={{ background: hasVideo ? '#ef4444' : '#22c55e' }} title={hasVideo ? t(lang, 'stopCamera') : t(lang, 'camera')}>
+                            <i className={`fas ${hasVideo ? 'fa-video-slash' : 'fa-video'}`}></i>
+                          </button>
+                          <button onClick={e => { e.stopPropagation(); toggleYoutubeCam(); }} className="call-btn" style={{ background: youtubeCams['local'] ? '#ef4444' : '#eab308' }} title={youtubeCams['local'] ? 'Stop YouTube Camera' : 'Broadcast YouTube Camera'}>
+                            <i className="fab fa-youtube"></i>
+                          </button>
+                        </>
                       )}
                       {isServer && (
                         <button className={`server-e2ee-btn ${srvGrpActive ? 'active' : 'inactive'}`}
@@ -2639,6 +2644,7 @@
       });
       const [activeCalls, setActiveCalls] = useState([]);
       const [remoteStreams, setRemoteStreams] = useState([]);
+      const [youtubeCams, setYoutubeCams] = useState({});
       const [error, setError] = useState(null);
       const [isLocalVideoVisible, setIsLocalVideoVisible] = useState(false);
       const [showEmojiPanel, setShowEmojiPanel] = useState(false);
@@ -2856,6 +2862,24 @@
               if (fd.receivedBytes === fd.totalSize) { const url = URL.createObjectURL(new Blob([fd.chunks], { type: 'audio/mpeg' })); setRadioState(prev => ({ ...prev, audioUrl: url })); delete pendingRadioFiles.current[data.radioId]; }
             }
           }
+          return;
+        }
+
+        if (data.type === 'youtube-cam-start') {
+          if (seenMessagesRef.current.has(data.id)) return;
+          seenMessagesRef.current.add(data.id);
+          let ttl = data.ttl !== undefined ? data.ttl : 8;
+          if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+          setYoutubeCams(prev => ({ ...prev, [data.senderPeerId]: { youtubeId: data.youtubeId, senderName: data.senderName } }));
+          return;
+        }
+
+        if (data.type === 'youtube-cam-stop') {
+          if (seenMessagesRef.current.has(data.id)) return;
+          seenMessagesRef.current.add(data.id);
+          let ttl = data.ttl !== undefined ? data.ttl : 8;
+          if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+          setYoutubeCams(prev => { const next = { ...prev }; delete next[data.senderPeerId]; return next; });
           return;
         }
 
@@ -3448,6 +3472,33 @@
         }
       };
 
+      const toggleYoutubeCam = (targetPeer) => {
+        const isSending = youtubeCams['local'];
+        if (isSending) {
+          // Stop sending
+          setYoutubeCams(prev => { const next = { ...prev }; delete next['local']; return next; });
+          const msgId = Date.now() + Math.random().toString(36).substring(7);
+          const msgData = { type: 'youtube-cam-stop', id: msgId, senderPeerId: peerId, senderName: userName, ttl: 15 };
+          connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
+        } else {
+          // Start sending
+          const url = prompt(t(lang, 'enterYoutubeUrl') || 'Enter YouTube Live URL:');
+          if (!url) return;
+          let youtubeId = null;
+          try {
+            if (url.includes('youtu.be/')) youtubeId = url.split('youtu.be/')[1].split('?')[0];
+            else if (url.includes('youtube.com/watch')) youtubeId = new URL(url).searchParams.get('v');
+            else if (url.includes('youtube.com/live/')) youtubeId = url.split('youtube.com/live/')[1].split('?')[0];
+          } catch (e) {}
+          if (!youtubeId) { alert(t(lang, 'invalidYoutubeUrl') || 'Invalid YouTube URL'); return; }
+          
+          setYoutubeCams(prev => ({ ...prev, ['local']: { youtubeId, senderName: userName } }));
+          const msgId = Date.now() + Math.random().toString(36).substring(7);
+          const msgData = { type: 'youtube-cam-start', id: msgId, youtubeId, senderPeerId: peerId, senderName: userName, ttl: 15 };
+          connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
+        }
+      };
+
       const endCall = (peerIdToEnd, callType) => {
         const callData = activeCalls.find(c => c.peerId === peerIdToEnd && c.type === callType);
         if (callData) {
@@ -3647,6 +3698,22 @@
           {remoteStreams.map((sd, idx) => sd.type === 'video' && (
             <FloatingWindow key={sd.peerId} title={getContactName(sd.peerId)} initialPosition={{ x: 40 + (idx * 30), y: 40 + (idx * 30) }} onClose={() => endCall(sd.peerId, 'video')}>
               <video className="video-player" ref={el => videoRefs.current[sd.peerId] = el} autoPlay style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>
+            </FloatingWindow>
+          ))}
+          {Object.entries(youtubeCams).map(([pId, cam], idx) => (
+            <FloatingWindow key={`ytcam-${pId}`} title={pId === 'local' ? t(lang, 'you') : cam.senderName} initialPosition={{ x: 60 + (idx * 30), y: 60 + (idx * 30) }} onClose={() => {
+              if (pId === 'local') toggleYoutubeCam();
+              else setYoutubeCams(prev => { const next = { ...prev }; delete next[pId]; return next; });
+            }}>
+              <iframe 
+                width="100%" 
+                height="100%" 
+                src={`https://www.youtube.com/embed/${cam.youtubeId}?autoplay=1&mute=${pId === 'local' ? '1' : '0'}`} 
+                frameBorder="0" 
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                allowFullScreen
+                style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}
+              ></iframe>
             </FloatingWindow>
           ))}
 
