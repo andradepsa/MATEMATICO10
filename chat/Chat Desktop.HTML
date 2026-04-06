@@ -1840,7 +1840,7 @@
           } else if (!selectedIsServer && canSendPrivate) {
             textToSend = E2EE_PREFIX + await encryptMsg(newMessage, e2eeState[selectedContact].mySecret);
           }
-          conn.send({ type: 'message', id: msgId, ttl: 8, text: textToSend, senderName: userName, direct: true, time: formatTime(timestamp) });
+          conn.send({ type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: true, time: formatTime(timestamp) });
           const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
           setMessages(prev => { const updated = [...prev, newMsgObj]; localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
           setNewMessage('');
@@ -2393,6 +2393,7 @@
       const knownUsersRef = useRef(new Set());
       const lastMessageTimeRef = useRef(new Map());
       const bannedPeersRef = useRef(new Set());
+      const spamViolationsRef = useRef(new Map());
       const CHUNK_SIZE = 16 * 1024;
 
       useEffect(() => { radioStateRef.current = radioState; }, [radioState]);
@@ -2460,7 +2461,11 @@
           if (peerInstance.current) {
             const activeCount = Object.keys(peerInstance.current.connections).length;
             if (activeCount < maxConnections) {
-              data.peers.forEach(newPId => { if (newPId !== peerId && !peerInstance.current.connections[newPId] && !bannedPeersRef.current.has(newPId)) connectToPeer(newPId); });
+              data.peers.forEach(newPId => {
+                if (newPId !== peerId && !peerInstance.current.connections[newPId] && !bannedPeersRef.current.has(newPId)) {
+                  setTimeout(() => connectToPeer(newPId), 2000);
+                }
+              });
             }
           }
           return;
@@ -2528,18 +2533,24 @@
           if (data.sender) {
             if (!knownUsersRef.current.has(data.sender)) { knownUsersRef.current.add(data.sender); setNetworkSize(knownUsersRef.current.size); }
             const now = Date.now(), lastTime = lastMessageTimeRef.current.get(data.sender) || 0;
-            const requiredMs = Math.max(1, Math.floor(knownUsersRef.current.size / 1000)) * 1000;
+            const requiredMs = Math.max(500, Math.floor(knownUsersRef.current.size / 1000)) * 1000;
             if (now - lastTime < requiredMs) {
-              bannedPeersRef.current.add(data.sender);
-              setConnections(cc => { const c = cc.find(x => x.peer === data.sender); if (c) c.close(); return cc.filter(x => x.peer !== data.sender); });
+              const violations = (spamViolationsRef.current.get(data.sender) || 0) + 1;
+              spamViolationsRef.current.set(data.sender, violations);
+              if (violations >= 3) {
+                bannedPeersRef.current.add(data.sender);
+                spamViolationsRef.current.delete(data.sender);
+                setConnections(cc => { const c = cc.find(x => x.peer === data.sender); if (c) c.close(); return cc.filter(x => x.peer !== data.sender); });
+              }
               return;
             }
+            spamViolationsRef.current.set(data.sender, 0);
             lastMessageTimeRef.current.set(data.sender, now);
           }
           if (seenMessagesRef.current.has(data.id)) return;
           seenMessagesRef.current.add(data.id);
           if (seenMessagesRef.current.size > 5000) { const f = seenMessagesRef.current.values().next().value; seenMessagesRef.current.delete(f); }
-          let ttl = data.ttl !== undefined ? data.ttl : 8;
+          let ttl = data.ttl !== undefined ? data.ttl : 15;
           if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
         }
 
@@ -2826,15 +2837,15 @@
           if (!duration || duration === Infinity) duration = 300;
           const startTime = Date.now() + 60000;
           const radioId = peerId + '_radio_' + Date.now();
-          const startMsg = { type: 'radio-start', id: radioId + '_start', radioId, fileName: file.name, fileSize: file.size, duration, startTime, sender: peerId, senderName: userName, ttl: 8 };
-          const fallbackMsg = { type: 'message', text: '#$%', id: radioId + '_fallback', sender: peerId, senderName: userName, ttl: 8 };
+          const startMsg = { type: 'radio-start', id: radioId + '_start', radioId, fileName: file.name, fileSize: file.size, duration, startTime, sender: peerId, senderName: userName, ttl: 15 };
+          const fallbackMsg = { type: 'message', text: '#$%', id: radioId + '_fallback', sender: peerId, senderName: userName, ttl: 15 };
           seenMessagesRef.current.add(startMsg.id); seenMessagesRef.current.add(fallbackMsg.id);
           setConnections(cc => { cc.forEach(c => { if (c.open) try { c.send(startMsg); c.send(fallbackMsg); } catch(e){} }); return cc; });
           setRadioState({ status: 'buffering', type: 'file', startTime, duration, audioUrl: null, youtubeId: null, fileName: file.name, sender: userName, showVideo: false, videoSize: 'medium' });
           const reader = new FileReader(); let offset = 0;
           reader.onload = ev => {
             const buffer = ev.target.result;
-            const chunkMsg = { type: 'radio-chunk', id: radioId + '_chunk_' + offset, radioId, offset, chunk: buffer, ttl: 8 };
+            const chunkMsg = { type: 'radio-chunk', id: radioId + '_chunk_' + offset, radioId, offset, chunk: buffer, ttl: 15 };
             seenMessagesRef.current.add(chunkMsg.id);
             setConnections(cc => { cc.forEach(c => { if (c.open) try { c.send(chunkMsg); } catch(e){} }); return cc; });
             offset += buffer.byteLength;
@@ -2872,7 +2883,7 @@
           duration,
           sender: peerId, 
           senderName: userName, 
-          ttl: 8 
+          ttl: 15 
         };
         
         seenMessagesRef.current.add(startMsg.id);
