@@ -194,7 +194,7 @@
     const { useState, useEffect, useRef } = React;
 
     const PEER_ID_STORAGE_KEY = 'p2pChatDistributorId';
-    const DEFAULT_ID = 'k10';
+    const DEFAULT_ID = 'AAAAAA';
 
     const usePersistentId = () => {
       const [peerId, setPeerId] = useState(() => {
@@ -578,8 +578,12 @@
         else if (data.type === 'file-start' || data.type === 'file-chunk') {
           console.log("Bloqueado: O servidor agora só repassa mensagens de texto, emojis, torrents e áudio para proteger a banda da rede.");
         }
-        else if (data.type === 'e2ee-secret' || data.type === 'server-e2ee-invite') {
-           // Relay para segredos E2EE
+        else if (data.type === 'e2ee-secret' || data.type === 'server-e2ee-invite' || data.type === 'youtube-cam-start' || data.type === 'youtube-cam-stop') {
+           // Relay para segredos E2EE e YouTube Cam
+           if (data.id) {
+             if (seenMessagesRef.current.has(data.id)) return;
+             seenMessagesRef.current.add(data.id);
+           }
            distributeMessage(data, sourceConn.peer);
         }
       };
