@@ -487,6 +487,9 @@
         stopTorrent: "Stop & Remove",
         torrentLimit: "Max 500MB for seeding.",
         sendTorrent: "Send Torrent File",
+        startYoutubeChat: "Start YouTube Chat",
+        stopYoutubeChat: "Stop YouTube Chat",
+        broadcastYoutubeChat: "Broadcast YouTube Chat Link",
       },
       pt: {
         appTitle: "Chat K10",
@@ -652,6 +655,9 @@
         stopTorrent: "Parar e Remover",
         torrentLimit: "Máx 500MB para semear.",
         sendTorrent: "Enviar Arquivo Torrent",
+        startYoutubeChat: "Iniciar Chat YouTube",
+        stopYoutubeChat: "Parar Chat YouTube",
+        broadcastYoutubeChat: "Enviar Link Chat YouTube",
       }
     };
 
@@ -3508,30 +3514,30 @@
         }
       };
 
-      const toggleYoutubeChat = () => {
-        if (youtubeChatId) {
-          setYoutubeChatId(null);
-          const msgId = Date.now() + Math.random().toString(36).substring(7);
-          const msgData = { type: 'youtube-chat-stop', id: msgId, ttl: 15 };
-          connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
-        } else {
-          const url = prompt(t(lang, 'enterYoutubeUrl') || 'Enter YouTube Live URL for Chat:');
-          if (!url) return;
-          let yId = null;
-          try {
-            let parsedUrl = url;
-            if (!parsedUrl.startsWith('http')) parsedUrl = 'https://' + parsedUrl;
-            if (parsedUrl.includes('youtu.be/')) yId = parsedUrl.split('youtu.be/')[1].split('?')[0];
-            else if (parsedUrl.includes('youtube.com/watch')) yId = new URL(parsedUrl).searchParams.get('v');
-            else if (parsedUrl.includes('youtube.com/live/')) yId = parsedUrl.split('youtube.com/live/')[1].split('?')[0];
-          } catch (e) {}
-          if (!yId) { alert(t(lang, 'invalidYoutubeUrl') || 'Invalid YouTube URL'); return; }
-          
-          setYoutubeChatId(yId);
-          const msgId = Date.now() + Math.random().toString(36).substring(7);
-          const msgData = { type: 'youtube-chat-start', id: msgId, youtubeId: yId, ttl: 15 };
-          connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
-        }
+      const broadcastYoutubeChat = () => {
+        const url = prompt(t(lang, 'enterYoutubeUrl') || 'Enter YouTube Live URL for Chat:');
+        if (!url) return;
+        let yId = null;
+        try {
+          let parsedUrl = url;
+          if (!parsedUrl.startsWith('http')) parsedUrl = 'https://' + parsedUrl;
+          if (parsedUrl.includes('youtu.be/')) yId = parsedUrl.split('youtu.be/')[1].split('?')[0];
+          else if (parsedUrl.includes('youtube.com/watch')) yId = new URL(parsedUrl).searchParams.get('v');
+          else if (parsedUrl.includes('youtube.com/live/')) yId = parsedUrl.split('youtube.com/live/')[1].split('?')[0];
+        } catch (e) {}
+        if (!yId) { alert(t(lang, 'invalidYoutubeUrl') || 'Invalid YouTube URL'); return; }
+        
+        setYoutubeChatId(yId);
+        const msgId = Date.now() + Math.random().toString(36).substring(7);
+        const msgData = { type: 'youtube-chat-start', id: msgId, youtubeId: yId, ttl: 15 };
+        connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
+      };
+
+      const stopYoutubeChat = () => {
+        setYoutubeChatId(null);
+        const msgId = Date.now() + Math.random().toString(36).substring(7);
+        const msgData = { type: 'youtube-chat-stop', id: msgId, ttl: 15 };
+        connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
       };
 
       const endCall = (peerIdToEnd, callType) => {
@@ -3718,10 +3724,16 @@
                 style={{ backgroundColor: radioState.status !== 'idle' ? '#f1f5f9' : '#ef4444', color: radioState.status !== 'idle' ? '#94a3b8' : 'white', border: 'none', padding: '5px 12px', borderRadius: '6px', cursor: radioState.status !== 'idle' ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '700' }}>
                 <i className="fab fa-youtube"></i> {t(lang, 'youtubeRadio')}
               </button>
-              <button onClick={toggleYoutubeChat}
-                style={{ backgroundColor: youtubeChatId ? '#ef4444' : '#eab308', color: 'white', border: 'none', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
-                <i className="fab fa-youtube"></i> {youtubeChatId ? 'Parar Chat YT' : 'Iniciar Chat YT'}
+              <button onClick={broadcastYoutubeChat}
+                style={{ backgroundColor: '#eab308', color: 'white', border: 'none', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
+                <i className="fab fa-youtube"></i> {t(lang, 'broadcastYoutubeChat')}
               </button>
+              {youtubeChatId && (
+                <button onClick={stopYoutubeChat}
+                  style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
+                  <i className="fas fa-times"></i> {t(lang, 'stopYoutubeChat')}
+                </button>
+              )}
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button onClick={() => { navigator.clipboard.writeText(peerId); alert(t(lang, 'copied')); }}>{t(lang, 'copy')}</button>
