@@ -490,6 +490,9 @@
         startYoutubeChat: "Start YouTube Chat",
         stopYoutubeChat: "Stop YouTube Chat",
         broadcastYoutubeChat: "Broadcast YouTube Chat Link",
+        broadcastYoutubeVideo: "Broadcast YT Video",
+        stopYoutubeVideo: "Stop YT Video",
+        enterYoutubeVideoUrl: "Enter YouTube video/live URL",
       },
       pt: {
         appTitle: "Chat K10",
@@ -658,6 +661,9 @@
         startYoutubeChat: "Iniciar Chat YouTube",
         stopYoutubeChat: "Parar Chat YouTube",
         broadcastYoutubeChat: "Enviar Link Chat YouTube",
+        broadcastYoutubeVideo: "Transmitir Vídeo YT",
+        stopYoutubeVideo: "Parar Vídeo YT",
+        enterYoutubeVideoUrl: "Digite a URL do vídeo/live do YouTube",
       }
     };
 
@@ -2706,6 +2712,9 @@
       const [serverE2EE, setServerE2EE] = useState({});
       const [torrents, setTorrents] = useState([]);
       const [showTorrentManager, setShowTorrentManager] = useState(false);
+      const [youtubeBroadcasts, setYoutubeBroadcasts] = useState({}); // { peerId: { videoId: '...', senderName: '...' } }
+      const youtubeBroadcastsRef = useRef({});
+      useEffect(() => { youtubeBroadcastsRef.current = youtubeBroadcasts; }, [youtubeBroadcasts]);
 
       const peerInstance = useRef(null);
       const fileInputRef = useRef(null);
@@ -2746,6 +2755,47 @@
       }, [cooldownRemaining]);
 
       const isCentralServer = (id) => id && id.endsWith('-CENTRAL');
+
+      const broadcastMyYoutubeVideo = () => {
+        const url = prompt(t(lang, 'enterYoutubeVideoUrl'));
+        if (!url) return;
+        
+        let videoId = '';
+        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+        const match = url.match(regExp);
+        if (match && match[2].length === 11) {
+          videoId = match[2];
+        } else {
+          alert(t(lang, 'invalidYoutubeUrl'));
+          return;
+        }
+
+        const msg = { 
+          type: 'youtube-video-broadcast', 
+          id: peerId + '_yt_video_' + Date.now(), 
+          videoId, 
+          senderName: userName,
+          ttl: 15 
+        };
+        
+        setYoutubeBroadcasts(prev => ({ ...prev, [peerId]: { videoId, senderName: userName } }));
+        setConnections(cc => { cc.forEach(c => { if (c.open) try { c.send(msg); } catch(e){} }); return cc; });
+      };
+
+      const stopMyYoutubeVideo = () => {
+        const msg = { 
+          type: 'stop-youtube-video-broadcast', 
+          id: peerId + '_stop_yt_video_' + Date.now(), 
+          ttl: 15 
+        };
+        setYoutubeBroadcasts(prev => {
+          const next = { ...prev };
+          delete next[peerId];
+          return next;
+        });
+        setConnections(cc => { cc.forEach(c => { if (c.open) try { c.send(msg); } catch(e){} }); return cc; });
+      };
+
       const generateNewId = () => {
         const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
         const buffer = new Uint8Array(9);
@@ -2861,6 +2911,28 @@
               return prev;
             });
           }
+          return;
+        }
+
+        if (data.type === 'youtube-video-broadcast') {
+          if (seenMessagesRef.current.has(data.id)) return;
+          seenMessagesRef.current.add(data.id);
+          let ttl = data.ttl !== undefined ? data.ttl : 8;
+          if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+          setYoutubeBroadcasts(prev => ({ ...prev, [pId]: { videoId: data.videoId, senderName: data.senderName } }));
+          return;
+        }
+
+        if (data.type === 'stop-youtube-video-broadcast') {
+          if (seenMessagesRef.current.has(data.id)) return;
+          seenMessagesRef.current.add(data.id);
+          let ttl = data.ttl !== undefined ? data.ttl : 8;
+          if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+          setYoutubeBroadcasts(prev => {
+            const next = { ...prev };
+            delete next[pId];
+            return next;
+          });
           return;
         }
 
@@ -3724,6 +3796,10 @@
                 style={{ backgroundColor: radioState.status !== 'idle' ? '#f1f5f9' : '#ef4444', color: radioState.status !== 'idle' ? '#94a3b8' : 'white', border: 'none', padding: '5px 12px', borderRadius: '6px', cursor: radioState.status !== 'idle' ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '700' }}>
                 <i className="fab fa-youtube"></i> {t(lang, 'youtubeRadio')}
               </button>
+              <button onClick={youtubeBroadcasts[peerId] ? stopMyYoutubeVideo : broadcastMyYoutubeVideo}
+                style={{ backgroundColor: youtubeBroadcasts[peerId] ? '#ef4444' : '#22c55e', color: 'white', border: 'none', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
+                <i className="fab fa-youtube"></i> {youtubeBroadcasts[peerId] ? t(lang, 'stopYoutubeVideo') : t(lang, 'broadcastYoutubeVideo')}
+              </button>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
               <button onClick={() => { navigator.clipboard.writeText(peerId); alert(t(lang, 'copied')); }}>{t(lang, 'copy')}</button>
@@ -3736,6 +3812,28 @@
               <video className="local-video-player" ref={localVideoRef} autoPlay muted style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>
             </FloatingWindow>
           )}
+
+          {Object.entries(youtubeBroadcasts).map(([pId, data], index) => (
+            <FloatingWindow 
+              key={pId} 
+              title={data.senderName || pId} 
+              initialPosition={{ x: 50 + (index * 30), y: 50 + (index * 30) }} 
+              onClose={() => {
+                if (pId === peerId) stopMyYoutubeVideo();
+                else setYoutubeBroadcasts(prev => { const n = { ...prev }; delete n[pId]; return n; });
+              }}
+            >
+              <iframe
+                width="100%"
+                height="100%"
+                src={`https://www.youtube.com/embed/${data.videoId}?autoplay=1`}
+                frameBorder="0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+                style={{ borderRadius: '8px' }}
+              ></iframe>
+            </FloatingWindow>
+          ))}
           {remoteStreams.map((sd, idx) => sd.type === 'video' && (
             <FloatingWindow key={sd.peerId} title={getContactName(sd.peerId)} initialPosition={{ x: 40 + (idx * 30), y: 40 + (idx * 30) }} onClose={() => endCall(sd.peerId, 'video')}>
               <video className="video-player" ref={el => videoRefs.current[sd.peerId] = el} autoPlay style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>
