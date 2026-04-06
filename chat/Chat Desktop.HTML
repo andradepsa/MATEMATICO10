@@ -2432,7 +2432,7 @@
     // ================================================================
     // FloatingWindow
     // ================================================================
-    const FloatingWindow = ({ title, onClose, children, initialPosition }) => {
+    const FloatingWindow = ({ title, onClose, children, initialPosition, onNextCamera }) => {
       const [pos, setPos] = useState(initialPosition || { x: 50, y: 50 });
       const [size, setSize] = useState({ width: 320, height: 240 });
       const [isDragging, setIsDragging] = useState(false);
@@ -2534,6 +2534,15 @@
           >
             <span style={{ fontSize: '13px', fontWeight: '700', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: 1 }}>{title}</span>
             <div className="window-controls" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              {onNextCamera && (
+                <button 
+                  onClick={onNextCamera} 
+                  style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '4px', fontSize: '14px', opacity: 0.8 }}
+                  title="Próxima Câmera"
+                >
+                  <i className="fas fa-sync-alt"></i>
+                </button>
+              )}
               <button 
                 onClick={() => setShowSettings(!showSettings)} 
                 style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', padding: '4px', fontSize: '14px', opacity: 0.8 }}
@@ -2707,6 +2716,10 @@
       const [torrents, setTorrents] = useState([]);
       const [showTorrentManager, setShowTorrentManager] = useState(false);
       const [userYoutubeStreams, setUserYoutubeStreams] = useState({});
+      const userYoutubeStreamsRef = useRef({});
+      useEffect(() => { userYoutubeStreamsRef.current = userYoutubeStreams; }, [userYoutubeStreams]);
+      
+      const [windowTargets, setWindowTargets] = useState({}); // { windowId: peerId }
 
       const peerInstance = useRef(null);
       const fileInputRef = useRef(null);
@@ -2871,10 +2884,15 @@
           let ttl = data.ttl !== undefined ? data.ttl : 8;
           if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
           
-          setUserYoutubeStreams(prev => ({
-            ...prev,
-            [data.sender]: data.youtubeId
-          }));
+          setUserYoutubeStreams(prev => {
+            const next = { ...prev, [data.sender]: data.youtubeId };
+            // Limit to 10 streams
+            const keys = Object.keys(next);
+            if (keys.length > 10) {
+              delete next[keys[0]];
+            }
+            return next;
+          });
           return;
         }
 
@@ -2889,6 +2907,21 @@
             delete next[data.sender];
             return next;
           });
+          return;
+        }
+
+        if (data.type === 'radio-request-sync') {
+          if (userYoutubeStreamsRef.current[peerId]) {
+            const startMsg = { 
+              type: 'radio-youtube-start', 
+              id: peerId + '_yt_sync_' + Date.now(), 
+              youtubeId: userYoutubeStreamsRef.current[peerId], 
+              sender: peerId, 
+              senderName: userName, 
+              ttl: 1 
+            };
+            try { connections.find(c => c.peer === pId)?.send(startMsg); } catch(e){}
+          }
           return;
         }
 
@@ -3744,69 +3777,77 @@
             </div>
           </div>
 
+          {/* Local Video / YouTube */}
           {isLocalVideoVisible && (
-            <FloatingWindow title={t(lang, 'you')} initialPosition={{ x: 20, y: 20 }} onClose={() => {
-              if (userYoutubeStreams[peerId]) handleYoutubeRadio(); // Stop stream if active
-              setIsLocalVideoVisible(false);
-            }}>
-              {userYoutubeStreams[peerId] ? (
-                <iframe 
-                  width="100%" 
-                  height="100%" 
-                  src={`https://www.youtube.com/embed/${userYoutubeStreams[peerId]}?autoplay=1&mute=0`} 
-                  frameBorder="0" 
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                  allowFullScreen
-                  style={{ display: 'block' }}
-                ></iframe>
-              ) : (
-                <video className="local-video-player" ref={localVideoRef} autoPlay muted style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>
-              )}
+            <FloatingWindow 
+              title={t(lang, 'you')} 
+              initialPosition={{ x: 20, y: 20 }} 
+              onClose={() => {
+                if (userYoutubeStreams[peerId]) handleYoutubeRadio();
+                setIsLocalVideoVisible(false);
+              }}
+              onNextCamera={() => {
+                const allPeers = [...new Set([peerId, ...remoteStreams.map(s => s.peerId), ...Object.keys(userYoutubeStreams)])];
+                if (allPeers.length <= 1) return;
+                const currIdx = allPeers.indexOf(peerId);
+                const nextPeer = allPeers[(currIdx + 1) % allPeers.length];
+                setWindowTargets(prev => ({ ...prev, [peerId]: nextPeer }));
+              }}
+            >
+              {(() => {
+                const targetId = windowTargets[peerId] || peerId;
+                if (userYoutubeStreams[targetId]) {
+                  return (
+                    <iframe width="100%" height="100%" src={`https://www.youtube.com/embed/${userYoutubeStreams[targetId]}?autoplay=1&mute=0`} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ display: 'block' }}></iframe>
+                  );
+                }
+                if (targetId === peerId) {
+                  return <video className="local-video-player" ref={localVideoRef} autoPlay muted style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
+                }
+                return <video className="video-player" ref={el => videoRefs.current[targetId] = el} autoPlay style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
+              })()}
             </FloatingWindow>
           )}
-          {remoteStreams.map((sd, idx) => sd.type === 'video' && (
-            <FloatingWindow key={sd.peerId} title={getContactName(sd.peerId)} initialPosition={{ x: 40 + (idx * 30), y: 40 + (idx * 30) }} onClose={() => endCall(sd.peerId, 'video')}>
-              {userYoutubeStreams[sd.peerId] ? (
-                <iframe 
-                  width="100%" 
-                  height="100%" 
-                  src={`https://www.youtube.com/embed/${userYoutubeStreams[sd.peerId]}?autoplay=1&mute=0`} 
-                  frameBorder="0" 
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                  allowFullScreen
-                  style={{ display: 'block' }}
-                ></iframe>
-              ) : (
-                <video className="video-player" ref={el => videoRefs.current[sd.peerId] = el} autoPlay style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>
-              )}
-            </FloatingWindow>
-          ))}
-          {Object.entries(userYoutubeStreams).map(([pId, ytId], idx) => {
-            // Only show if not already showing as a video stream (to avoid duplicates)
-            if (pId === peerId) return null; // Handled by local video window
-            if (remoteStreams.some(s => s.peerId === pId && s.type === 'video')) return null;
-            
-            return (
-              <FloatingWindow key={pId} title={getContactName(pId)} initialPosition={{ x: 60 + (idx * 30), y: 60 + (idx * 30) }} onClose={() => {
-                // We can't stop someone else's stream, but we can hide the window locally
-                setUserYoutubeStreams(prev => {
-                  const next = { ...prev };
-                  delete next[pId];
-                  return next;
-                });
-              }}>
-                <iframe 
-                  width="100%" 
-                  height="100%" 
-                  src={`https://www.youtube.com/embed/${ytId}?autoplay=1&mute=0`} 
-                  frameBorder="0" 
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
-                  allowFullScreen
-                  style={{ display: 'block' }}
-                ></iframe>
+
+          {/* Remote Streams / YouTube Gallery */}
+          {(() => {
+            const allActivePeers = [...new Set([...remoteStreams.map(s => s.peerId), ...Object.keys(userYoutubeStreams)])].filter(id => id !== peerId);
+            return allActivePeers.slice(0, 10).map((pId, idx) => (
+              <FloatingWindow 
+                key={pId} 
+                title={getContactName(windowTargets[pId] || pId)} 
+                initialPosition={{ x: 40 + (idx * 30), y: 40 + (idx * 30) }} 
+                onClose={() => {
+                  if (remoteStreams.some(s => s.peerId === pId)) {
+                    endCall(pId, 'video');
+                  } else {
+                    setUserYoutubeStreams(prev => { const next = { ...prev }; delete next[pId]; return next; });
+                  }
+                }}
+                onNextCamera={() => {
+                  const allPeers = [...new Set([peerId, ...remoteStreams.map(s => s.peerId), ...Object.keys(userYoutubeStreams)])];
+                  if (allPeers.length <= 1) return;
+                  const currentTarget = windowTargets[pId] || pId;
+                  const currIdx = allPeers.indexOf(currentTarget);
+                  const nextPeer = allPeers[(currIdx + 1) % allPeers.length];
+                  setWindowTargets(prev => ({ ...prev, [pId]: nextPeer }));
+                }}
+              >
+                {(() => {
+                  const targetId = windowTargets[pId] || pId;
+                  if (userYoutubeStreams[targetId]) {
+                    return (
+                      <iframe width="100%" height="100%" src={`https://www.youtube.com/embed/${userYoutubeStreams[targetId]}?autoplay=1&mute=0`} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ display: 'block' }}></iframe>
+                    );
+                  }
+                  if (targetId === peerId) {
+                    return <video className="local-video-player" ref={localVideoRef} autoPlay muted style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
+                  }
+                  return <video className="video-player" ref={el => videoRefs.current[targetId] = el} autoPlay style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
+                })()}
               </FloatingWindow>
-            );
-          })}
+            ));
+          })()}
 
           {activeCalls.map((call, idx) => call.type === 'voice' && (
             <div key={idx} className="audio-call-container">
