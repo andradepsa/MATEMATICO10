@@ -299,7 +299,8 @@
       const [stats, setStats] = useState({
         messagesReceived: 0,
         messagesDistributed: 0,
-        activeConnections: 0
+        activeConnections: 0,
+        hydraNodes: 0
       });
       // New state to control the mode
       const [pureServerMode, setPureServerMode] = useState(true);
@@ -310,9 +311,10 @@
       const messagesEndRef = useRef(null);
       const activeConnectionsRef = useRef(new Map());
       const seenMessagesRef = useRef(new Set());
-      const isTrackerModeRef = useRef(false);
+      const isHydraModeRef = useRef(false);
       const recentPeersRef = useRef([]);
-      const TRACKER_THRESHOLD = 150; // Automatic migration threshold
+      const heartbeatsRef = useRef(new Map()); // Track all active peers (direct or indirect)
+      const HYDRA_THRESHOLD = 150; // Automatic migration threshold
       const CHUNK_SIZE = 16 * 1024;
 
       useEffect(() => {
@@ -398,8 +400,8 @@
         peer.on('connection', (conn) => {
           console.log("Nova conexão recebida de:", conn.peer);
           
-          // Se já estamos no modo Tracker, aceitamos a conexão apenas para enviar a lista de peers e depois fechamos
-          if (isTrackerModeRef.current) {
+          // Se já estamos no modo Hydra, aceitamos a conexão apenas para enviar a lista de peers e depois fechamos
+          if (isHydraModeRef.current) {
             setupConnection(conn);
             return;
           }
@@ -443,7 +445,36 @@
               setupPeer();
             }
           }
-        }, 30000);
+          
+          // Clean up stale heartbeats (older than 45 seconds)
+          const now = Date.now();
+          let changed = false;
+          heartbeatsRef.current.forEach((time, id) => {
+            if (now - time > 45000) {
+              heartbeatsRef.current.delete(id);
+              changed = true;
+            }
+          });
+          
+          if (changed) {
+            setStats(prev => ({
+              ...prev,
+              hydraNodes: heartbeatsRef.current.size
+            }));
+          }
+          
+          // Broadcast network stats to all direct connections
+          const statsMsg = {
+            type: 'network-stats',
+            totalOnline: heartbeatsRef.current.size,
+            timestamp: now
+          };
+          
+          activeConnectionsRef.current.forEach(conn => {
+            try { conn.send(statsMsg); } catch(e) {}
+          });
+          
+        }, 15000); // Check every 15s instead of 30s for more responsive stats
 
         return () => {
           clearInterval(checkConnectionInterval);
@@ -455,8 +486,25 @@
       };
 
       const handleIncomingData = (data, sourceConn) => {
-        // Se estiver no modo tracker, ignora qualquer mensagem de chat/dados
-        if (isTrackerModeRef.current) return;
+        // Handle Heartbeat from any user (even if not directly connected long-term)
+        if (data && data.type === 'heartbeat') {
+          heartbeatsRef.current.set(sourceConn.peer, Date.now());
+          setStats(prev => ({
+            ...prev,
+            hydraNodes: heartbeatsRef.current.size
+          }));
+          
+          // If it's just a heartbeat and we are in Hydra Mode, we can close the connection to save resources
+          if (isHydraModeRef.current) {
+            setTimeout(() => {
+              try { sourceConn.close(); } catch(e) {}
+            }, 1000);
+          }
+          return;
+        }
+
+        // Se estiver no modo Hydra, ignora qualquer mensagem de chat/dados
+        if (isHydraModeRef.current) return;
 
         console.log(`Recebendo dados de ${sourceConn.peer}:`, data);
         
@@ -567,10 +615,17 @@
         conn.on('open', () => {
           console.log(`Conexão estabelecida com ${conn.peer}`);
           
-          if (isTrackerModeRef.current) {
-            // MODO TRACKER: Apenas envia a lista de peers e desconecta
-            recentPeersRef.current.push(conn.peer);
-            if (recentPeersRef.current.length > 1000) recentPeersRef.current.shift();
+          if (isHydraModeRef.current) {
+            // MODO HYDRA: Apenas envia a lista de peers e desconecta
+            if (!recentPeersRef.current.includes(conn.peer)) {
+              recentPeersRef.current.push(conn.peer);
+              if (recentPeersRef.current.length > 1000) recentPeersRef.current.shift();
+              
+              setStats(prev => ({
+                ...prev,
+                hydraNodes: recentPeersRef.current.length
+              }));
+            }
             
             const peersToSend = recentPeersRef.current.filter(p => p !== conn.peer).slice(-50);
             
@@ -578,7 +633,7 @@
               conn.send({
                 type: 'migrate-to-p2p',
                 peers: peersToSend,
-                message: 'Servidor em modo Tracker. Conecte-se à rede global.'
+                message: 'Servidor em modo Hydra. Conecte-se à rede global.'
               });
             } catch (err) {}
             
@@ -595,16 +650,17 @@
           
           setStats(prev => ({
             ...prev,
-            activeConnections: activeConnectionsRef.current.size
+            activeConnections: activeConnectionsRef.current.size,
+            hydraNodes: recentPeersRef.current.length
           }));
 
-          // VERIFICA SE ATINGIU O LIMITE PARA VIRAR TRACKER AUTOMATICAMENTE
-          if (activeConnectionsRef.current.size >= TRACKER_THRESHOLD && !isTrackerModeRef.current) {
-            console.log("LIMITE ATINGIDO! Migrando todos para a Rede Global P2P...");
-            isTrackerModeRef.current = true;
+          // VERIFICA SE ATINGIU O LIMITE PARA VIRAR HYDRA AUTOMATICAMENTE
+          if (activeConnectionsRef.current.size >= HYDRA_THRESHOLD && !isHydraModeRef.current) {
+            console.log("LIMITE ATINGIDO! Ativando MODO HYDRA: Migrando todos para a Rede Global P2P...");
+            isHydraModeRef.current = true;
             
             const allPeers = Array.from(activeConnectionsRef.current.keys());
-            recentPeersRef.current = [...allPeers]; // Salva os peers atuais no cache do tracker
+            recentPeersRef.current = [...allPeers]; // Salva os peers atuais no cache do Hydra
             
             // Avisa todos os conectados para formarem a rede P2P
             activeConnectionsRef.current.forEach(c => {
@@ -630,6 +686,11 @@
             }, 5000);
           }
           
+          // Always send handshake from server so clients know it's a central server
+          try {
+            conn.send({ type: 'handshake', peerId });
+          } catch (e) {}
+
           // Here is the critical change to ensure we operate in pure server mode:
           // We'll send a special message to mark this as a server connection
           // when pure server mode is enabled
@@ -686,7 +747,8 @@
           
           setStats(prev => ({
             ...prev,
-            activeConnections: activeConnectionsRef.current.size
+            activeConnections: activeConnectionsRef.current.size,
+            hydraNodes: recentPeersRef.current.length
           }));
         });
 
@@ -789,9 +851,25 @@
           
           <div className="distribution-stats">
             <h3>Estatísticas de Distribuição</h3>
-            <p>Mensagens recebidas: {stats.messagesReceived}</p>
-            <p>Mensagens distribuídas: {stats.messagesDistributed}</p>
-            <p>Conexões ativas: {stats.activeConnections}</p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
+              <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase' }}>Mensagens Recebidas</div>
+                <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{stats.messagesReceived}</div>
+              </div>
+              <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase' }}>Mensagens Distribuídas</div>
+                <div style={{ fontSize: '18px', fontWeight: 'bold' }}>{stats.messagesDistributed}</div>
+              </div>
+              <div style={{ background: '#f8fafc', padding: '10px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
+                <div style={{ fontSize: '10px', color: '#64748b', textTransform: 'uppercase' }}>Conexões Ativas</div>
+                <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#3b82f6' }}>{stats.activeConnections}</div>
+              </div>
+              <div style={{ background: '#f0fdf4', padding: '10px', borderRadius: '8px', border: '1px solid #bbf7d0' }}>
+                <div style={{ fontSize: '10px', color: '#166534', textTransform: 'uppercase' }}>Tamanho da Teia Hydra</div>
+                <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#15803d' }}>{stats.hydraNodes}</div>
+                <div style={{ fontSize: '9px', color: '#166534' }}>Nós P2P Estimados</div>
+              </div>
+            </div>
           </div>
           
           <div className="connected-peers">
