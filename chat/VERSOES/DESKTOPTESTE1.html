@@ -2646,6 +2646,9 @@
       const [activeCalls, setActiveCalls] = useState([]);
       const [remoteStreams, setRemoteStreams] = useState([]);
       const [youtubeCams, setYoutubeCams] = useState({});
+      const youtubeCamsRef = useRef({});
+      useEffect(() => { youtubeCamsRef.current = youtubeCams; }, [youtubeCams]);
+      const [camPage, setCamPage] = useState(0);
       const [error, setError] = useState(null);
       const [isLocalVideoVisible, setIsLocalVideoVisible] = useState(false);
       const [showEmojiPanel, setShowEmojiPanel] = useState(false);
@@ -2732,7 +2735,15 @@
         }
       };
 
-      const sendHandshake = (conn) => { try { conn.send({ type: 'handshake', peerId }); } catch(e) {} };
+      const sendHandshake = (conn) => { 
+        try { 
+          conn.send({ type: 'handshake', peerId }); 
+          if (youtubeCamsRef.current['local']) {
+            const cam = youtubeCamsRef.current['local'];
+            conn.send({ type: 'youtube-cam-start', id: Date.now() + Math.random().toString(), youtubeId: cam.youtubeId, senderPeerId: peerId, senderName: cam.senderName, ttl: 0 });
+          }
+        } catch(e) {} 
+      };
 
       const handleIncomingData = (data, pId) => {
         if (data.type === 'network-stats' && data.totalOnline !== undefined) {
@@ -3701,7 +3712,7 @@
               <video className="video-player" ref={el => videoRefs.current[sd.peerId] = el} autoPlay style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>
             </FloatingWindow>
           ))}
-          {Object.entries(youtubeCams).map(([pId, cam], idx) => (
+          {Object.entries(youtubeCams).slice(camPage * 10, (camPage + 1) * 10).map(([pId, cam], idx) => (
             <FloatingWindow key={`ytcam-${pId}`} title={pId === 'local' ? t(lang, 'you') : cam.senderName} initialPosition={{ x: 60 + (idx * 30), y: 60 + (idx * 30) }} onClose={() => {
               if (pId === 'local') toggleYoutubeCam();
               else setYoutubeCams(prev => { const next = { ...prev }; delete next[pId]; return next; });
@@ -3717,6 +3728,14 @@
               ></iframe>
             </FloatingWindow>
           ))}
+          
+          {Object.keys(youtubeCams).length > 10 && (
+            <div style={{ position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(0,0,0,0.8)', color: 'white', padding: '10px 20px', borderRadius: '20px', zIndex: 10000, display: 'flex', gap: '15px', alignItems: 'center', boxShadow: '0 4px 6px rgba(0,0,0,0.3)' }}>
+              <button onClick={() => setCamPage(p => Math.max(0, p - 1))} disabled={camPage === 0} style={{ background: 'transparent', border: 'none', color: camPage === 0 ? '#666' : 'white', cursor: camPage === 0 ? 'default' : 'pointer', fontSize: '16px' }}><i className="fas fa-chevron-left"></i></button>
+              <span style={{ fontSize: '14px', fontWeight: 'bold' }}>Câmeras {camPage * 10 + 1} - {Math.min((camPage + 1) * 10, Object.keys(youtubeCams).length)} de {Object.keys(youtubeCams).length}</span>
+              <button onClick={() => setCamPage(p => Math.min(Math.ceil(Object.keys(youtubeCams).length / 10) - 1, p + 1))} disabled={camPage === Math.ceil(Object.keys(youtubeCams).length / 10) - 1} style={{ background: 'transparent', border: 'none', color: camPage === Math.ceil(Object.keys(youtubeCams).length / 10) - 1 ? '#666' : 'white', cursor: camPage === Math.ceil(Object.keys(youtubeCams).length / 10) - 1 ? 'default' : 'pointer', fontSize: '16px' }}><i className="fas fa-chevron-right"></i></button>
+            </div>
+          )}
 
           {activeCalls.map((call, idx) => call.type === 'voice' && (
             <div key={idx} className="audio-call-container">
