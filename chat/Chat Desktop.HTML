@@ -3054,6 +3054,18 @@
           const send = () => { try { conn.send(syncMsg); } catch(e) {} };
           send(); setTimeout(send, 1000); setTimeout(send, 2000);
         }
+        if (userYoutubeStreamsRef.current[peerId]) {
+          const ytSyncMsg = { 
+            type: 'radio-youtube-start', 
+            id: peerId + '_yt_sync_' + Date.now(), 
+            youtubeId: userYoutubeStreamsRef.current[peerId], 
+            sender: peerId, 
+            senderName: userName, 
+            ttl: 1 
+          };
+          const sendYt = () => { try { conn.send(ytSyncMsg); } catch(e) {} };
+          sendYt(); setTimeout(sendYt, 1000);
+        }
       };
 
       const connectToPeer = (peerIdToConnect) => {
@@ -3076,6 +3088,8 @@
             clearTimeout(timeoutId); 
             setConnections(prev => [...prev.filter(c => c.peer !== peerIdToConnect), conn]); 
             sendHandshake(conn); 
+            sendRadioSync(conn);
+            try { conn.send({ type: 'radio-request-sync' }); } catch(e){}
             if (!knownUsersRef.current.has(peerIdToConnect)) {
               knownUsersRef.current.add(peerIdToConnect);
               setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
@@ -3141,6 +3155,8 @@
           conn.on('open', () => { 
             setConnections(prev => [...prev.filter(c => c.peer !== conn.peer), conn]); 
             sendHandshake(conn); 
+            sendRadioSync(conn);
+            try { conn.send({ type: 'radio-request-sync' }); } catch(e){}
             if (!knownUsersRef.current.has(conn.peer)) {
               knownUsersRef.current.add(conn.peer);
               setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
