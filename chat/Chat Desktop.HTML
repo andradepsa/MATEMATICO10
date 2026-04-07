@@ -462,6 +462,11 @@
         declinedGroup: "You declined the invite to group {id}.",
         youtubeRadio: "YouTube Radio",
         enterYoutubeUrl: "Enter YouTube URL",
+        selectLink: "Select Link",
+        orSelectNumbered: "Or select a numbered link (Right-click to edit):",
+        enterUrlFor: "Enter URL for link",
+        editUrlFor: "Edit URL for link",
+        empty: "Empty",
         invalidYoutubeUrl: "Invalid YouTube URL",
         showVideo: "Show Video",
         hideVideo: "Hide Video",
@@ -630,6 +635,11 @@
         declinedGroup: "Você recusou o convite para o grupo {id}.",
         youtubeRadio: "Rádio YouTube",
         enterYoutubeUrl: "Digite a URL do YouTube",
+        selectLink: "Selecionar Link",
+        orSelectNumbered: "Ou selecione um link numerado (Botão direito para editar):",
+        enterUrlFor: "Digite a URL para o link",
+        editUrlFor: "Editar URL para o link",
+        empty: "Vazio",
         invalidYoutubeUrl: "URL do YouTube inválida",
         showVideo: "Exibir Vídeo",
         hideVideo: "Ocultar Vídeo",
@@ -2652,6 +2662,23 @@
     };
 
     // ================================================================
+    // YOUTUBE LINKS LIST (1-103)
+    // ================================================================
+    const YOUTUBE_LINKS_LIST = {
+      1: "", 2: "", 3: "", 4: "", 5: "", 6: "", 7: "", 8: "", 9: "", 10: "",
+      11: "", 12: "", 13: "", 14: "", 15: "", 16: "", 17: "", 18: "", 19: "", 20: "",
+      21: "", 22: "", 23: "", 24: "", 25: "", 26: "", 27: "", 28: "", 29: "", 30: "",
+      31: "", 32: "", 33: "", 34: "", 35: "", 36: "", 37: "", 38: "", 39: "", 40: "",
+      41: "", 42: "", 43: "", 44: "", 45: "", 46: "", 47: "", 48: "", 49: "", 50: "",
+      51: "", 52: "", 53: "", 54: "", 55: "", 56: "", 57: "", 58: "", 59: "", 60: "",
+      61: "", 62: "", 63: "", 64: "", 65: "", 66: "", 67: "", 68: "", 69: "", 70: "",
+      71: "", 72: "", 73: "", 74: "", 75: "", 76: "", 77: "", 78: "", 79: "", 80: "",
+      81: "", 82: "", 83: "", 84: "", 85: "", 86: "", 87: "", 88: "", 89: "", 90: "",
+      91: "", 92: "", 93: "", 94: "", 95: "", 96: "", 97: "", 98: "", 99: "", 100: "",
+      101: "", 102: "", 103: ""
+    };
+
+    // ================================================================
     // MAIN APP
     // ================================================================
     const App = () => {
@@ -2721,6 +2748,14 @@
       const [userYoutubeStreams, setUserYoutubeStreams] = useState({});
       const userYoutubeStreamsRef = useRef({});
       useEffect(() => { userYoutubeStreamsRef.current = userYoutubeStreams; }, [userYoutubeStreams]);
+      
+      const [showYoutubeGrid, setShowYoutubeGrid] = useState(false);
+      const [youtubeLinks, setYoutubeLinks] = useState(() => {
+        const saved = localStorage.getItem('k10YoutubeLinks');
+        if (saved) return { ...YOUTUBE_LINKS_LIST, ...JSON.parse(saved) };
+        return YOUTUBE_LINKS_LIST;
+      });
+      const [gridInput, setGridInput] = useState('');
       
       const [windowTargets, setWindowTargets] = useState({}); // { windowId: peerId }
 
@@ -3408,7 +3443,10 @@
           return;
         }
 
-        const url = prompt(t(lang, 'enterYoutubeUrl'));
+        setShowYoutubeGrid(true);
+      };
+
+      const startYoutubeBroadcast = (url) => {
         if (!url) return;
         
         let finalYoutubeId = '';
@@ -3465,6 +3503,7 @@
           [peerId]: finalYoutubeId
         }));
         setIsLocalVideoVisible(true);
+        setShowYoutubeGrid(false);
       };
 
       const announceList = [
@@ -3847,6 +3886,83 @@
               <button onClick={generateInviteLink} className="invite-btn">{t(lang, 'generateInviteLink')}</button>
             </div>
           </div>
+
+          {showYoutubeGrid && (
+            <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
+              <div style={{ backgroundColor: '#1e1e1e', borderRadius: '12px', width: '100%', maxWidth: '500px', padding: '24px', boxShadow: '0 20px 50px rgba(0,0,0,0.8)', color: 'white', fontFamily: 'sans-serif' }}>
+                <div style={{ marginBottom: '16px' }}>
+                  <div style={{ fontSize: '14px', color: '#ccc', marginBottom: '8px' }}>andradepsa.github.io diz</div>
+                  <div style={{ fontSize: '16px', fontWeight: '500', marginBottom: '12px' }}>{t(lang, 'enterYoutubeUrl')}</div>
+                  <input 
+                    type="text" 
+                    value={gridInput}
+                    onChange={e => setGridInput(e.target.value)}
+                    style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #444', backgroundColor: '#2d2d2d', color: 'white', outline: 'none', fontSize: '14px' }}
+                    onKeyDown={e => { if (e.key === 'Enter') startYoutubeBroadcast(gridInput); }}
+                    autoFocus
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: '4px', marginBottom: '24px', maxHeight: '300px', overflowY: 'auto', padding: '4px' }}>
+                  {Array.from({ length: 103 }, (_, i) => i + 1).map(num => (
+                    <button 
+                      key={num} 
+                      onClick={() => {
+                        const savedUrl = youtubeLinks[num];
+                        if (savedUrl) {
+                          startYoutubeBroadcast(savedUrl);
+                        } else {
+                          const url = prompt(`${t(lang, 'enterUrlFor')} ${num}:`);
+                          if (url) {
+                            const newLinks = { ...youtubeLinks, [num]: url };
+                            setYoutubeLinks(newLinks);
+                            localStorage.setItem('k10YoutubeLinks', JSON.stringify(newLinks));
+                            startYoutubeBroadcast(url);
+                          }
+                        }
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault();
+                        const url = prompt(`${t(lang, 'editUrlFor')} ${num}:`, youtubeLinks[num] || '');
+                        if (url !== null) {
+                          const newLinks = { ...youtubeLinks, [num]: url };
+                          setYoutubeLinks(newLinks);
+                          localStorage.setItem('k10YoutubeLinks', JSON.stringify(newLinks));
+                        }
+                      }}
+                      style={{ 
+                        padding: '6px 0', 
+                        borderRadius: '4px', 
+                        border: 'none', 
+                        backgroundColor: 'transparent',
+                        color: youtubeLinks[num] ? '#38bdf8' : '#fff',
+                        fontSize: '13px',
+                        cursor: 'pointer',
+                        textAlign: 'center'
+                      }}
+                    >
+                      {num}
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+                  <button 
+                    onClick={() => startYoutubeBroadcast(gridInput)}
+                    style={{ padding: '10px 30px', borderRadius: '25px', border: 'none', backgroundColor: '#93c5fd', color: '#1e3a8a', fontWeight: 'bold', cursor: 'pointer' }}
+                  >
+                    OK
+                  </button>
+                  <button 
+                    onClick={() => setShowYoutubeGrid(false)}
+                    style={{ padding: '10px 30px', borderRadius: '25px', border: 'none', backgroundColor: '#0c4a6e', color: '#bae6fd', fontWeight: 'bold', cursor: 'pointer' }}
+                  >
+                    {t(lang, 'cancel') || 'Cancelar'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Local Video / YouTube */}
           {isLocalVideoVisible && (
