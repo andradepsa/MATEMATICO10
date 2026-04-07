@@ -3314,10 +3314,12 @@
               }
               if (now >= current.startTime && current.status === 'playing') {
                 if (window.YT && window.YT.Player && !youtubePlayerRef.current && youtubeContainerRef.current) {
-                  youtubePlayerRef.current = new window.YT.Player(youtubeContainerRef.current, {
+                  const isPlaylist = current.youtubeId && current.youtubeId.startsWith('playlist:');
+                  const actualId = isPlaylist ? current.youtubeId.split(':')[1] : current.youtubeId;
+                  
+                  const playerOptions = {
                     height: '100%',
                     width: '100%',
-                    videoId: current.youtubeId,
                     playerVars: {
                       autoplay: 1,
                       controls: 1,
@@ -3328,7 +3330,16 @@
                         event.target.playVideo();
                       }
                     }
-                  });
+                  };
+                  
+                  if (isPlaylist) {
+                    playerOptions.playerVars.listType = 'playlist';
+                    playerOptions.playerVars.list = actualId;
+                  } else {
+                    playerOptions.videoId = actualId;
+                  }
+                  
+                  youtubePlayerRef.current = new window.YT.Player(youtubeContainerRef.current, playerOptions);
                 }
               }
             }
@@ -3451,7 +3462,7 @@
         setConnections(cc => { cc.forEach(c => { if (c.open) try { c.send(startMsg); } catch(e){} }); return cc; });
         setUserYoutubeStreams(prev => ({
           ...prev,
-          [peerId]: videoId
+          [peerId]: finalYoutubeId
         }));
         setIsLocalVideoVisible(true);
       };
