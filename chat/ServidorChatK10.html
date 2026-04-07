@@ -442,15 +442,22 @@
         });
 
         peer.on('disconnected', () => {
-          console.log("Peer desconectado");
-          setConnectionStatus('desconectado');
+          console.log("Peer desconectado. Tentando reconectar...");
+          setConnectionStatus('reconectando');
+          setTimeout(() => {
+            if (peerInstance.current && !peerInstance.current.destroyed) {
+              peerInstance.current.reconnect();
+            } else {
+              setupPeer();
+            }
+          }, 3000);
         });
 
         peerInstance.current = peer;
       };
 
       useEffect(() => {
-        if (connectionStatus !== 'conectado' && connectionStatus !== 'conectando') return;
+        if (connectionStatus === 'desconectado' || connectionStatus === 'erro') return;
         
         const checkConnectionInterval = setInterval(() => {
           if (peerInstance.current && peerInstance.current.disconnected) {
@@ -506,12 +513,38 @@
         const url = prompt('Digite a URL do vídeo do YouTube para transmitir:');
         if (!url) return;
         
-        let videoId = '';
-        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-        const match = url.match(regExp);
-        if (match && match[2].length === 11) {
-          videoId = match[2];
-        } else {
+        let finalYoutubeId = '';
+        try {
+          const parsedUrl = new URL(url);
+          if (parsedUrl.hostname === 'youtu.be') {
+            finalYoutubeId = parsedUrl.pathname.slice(1);
+          } else if (parsedUrl.hostname.includes('youtube.com')) {
+            if (parsedUrl.pathname === '/playlist') {
+              const list = parsedUrl.searchParams.get('list');
+              if (list) finalYoutubeId = `playlist:${list}`;
+            } else if (parsedUrl.pathname === '/watch') {
+              const v = parsedUrl.searchParams.get('v');
+              const list = parsedUrl.searchParams.get('list');
+              if (list) {
+                finalYoutubeId = `playlist:${list}`;
+              } else if (v) {
+                finalYoutubeId = v;
+              }
+            } else if (parsedUrl.pathname.startsWith('/embed/')) {
+              finalYoutubeId = parsedUrl.pathname.split('/')[2];
+            }
+          }
+        } catch (e) {}
+
+        if (!finalYoutubeId) {
+          const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+          const match = url.match(regExp);
+          if (match && match[2].length === 11) {
+            finalYoutubeId = match[2];
+          }
+        }
+
+        if (!finalYoutubeId) {
           alert('URL do YouTube inválida');
           return;
         }
@@ -520,13 +553,13 @@
         const msg = { 
           type: 'youtube-video-broadcast', 
           id: pId + '_yt_video_' + Date.now(), 
-          videoId, 
+          videoId: finalYoutubeId, 
           senderId: pId,
           senderName: 'SERVIDOR',
           ttl: 15 
         };
         
-        setYoutubeBroadcasts(prev => ({ ...prev, [pId]: { videoId, senderName: 'SERVIDOR' } }));
+        setYoutubeBroadcasts(prev => ({ ...prev, [pId]: { videoId: finalYoutubeId, senderName: 'SERVIDOR' } }));
         distributeMessage(msg, null);
       };
 
@@ -607,7 +640,7 @@
               source: sourceConn.peer
             };
             
-            setMessages(prev => [...prev, newMessage]);
+            setMessages(prev => [...prev, newMessage].slice(-100));
           }
           
           distributeMessage(data, sourceConn.peer);
