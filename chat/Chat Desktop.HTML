@@ -2129,12 +2129,20 @@
             const conn = connections.find(c => c.peer === selectedContact);
             conn.send({ type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: true, time: formatTime(timestamp) });
             const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
-            setMessages(prev => { const updated = [...prev, newMsgObj]; localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
+            setMessages(prev => { 
+              const updated = [...prev, newMsgObj].slice(-500); 
+              try { localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); } catch(e) { console.warn('Storage full', e); }
+              return updated; 
+            });
           } else {
             const msgData = { type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: false, time: formatTime(timestamp) };
             connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
             const newMsgObj = { text: textToSend, sender: 'you', recipient: 'general', senderName: userName, time: formatTime(timestamp), type: 'text', direct: false, timestamp: timestamp.getTime() };
-            setMessages(prev => { const updated = [...prev, newMsgObj]; localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
+            setMessages(prev => { 
+              const updated = [...prev, newMsgObj].slice(-500); 
+              try { localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); } catch(e) { console.warn('Storage full', e); }
+              return updated; 
+            });
           }
           setNewMessage('');
         } catch (err) { alert(t(lang, 'sendError') + err.message); }
@@ -3039,7 +3047,13 @@
         }
 
         if (messageToAdd) {
-          setMessages(prev => { const updated = [...prev, messageToAdd]; if (messageToAdd.type === 'text' || messageToAdd.receiving) localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
+          setMessages(prev => { 
+            const updated = [...prev, messageToAdd].slice(-500); 
+            if (messageToAdd.type === 'text' || messageToAdd.receiving) {
+              try { localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); } catch(e) { console.warn('Storage full', e); }
+            }
+            return updated; 
+          });
         }
       };
 
@@ -3141,6 +3155,15 @@
         peer.on('error', err => {
           if (err.type === 'unavailable-id') { const newId = generateNewId(); localStorage.setItem(PEER_ID_STORAGE_KEY, newId); window.location.reload(); }
           else if (err.type !== 'peer-unavailable') setError(`PeerJS Error: ${err.type}`);
+        });
+
+        peer.on('disconnected', () => {
+          console.log("Peer disconnected. Attempting to reconnect...");
+          setTimeout(() => {
+            if (peerInstance.current && !peerInstance.current.destroyed) {
+              peerInstance.current.reconnect();
+            }
+          }, 3000);
         });
 
         peer.on('connection', conn => {
@@ -3377,12 +3400,38 @@
         const url = prompt(t(lang, 'enterYoutubeUrl'));
         if (!url) return;
         
-        let videoId = '';
-        const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-        const match = url.match(regExp);
-        if (match && match[2].length === 11) {
-          videoId = match[2];
-        } else {
+        let finalYoutubeId = '';
+        try {
+          const parsedUrl = new URL(url);
+          if (parsedUrl.hostname === 'youtu.be') {
+            finalYoutubeId = parsedUrl.pathname.slice(1);
+          } else if (parsedUrl.hostname.includes('youtube.com')) {
+            if (parsedUrl.pathname === '/playlist') {
+              const list = parsedUrl.searchParams.get('list');
+              if (list) finalYoutubeId = `playlist:${list}`;
+            } else if (parsedUrl.pathname === '/watch') {
+              const v = parsedUrl.searchParams.get('v');
+              const list = parsedUrl.searchParams.get('list');
+              if (list) {
+                finalYoutubeId = `playlist:${list}`;
+              } else if (v) {
+                finalYoutubeId = v;
+              }
+            } else if (parsedUrl.pathname.startsWith('/embed/')) {
+              finalYoutubeId = parsedUrl.pathname.split('/')[2];
+            }
+          }
+        } catch (e) {}
+
+        if (!finalYoutubeId) {
+          const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+          const match = url.match(regExp);
+          if (match && match[2].length === 11) {
+            finalYoutubeId = match[2];
+          }
+        }
+
+        if (!finalYoutubeId) {
           alert(t(lang, 'invalidYoutubeUrl'));
           return;
         }
@@ -3392,7 +3441,7 @@
           type: 'radio-youtube-start', 
           id: radioId + '_start', 
           radioId, 
-          youtubeId: videoId, 
+          youtubeId: finalYoutubeId, 
           sender: peerId, 
           senderName: userName, 
           ttl: 15 
@@ -3808,8 +3857,13 @@
               {(() => {
                 const targetId = windowTargets[peerId] || peerId;
                 if (userYoutubeStreams[targetId]) {
+                  const isPlaylist = userYoutubeStreams[targetId].startsWith('playlist:');
+                  const actualId = isPlaylist ? userYoutubeStreams[targetId].split(':')[1] : userYoutubeStreams[targetId];
+                  const srcUrl = isPlaylist 
+                    ? `https://www.youtube.com/embed/videoseries?list=${actualId}&autoplay=1&mute=0`
+                    : `https://www.youtube.com/embed/${actualId}?autoplay=1&mute=0`;
                   return (
-                    <iframe width="100%" height="100%" src={`https://www.youtube.com/embed/${userYoutubeStreams[targetId]}?autoplay=1&mute=0`} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ display: 'block' }}></iframe>
+                    <iframe width="100%" height="100%" src={srcUrl} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ display: 'block' }}></iframe>
                   );
                 }
                 if (targetId === peerId) {
@@ -3847,8 +3901,13 @@
                 {(() => {
                   const targetId = windowTargets[pId] || pId;
                   if (userYoutubeStreams[targetId]) {
+                    const isPlaylist = userYoutubeStreams[targetId].startsWith('playlist:');
+                    const actualId = isPlaylist ? userYoutubeStreams[targetId].split(':')[1] : userYoutubeStreams[targetId];
+                    const srcUrl = isPlaylist 
+                      ? `https://www.youtube.com/embed/videoseries?list=${actualId}&autoplay=1&mute=0`
+                      : `https://www.youtube.com/embed/${actualId}?autoplay=1&mute=0`;
                     return (
-                      <iframe width="100%" height="100%" src={`https://www.youtube.com/embed/${userYoutubeStreams[targetId]}?autoplay=1&mute=0`} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ display: 'block' }}></iframe>
+                      <iframe width="100%" height="100%" src={srcUrl} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ display: 'block' }}></iframe>
                     );
                   }
                   if (targetId === peerId) {
