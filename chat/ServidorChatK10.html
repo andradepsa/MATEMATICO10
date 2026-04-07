@@ -309,7 +309,7 @@
       });
       const [newServerId, setNewServerId] = useState('');
       const [youtubeChatId, setYoutubeChatId] = useState(null);
-      const [youtubeBroadcasts, setYoutubeBroadcasts] = useState({}); // Track active broadcasts
+      const [youtubeBroadcasts, setYoutubeBroadcasts] = useState({});
       const youtubeChatIdRef = useRef(null);
       useEffect(() => { youtubeChatIdRef.current = youtubeChatId; }, [youtubeChatId]);
       const radioStateRef = useRef({ status: 'idle', startTime: 0, duration: 0 });
@@ -321,9 +321,96 @@
       const seenMessagesRef = useRef(new Set());
       const isHydraModeRef = useRef(false);
       const recentPeersRef = useRef([]);
-      const heartbeatsRef = useRef(new Map()); // Track all active peers (direct or indirect)
-      const HYDRA_THRESHOLD = 150; // Automatic migration threshold
+      const heartbeatsRef = useRef(new Map());
+      const HYDRA_THRESHOLD = 150;
       const CHUNK_SIZE = 16 * 1024;
+
+      // ── Reconexão robusta ──────────────────────────────────────────────
+      const reconnectAttemptsRef = useRef(0);
+      const reconnectTimerRef    = useRef(null);
+      const keepaliveTimerRef    = useRef(null);
+      const isManualDisconnectRef = useRef(false); // distingue desconexão manual
+      const MAX_RECONNECT_ATTEMPTS = 20; // circuit-breaker
+      const BASE_RECONNECT_DELAY   = 2000; // 2s inicial
+
+      // Backoff exponencial com jitter: 2s, 4s, 8s … até 60s
+      const getBackoffDelay = (attempt) => {
+        const exp = Math.min(BASE_RECONNECT_DELAY * Math.pow(2, attempt), 60000);
+        return exp + Math.random() * 1000; // jitter de até 1s
+      };
+
+      // Cancela qualquer timer de reconexão pendente
+      const clearReconnectTimer = () => {
+        if (reconnectTimerRef.current) {
+          clearTimeout(reconnectTimerRef.current);
+          reconnectTimerRef.current = null;
+        }
+      };
+
+      // Para o keepalive
+      const stopKeepalive = () => {
+        if (keepaliveTimerRef.current) {
+          clearInterval(keepaliveTimerRef.current);
+          keepaliveTimerRef.current = null;
+        }
+      };
+
+      // Keepalive: envia um ping ao servidor PeerJS a cada 25s para evitar timeout silencioso
+      const startKeepalive = () => {
+        stopKeepalive();
+        keepaliveTimerRef.current = setInterval(() => {
+          const p = peerInstance.current;
+          if (p && !p.destroyed && !p.disconnected) {
+            try { p.socket._socket && p.socket._socket.send('{}'); } catch(e) {}
+            // Também detecta conexões mortas e remove
+            activeConnectionsRef.current.forEach((conn, id) => {
+              try {
+                const state = conn.peerConnection && conn.peerConnection.connectionState;
+                if (state === 'failed' || state === 'closed') {
+                  console.warn(`Keepalive: removendo conexão morta ${id}`);
+                  activeConnectionsRef.current.delete(id);
+                  setConnections(Array.from(activeConnectionsRef.current.keys()));
+                }
+              } catch(e) {}
+            });
+          } else if (p && p.disconnected && !p.destroyed) {
+            console.log("Keepalive: peer desconectado, tentando reconectar...");
+            scheduleReconnect();
+          }
+        }, 25000);
+      };
+
+      // Agenda reconexão com backoff – único ponto de entrada para retentativas
+      const scheduleReconnect = () => {
+        if (isManualDisconnectRef.current) return;
+        clearReconnectTimer();
+
+        if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+          console.error(`Circuit-breaker: ${MAX_RECONNECT_ATTEMPTS} tentativas falharam. Desistindo.`);
+          setConnectionStatus('erro-fatal');
+          stopKeepalive();
+          return;
+        }
+
+        const delay = getBackoffDelay(reconnectAttemptsRef.current);
+        reconnectAttemptsRef.current += 1;
+        console.log(`Reconectando em ${(delay/1000).toFixed(1)}s (tentativa ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})...`);
+        setConnectionStatus(`reconectando (${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
+
+        reconnectTimerRef.current = setTimeout(() => {
+          const p = peerInstance.current;
+          if (p && !p.destroyed) {
+            try {
+              p.reconnect();
+              return;
+            } catch(e) {
+              console.warn("p.reconnect() falhou, recriando peer:", e);
+            }
+          }
+          // Se reconnect() falhar ou peer estiver destruído, recria do zero
+          setupPeer();
+        }, delay);
+      };
 
       useEffect(() => {
         if (messagesEndRef.current) {
@@ -332,40 +419,31 @@
       }, [messages]);
 
       const toggleConnection = () => {
-        if (connectionStatus === 'conectado' || connectionStatus === 'conectando') {
+        if (connectionStatus === 'conectado' || connectionStatus.startsWith('reconectando') || connectionStatus === 'conectando') {
           disconnectPeer();
         } else {
+          isManualDisconnectRef.current = false;
+          reconnectAttemptsRef.current = 0;
           setupPeer();
         }
       };
 
       const disconnectPeer = () => {
+        isManualDisconnectRef.current = true; // impede reconexão automática
+        clearReconnectTimer();
+        stopKeepalive();
         if (peerInstance.current) {
           try {
-            console.log("Desconectando peer...");
-            
+            console.log("Desconectando peer (manual)...");
             activeConnectionsRef.current.forEach((conn) => {
-              try {
-                conn.close();
-              } catch (e) {
-                console.error("Erro ao fechar conexão:", e);
-              }
+              try { conn.close(); } catch (e) {}
             });
-            
             activeConnectionsRef.current.clear();
             setConnections([]);
-            
             peerInstance.current.destroy();
             peerInstance.current = null;
-            
             setConnectionStatus('desconectado');
-            
-            setStats({
-              messagesReceived: 0,
-              messagesDistributed: 0,
-              activeConnections: 0
-            });
-            
+            setStats({ messagesReceived: 0, messagesDistributed: 0, activeConnections: 0 });
             console.log("Peer desconectado com sucesso");
           } catch (err) {
             console.error("Erro ao desconectar peer:", err);
@@ -375,39 +453,43 @@
 
       const setupPeer = () => {
         if (!peerId) return;
+        if (isManualDisconnectRef.current) return; // respeita desconexão manual
 
         console.log("Configurando distribuidor com ID:", peerId);
         setConnectionStatus('conectando');
+        stopKeepalive();
+        clearReconnectTimer();
         
         if (peerInstance.current) {
-          try {
-            peerInstance.current.destroy();
-          } catch (err) {
-            console.error("Erro ao destruir instância anterior:", err);
-          }
+          try { peerInstance.current.destroy(); } catch (err) {}
+          peerInstance.current = null;
         }
         
         const peer = new Peer(peerId, {
           host: '0.peerjs.com',
           port: 443,
           secure: true,
+          pingInterval: 5000, // PeerJS interno: ping a cada 5s
           config: {
             iceServers: [
               { urls: 'stun:stun.l.google.com:19302' },
-              { urls: 'stun:stun1.l.google.com:19302' }
+              { urls: 'stun:stun1.l.google.com:19302' },
+              { urls: 'stun:stun2.l.google.com:19302' },
+              { urls: 'stun:stun3.l.google.com:19302' }
             ]
           },
-          debug: 2
+          debug: 1
         });
 
         peer.on('open', (id) => {
           console.log("Distribuidor conectado com ID:", id);
+          reconnectAttemptsRef.current = 0; // reset do circuit-breaker ao conectar
           setConnectionStatus('conectado');
+          startKeepalive();
           
-          // Auto-connect to known servers
           knownServers.forEach(serverId => {
             if (serverId !== id) {
-              console.log(`Tentando conectar automaticamente ao servidor: ${serverId}`);
+              console.log(`Auto-conectando ao servidor: ${serverId}`);
               const conn = peer.connect(serverId);
               setupConnection(conn);
             }
@@ -417,92 +499,114 @@
         peer.on('connection', (conn) => {
           console.log("Nova conexão recebida de:", conn.peer);
           
-          // Se já estamos no modo Hydra, aceitamos a conexão apenas para enviar a lista de peers e depois fechamos
           if (isHydraModeRef.current) {
             setupConnection(conn);
             return;
           }
 
-          // Limite de segurança para o servidor rodando no navegador (evita travamento)
           const MAX_SERVER_CONNECTIONS = 200;
           if (activeConnectionsRef.current.size >= MAX_SERVER_CONNECTIONS) {
             console.log("Servidor cheio. Rejeitando conexão de:", conn.peer);
-            setTimeout(() => {
-              try { conn.close(); } catch (e) {}
-            }, 500);
+            setTimeout(() => { try { conn.close(); } catch (e) {} }, 500);
             return;
           }
           
           setupConnection(conn);
         });
 
+        // ── Tratamento robusto de erros ──────────────────────────────────
         peer.on('error', (err) => {
-          console.error("Erro no peer:", err);
+          console.error("Erro no peer:", err.type, err);
+
+          // Erros FATAIS: não adianta reconectar com o mesmo ID
+          if (err.type === 'unavailable-id' || err.type === 'invalid-id') {
+            setConnectionStatus('erro-id-indisponível');
+            console.error("ID já em uso ou inválido. Altere o ID e tente novamente.");
+            stopKeepalive();
+            return;
+          }
+
+          // Erros de peer remoto não afetam o servidor em si
+          if (err.type === 'peer-unavailable') {
+            console.warn("Peer remoto indisponível:", err.message);
+            return; // não reconecta – o servidor continua de pé
+          }
+
+          // Erros de REDE / SERVIDOR – reconecta automaticamente
           setConnectionStatus('erro');
+          if (!isManualDisconnectRef.current) {
+            scheduleReconnect();
+          }
         });
 
+        // Sinalização desconectou (não o peer em si) – tenta reconectar
         peer.on('disconnected', () => {
-          console.log("Peer desconectado. Tentando reconectar...");
-          setConnectionStatus('reconectando');
-          setTimeout(() => {
-            if (peerInstance.current && !peerInstance.current.destroyed) {
-              peerInstance.current.reconnect();
-            } else {
-              setupPeer();
-            }
-          }, 3000);
+          if (isManualDisconnectRef.current) return;
+          console.log("Peer desconectado do servidor de sinalização. Reconectando...");
+          setConnectionStatus('reconectando...');
+          scheduleReconnect();
+        });
+
+        // Peer completamente fechado (raro, mas tratado)
+        peer.on('close', () => {
+          if (isManualDisconnectRef.current) return;
+          console.warn("Peer fechou completamente. Recriando...");
+          stopKeepalive();
+          peerInstance.current = null;
+          scheduleReconnect();
         });
 
         peerInstance.current = peer;
       };
 
+      // ── Reconecta quando a internet voltar ──────────────────────────────
       useEffect(() => {
-        if (connectionStatus === 'desconectado' || connectionStatus === 'erro') return;
-        
-        const checkConnectionInterval = setInterval(() => {
-          if (peerInstance.current && peerInstance.current.disconnected) {
-            console.log("Tentando reconectar...");
-            try {
-              peerInstance.current.reconnect();
-            } catch (e) {
-              console.error("Falha na reconexão, recriando peer:", e);
+        const handleOnline = () => {
+          console.log("Rede online detectada.");
+          if (!isManualDisconnectRef.current) {
+            const p = peerInstance.current;
+            const isOk = p && !p.destroyed && !p.disconnected;
+            if (!isOk) {
+              console.log("Reconectando após retorno da rede...");
+              reconnectAttemptsRef.current = 0;
               setupPeer();
             }
           }
+        };
+        window.addEventListener('online', handleOnline);
+        return () => window.removeEventListener('online', handleOnline);
+      }, [peerId]);
+
+      useEffect(() => {
+        // Monitora saúde da conexão a cada 15s – funciona em TODOS os estados (inclusive 'erro')
+        if (connectionStatus === 'desconectado' || connectionStatus === 'erro-fatal') return;
+        
+        const checkConnectionInterval = setInterval(() => {
+          const p = peerInstance.current;
+
+          // Se estiver no estado 'erro' aguarda o scheduleReconnect atuar
+          if (connectionStatus.startsWith('erro')) return;
+
+          if (p && p.disconnected && !p.destroyed) {
+            console.log("Monitor: peer desconectado, agendando reconexão...");
+            if (!isManualDisconnectRef.current) scheduleReconnect();
+          }
           
-          // Clean up stale heartbeats (older than 45 seconds)
+          // Limpeza de heartbeats antigos (> 45s)
           const now = Date.now();
           let changed = false;
           heartbeatsRef.current.forEach((time, id) => {
-            if (now - time > 45000) {
-              heartbeatsRef.current.delete(id);
-              changed = true;
-            }
+            if (now - time > 45000) { heartbeatsRef.current.delete(id); changed = true; }
           });
+          if (changed) setStats(prev => ({ ...prev, hydraNodes: heartbeatsRef.current.size }));
           
-          if (changed) {
-            setStats(prev => ({
-              ...prev,
-              hydraNodes: heartbeatsRef.current.size
-            }));
-          }
+          // Broadcast de estatísticas para todos os conectados
+          const statsMsg = { type: 'network-stats', totalOnline: heartbeatsRef.current.size, timestamp: now };
+          activeConnectionsRef.current.forEach(conn => { try { conn.send(statsMsg); } catch(e) {} });
           
-          // Broadcast network stats to all direct connections
-          const statsMsg = {
-            type: 'network-stats',
-            totalOnline: heartbeatsRef.current.size,
-            timestamp: now
-          };
-          
-          activeConnectionsRef.current.forEach(conn => {
-            try { conn.send(statsMsg); } catch(e) {}
-          });
-          
-        }, 15000); // Check every 15s instead of 30s for more responsive stats
+        }, 15000);
 
-        return () => {
-          clearInterval(checkConnectionInterval);
-        };
+        return () => clearInterval(checkConnectionInterval);
       }, [connectionStatus]);
 
       const handleIdChange = (newId) => {
@@ -549,9 +653,10 @@
           return;
         }
 
+        const serverId = peerInstance.current ? peerInstance.current.id : 'SERVER';
         const startTime = Date.now() + 5000; // 5s delay for sync
         const duration = 300; // 5 minutes limit
-        const radioId = pId + '_yt_' + Date.now();
+        const radioId = serverId + '_yt_' + Date.now();
         const msg = { 
           type: 'radio-youtube-start', 
           id: radioId + '_start', 
@@ -559,12 +664,12 @@
           youtubeId: finalYoutubeId, 
           startTime,
           duration,
-          sender: pId,
+          sender: serverId,
           senderName: 'SERVIDOR',
           ttl: 15 
         };
         
-        setYoutubeBroadcasts(prev => ({ ...prev, [pId]: { videoId: finalYoutubeId, senderName: 'SERVIDOR' } }));
+        setYoutubeBroadcasts(prev => ({ ...prev, [serverId]: { videoId: finalYoutubeId, senderName: 'SERVIDOR' } }));
         distributeMessage(msg, null);
       };
 
@@ -961,13 +1066,18 @@
               <span 
                 className={`status-indicator status-${
                   connectionStatus === 'conectado' ? 'online' : 
-                  connectionStatus === 'conectando' ? 'connecting' : 'offline'
+                  connectionStatus === 'conectando' || connectionStatus.startsWith('reconectando') ? 'connecting' : 'offline'
                 }`}
               ></span>
               Status: {connectionStatus}
               <button onClick={toggleConnection}>
-                {connectionStatus === 'conectado' || connectionStatus === 'conectando' ? 'Desconectar' : 'Conectar'}
+                {connectionStatus === 'conectado' || connectionStatus === 'conectando' || connectionStatus.startsWith('reconectando') ? 'Desconectar' : 'Conectar'}
               </button>
+              {connectionStatus === 'erro-fatal' && (
+                <button onClick={() => { reconnectAttemptsRef.current = 0; isManualDisconnectRef.current = false; setupPeer(); }} style={{ background: '#ef4444', marginLeft: 8 }}>
+                  Forçar Reconexão
+                </button>
+              )}
             </div>
           </div>
           
@@ -975,7 +1085,7 @@
             peerId={peerId} 
             setPeerId={setPeerId} 
             onSaveId={handleIdChange} 
-            isConnected={connectionStatus === 'conectado' || connectionStatus === 'conectando'}
+            isConnected={connectionStatus === 'conectado' || connectionStatus === 'conectando' || connectionStatus.startsWith('reconectando')}
           />
           
           {/* New component for controlling server mode */}
