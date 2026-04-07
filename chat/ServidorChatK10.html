@@ -304,6 +304,10 @@
       });
       // New state to control the mode
       const [pureServerMode, setPureServerMode] = useState(true);
+      const [knownServers, setKnownServers] = useState(() => {
+        try { return JSON.parse(localStorage.getItem('knownServers') || '[]'); } catch { return []; }
+      });
+      const [newServerId, setNewServerId] = useState('');
       const [youtubeChatId, setYoutubeChatId] = useState(null);
       const [youtubeBroadcasts, setYoutubeBroadcasts] = useState({}); // Track active broadcasts
       const youtubeChatIdRef = useRef(null);
@@ -399,6 +403,15 @@
         peer.on('open', (id) => {
           console.log("Distribuidor conectado com ID:", id);
           setConnectionStatus('conectado');
+          
+          // Auto-connect to known servers
+          knownServers.forEach(serverId => {
+            if (serverId !== id) {
+              console.log(`Tentando conectar automaticamente ao servidor: ${serverId}`);
+              const conn = peer.connect(serverId);
+              setupConnection(conn);
+            }
+          });
         });
 
         peer.on('connection', (conn) => {
@@ -935,7 +948,6 @@
                 checked={pureServerMode} 
                 onChange={(e) => {
                   setPureServerMode(e.target.checked);
-                  // If we're changing mode while connected, it's best to disconnect and reconnect
                   if (connectionStatus === 'conectado') {
                     disconnectPeer();
                     setTimeout(setupPeer, 500);
@@ -964,6 +976,49 @@
                 {youtubeBroadcasts[peerInstance.current?.id] ? ' Parar Vídeo YT' : ' Transmitir Vídeo YT'}
               </button>
             </div>
+          </div>
+
+          <div className="server-mode-container">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+              <strong>Conectar a outro Servidor:</strong>
+              <input 
+                type="text" 
+                value={newServerId} 
+                onChange={(e) => setNewServerId(e.target.value)} 
+                placeholder="ID do Servidor"
+              />
+              <button onClick={() => {
+                if (newServerId && newServerId !== peerId) {
+                  setKnownServers(prev => {
+                    const updated = [...new Set([...prev, newServerId])];
+                    localStorage.setItem('knownServers', JSON.stringify(updated));
+                    return updated;
+                  });
+                  if (peerInstance.current) {
+                    const conn = peerInstance.current.connect(newServerId);
+                    setupConnection(conn);
+                  }
+                  setNewServerId('');
+                } else if (newServerId === peerId) {
+                  alert("O servidor não pode adicionar ele mesmo!");
+                }
+              }}>Conectar</button>
+            </div>
+          </div>
+          
+          <div className="server-mode-container">
+            <strong>Servidores Conhecidos:</strong>
+            {knownServers.map(id => (
+              <span key={id} style={{ background: '#e2e8f0', padding: '2px 8px', borderRadius: '4px', margin: '0 5px' }}>
+                {id} <button onClick={() => {
+                  setKnownServers(prev => {
+                    const updated = prev.filter(s => s !== id);
+                    localStorage.setItem('knownServers', JSON.stringify(updated));
+                    return updated;
+                  });
+                }}>x</button>
+              </span>
+            ))}
           </div>
           
           <div className="distribution-stats">
