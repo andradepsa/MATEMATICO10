@@ -984,18 +984,32 @@
         });
       };
 
-      const broadcastYoutubeChat = () => {
-        const url = prompt('Digite a URL do YouTube Live para o Chat:');
+      const [telegramChatUrl, setTelegramChatUrl] = useState(null);
+      const telegramChatUrlRef = useRef(null);
+      useEffect(() => { telegramChatUrlRef.current = telegramChatUrl; }, [telegramChatUrl]);
+
+      const broadcastExternalChat = () => {
+        const url = prompt('Digite a URL do YouTube Live ou do Telegram para o Chat:');
         if (!url) return;
+        
+        let parsedUrl = url;
+        if (!parsedUrl.startsWith('http')) parsedUrl = 'https://' + parsedUrl;
+
+        if (parsedUrl.includes('t.me') || parsedUrl.includes('telegram')) {
+          setTelegramChatUrl(parsedUrl);
+          const msgId = Date.now() + Math.random().toString(36).substring(7);
+          const msgData = { type: 'telegram-chat-start', id: msgId, telegramUrl: parsedUrl, ttl: 15 };
+          activeConnectionsRef.current.forEach(c => { try { c.send(msgData); } catch(e){} });
+          return;
+        }
+
         let yId = null;
         try {
-          let parsedUrl = url;
-          if (!parsedUrl.startsWith('http')) parsedUrl = 'https://' + parsedUrl;
           if (parsedUrl.includes('youtu.be/')) yId = parsedUrl.split('youtu.be/')[1].split('?')[0];
           else if (parsedUrl.includes('youtube.com/watch')) yId = new URL(parsedUrl).searchParams.get('v');
           else if (parsedUrl.includes('youtube.com/live/')) yId = parsedUrl.split('youtube.com/live/')[1].split('?')[0];
         } catch (e) {}
-        if (!yId) { alert('URL do YouTube inválida'); return; }
+        if (!yId) { alert('URL inválida'); return; }
         
         setYoutubeChatId(yId);
         const msgId = Date.now() + Math.random().toString(36).substring(7);
@@ -1003,11 +1017,18 @@
         activeConnectionsRef.current.forEach(c => { try { c.send(msgData); } catch(e){} });
       };
 
-      const stopYoutubeChat = () => {
-        setYoutubeChatId(null);
-        const msgId = Date.now() + Math.random().toString(36).substring(7);
-        const msgData = { type: 'youtube-chat-stop', id: msgId, ttl: 15 };
-        activeConnectionsRef.current.forEach(c => { try { c.send(msgData); } catch(e){} });
+      const stopExternalChat = (type) => {
+        if (type === 'youtube') {
+          setYoutubeChatId(null);
+          const msgId = Date.now() + Math.random().toString(36).substring(7);
+          const msgData = { type: 'youtube-chat-stop', id: msgId, ttl: 15 };
+          activeConnectionsRef.current.forEach(c => { try { c.send(msgData); } catch(e){} });
+        } else if (type === 'telegram') {
+          setTelegramChatUrl(null);
+          const msgId = Date.now() + Math.random().toString(36).substring(7);
+          const msgData = { type: 'telegram-chat-stop', id: msgId, ttl: 15 };
+          activeConnectionsRef.current.forEach(c => { try { c.send(msgData); } catch(e){} });
+        }
       };
 
       return (
@@ -1107,12 +1128,17 @@
               </label>
             </div>
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button onClick={broadcastYoutubeChat} disabled={Boolean(youtubeChatId)} style={{ backgroundColor: youtubeChatId ? '#cccccc' : '#eab308', cursor: youtubeChatId ? 'not-allowed' : 'pointer', color: youtubeChatId ? '#666666' : 'black' }}>
-                <i className="fab fa-youtube"></i> Iniciar Chat YT
+              <button onClick={broadcastExternalChat} style={{ backgroundColor: '#eab308', cursor: 'pointer', color: 'black' }}>
+                <i className="fas fa-comment-dots"></i> Iniciar Chat YT / Telegram
               </button>
               {youtubeChatId && (
-                <button onClick={stopYoutubeChat} style={{ backgroundColor: '#ef4444' }}>
+                <button onClick={() => stopExternalChat('youtube')} style={{ backgroundColor: '#ef4444' }}>
                   <i className="fas fa-times"></i> Parar Chat YT
+                </button>
+              )}
+              {telegramChatUrl && (
+                <button onClick={() => stopExternalChat('telegram')} style={{ backgroundColor: '#ef4444' }}>
+                  <i className="fas fa-times"></i> Parar Chat Telegram
                 </button>
               )}
               <button 
@@ -2090,17 +2116,45 @@ var DistributorApp = function DistributorApp() {
       console.error("Erro na conex\xE3o com ".concat(conn.peer, ":"), err);
     });
   };
-  var broadcastYoutubeChat = function broadcastYoutubeChat() {
-    var url = prompt('Digite a URL do YouTube Live para o Chat:');
+  var _useStateTelegram = useState(null),
+    _useStateTelegram2 = _slicedToArray(_useStateTelegram, 2),
+    telegramChatUrl = _useStateTelegram2[0],
+    setTelegramChatUrl = _useStateTelegram2[1];
+  var telegramChatUrlRef = useRef(null);
+  useEffect(function () {
+    telegramChatUrlRef.current = telegramChatUrl;
+  }, [telegramChatUrl]);
+
+  var broadcastExternalChat = function broadcastExternalChat() {
+    var url = prompt('Digite a URL do YouTube Live ou do Telegram para o Chat:');
     if (!url) return;
+    
+    var parsedUrl = url;
+    if (!parsedUrl.startsWith('http')) parsedUrl = 'https://' + parsedUrl;
+
+    if (parsedUrl.includes('t.me') || parsedUrl.includes('telegram')) {
+      setTelegramChatUrl(parsedUrl);
+      var _msgId = Date.now() + Math.random().toString(36).substring(7);
+      var _msgData = {
+        type: 'telegram-chat-start',
+        id: _msgId,
+        telegramUrl: parsedUrl,
+        ttl: 15
+      };
+      activeConnectionsRef.current.forEach(function (c) {
+        try {
+          c.send(_msgData);
+        } catch (e) {}
+      });
+      return;
+    }
+
     var yId = null;
     try {
-      var parsedUrl = url;
-      if (!parsedUrl.startsWith('http')) parsedUrl = 'https://' + parsedUrl;
       if (parsedUrl.includes('youtu.be/')) yId = parsedUrl.split('youtu.be/')[1].split('?')[0];else if (parsedUrl.includes('youtube.com/watch')) yId = new URL(parsedUrl).searchParams.get('v');else if (parsedUrl.includes('youtube.com/live/')) yId = parsedUrl.split('youtube.com/live/')[1].split('?')[0];
     } catch (e) {}
     if (!yId) {
-      alert('URL do YouTube inválida');
+      alert('URL inválida');
       return;
     }
     setYoutubeChatId(yId);
@@ -2117,19 +2171,34 @@ var DistributorApp = function DistributorApp() {
       } catch (e) {}
     });
   };
-  var stopYoutubeChat = function stopYoutubeChat() {
-    setYoutubeChatId(null);
-    var msgId = Date.now() + Math.random().toString(36).substring(7);
-    var msgData = {
-      type: 'youtube-chat-stop',
-      id: msgId,
-      ttl: 15
-    };
-    activeConnectionsRef.current.forEach(function (c) {
-      try {
-        c.send(msgData);
-      } catch (e) {}
-    });
+  var stopExternalChat = function stopExternalChat(type) {
+    if (type === 'youtube') {
+      setYoutubeChatId(null);
+      var msgId = Date.now() + Math.random().toString(36).substring(7);
+      var msgData = {
+        type: 'youtube-chat-stop',
+        id: msgId,
+        ttl: 15
+      };
+      activeConnectionsRef.current.forEach(function (c) {
+        try {
+          c.send(msgData);
+        } catch (e) {}
+      });
+    } else if (type === 'telegram') {
+      setTelegramChatUrl(null);
+      var _msgId2 = Date.now() + Math.random().toString(36).substring(7);
+      var _msgData2 = {
+        type: 'telegram-chat-stop',
+        id: _msgId2,
+        ttl: 15
+      };
+      activeConnectionsRef.current.forEach(function (c) {
+        try {
+          c.send(_msgData2);
+        } catch (e) {}
+      });
+    }
   };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     style: {
@@ -2252,23 +2321,29 @@ var DistributorApp = function DistributorApp() {
       gap: '10px'
     }
   }, /*#__PURE__*/React.createElement("button", {
-    onClick: broadcastYoutubeChat,
-    disabled: Boolean(youtubeChatId),
+    onClick: broadcastExternalChat,
     style: {
-      backgroundColor: youtubeChatId ? '#cccccc' : '#eab308',
-      cursor: youtubeChatId ? 'not-allowed' : 'pointer',
-      color: youtubeChatId ? '#666666' : 'black'
+      backgroundColor: '#eab308',
+      cursor: 'pointer',
+      color: 'black'
     }
   }, /*#__PURE__*/React.createElement("i", {
-    className: "fab fa-youtube"
-  }), " Iniciar Chat YT"), youtubeChatId && /*#__PURE__*/React.createElement("button", {
-    onClick: stopYoutubeChat,
+    className: "fas fa-comment-dots"
+  }), " Iniciar Chat YT / Telegram"), youtubeChatId && /*#__PURE__*/React.createElement("button", {
+    onClick: function () { return stopExternalChat('youtube'); },
     style: {
       backgroundColor: '#ef4444'
     }
   }, /*#__PURE__*/React.createElement("i", {
     className: "fas fa-times"
-  }), " Parar Chat YT"), /*#__PURE__*/React.createElement("button", {
+  }), " Parar Chat YT"), telegramChatUrl && /*#__PURE__*/React.createElement("button", {
+    onClick: function () { return stopExternalChat('telegram'); },
+    style: {
+      backgroundColor: '#ef4444'
+    }
+  }, /*#__PURE__*/React.createElement("i", {
+    className: "fas fa-times"
+  }), " Parar Chat Telegram"), /*#__PURE__*/React.createElement("button", {
     onClick: youtubeBroadcasts[(_peerInstance$current = peerInstance.current) === null || _peerInstance$current === void 0 ? void 0 : _peerInstance$current.id] ? stopMyYoutubeVideo : broadcastMyYoutubeVideo,
     style: {
       backgroundColor: youtubeBroadcasts[(_peerInstance$current2 = peerInstance.current) === null || _peerInstance$current2 === void 0 ? void 0 : _peerInstance$current2.id] ? '#ef4444' : '#3b82f6',
