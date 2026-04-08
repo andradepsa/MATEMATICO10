@@ -309,9 +309,12 @@
       });
       const [newServerId, setNewServerId] = useState('');
       const [youtubeChatId, setYoutubeChatId] = useState(null);
+      const [telegramChatId, setTelegramChatId] = useState(null);
       const [youtubeBroadcasts, setYoutubeBroadcasts] = useState({}); // Track active broadcasts
       const youtubeChatIdRef = useRef(null);
       useEffect(() => { youtubeChatIdRef.current = youtubeChatId; }, [youtubeChatId]);
+      const telegramChatIdRef = useRef(null);
+      useEffect(() => { telegramChatIdRef.current = telegramChatId; }, [telegramChatId]);
       const radioStateRef = useRef({ status: 'idle', startTime: 0, duration: 0 });
       
       const peerInstance = useRef(null);
@@ -687,6 +690,8 @@
            }
            if (data.type === 'youtube-chat-start') setYoutubeChatId(data.youtubeId);
            if (data.type === 'youtube-chat-stop') setYoutubeChatId(null);
+           if (data.type === 'telegram-chat-start') setTelegramChatId(data.telegramId);
+           if (data.type === 'telegram-chat-stop') setTelegramChatId(null);
            if (data.type === 'radio-youtube-start') {
              setYoutubeBroadcasts(prev => ({ ...prev, [data.sender || sourceConn.peer]: { videoId: data.youtubeId, senderName: data.senderName } }));
            }
@@ -813,6 +818,9 @@
             if (youtubeChatIdRef.current) {
               conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
             }
+            if (telegramChatIdRef.current) {
+              conn.send({ type: 'telegram-chat-start', id: Date.now() + Math.random().toString(), telegramId: telegramChatIdRef.current, ttl: 0 });
+            }
           } catch (e) {}
 
           // Here is the critical change to ensure we operate in pure server mode:
@@ -907,6 +915,34 @@
         activeConnectionsRef.current.forEach(c => { try { c.send(msgData); } catch(e){} });
       };
 
+      const broadcastTelegramChat = () => {
+        const url = prompt('Digite a URL do Canal/Grupo do Telegram para o Chat:');
+        if (!url) return;
+        let tId = null;
+        try {
+          let parsedUrl = url;
+          if (!parsedUrl.startsWith('http')) parsedUrl = 'https://' + parsedUrl;
+          if (parsedUrl.includes('t.me/')) {
+            const parts = parsedUrl.split('t.me/')[1].split('/');
+            if (parts[0] === 's') tId = parts[1].split('?')[0];
+            else tId = parts[0].split('?')[0];
+          }
+        } catch (e) {}
+        if (!tId) { alert('URL do Telegram inválida'); return; }
+        
+        setTelegramChatId(tId);
+        const msgId = Date.now() + Math.random().toString(36).substring(7);
+        const msgData = { type: 'telegram-chat-start', id: msgId, telegramId: tId, ttl: 15 };
+        activeConnectionsRef.current.forEach(c => { try { c.send(msgData); } catch(e){} });
+      };
+
+      const stopTelegramChat = () => {
+        setTelegramChatId(null);
+        const msgId = Date.now() + Math.random().toString(36).substring(7);
+        const msgData = { type: 'telegram-chat-stop', id: msgId, ttl: 15 };
+        activeConnectionsRef.current.forEach(c => { try { c.send(msgData); } catch(e){} });
+      };
+
       return (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -956,20 +992,28 @@
           <p>Mais especificamente:</p>
           <p>Letras: A a Z (apenas maiúsculas)</p>
           <p>Números: 2 a 9</p>    
-          <div className="peer-id-container">
-            <div>
-              <span 
-                className={`status-indicator status-${
-                  connectionStatus === 'conectado' ? 'online' : 
-                  connectionStatus === 'conectando' ? 'connecting' : 'offline'
-                }`}
-              ></span>
-              Status: {connectionStatus}
-              <button onClick={toggleConnection}>
-                {connectionStatus === 'conectado' || connectionStatus === 'conectando' ? 'Desconectar' : 'Conectar'}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '10px', flexWrap: 'wrap' }}>
+              <button onClick={broadcastYoutubeChat}
+                style={{ backgroundColor: '#eab308', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
+                <i className="fab fa-youtube"></i> Transmitir Chat YouTube
               </button>
+              {youtubeChatId && (
+                <button onClick={stopYoutubeChat}
+                  style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
+                  <i className="fas fa-times"></i> Parar Chat YouTube
+                </button>
+              )}
+              <button onClick={broadcastTelegramChat}
+                style={{ backgroundColor: '#0088cc', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
+                <i className="fab fa-telegram"></i> Transmitir Chat Telegram
+              </button>
+              {telegramChatId && (
+                <button onClick={stopTelegramChat}
+                  style={{ backgroundColor: '#ef4444', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '700' }}>
+                  <i className="fas fa-times"></i> Parar Chat Telegram
+                </button>
+              )}
             </div>
-          </div>
           
           <IdBackupTools 
             peerId={peerId} 
