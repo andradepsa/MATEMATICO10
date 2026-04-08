@@ -736,7 +736,7 @@
       }
       render() {
         if (this.state.error) {
-          const lang = localStorage.getItem('k10Lang') || 'en';
+          const lang = 'en'; // No longer reading from localStorage for lang
           return (
             <div style={{ padding: '40px', textAlign: 'center', background: '#f8fafc', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
               <div style={{ fontSize: '64px', marginBottom: '20px' }}>⚠️</div>
@@ -2173,7 +2173,6 @@
             const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
             setMessages(prev => { 
               const updated = [...prev, newMsgObj].slice(-500); 
-              try { localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); } catch(e) { console.warn('Storage full', e); }
               return updated; 
             });
           } else {
@@ -2182,7 +2181,6 @@
             const newMsgObj = { text: textToSend, sender: 'you', recipient: 'general', senderName: userName, time: formatTime(timestamp), type: 'text', direct: false, timestamp: timestamp.getTime() };
             setMessages(prev => { 
               const updated = [...prev, newMsgObj].slice(-500); 
-              try { localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); } catch(e) { console.warn('Storage full', e); }
               return updated; 
             });
           }
@@ -2201,10 +2199,10 @@
         setServerE2EE(prev => { const u = { ...prev }; delete u[srvId]; return u; });
       };
       const deleteMessage = (ts) => {
-        setMessages(prev => { const u = prev.filter(m => m.timestamp !== ts); localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(u)); return u; });
+        setMessages(prev => { const u = prev.filter(m => m.timestamp !== ts); return u; });
       };
       const deleteMessagesByContact = (pId) => {
-        setMessages(prev => { const u = prev.filter(m => !((m.sender === pId && m.recipient === 'you') || (m.sender === 'you' && m.recipient === pId) || m.systemFor === pId)); localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(u)); return u; });
+        setMessages(prev => { const u = prev.filter(m => !((m.sender === pId && m.recipient === 'you') || (m.sender === 'you' && m.recipient === pId) || m.systemFor === pId)); return u; });
       };
 
       const scrollToBottom = (behavior = "smooth", force = false) => {
@@ -3811,35 +3809,30 @@
     // MAIN APP
     // ================================================================
     const App = () => {
-      const [lang, setLang] = useState(() => localStorage.getItem('k10Lang') || 'en');
+      const [lang, setLang] = useState('en');
       const [showTutorial, setShowTutorial] = useState(false);
       const [showGeneralModeInfo, setShowGeneralModeInfo] = useState(false);
 
       useEffect(() => {
-        if (localStorage.getItem('modo') === 'dark') { document.body.classList.add('dark-mode'); }
+        // No longer reading theme from localStorage
       }, []);
 
       const toggleDarkMode = () => {
         document.body.classList.toggle('dark-mode');
-        const isDark = document.body.classList.contains('dark-mode');
-        localStorage.setItem('modo', isDark ? 'dark' : 'light');
+        // No longer saving theme to localStorage
       };
 
       const toggleLang = () => {
         const newLang = lang === 'en' ? 'pt' : 'en';
         setLang(newLang);
-        localStorage.setItem('k10Lang', newLang);
+        // No longer saving lang to localStorage
       };
 
       const [peerId, setPeerId] = usePersistentId();
       const [userName, setUserName] = useState(() => localStorage.getItem('p2pUserName') || '');
       const [editingName, setEditingName] = useState(!localStorage.getItem('p2pUserName'));
       const [connections, setConnections] = useState([]);
-      const [messages, setMessages] = useState(() => {
-        const saved = localStorage.getItem(MESSAGES_STORAGE_KEY);
-        try { const parsed = saved ? JSON.parse(saved) : []; return parsed.map((msg, i) => ({ ...msg, timestamp: msg.timestamp || Date.now() + i })); }
-        catch { localStorage.removeItem(MESSAGES_STORAGE_KEY); return []; }
-      });
+      const [messages, setMessages] = useState([]);
       const [newMessage, setNewMessage] = useState('');
       const [showContacts, setShowContacts] = useState(false);
       const [contacts, setContacts] = useState(() => { try { return JSON.parse(localStorage.getItem('p2pContacts') || '[]'); } catch { return []; } });
@@ -3879,11 +3872,7 @@
       useEffect(() => { userYoutubeStreamsRef.current = userYoutubeStreams; }, [userYoutubeStreams]);
       
       const [showYoutubeGrid, setShowYoutubeGrid] = useState(false);
-      const [youtubeLinks, setYoutubeLinks] = useState(() => {
-        const saved = localStorage.getItem('k10YoutubeLinks');
-        if (saved) return { ...YOUTUBE_LINKS_LIST, ...JSON.parse(saved) };
-        return YOUTUBE_LINKS_LIST;
-      });
+      const [youtubeLinks, setYoutubeLinks] = useState(YOUTUBE_LINKS_LIST);
       const [gridInput, setGridInput] = useState('');
       
       const [windowTargets, setWindowTargets] = useState({}); // { windowId: peerId }
@@ -4213,9 +4202,6 @@
         if (messageToAdd) {
           setMessages(prev => { 
             const updated = [...prev, messageToAdd].slice(-500); 
-            if (messageToAdd.type === 'text' || messageToAdd.receiving) {
-              try { localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); } catch(e) { console.warn('Storage full', e); }
-            }
             return updated; 
           });
         }
@@ -4786,7 +4772,7 @@
         const timestamp = new Date(), formattedTime = formatTime(timestamp);
         const isFile = typePrefix === 'file';
         const localUrl = URL.createObjectURL(dataBlob);
-        setMessages(prev => { const msg = { ...metaData, [idKey]: id, sender: 'you', recipient: conn.peer, senderName: userName, time: formattedTime, type: isFile ? 'file' : 'audio', sending: true, progress: 0, direct: true, timestamp: timestamp.getTime(), [isFile ? 'fileData' : 'audioData']: localUrl }; const updated = [...prev, msg]; localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
+        setMessages(prev => { const msg = { ...metaData, [idKey]: id, sender: 'you', recipient: conn.peer, senderName: userName, time: formattedTime, type: isFile ? 'file' : 'audio', sending: true, progress: 0, direct: true, timestamp: timestamp.getTime(), [isFile ? 'fileData' : 'audioData']: localUrl }; const updated = [...prev, msg]; return updated; });
         try { conn.send({ type: `${typePrefix}-start`, [idKey]: id, [isFile ? 'fileSize' : 'audioSize']: dataBlob.size, senderName: userName, time: formattedTime, direct: true, timestamp: timestamp.getTime(), ...(isFile && { fileName: metaData.fileName, fileType: dataBlob.type }) }); }
         catch (err) { alert(t(lang, 'sendError') + err.message); setMessages(prev => prev.filter(m => m[idKey] !== id)); return; }
         const readChunk = () => { const chunk = dataBlob.slice(offset, offset + CHUNK_SIZE); reader.readAsArrayBuffer(chunk); };
@@ -4798,7 +4784,7 @@
             const progress = Math.min(100, Math.floor((offset / dataBlob.size) * 100));
             setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, progress } : m));
             if (offset < dataBlob.size) requestAnimationFrame(readChunk);
-            else setMessages(prev => { const updated = prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: 100 } : m); localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(updated)); return updated; });
+            else setMessages(prev => { const updated = prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: 100 } : m); return updated; });
           } catch (err) { alert(t(lang, 'sendingError') + err.message); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); }
         };
         reader.onerror = () => { alert(t(lang, 'fileReadError')); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); };
@@ -5098,7 +5084,6 @@
                           if (url) {
                             const newLinks = { ...youtubeLinks, [num]: url };
                             setYoutubeLinks(newLinks);
-                            localStorage.setItem('k10YoutubeLinks', JSON.stringify(newLinks));
                             startYoutubeBroadcast(url);
                           }
                         }
@@ -5109,7 +5094,6 @@
                         if (url !== null) {
                           const newLinks = { ...youtubeLinks, [num]: url };
                           setYoutubeLinks(newLinks);
-                          localStorage.setItem('k10YoutubeLinks', JSON.stringify(newLinks));
                         }
                       }}
                       style={{ 
