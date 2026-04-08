@@ -2077,7 +2077,7 @@ registerSentMessage, cooldownRemaining, setCooldownRemaining, networkSize, centr
 e2eeState, setE2eeState, isCentralServer, serverE2EE, setServerE2EE, connectToPeer,
 handleTorrentSeed, handleTorrentDownload, setShowTorrentManager,
 pendingTorrentRequests, setPendingTorrentRequests, handleTorrentDirectSeed,
-youtubeChatId, disconnectPeer
+youtubeChatId, telegramChatUrl, disconnectPeer
 }) => {
 const messagesEndRef = useRef(null);
 const messagesContainerRef = useRef(null);
@@ -2088,8 +2088,8 @@ const [activeChatTab, setActiveChatTab] = useState('native');
 
 
 useEffect(() => {
-if (!youtubeChatId) setActiveChatTab('native');
-}, [youtubeChatId]);
+if (!youtubeChatId && !telegramChatUrl) setActiveChatTab('native');
+}, [youtubeChatId, telegramChatUrl]);
 
 
 const [isSending, setIsSending] = useState(false);
@@ -2473,7 +2473,7 @@ style={{ flex: 1, background: '#ef4444', color: 'white', border: 'none', padding
 
 
 <div className="chat-messages-container">
-{youtubeChatId && (
+{(youtubeChatId || telegramChatUrl) && (
 <div style={{ display: 'flex', background: '#f1f5f9', borderBottom: '1px solid var(--border)' }}>
 <button
 onClick={() => setActiveChatTab('native')}
@@ -2481,12 +2481,22 @@ style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab ===
 >
 Chat Nativo
 </button>
+{youtubeChatId && (
 <button
 onClick={() => setActiveChatTab('youtube')}
 style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'youtube' ? 'white' : 'transparent', borderBottom: activeChatTab === 'youtube' ? '2px solid #ef4444' : '2px solid transparent', fontWeight: activeChatTab === 'youtube' ? 'bold' : 'normal', cursor: 'pointer', color: activeChatTab === 'youtube' ? '#ef4444' : '#64748b' }}
 >
 <i className="fab fa-youtube"></i> Chat YouTube
 </button>
+)}
+{telegramChatUrl && (
+<button
+onClick={() => setActiveChatTab('telegram')}
+style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'telegram' ? 'white' : 'transparent', borderBottom: activeChatTab === 'telegram' ? '2px solid #38bdf8' : '2px solid transparent', fontWeight: activeChatTab === 'telegram' ? 'bold' : 'normal', cursor: 'pointer', color: activeChatTab === 'telegram' ? '#38bdf8' : '#64748b' }}
+>
+<i className="fab fa-telegram"></i> Chat Telegram
+</button>
+)}
 </div>
 )}
 {activeChatTab === 'native' ? (
@@ -2592,12 +2602,22 @@ title={t(lang, 'sendMessage')}>
 </button>
 </div>
 </>
-) : (
+) : activeChatTab === 'youtube' ? (
 <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
 <iframe
 width="100%"
 height="100%"
 src={`https://www.youtube.com/live_chat?v=${youtubeChatId}&embed_domain=${window.location.hostname}`}
+frameBorder="0"
+style={{ flex: 1 }}
+></iframe>
+</div>
+) : (
+<div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+<iframe
+width="100%"
+height="100%"
+src={`${telegramChatUrl}?embed=1`}
 frameBorder="0"
 style={{ flex: 1 }}
 ></iframe>
@@ -3992,6 +4012,9 @@ const [remoteStreams, setRemoteStreams] = useState([]);
 const [youtubeChatId, setYoutubeChatId] = useState(null);
 const youtubeChatIdRef = useRef(null);
 useEffect(() => { youtubeChatIdRef.current = youtubeChatId; }, [youtubeChatId]);
+const [telegramChatUrl, setTelegramChatUrl] = useState(null);
+const telegramChatUrlRef = useRef(null);
+useEffect(() => { telegramChatUrlRef.current = telegramChatUrl; }, [telegramChatUrl]);
 const [error, setError] = useState(null);
 const [isLocalVideoVisible, setIsLocalVideoVisible] = useState(false);
 const [showEmojiPanel, setShowEmojiPanel] = useState(false);
@@ -4101,6 +4124,9 @@ try {
 conn.send({ type: 'handshake', peerId });
 if (youtubeChatIdRef.current) {
 conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
+}
+if (telegramChatUrlRef.current) {
+conn.send({ type: 'telegram-chat-start', id: Date.now() + Math.random().toString(), telegramUrl: telegramChatUrlRef.current, ttl: 0 });
 }
 } catch(e) {}
 };
@@ -4294,6 +4320,24 @@ seenMessagesRef.current.add(data.id);
 let ttl = data.ttl !== undefined ? data.ttl : 8;
 if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
 setYoutubeChatId(null);
+return;
+}
+
+if (data.type === 'telegram-chat-start') {
+if (seenMessagesRef.current.has(data.id)) return;
+seenMessagesRef.current.add(data.id);
+let ttl = data.ttl !== undefined ? data.ttl : 8;
+if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+setTelegramChatUrl(data.telegramUrl);
+return;
+}
+
+if (data.type === 'telegram-chat-stop') {
+if (seenMessagesRef.current.has(data.id)) return;
+seenMessagesRef.current.add(data.id);
+let ttl = data.ttl !== undefined ? data.ttl : 8;
+if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+setTelegramChatUrl(null);
 return;
 }
 
@@ -5078,17 +5122,26 @@ call.on('error', err => { alert(t(lang, 'videoError') + err.message); endCall(pe
 
 
 const broadcastYoutubeChat = () => {
-const url = prompt(t(lang, 'enterYoutubeUrl') || 'Enter YouTube Live URL for Chat:');
+const url = prompt(t(lang, 'enterYoutubeUrl') || 'Enter YouTube Live URL or Telegram Chat URL:');
 if (!url) return;
-let yId = null;
-try {
 let parsedUrl = url;
 if (!parsedUrl.startsWith('http')) parsedUrl = 'https://' + parsedUrl;
+
+if (parsedUrl.includes('t.me/')) {
+setTelegramChatUrl(parsedUrl);
+const msgId = Date.now() + Math.random().toString(36).substring(7);
+const msgData = { type: 'telegram-chat-start', id: msgId, telegramUrl: parsedUrl, ttl: 15 };
+connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
+return;
+}
+
+let yId = null;
+try {
 if (parsedUrl.includes('youtu.be/')) yId = parsedUrl.split('youtu.be/')[1].split('?')[0];
 else if (parsedUrl.includes('youtube.com/watch')) yId = new URL(parsedUrl).searchParams.get('v');
 else if (parsedUrl.includes('youtube.com/live/')) yId = parsedUrl.split('youtube.com/live/')[1].split('?')[0];
 } catch (e) {}
-if (!yId) { alert(t(lang, 'invalidYoutubeUrl') || 'Invalid YouTube URL'); return; }
+if (!yId) { alert(t(lang, 'invalidYoutubeUrl') || 'Invalid YouTube or Telegram URL'); return; }
 
 
 setYoutubeChatId(yId);
@@ -5100,9 +5153,11 @@ connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
 
 const stopYoutubeChat = () => {
 setYoutubeChatId(null);
+setTelegramChatUrl(null);
 const msgId = Date.now() + Math.random().toString(36).substring(7);
 const msgData = { type: 'youtube-chat-stop', id: msgId, ttl: 15 };
-connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
+const msgData2 = { type: 'telegram-chat-stop', id: msgId + 't', ttl: 15 };
+connections.forEach(c => { if (c.open) try { c.send(msgData); c.send(msgData2); } catch(e){} });
 };
 
 
@@ -5512,6 +5567,7 @@ pendingTorrentRequests={pendingTorrentRequests}
 setPendingTorrentRequests={setPendingTorrentRequests}
 handleTorrentDirectSeed={handleTorrentDirectSeed}
 youtubeChatId={youtubeChatId}
+telegramChatUrl={telegramChatUrl}
 disconnectPeer={disconnectPeer}
 />
 )}
@@ -5524,7 +5580,6 @@ ReactDOM.render(<ErrorBoundary><App /></ErrorBoundary>, document.getElementById(
 </script>
 </body>
 </html>
-
 
 
 
