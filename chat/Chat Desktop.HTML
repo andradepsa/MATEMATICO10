@@ -4291,8 +4291,6 @@ return;
 if (data.type === 'youtube-chat-stop') {
 if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
-let ttl = data.ttl !== undefined ? data.ttl : 8;
-if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
 setYoutubeChatId(null);
 return;
 }
@@ -5100,9 +5098,6 @@ connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
 
 const stopYoutubeChat = () => {
 setYoutubeChatId(null);
-const msgId = Date.now() + Math.random().toString(36).substring(7);
-const msgData = { type: 'youtube-chat-stop', id: msgId, ttl: 15 };
-connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
 };
 
 
@@ -5524,7 +5519,6 @@ ReactDOM.render(<ErrorBoundary><App /></ErrorBoundary>, document.getElementById(
 </script>
 </body>
 </html>
-
 
 
 
