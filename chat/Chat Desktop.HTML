@@ -6,6 +6,7 @@
   <title>Chat K10</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
   <style>
     :root {
       --primary: #2563eb;
@@ -304,6 +305,15 @@
     .server-diagram-node.encrypted { border-color: #10b981; color: #34d399; }
     .server-diagram-arrow { color: #475569; font-size: 16px; }
     .code-block { background: #0a1a33; border: 1px solid #1e4d8c; border-radius: 8px; padding: 10px 14px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #fcd34d; margin: 10px 0; word-break: break-all; line-height: 1.7; }
+    .pulse {
+      animation: pulse-red 2s infinite;
+      box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+    }
+    @keyframes pulse-red {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+    }
   </style>
 </head>
 <body>
@@ -499,7 +509,10 @@
         sendTorrent: "Send Torrent File",
         startYoutubeChat: "Start YouTube Chat",
         stopYoutubeChat: "Stop YouTube Chat",
-        broadcastYoutubeChat: "Broadcast YouTube Chat Link",
+        googleLogin: "Login with Google",
+        activateAntenna: "Activate Antenna",
+        stopAntenna: "Stop Antenna",
+        antennaActive: "Antenna Active",
       },
       pt: {
         appTitle: "Chat K10",
@@ -677,7 +690,10 @@
         sendTorrent: "Enviar Arquivo Torrent",
         startYoutubeChat: "Iniciar Chat YouTube",
         stopYoutubeChat: "Parar Chat YouTube",
-        broadcastYoutubeChat: "Enviar Link Chat YouTube",
+        googleLogin: "Login com Google",
+        activateAntenna: "Ativar Antena",
+        stopAntenna: "Parar Antena",
+        antennaActive: "Antena Ativa",
       }
     };
 
@@ -1981,7 +1997,8 @@
       e2eeState, setE2eeState, isCentralServer, serverE2EE, setServerE2EE, connectToPeer,
       handleTorrentSeed, handleTorrentDownload, setShowTorrentManager,
       pendingTorrentRequests, setPendingTorrentRequests, handleTorrentDirectSeed,
-      youtubeChatId, disconnectPeer
+      youtubeChatId, telegramChatId, disconnectPeer,
+      googleAccessToken, handleGoogleLogin, isAntennaActive, setIsAntennaActive
     }) => {
       const messagesEndRef = useRef(null);
       const messagesContainerRef = useRef(null);
@@ -1991,8 +2008,10 @@
       const [activeChatTab, setActiveChatTab] = useState('native');
 
       useEffect(() => {
-        if (!youtubeChatId) setActiveChatTab('native');
-      }, [youtubeChatId]);
+        if (!youtubeChatId && !telegramChatId) setActiveChatTab('native');
+        else if (youtubeChatId && !telegramChatId) setActiveChatTab('youtube');
+        else if (!youtubeChatId && telegramChatId) setActiveChatTab('telegram');
+      }, [youtubeChatId, telegramChatId]);
 
       const [isSending, setIsSending] = useState(false);
       const decryptionCache = useRef(new Map());
@@ -2344,7 +2363,7 @@
             </div>
 
             <div className="chat-messages-container">
-              {youtubeChatId && (
+              {(youtubeChatId || telegramChatId) && (
                 <div style={{ display: 'flex', background: '#f1f5f9', borderBottom: '1px solid var(--border)' }}>
                   <button 
                     onClick={() => setActiveChatTab('native')}
@@ -2352,12 +2371,49 @@
                   >
                     Chat Nativo
                   </button>
-                  <button 
-                    onClick={() => setActiveChatTab('youtube')}
-                    style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'youtube' ? 'white' : 'transparent', borderBottom: activeChatTab === 'youtube' ? '2px solid #ef4444' : '2px solid transparent', fontWeight: activeChatTab === 'youtube' ? 'bold' : 'normal', cursor: 'pointer', color: activeChatTab === 'youtube' ? '#ef4444' : '#64748b' }}
-                  >
-                    <i className="fab fa-youtube"></i> Chat YouTube
-                  </button>
+                  {youtubeChatId && (
+                    <button 
+                      onClick={() => setActiveChatTab('youtube')}
+                      style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'youtube' ? 'white' : 'transparent', borderBottom: activeChatTab === 'youtube' ? '2px solid #ef4444' : '2px solid transparent', fontWeight: activeChatTab === 'youtube' ? 'bold' : 'normal', cursor: 'pointer', color: activeChatTab === 'youtube' ? '#ef4444' : '#64748b' }}
+                    >
+                      <i className="fab fa-youtube"></i> Chat YouTube
+                    </button>
+                  )}
+                  {telegramChatId && (
+                    <button 
+                      onClick={() => setActiveChatTab('telegram')}
+                      style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'telegram' ? 'white' : 'transparent', borderBottom: activeChatTab === 'telegram' ? '2px solid #0088cc' : '2px solid transparent', fontWeight: activeChatTab === 'telegram' ? 'bold' : 'normal', cursor: 'pointer', color: activeChatTab === 'telegram' ? '#0088cc' : '#64748b' }}
+                    >
+                      <i className="fab fa-telegram"></i> Chat Telegram
+                    </button>
+                  )}
+                </div>
+              )}
+              {youtubeChatId && activeChatTab === 'youtube' && (
+                <div style={{ padding: '8px', background: '#fff', borderBottom: '1px solid var(--border)', display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
+                  {!googleAccessToken ? (
+                    <button 
+                      onClick={handleGoogleLogin}
+                      style={{ background: '#4285f4', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '6px' }}
+                    >
+                      <i className="fab fa-google"></i> {t(lang, 'googleLogin')}
+                    </button>
+                  ) : (
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      <div style={{ fontSize: '11px', color: '#10b981', fontWeight: 'bold' }}>
+                        <i className="fas fa-check-circle"></i> Logged in
+                      </div>
+                      <button 
+                        onClick={() => setIsAntennaActive(!isAntennaActive)}
+                        style={{ background: isAntennaActive ? '#ef4444' : '#22c55e', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}
+                      >
+                        {isAntennaActive ? t(lang, 'stopAntenna') : t(lang, 'activateAntenna')}
+                      </button>
+                      {isAntennaActive && (
+                        <span className="pulse" style={{ width: '8px', height: '8px', background: '#ef4444', borderRadius: '50%' }}></span>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
               {activeChatTab === 'native' ? (
@@ -2460,12 +2516,22 @@
                 </button>
               </div>
                 </>
-              ) : (
+              ) : activeChatTab === 'youtube' ? (
                 <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
                   <iframe 
                     width="100%" 
                     height="100%" 
                     src={`https://www.youtube.com/live_chat?v=${youtubeChatId}&embed_domain=${window.location.hostname}`} 
+                    frameBorder="0" 
+                    style={{ flex: 1 }}
+                  ></iframe>
+                </div>
+              ) : (
+                <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+                  <iframe 
+                    width="100%" 
+                    height="100%" 
+                    src={`https://t.me/s/${telegramChatId}`} 
                     frameBorder="0" 
                     style={{ flex: 1 }}
                   ></iframe>
@@ -3828,6 +3894,8 @@
         // No longer saving lang to localStorage
       };
 
+      const GOOGLE_CLIENT_ID = '737016920849-hqqn7jcsn5hgat69bg7c92irgbqgu4p7.apps.googleusercontent.com';
+
       const [peerId, setPeerId] = usePersistentId();
       const [userName, setUserName] = useState(() => localStorage.getItem('p2pUserName') || '');
       const [editingName, setEditingName] = useState(!localStorage.getItem('p2pUserName'));
@@ -3839,8 +3907,16 @@
       const [activeCalls, setActiveCalls] = useState([]);
       const [remoteStreams, setRemoteStreams] = useState([]);
       const [youtubeChatId, setYoutubeChatId] = useState(null);
+      const [telegramChatId, setTelegramChatId] = useState(null);
+      const [youtubeLiveChatId, setYoutubeLiveChatId] = useState(null);
+      const [googleAccessToken, setGoogleAccessToken] = useState(null);
+      const [isAntennaActive, setIsAntennaActive] = useState(false);
+      const antennaIntervalRef = useRef(null);
+      const nextPollTimeRef = useRef(0);
       const youtubeChatIdRef = useRef(null);
       useEffect(() => { youtubeChatIdRef.current = youtubeChatId; }, [youtubeChatId]);
+      const telegramChatIdRef = useRef(null);
+      useEffect(() => { telegramChatIdRef.current = telegramChatId; }, [telegramChatId]);
       const [error, setError] = useState(null);
       const [isLocalVideoVisible, setIsLocalVideoVisible] = useState(false);
       const [showEmojiPanel, setShowEmojiPanel] = useState(false);
@@ -3941,6 +4017,9 @@
           conn.send({ type: 'handshake', peerId }); 
           if (youtubeChatIdRef.current) {
             conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
+          }
+          if (telegramChatIdRef.current) {
+            conn.send({ type: 'telegram-chat-start', id: Date.now() + Math.random().toString(), telegramId: telegramChatIdRef.current, ttl: 0 });
           }
         } catch(e) {} 
       };
@@ -4118,6 +4197,24 @@
           let ttl = data.ttl !== undefined ? data.ttl : 8;
           if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
           setYoutubeChatId(null);
+          return;
+        }
+
+        if (data.type === 'telegram-chat-start') {
+          if (seenMessagesRef.current.has(data.id)) return;
+          seenMessagesRef.current.add(data.id);
+          let ttl = data.ttl !== undefined ? data.ttl : 8;
+          if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+          setTelegramChatId(data.telegramId);
+          return;
+        }
+
+        if (data.type === 'telegram-chat-stop') {
+          if (seenMessagesRef.current.has(data.id)) return;
+          seenMessagesRef.current.add(data.id);
+          let ttl = data.ttl !== undefined ? data.ttl : 8;
+          if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+          setTelegramChatId(null);
           return;
         }
 
@@ -4840,31 +4937,89 @@
         }
       };
 
-      const broadcastYoutubeChat = () => {
-        const url = prompt(t(lang, 'enterYoutubeUrl') || 'Enter YouTube Live URL for Chat:');
-        if (!url) return;
-        let yId = null;
-        try {
-          let parsedUrl = url;
-          if (!parsedUrl.startsWith('http')) parsedUrl = 'https://' + parsedUrl;
-          if (parsedUrl.includes('youtu.be/')) yId = parsedUrl.split('youtu.be/')[1].split('?')[0];
-          else if (parsedUrl.includes('youtube.com/watch')) yId = new URL(parsedUrl).searchParams.get('v');
-          else if (parsedUrl.includes('youtube.com/live/')) yId = parsedUrl.split('youtube.com/live/')[1].split('?')[0];
-        } catch (e) {}
-        if (!yId) { alert(t(lang, 'invalidYoutubeUrl') || 'Invalid YouTube URL'); return; }
-        
-        setYoutubeChatId(yId);
-        const msgId = Date.now() + Math.random().toString(36).substring(7);
-        const msgData = { type: 'youtube-chat-start', id: msgId, youtubeId: yId, ttl: 15 };
-        connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
+      const handleGoogleLogin = () => {
+        if (typeof google === 'undefined') {
+          alert('Google API not loaded yet. Please wait a moment.');
+          return;
+        }
+        const client = google.accounts.oauth2.initTokenClient({
+          client_id: GOOGLE_CLIENT_ID,
+          scope: 'https://www.googleapis.com/auth/youtube.readonly',
+          callback: (response) => {
+            if (response.access_token) {
+              setGoogleAccessToken(response.access_token);
+              if (youtubeChatIdRef.current) {
+                getLiveChatId(youtubeChatIdRef.current, response.access_token);
+              }
+            }
+          },
+        });
+        client.requestAccessToken();
       };
 
-      const stopYoutubeChat = () => {
-        setYoutubeChatId(null);
-        const msgId = Date.now() + Math.random().toString(36).substring(7);
-        const msgData = { type: 'youtube-chat-stop', id: msgId, ttl: 15 };
-        connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
+      const getLiveChatId = async (videoId, token) => {
+        try {
+          const res = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=liveStreamingDetails&id=${videoId}`, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          const data = await res.json();
+          if (data.items && data.items[0] && data.items[0].liveStreamingDetails) {
+            const chatId = data.items[0].liveStreamingDetails.activeLiveChatId;
+            setYoutubeLiveChatId(chatId);
+            return chatId;
+          }
+        } catch (e) { console.error("Error getting liveChatId:", e); }
+        return null;
       };
+
+      const fetchYouTubeMessages = async () => {
+        if (!youtubeLiveChatId || !googleAccessToken) return;
+        if (Date.now() < nextPollTimeRef.current) return;
+
+        try {
+          const res = await fetch(`https://www.googleapis.com/youtube/v3/liveChat/messages?liveChatId=${youtubeLiveChatId}&part=snippet,authorDetails`, {
+            headers: { Authorization: `Bearer ${googleAccessToken}` }
+          });
+          const data = await res.json();
+          
+          if (data.items) {
+            data.items.forEach(item => {
+              const msgId = item.id;
+              if (!seenMessagesRef.current.has(msgId)) {
+                seenMessagesRef.current.add(msgId);
+                const msgData = {
+                  type: 'message',
+                  id: msgId,
+                  text: item.snippet.displayMessage,
+                  senderName: `[YT] ${item.authorDetails.displayName}`,
+                  timestamp: new Date(item.snippet.publishedAt).getTime(),
+                  ttl: 15
+                };
+                setMessages(prev => {
+                  const exists = prev.some(m => m.id === msgId);
+                  if (exists) return prev;
+                  return [...prev, { ...msgData, sender: 'youtube', time: formatTime(new Date(msgData.timestamp)) }];
+                });
+                connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
+              }
+            });
+            
+            const pollInterval = data.pollingIntervalMillis || 3000;
+            nextPollTimeRef.current = Date.now() + pollInterval;
+          }
+        } catch (e) { 
+          console.error("Error fetching YouTube messages:", e);
+        }
+      };
+
+      useEffect(() => {
+        if (isAntennaActive && youtubeLiveChatId && googleAccessToken) {
+          antennaIntervalRef.current = setInterval(fetchYouTubeMessages, 2000);
+        } else {
+          if (antennaIntervalRef.current) clearInterval(antennaIntervalRef.current);
+        }
+        return () => { if (antennaIntervalRef.current) clearInterval(antennaIntervalRef.current); };
+      }, [isAntennaActive, youtubeLiveChatId, googleAccessToken]);
 
       const endCall = (peerIdToEnd, callType) => {
         const callData = activeCalls.find(c => c.peerId === peerIdToEnd && c.type === callType);
@@ -5253,7 +5408,12 @@
               setPendingTorrentRequests={setPendingTorrentRequests}
               handleTorrentDirectSeed={handleTorrentDirectSeed}
               youtubeChatId={youtubeChatId}
+              telegramChatId={telegramChatId}
               disconnectPeer={disconnectPeer}
+              googleAccessToken={googleAccessToken}
+              handleGoogleLogin={handleGoogleLogin}
+              isAntennaActive={isAntennaActive}
+              setIsAntennaActive={setIsAntennaActive}
             />
           )}
         </div>
