@@ -782,14 +782,16 @@
         else if (data.type === 'file-start' || data.type === 'file-chunk') {
           console.log("Bloqueado: O servidor agora só repassa mensagens de texto, emojis, torrents e áudio para proteger a banda da rede.");
         }
-        else if (data.type === 'e2ee-secret' || data.type === 'server-e2ee-invite' || data.type === 'youtube-cam-start' || data.type === 'youtube-cam-stop' || data.type === 'youtube-chat-start' || data.type === 'youtube-chat-stop' || data.type === 'radio-youtube-start' || data.type === 'radio-youtube-stop') {
+        else if (data.type === 'e2ee-secret' || data.type === 'server-e2ee-invite' || data.type === 'youtube-cam-start' || data.type === 'youtube-cam-stop' || data.type === 'youtube-chat-start' || data.type === 'radio-youtube-start' || data.type === 'radio-youtube-stop') {
            // Relay para segredos E2EE, YouTube Cam, YouTube Chat e Radio YouTube
            if (data.id) {
              if (seenMessagesRef.current.has(data.id)) return;
              seenMessagesRef.current.add(data.id);
            }
-           if (data.type === 'youtube-chat-start') setYoutubeChatId(data.youtubeId);
-           if (data.type === 'youtube-chat-stop') setYoutubeChatId(null);
+           if (data.type === 'youtube-chat-start') {
+             if (youtubeChatIdRef.current) return;
+             setYoutubeChatId(data.youtubeId);
+           }
            if (data.type === 'radio-youtube-start') {
              setYoutubeBroadcasts(prev => ({ ...prev, [data.sender || sourceConn.peer]: { videoId: data.youtubeId, senderName: data.senderName } }));
            }
@@ -801,6 +803,15 @@
              });
            }
            distributeMessage(data, sourceConn.peer);
+        }
+        else if (data.type === 'youtube-chat-stop') {
+           // O comando de parar o chat agora é estritamente local
+           // Não repassamos para outros servidores para evitar ataques
+           if (data.id) {
+             if (seenMessagesRef.current.has(data.id)) return;
+             seenMessagesRef.current.add(data.id);
+           }
+           setYoutubeChatId(null);
         }
       };
 
@@ -985,6 +996,7 @@
       };
 
       const broadcastYoutubeChat = () => {
+        if (youtubeChatId) { alert('Um chat já está ativo. Pare-o primeiro.'); return; }
         const url = prompt('Digite a URL do YouTube Live para o Chat:');
         if (!url) return;
         let yId = null;
@@ -1005,9 +1017,6 @@
 
       const stopYoutubeChat = () => {
         setYoutubeChatId(null);
-        const msgId = Date.now() + Math.random().toString(36).substring(7);
-        const msgData = { type: 'youtube-chat-stop', id: msgId, ttl: 15 };
-        activeConnectionsRef.current.forEach(c => { try { c.send(msgData); } catch(e){} });
       };
 
       return (
@@ -2457,4 +2466,3 @@ ReactDOM.render( /*#__PURE__*/React.createElement(DistributorApp, null), documen
 
 
 </body></html>
-
