@@ -450,6 +450,11 @@
         activate: "🛡️ Activate",
         errApp: "Application Error",
         tryAgain: "Try Again",
+        tryContinue: "Try to Continue",
+        appErrorTitle: "Oops! Something went wrong",
+        removeFriend: "Remove Friend",
+        confirmRemoveFriend: "Are you sure you want to remove {name} and delete all messages?",
+        reconnecting: "Reconnecting...",
         defineNameFirst: "Please set your name.",
         selectContactFirst2: "Please select a contact.",
         contactOffline2: "Contact is offline.",
@@ -623,6 +628,11 @@
         activate: "🛡️ Ativar",
         errApp: "Erro na aplicação",
         tryAgain: "Tentar novamente",
+        tryContinue: "Tentar Continuar",
+        appErrorTitle: "Ops! Algo deu errado",
+        removeFriend: "Remover Amigo",
+        confirmRemoveFriend: "Tem certeza que deseja remover {name} e apagar todas as mensagens?",
+        reconnecting: "Reconectando...",
         defineNameFirst: "Por favor, defina seu nome.",
         selectContactFirst2: "Selecione um contato.",
         contactOffline2: "Contato offline.",
@@ -721,14 +731,36 @@
     class ErrorBoundary extends React.Component {
       state = { error: null };
       static getDerivedStateFromError(error) { return { error }; }
+      componentDidCatch(error, errorInfo) {
+        console.error("ErrorBoundary caught an error", error, errorInfo);
+      }
       render() {
-        if (this.state.error) return (
-          <div className="error-message">
-            <h1>Application Error</h1>
-            <p>{this.state.error.message}</p>
-            <button onClick={() => window.location.reload()}>Try Again</button>
-          </div>
-        );
+        if (this.state.error) {
+          const lang = localStorage.getItem('k10Lang') || 'en';
+          return (
+            <div style={{ padding: '40px', textAlign: 'center', background: '#f8fafc', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'sans-serif' }}>
+              <div style={{ fontSize: '64px', marginBottom: '20px' }}>⚠️</div>
+              <h1 style={{ color: '#1e293b', marginBottom: '10px' }}>{t(lang, 'appErrorTitle')}</h1>
+              <p style={{ color: '#64748b', maxWidth: '400px', marginBottom: '30px', lineHeight: '1.5' }}>
+                {this.state.error.message || t(lang, 'errApp')}
+              </p>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <button 
+                  onClick={() => this.setState({ error: null })}
+                  style={{ background: '#2563eb', color: 'white', border: 'none', padding: '12px 24px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}
+                >
+                  {t(lang, 'tryContinue')}
+                </button>
+                <button 
+                  onClick={() => window.location.reload()}
+                  style={{ background: '#e2e8f0', color: '#475569', border: 'none', padding: '12px 24px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}
+                >
+                  {t(lang, 'tryAgain')}
+                </button>
+              </div>
+            </div>
+          );
+        }
         return this.props.children;
       }
     }
@@ -1949,7 +1981,7 @@
       e2eeState, setE2eeState, isCentralServer, serverE2EE, setServerE2EE, connectToPeer,
       handleTorrentSeed, handleTorrentDownload, setShowTorrentManager,
       pendingTorrentRequests, setPendingTorrentRequests, handleTorrentDirectSeed,
-      youtubeChatId
+      youtubeChatId, disconnectPeer
     }) => {
       const messagesEndRef = useRef(null);
       const messagesContainerRef = useRef(null);
@@ -2262,8 +2294,13 @@
                         </div>
                         <div className="conversation-peer-id">{conn.peer}</div>
                       </div>
-                      <div className="green-delete-icon" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); deleteMessagesByContact(conn.peer); }} title={t(lang, 'deleteMessages')}>
-                        <i className="fas fa-trash"></i>
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <div className="green-delete-icon" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); deleteMessagesByContact(conn.peer); }} title={t(lang, 'deleteMessages')}>
+                          <i className="fas fa-trash"></i>
+                        </div>
+                        <div className="red-delete-icon" style={{ opacity: 1, color: '#ef4444' }} onClick={e => { e.stopPropagation(); if(confirm(t(lang, 'confirmRemoveFriend', { name: getContactName(conn.peer) }))) { disconnectPeer(conn.peer); deleteMessagesByContact(conn.peer); } }} title={t(lang, 'removeFriend')}>
+                          <i className="fas fa-user-minus"></i>
+                        </div>
                       </div>
                     </div>
                     <div style={{ display: 'flex', gap: '5px', marginTop: '7px', flexWrap: 'wrap' }}>
@@ -4204,6 +4241,21 @@
         }
       };
 
+      const disconnectPeer = (pId) => {
+        if (!pId) return;
+        const conn = connections.find(c => c.peer === pId);
+        if (conn) {
+          try { conn.close(); } catch(e) {}
+        }
+        setConnections(prev => prev.filter(c => c.peer !== pId));
+        endCall(pId, 'video');
+        endCall(pId, 'voice');
+        if (selectedContact === pId) setSelectedContact(null);
+        
+        // Also remove from messages if user wants (optional, but requested as "exclude from list")
+        // We keep the messages but remove the connection so they disappear from the active list
+      };
+
       const connectToPeer = (peerIdToConnect) => {
         if (!peerIdToConnect || !peerInstance.current || !isPeerInitialized) return;
         if (bannedPeersRef.current.has(peerIdToConnect)) return;
@@ -4239,92 +4291,132 @@
 
       useEffect(() => {
         if (!peerId) return;
-        const peer = new Peer(peerId, {
-          host: '0.peerjs.com', port: 443, secure: true,
-          config: {
-            iceServers: [
-              { urls: 'stun:stun.l.google.com:19302' },
-              { urls: 'stun:stun1.l.google.com:19302' },
-              { urls: 'stun:stun.ekiga.net:3478' },
-              { urls: 'stun:stun.stunprotocol.org:3478' }
-            ],
-            sdpSemantics: 'unified-plan', iceTransportPolicy: 'all', bundlePolicy: 'max-bundle',
-            rtcpMuxPolicy: 'require', iceCandidatePoolSize: 10
-          },
-          debug: 2
-        });
+        let reconnectTimeout = null;
+        let reconnectAttempts = 0;
 
-        peer.on('open', (id) => {
-          setIsPeerInitialized(true);
-          const urlParams = new URLSearchParams(window.location.search);
-          const portasStr = urlParams.get('portas');
-          if (portasStr) {
-            const portas = portasStr.split(',');
-            const centralId = portas.find(isCentralServer);
-            if (centralId) { setCentralServerId(centralId); setSelectedContact(centralId); }
-            else if (!centralServerId) { setCentralServerId(portas[0]); setSelectedContact(portas[0]); }
-            setTimeout(() => {
-              portas.forEach(porta => {
-                if (porta && porta !== id) {
-                  const conn = peer.connect(porta, { reliable: true });
-                  if (conn) {
-                    conn.on('open', () => { setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]); sendRadioSync(conn); try { conn.send({ type: 'radio-request-sync' }); } catch(e){} });
-                    conn.on('data', data => handleIncomingData(data, porta));
-                    conn.on('close', () => setConnections(prev => prev.filter(c => c.peer !== porta)));
-                    conn.on('error', () => setConnections(prev => prev.filter(c => c.peer !== porta)));
+        const initPeer = () => {
+          const peer = new Peer(peerId, {
+            host: '0.peerjs.com', port: 443, secure: true,
+            config: {
+              iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' },
+                { urls: 'stun:stun.ekiga.net:3478' },
+                { urls: 'stun:stun.stunprotocol.org:3478' }
+              ],
+              sdpSemantics: 'unified-plan', iceTransportPolicy: 'all', bundlePolicy: 'max-bundle',
+              rtcpMuxPolicy: 'require', iceCandidatePoolSize: 10
+            },
+            debug: 1
+          });
+
+          peer.on('open', (id) => {
+            setIsPeerInitialized(true);
+            reconnectAttempts = 0;
+            const urlParams = new URLSearchParams(window.location.search);
+            const portasStr = urlParams.get('portas');
+            if (portasStr) {
+              const portas = portasStr.split(',');
+              const centralId = portas.find(isCentralServer);
+              if (centralId) { setCentralServerId(centralId); setSelectedContact(centralId); }
+              else if (!centralServerId) { setCentralServerId(portas[0]); setSelectedContact(portas[0]); }
+              setTimeout(() => {
+                portas.forEach(porta => {
+                  if (porta && porta !== id) {
+                    const conn = peer.connect(porta, { reliable: true });
+                    if (conn) {
+                      conn.on('open', () => { setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]); sendRadioSync(conn); try { conn.send({ type: 'radio-request-sync' }); } catch(e){} });
+                      conn.on('data', data => handleIncomingData(data, porta));
+                      conn.on('close', () => setConnections(prev => prev.filter(c => c.peer !== porta)));
+                      conn.on('error', () => setConnections(prev => prev.filter(c => c.peer !== porta)));
+                    }
                   }
-                }
-              });
-            }, 1000);
-          }
-        });
-
-        peer.on('error', err => {
-          if (err.type === 'unavailable-id') { const newId = generateNewId(); localStorage.setItem(PEER_ID_STORAGE_KEY, newId); window.location.reload(); }
-          else if (err.type !== 'peer-unavailable') setError(`PeerJS Error: ${err.type}`);
-        });
-
-        peer.on('disconnected', () => {
-          console.log("Peer disconnected. Attempting to reconnect...");
-          setTimeout(() => {
-            if (peerInstance.current && !peerInstance.current.destroyed) {
-              peerInstance.current.reconnect();
-            }
-          }, 3000);
-        });
-
-        peer.on('connection', conn => {
-          if (bannedPeersRef.current.has(conn.peer)) { setTimeout(() => conn.close(), 500); return; }
-          const maxConns = isSuperNode ? 50 : 15;
-          if (connections.length >= maxConns) { setTimeout(() => conn.close(), 500); return; }
-          conn.on('open', () => { 
-            setConnections(prev => [...prev.filter(c => c.peer !== conn.peer), conn]); 
-            sendHandshake(conn); 
-            sendRadioSync(conn);
-            try { conn.send({ type: 'radio-request-sync' }); } catch(e){}
-            if (!knownUsersRef.current.has(conn.peer)) {
-              knownUsersRef.current.add(conn.peer);
-              setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
+                });
+              }, 1000);
             }
           });
-          conn.on('data', data => handleIncomingData(data, conn.peer));
-          conn.on('close', () => { setConnections(prev => prev.filter(c => c.peer !== conn.peer)); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); });
-          conn.on('error', () => { setConnections(prev => prev.filter(c => c.peer !== conn.peer)); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); });
-        });
 
-        peer.on('call', async call => {
-          const callType = call.metadata?.type || 'video';
-          try {
-            call.answer(null);
-            setActiveCalls(prev => [...prev.filter(c => !(c.peerId === call.peer && c.type === callType)), { peerId: call.peer, call, localStream: null, type: callType, direction: 'incoming', isTemporaryStream: false }]);
-            call.on('stream', remoteStream => setRemoteStreams(prev => [...prev.filter(s => !(s.peerId === call.peer && s.type === callType)), { peerId: call.peer, stream: remoteStream, type: callType }]));
-            call.on('close', () => endCall(call.peer, callType));
-            call.on('error', () => endCall(call.peer, callType));
-          } catch (err) { call.close(); alert(t(lang, 'cameraError') + err.message); }
-        });
+          peer.on('error', err => {
+            console.error("PeerJS Error:", err.type, err);
+            if (err.type === 'unavailable-id') { 
+              const newId = generateNewId(); 
+              localStorage.setItem(PEER_ID_STORAGE_KEY, newId); 
+              window.location.reload(); 
+            } else if (['socket-error', 'network', 'socket-closed'].includes(err.type)) {
+              // Network errors should trigger reconnection, not a white screen
+              console.log("Network error detected, will attempt reconnect...");
+            } else if (err.type !== 'peer-unavailable') {
+              // Non-critical errors as system messages
+              setMessages(prev => [...prev, { text: `System: PeerJS Error (${err.type})`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
+            }
+          });
 
-        peerInstance.current = peer;
+          peer.on('disconnected', () => {
+            setIsPeerInitialized(false);
+            console.log("Peer disconnected. Attempting to reconnect...");
+            
+            if (reconnectTimeout) clearTimeout(reconnectTimeout);
+            
+            // Exponential backoff: 1s, 2s, 4s, 8s... up to 30s
+            const delay = Math.min(Math.pow(2, reconnectAttempts) * 1000, 30000);
+            reconnectAttempts++;
+            
+            reconnectTimeout = setTimeout(() => {
+              if (peerInstance.current && !peerInstance.current.destroyed) {
+                console.log(`Reconnecting attempt ${reconnectAttempts} after ${delay}ms...`);
+                peerInstance.current.reconnect();
+              }
+            }, delay);
+          });
+
+          peer.on('connection', conn => {
+            if (bannedPeersRef.current.has(conn.peer)) { setTimeout(() => conn.close(), 500); return; }
+            const maxConns = isSuperNode ? 50 : 15;
+            if (connections.length >= maxConns) { setTimeout(() => conn.close(), 500); return; }
+            conn.on('open', () => { 
+              setConnections(prev => [...prev.filter(c => c.peer !== conn.peer), conn]); 
+              sendHandshake(conn); 
+              sendRadioSync(conn);
+              try { conn.send({ type: 'radio-request-sync' }); } catch(e){}
+              if (!knownUsersRef.current.has(conn.peer)) {
+                knownUsersRef.current.add(conn.peer);
+                setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
+              }
+            });
+            conn.on('data', data => handleIncomingData(data, conn.peer));
+            conn.on('close', () => { setConnections(prev => prev.filter(c => c.peer !== conn.peer)); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); });
+            conn.on('error', () => { setConnections(prev => prev.filter(c => c.peer !== conn.peer)); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); });
+          });
+
+          peer.on('call', async call => {
+            const callType = call.metadata?.type || 'video';
+            try {
+              call.answer(null);
+              setActiveCalls(prev => [...prev.filter(c => !(c.peerId === call.peer && c.type === callType)), { peerId: call.peer, call, localStream: null, type: callType, direction: 'incoming', isTemporaryStream: false }]);
+              call.on('stream', remoteStream => setRemoteStreams(prev => [...prev.filter(s => !(s.peerId === call.peer && s.type === callType)), { peerId: call.peer, stream: remoteStream, type: callType }]));
+              call.on('close', () => endCall(call.peer, callType));
+              call.on('error', () => endCall(call.peer, callType));
+            } catch (err) { call.close(); alert(t(lang, 'cameraError') + err.message); }
+          });
+
+          peerInstance.current = peer;
+        };
+
+        initPeer();
+
+        const handleOnline = () => {
+          console.log("Network back online. Forcing reconnect...");
+          reconnectAttempts = 0;
+          if (peerInstance.current && peerInstance.current.disconnected && !peerInstance.current.destroyed) {
+            peerInstance.current.reconnect();
+          }
+        };
+
+        window.addEventListener('online', handleOnline);
+
         return () => {
+          window.removeEventListener('online', handleOnline);
+          if (reconnectTimeout) clearTimeout(reconnectTimeout);
           if (peerInstance.current) { peerInstance.current.destroy(); peerInstance.current = null; }
           localStreamsRef.current.forEach(s => s.getTracks().forEach(tr => tr.stop()));
           localStreamsRef.current.clear();
@@ -4822,8 +4914,6 @@
         prompt(t(lang, 'inviteLinkCopied'), finalUrl);
       };
 
-      if (error) return <div className="error-message"><h1>{t(lang, 'errApp')}</h1><p>{error}</p><button onClick={() => window.location.reload()}>{t(lang, 'tryAgain')}</button></div>;
-
       return (
         <div>
           {showTutorial && <TutorialModal lang={lang} onClose={() => setShowTutorial(false)} />}
@@ -5179,6 +5269,7 @@
               setPendingTorrentRequests={setPendingTorrentRequests}
               handleTorrentDirectSeed={handleTorrentDirectSeed}
               youtubeChatId={youtubeChatId}
+              disconnectPeer={disconnectPeer}
             />
           )}
         </div>
