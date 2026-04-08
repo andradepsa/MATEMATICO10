@@ -788,7 +788,10 @@
              if (seenMessagesRef.current.has(data.id)) return;
              seenMessagesRef.current.add(data.id);
            }
-           if (data.type === 'youtube-chat-start') setYoutubeChatId(data.youtubeId);
+           if (data.type === 'youtube-chat-start') {
+             if (youtubeChatIdRef.current) return;
+             setYoutubeChatId(data.youtubeId);
+           }
            if (data.type === 'radio-youtube-start') {
              setYoutubeBroadcasts(prev => ({ ...prev, [data.sender || sourceConn.peer]: { videoId: data.youtubeId, senderName: data.senderName } }));
            }
@@ -993,6 +996,7 @@
       };
 
       const broadcastYoutubeChat = () => {
+        if (youtubeChatId) { alert('Um chat já está ativo. Pare-o primeiro.'); return; }
         const url = prompt('Digite a URL do YouTube Live para o Chat:');
         if (!url) return;
         let yId = null;
