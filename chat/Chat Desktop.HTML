@@ -4281,6 +4281,7 @@ return;
 if (data.type === 'youtube-chat-start') {
 if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
+if (youtubeChatIdRef.current) return;
 let ttl = data.ttl !== undefined ? data.ttl : 8;
 if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
 setYoutubeChatId(data.youtubeId);
@@ -5076,6 +5077,7 @@ call.on('error', err => { alert(t(lang, 'videoError') + err.message); endCall(pe
 
 
 const broadcastYoutubeChat = () => {
+if (youtubeChatId) { alert(t(lang, 'chatAlreadyActive') || 'A chat is already active. Stop it first.'); return; }
 const url = prompt(t(lang, 'enterYoutubeUrl') || 'Enter YouTube Live URL for Chat:');
 if (!url) return;
 let yId = null;
