@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>🏛️ Imperium — Universal Chess (9x10)</title>
+<style>
+  :root{
+    --bg:#0a0e1a; --panel:#151b2e; --accent:#00d4ff; --accent2:#a855f7; --grid:#2a3254;
+    --light:#e6f3ff; --muted:#94a8c7; --red:#ff4757; --green:#2ed573; --gold:#ffa502;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(135deg,#0a0e1a 0%,#151b2e 50%,#0a0e1a 100%);
+       color:var(--light);font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;min-height:100vh;}
+  
+  header{display:flex;gap:16px;align-items:center;justify-content:space-between;padding:20px 24px;
+         background:rgba(21,27,46,0.9);backdrop-filter:blur(20px);border-bottom:2px solid #2a3254;
+         box-shadow:0 4px 20px rgba(0,0,0,0.3);}
+  h1{font-size:24px;margin:0;font-weight:800;letter-spacing:0.5px;
+     background:linear-gradient(135deg,var(--accent),var(--accent2));-webkit-background-clip:text;
+     -webkit-text-fill-color:transparent;background-clip:text;}
+  
+  .wrap{display:grid;grid-template-columns: 340px 1fr 340px;gap:20px;max-width:1400px;
+        margin:20px auto;padding:0 16px;}
+  .card{background:rgba(21,27,46,0.95);border:2px solid #2a3254;border-radius:20px;
+        box-shadow:0 15px 40px rgba(0,0,0,0.4);backdrop-filter:blur(10px);}
+  .card h2{font-size:18px;margin:0;padding:18px 20px;border-bottom:2px solid #2a3254;
+          background:linear-gradient(135deg,rgba(0,212,255,0.1),rgba(168,85,247,0.1));
+          color:var(--accent);font-weight:700;}
+  .card .content{padding:16px 20px}
+
+  /* Board Styling */
+  #board{aspect-ratio:9/10;background:linear-gradient(135deg,#1a2332,#151b2e);
+         display:grid;grid-template-columns:repeat(9,1fr);grid-template-rows:repeat(10,1fr);
+         border-radius:20px;border:3px solid #2a3254;overflow:hidden;position:relative;
+         box-shadow:inset 0 0 40px rgba(0,0,0,0.5);}
+  
+  .sq{border:1px solid rgba(42,50,84,0.6);position:relative;display:flex;align-items:center;
+      justify-content:center;user-select:none;cursor:pointer;transition:all 0.2s ease;}
+  .sq:nth-child(odd){background:rgba(255,255,255,0.03)}
+  .sq:hover{background:rgba(0,212,255,0.1);transform:scale(1.02);}
+  
+  .river{position:absolute;left:0;right:0;top:50%;height:2px;
+         background:linear-gradient(90deg,transparent,#00d4ff,transparent);
+         box-shadow:0 0 30px rgba(0,212,255,0.8);z-index:1;}
+  
+  .palace{position:absolute;border:2px dashed rgba(168,85,247,0.6);pointer-events:none;z-index:2;}
+  .palace.top{left:33.33%;right:33.33%;top:0;height:30%;}
+  .palace.bot{left:33.33%;right:33.33%;bottom:0;height:30%;}
+  .diag{position:absolute;width:2px;height:100%;background:rgba(168,85,247,0.4);
+        left:50%;transform-origin:center;}
+  .diag.a{transform:rotate(45deg)}
+  .diag.b{transform:rotate(-45deg)}
+
+  /* Enhanced Pieces */
+  .piece{width:85%;height:85%;border-radius:50%;border:3px solid #1a2544;
+         display:flex;align-items:center;justify-content:center;font-weight:900;
+         font-size:16px;letter-spacing:1px;position:relative;
+         transition:all 0.3s cubic-bezier(0.4,0,0.2,1);}
+  
+  .piece.red{background:linear-gradient(135deg,#ff6b6b,#ee5a24);color:#2c1810;
+            box-shadow:inset 0 4px 12px rgba(255,255,255,0.2), 0 6px 20px rgba(255,107,107,0.4);}
+  .piece.black{background:linear-gradient(135deg,#74b9ff,#0984e3);color:#1a1a2e;
+              box-shadow:inset 0 4px 12px rgba(255,255,255,0.2), 0 6px 20px rgba(116,185,255,0.4);}
+  
+  .piece:before{content:'';position:absolute;inset:2px;border-radius:inherit;
+               background:linear-gradient(135deg,rgba(255,255,255,0.1),transparent);}
+  
+  .sq.sel{outline:4px solid rgba(0,212,255,0.8);outline-offset:2px;z-index:5;
+          box-shadow:0 0 30px rgba(0,212,255,0.5);}
+  
+  .hint{position:absolute;inset:auto auto 10px 10px;background:rgba(15,19,32,0.9);
+        border:2px solid #2a3254;border-radius:12px;padding:8px 12px;color:var(--accent);
+        font-size:11px;font-weight:600;backdrop-filter:blur(10px);}
+  
+  .dot{position:absolute;width:16px;height:16px;border-radius:50%;
+       background:rgba(0,212,255,0.6);border:2px solid #00d4ff;
+       box-shadow:0 0 15px rgba(0,212,255,0.8);animation:pulse 2s infinite;}
+  .dot.capture{background:rgba(255,71,87,0.6);border-color:#ff4757;
+              box-shadow:0 0 15px rgba(255,71,87,0.8);}
+
+  @keyframes pulse{0%,100%{transform:scale(1)} 50%{transform:scale(1.2)}}
+
+  /* Side panels */
+  .section{padding:12px 16px;border-bottom:1px solid #2a3254}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .btn{background:linear-gradient(135deg,#2d3748,#1a202c);border:2px solid #4a5568;
+       color:var(--light);padding:12px 16px;border-radius:16px;font-weight:700;
+       cursor:pointer;transition:all 0.3s ease;text-transform:uppercase;
+       letter-spacing:0.5px;}
+  .btn:hover{transform:translateY(-2px);box-shadow:0 10px 25px rgba(0,212,255,0.3);
+             border-color:var(--accent);}
+  .btn:active{transform:translateY(0px)}
+  
+  .reserve{display:grid;grid-template-columns:repeat(6,1fr);gap:12px}
+  .token{border:2px dashed #4a5568;border-radius:16px;padding:8px 6px;
+         display:flex;align-items:center;justify-content:center;min-height:50px;
+         transition:all 0.3s ease;cursor:pointer;}
+  .token:hover{border-color:var(--accent);background:rgba(0,212,255,0.1);
+               transform:scale(1.05);}
+
+  .legend{display:grid;grid-template-columns:1fr;gap:12px;font-size:13px;color:var(--muted)}
+  .legend div{background:rgba(15,19,32,0.8);border:2px solid #2a3254;border-radius:12px;
+              padding:12px;transition:all 0.3s ease;}
+  .legend div:hover{border-color:var(--accent2);background:rgba(168,85,247,0.1);}
+
+  /* Modal */
+  dialog{border:none;border-radius:24px;max-width:500px;width:calc(100% - 40px);
+         background:rgba(21,27,46,0.98);color:var(--light);padding:0;
+         backdrop-filter:blur(20px);box-shadow:0 25px 50px rgba(0,0,0,0.5);}
+  dialog::backdrop{background:rgba(0,0,0,0.7)}
+  dialog header{position:static;background:linear-gradient(135deg,rgba(0,212,255,0.1),rgba(168,85,247,0.1));
+                border-bottom:2px solid #2a3254;padding:20px;}
+  dialog .body{padding:24px}
+  .promo-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:12px}
+  .promo-btn{padding:16px 12px;border-radius:16px;border:2px solid #4a5568;
+             background:linear-gradient(135deg,#2d3748,#1a202c);color:var(--light);
+             font-weight:700;cursor:pointer;font-size:18px;transition:all 0.3s ease;}
+  .promo-btn:hover{border-color:var(--accent);transform:scale(1.1);
+                   box-shadow:0 10px 25px rgba(0,212,255,0.3);}
+
+  #status{font-size:16px;font-weight:800;padding:8px 16px;border-radius:12px;
+          background:rgba(46,213,115,0.2);border:2px solid var(--green);}
+  
+  /* Responsive */
+  @media (max-width: 1200px) {
+    .wrap{grid-template-columns:1fr;gap:16px}
+    #board{max-width:600px;margin:0 auto}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>🏛️ Imperium — Universal Chess</h1>
+  <div class="row">
+    <button class="btn" id="newGame">🎮 New Game</button>
+    <button class="btn" id="undoBtn">↩️ Undo</button>
+    <span id="status">Red Pieces Turn</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="card">
+    <h2>⚔️ Hybrid Rules</h2>
+    <div class="content">
+      <div class="legend">
+        <div><b>🏛️ Concept:</b> Union of the best from <u>Shogi</u>, <u>Xiangqi</u>, <u>Chaturanga</u>, <u>Makruk</u> and <u>Janggi</u>.</div>
+        <div><b>🎯 Objective:</b> Capture the enemy General (K).</div>
+        <div><b>🏞️ Board:</b> 9×10 with central river and 3×3 palaces.</div>
+        <div><b>♟️ Pawns (P):</b> Move 1 forward. After crossing the river, also move sideways. Promote on last rank.</div>
+        <div><b>🏰 Rook (R):</b> Moves orthogonally without limit.</div>
+        <div><b>💥 Cannon (C):</b> Moves like rook, but captures by jumping over exactly 1 piece.</div>
+        <div><b>🐎 Horse (H):</b> L-shaped movement, but blocked by adjacent piece.</div>
+        <div><b>🐘 Elephant (E):</b> Moves 2 squares diagonally, cannot cross river.</div>
+        <div><b>👑 Advisor (A):</b> Moves 1 square diagonally.</div>
+        <div><b>🔱 General (K):</b> Moves 1 square orthogonally <i>within palace</i>.</div>
+        <div><b>🎌 Reserve (Shogi):</b> Captured pieces return as yours on your half of the board.</div>
+      </div>
+    </div>
+    <h2>🔴 Red Reserve</h2>
+    <div class="content reserve" id="reserveRed"></div>
+    <h2>🔵 Blue Reserve</h2>
+    <div class="content reserve" id="reserveBlack"></div>
+  </section>
+
+  <section class="card" style="padding:16px">
+    <div id="board">
+      <div class="river" aria-label="Central River"></div>
+      <div class="palace top">
+        <div class="diag a"></div>
+        <div class="diag b"></div>
+      </div>
+      <div class="palace bot">
+        <div class="diag a"></div>
+        <div class="diag b"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>📜 History & Controls</h2>
+    <div class="content">
+      <div class="section">
+        <div id="log" style="font-family:ui-monospace,monospace;white-space:pre-wrap;max-height:300px;overflow:auto;color:var(--muted);background:rgba(15,19,32,0.5);padding:12px;border-radius:12px;"></div>
+      </div>
+      <div class="section">
+        <button class="btn" id="flipBtn">🔄 Flip Board</button>
+        <button class="btn" id="toggleHints">💡 Hints</button>
+        <button class="btn" id="rulesBtn">📖 Rules</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<dialog id="promoDialog">
+  <header><h1>🎖️ Pawn Promotion</h1></header>
+  <div class="body">
+    <p>Choose piece for promotion:</p>
+    <div class="promo-grid" id="promoGrid"></div>
+  </div>
+</dialog>
+
+<dialog id="rulesDialog">
+  <header><h1>📚 Complete Manual - Imperium</h1></header>
+  <div class="body">
+    <h3>🎯 Objective</h3>
+    <p>Capture the enemy General (K) to win.</p>
+    
+    <h3>🏞️ Special Elements</h3>
+    <ul>
+      <li><b>River:</b> Divides the board. Pawns gain lateral movement after crossing it.</li>
+      <li><b>Palaces:</b> 3×3 areas where Generals and Advisors operate.</li>
+      <li><b>Reserve:</b> Captured pieces return to the game on your half.</li>
+    </ul>
+    
+    <h3>♟️ Piece Movement</h3>
+    <ul>
+      <li><b>K (General):</b> 1 orthogonal within palace</li>
+      <li><b>A (Advisor):</b> 1 diagonal anywhere</li>
+      <li><b>R (Rook):</b> Unlimited orthogonal</li>
+      <li><b>E (Elephant):</b> 2 diagonals, doesn't cross river</li>
+      <li><b>H (Horse):</b> L-shape, blocked by adjacent pieces</li>
+      <li><b>C (Cannon):</b> Like rook, captures by jumping 1 piece</li>
+      <li><b>P (Pawn):</b> 1 forward; after river, also lateral</li>
+    </ul>
+    
+    <button class="btn" onclick="document.getElementById('rulesDialog').close()">✅ Got it</button>
+  </div>
+</dialog>
+
+<script>
+// =====================
+// 🏛️ IMPERIUM ENGINE
+// =====================
+(function(){
+  const W=9, H=10;
+  const boardEl = document.getElementById('board');
+  const statusEl = document.getElementById('status');
+  const logEl = document.getElementById('log');
+  const reserveRedEl = document.getElementById('reserveRed');
+  const reserveBlackEl = document.getElementById('reserveBlack');
+  const promoDialog = document.getElementById('promoDialog');
+  const promoGrid = document.getElementById('promoGrid');
+  const rulesDialog = document.getElementById('rulesDialog');
+  
+  let showHints = true;
+  let flipped = false;
+  let moveCount = 0;
+
+  const RED = 'red';
+  const BLACK = 'black';
+
+  const NAMES = {
+    K:'General',A:'Advisor',R:'Rook',E:'Elephant',
+    H:'Horse',C:'Cannon',P:'Pawn'
+  };
+
+  const SYMBOLS = {
+    red: {K:'♔',A:'♕',R:'♖',E:'♗',H:'♘',C:'🎯',P:'♙'},
+    black: {K:'♚',A:'♛',R:'♜',E:'♝',H:'♞',C:'🎯',P:'♟️'}
+  };
+
+  const palaceTop = {x0:3,x1:5,y0:0,y1:2};
+  const palaceBot = {x0:3,x1:5,y0:7,y1:9};
+
+  let state, history=[];
+
+  function inPalace(x,y,side){
+    const p = (side===BLACK)?palaceTop:palaceBot;
+    return x>=p.x0 && x<=p.x1 && y>=p.y0 && y<=p.y1;
+  }
+  function onBoard(x,y){return x>=0&&x<W&&y>=0&&y<H}
+  function isRiverRow(y){return y===4 || y===5}
+  function sameSide(a,b){return a && b && a.side===b.side}
+  function opponent(side){return side===RED?BLACK:RED}
+  function halfOf(side,y){
+    return side===RED ? (y>=5) : (y<=4)
+  }
+
+  function startPosition(){
+    const empty = Array.from({length:H},()=>Array.from({length:W},()=>null));
+    const s = {
+      board:empty, turn:RED, reserve:{red:[], black:[]}, 
+      selected:null, legal:[], mustDrop:null, winner:null
+    };
+
+    function place(side,y,arr){
+      arr.forEach((t,x)=>{ if(t) s.board[y][x]={type:t, side}; });
+    }
+    
+    // Initial hybrid formation (inspired by Xiangqi + improvements)
+    place(BLACK,0,['R','H','E','A','K','A','E','H','R']);
+    place(BLACK,2,[null,'C',null,null,null,null,null,'C',null]);
+    place(BLACK,3,['P',null,'P',null,'P',null,'P',null,'P']);
+
+    place(RED,9,['R','H','E','A','K','A','E','H','R']);
+    place(RED,7,[null,'C',null,null,null,null,null,'C',null]);
+    place(RED,6,['P',null,'P',null,'P',null,'P',null,'P']);
+
+    return s;
+  }
+
+  function clone(obj){return JSON.parse(JSON.stringify(obj))}
+
+  function render(){
+    boardEl.querySelectorAll('.sq').forEach(n=>n.remove());
+    
+    for(let y=0;y<H;y++){
+      for(let x=0;x<W;x++){
+        const [rx,ry] = flipped? [W-1-x,H-1-y] : [x,y];
+        const sq = document.createElement('div');
+        sq.className='sq';
+        sq.dataset.x = x; sq.dataset.y = y;
+        sq.style.gridColumn = rx+1;
+        sq.style.gridRow = ry+1;
+        
+        if(state.selected && state.selected.x===x && state.selected.y===y) {
+          sq.classList.add('sel');
+        }
+        
+        sq.addEventListener('click',()=>onSquareClick(x,y));
+        
+        const p = state.board[y][x];
+        if(p){
+          const el = document.createElement('div');
+          el.className = `piece ${p.side}`;
+          el.textContent = SYMBOLS[p.side][p.type] || p.type;
+          el.title = `${p.side==='red'?'Red':'Blue'} ${NAMES[p.type]}`;
+          sq.appendChild(el);
+        }
+        boardEl.appendChild(sq);
+      }
+    }
+
+    // Show legal moves
+    if(showHints && state.legal && state.selected){
+      state.legal.forEach(m=>{
+        const target = querySquare(m.x,m.y);
+        if(target){
+          const dot = document.createElement('div');
+          dot.className = 'dot'+(m.capture?' capture':'');
+          target.appendChild(dot);
+        }
+      });
+    }
+    
+    renderReserves();
+    updateStatus();
+  }
+
+  function querySquare(x,y){
+    return boardEl.querySelector(`[data-x="${x}"][data-y="${y}"]`);
+  }
+
+  function renderReserves(){
+    function makeToken(side, t, i){
+      const d=document.createElement('div');
+      d.className='token';
+      const p=document.createElement('div');
+      p.className=`piece ${side}`;
+      p.textContent=SYMBOLS[side][t] || t;
+      p.style.fontSize = '14px';
+      d.title = `Drop ${NAMES[t]} from reserve`;
+      d.appendChild(p);
+      d.addEventListener('click',()=>{
+        state.mustDrop = {side:side, type:t, idx:i};
+        state.selected=null; state.legal=[];
+        statusEl.textContent = `Drop: ${NAMES[t]} ${side==='red'?'Red':'Blue'}`;
+        render();
+      });
+      return d;
+    }
+    
+    reserveRedEl.innerHTML='';
+    state.reserve.red.forEach((t,i)=>reserveRedEl.appendChild(makeToken('red',t,i)));
+    reserveBlackEl.innerHTML='';
+    state.reserve.black.forEach((t,i)=>reserveBlackEl.appendChild(makeToken('black',t,i)));
+  }
+
+  function updateStatus(){
+    if(state.winner){
+      statusEl.textContent = `🏆 ${state.winner==='red'?'Red':'Blue'} Wins!`;
+      statusEl.style.background = 'rgba(46,213,115,0.3)';
+      statusEl.style.borderColor = 'var(--green)';
+    } else {
+      statusEl.textContent = `🎯 Turn: ${state.turn==='red'?'Red ♔':'Blue ♚'}`;
+      statusEl.style.background = 'rgba(0,212,255,0.2)';
+      statusEl.style.borderColor = 'var(--accent)';
+    }
+  }
+
+  function onSquareClick(x,y){
+    if(state.winner) return;
+    const p = state.board[y][x];
+
+    // DROP system (Shogi)
+    if(state.mustDrop){
+      if(p) return;
+      if(!halfOf(state.mustDrop.side, y)) { 
+        flash(`⚠️ Can only drop on your half!`); return; 
+      }
+      if(state.mustDrop.side!==state.turn){ 
+        flash(`⚠️ Not your turn.`); return; 
+      }
+      
+      pushHistory();
+      const arr = state.reserve[state.mustDrop.side];
+      const t = arr.splice(state.mustDrop.idx,1)[0];
+      state.board[y][x] = {type:t, side:state.mustDrop.side};
+      state.mustDrop=null; state.selected=null; state.legal=[];
+      endTurn();
+      return;
+    }
+
+    if(state.selected){
+      const from = state.selected;
+      if(from.x===x && from.y===y){ 
+        state.selected=null; state.legal=[]; render(); return; 
+      }
+      const legal = state.legal.find(m=>m.x===x && m.y===y);
+      if(legal){
+        movePiece(from.x, from.y, x, y);
+      } else {
+        if(p && p.side===state.turn){ selectSquare(x,y); }
+      }
+    } else {
+      if(p && p.side===state.turn){ selectSquare(x,y); }
+    }
+  }
+
+  function selectSquare(x,y){
+    state.selected={x,y};
+    state.legal = legalMoves(x,y, state.board);
+    render();
+  }
+
+  function pushHistory(){ 
+    history.push(clone(state)); 
+    if(history.length>100) history.shift(); 
+  }
+
+  async function movePiece(x1,y1,x2,y2){
+    if(state.winner) return;
+    const src = state.board[y1][x1];
+    const dst = state.board[y2][x2];
+    if(!src || src.side!==state.turn) return;
+
+    pushHistory();
+
+    let promoteTo = null;
+    
+    // Check promotion
+    if(src.type==='P'){
+      if((src.side==='red' && y2===0) || (src.side==='black' && y2===9)){
+        promoteTo = await promptPromotion(src.side);
+      }
+    }
+
+    // Capture → Reserve
+    if(dst){
+      if(dst.type==='K'){
+        state.board[y2][x2] = src; state.board[y1][x1]=null;
+        state.selected=null; state.legal=[];
+        state.winner = src.side;
+        render();
+        logMove(x1,y1,x2,y2,'#',src,dst);
+        return;
+      }
+      state.reserve[src.side].push(dst.type);
+    }
+
+    state.board[y2][x2] = src;
+    state.board[y1][x1] = null;
+    if(promoteTo){ state.board[y2][x2].type = promoteTo; }
+
+    state.selected=null; state.legal=[];
+    logMove(x1,y1,x2,y2,promoteTo?'='+promoteTo:(dst?'x':''),src,dst);
+    endTurn();
+  }
+
+  function endTurn(){
+    moveCount++;
+    state.turn = opponent(state.turn);
+    state.mustDrop=null;
+    render();
+  }
+
+  function logMove(x1,y1,x2,y2,symbol,src,dst){
+    const from = String.fromCharCode(97+x1) + (10-y1);
+    const to = String.fromCharCode(97+x2) + (10-y2);
+    const notation = `${moveCount}. ${src.type}${from}${symbol}${to}`;
+    logEl.textContent = notation + '\n' + logEl.textContent;
+  }
+
+  function legalMoves(x,y, B){
+    const p = B[y][x]; if(!p) return [];
+    const S=p.side;
+    const moves=[];
+
+    function add(nx,ny, captureOnly=false){
+      if(!onBoard(nx,ny)) return;
+      const t = B[ny][nx];
+      if(t && t.side===S) return;
+      const m = {x:nx,y:ny, capture:!!t};
+      if(captureOnly && !t) return;
+      moves.push(m);
+    }
+
+    function ray(dx,dy, stopOnCapture=true){
+      let nx=x+dx, ny=y+dy;
+      while(onBoard(nx,ny)){
+        const t=B[ny][nx];
+        if(!t){ add(nx,ny); }
+        else { add(nx,ny); if(stopOnCapture) break; else {nx+=dx; ny+=dy; break;} }
+        nx+=dx; ny+=dy;
+      }
+    }
+
+    switch(p.type){
+      case 'K':{ // General: 1 orthogonal within palace
+        [[1,0],[-1,0],[0,1],[0,-1]].forEach(([dx,dy])=>{
+          const nx=x+dx, ny=y+dy;
+          if(onBoard(nx,ny) && inPalace(nx,ny,p.side)) add(nx,ny);
+        });
+        break;
+      }
+      case 'A':{ // Advisor: 1 diagonal
+        [[1,1],[1,-1],[-1,1],[-1,-1]].forEach(([dx,dy])=>{
+          const nx=x+dx, ny=y+dy; 
+          if(onBoard(nx,ny)) add(nx,ny);
+        });
+        break;
+      }
+      case 'R':{ // Rook: unlimited orthogonal
+        ray(1,0); ray(-1,0); ray(0,1); ray(0,-1); 
+        break;
+      }
+      case 'E':{ // Elephant: 2 diagonals, doesn't cross river
+        [[2,2],[2,-2],[-2,2],[-2,-2]].forEach(([dx,dy])=>{
+          const mx=x+dx/2, my=y+dy/2;
+          const nx=x+dx, ny=y+dy;
+          if(!onBoard(nx,ny)) return;
+          if(B[my][mx]) return; // blocked
+          
+          // Cannot cross river
+          const startHalf = (p.side==='red')? (y>=5) : (y<=4);
+          const endHalf   = (p.side==='red')? (ny>=5) : (ny<=4);
+          if(!startHalf || !endHalf) return;
+          add(nx,ny);
+        });
+        break;
+      }
+      case 'H':{ // Horse: L with blocking
+        const jumps = [
+          {b:[1,0], m:[2,1]}, {b:[1,0], m:[2,-1]}, 
+          {b:[-1,0], m:[-2,1]}, {b:[-1,0], m:[-2,-1]},
+          {b:[0,1], m:[1,2]}, {b:[0,1], m:[-1,2]}, 
+          {b:[0,-1], m:[1,-2]}, {b:[0,-1], m:[-1,-2]}
+        ];
+        for(const j of jumps){
+          const bx=x+j.b[0], by=y+j.b[1];
+          if(!onBoard(bx,by) || B[by][bx]) continue;
+          const nx=x+j.m[0], ny=y+j.m[1];
+          add(nx,ny);
+        }
+        break;
+      }
+      case 'C':{ // Cannon: moves like rook, captures by jumping 1 piece
+        function cannonSlide(dx,dy){
+          let nx=x+dx, ny=y+dy;
+          while(onBoard(nx,ny)){
+            const t=B[ny][nx];
+            if(t) break;
+            add(nx,ny); nx+=dx; ny+=dy;
+          }
+        }
+        function cannonCapture(dx,dy){
+          let nx=x+dx, ny=y+dy; let screenFound=false;
+          while(onBoard(nx,ny)){
+            const t=B[ny][nx];
+            if(!screenFound){
+              if(t) screenFound=true;
+            } else {
+              if(t){ if(t.side!==p.side) add(nx,ny,true); break; }
+            }
+            nx+=dx; ny+=dy;
+          }
+        }
+        cannonSlide(1,0); cannonSlide(-1,0); cannonSlide(0,1); cannonSlide(0,-1);
+        cannonCapture(1,0); cannonCapture(-1,0); cannonCapture(0,1); cannonCapture(0,-1);
+        break;
+      }
+      case 'P':{ // Pawn: forward + lateral after river
+        const dir = (p.side==='red')? -1 : 1;
+        add(x, y+dir);
+        
+        const crossed = (p.side==='red')? (y<=4) : (y>=5);
+        if(crossed){ add(x+1,y); add(x-1,y); }
+        break;
+      }
+    }
+    return moves;
+  }
+
+  function promptPromotion(side){
+    return new Promise(resolve=>{
+      promoGrid.innerHTML='';
+      const opts=['R','H','C','E','A'];
+      opts.forEach(t=>{
+        const b=document.createElement('button');
+        b.className='promo-btn';
+        b.textContent=SYMBOLS[side][t] || t;
+        b.title = `${NAMES[t]}`;
+        b.addEventListener('click',()=>{ 
+          promoDialog.close(); 
+          resolve(t); 
+        });
+        promoGrid.appendChild(b);
+      });
+      promoDialog.showModal();
+      promoDialog.addEventListener('cancel',()=>resolve('R'), {once:true});
+    });
+  }
+
+  function flash(msg){
+    const originalText = statusEl.textContent;
+    const originalStyle = statusEl.style.background;
+    statusEl.textContent = msg;
+    statusEl.style.background = 'rgba(255,71,87,0.3)';
+    setTimeout(()=>{
+      statusEl.textContent = originalText;
+      statusEl.style.background = originalStyle;
+    }, 2000);
+  }
+
+  // Controls
+  document.getElementById('newGame').addEventListener('click',()=>{
+    state=startPosition(); 
+    history=[]; 
+    moveCount=0;
+    render(); 
+    logEl.textContent='🎮 New game started!\n';
+  });
+  
+  document.getElementById('undoBtn').addEventListener('click',()=>{
+    if(history.length){ 
+      state=history.pop(); 
+      if(moveCount>0) moveCount--;
+      render(); 
+    }
+  });
+  
+  document.getElementById('flipBtn').addEventListener('click',()=>{
+    flipped=!flipped; 
+    render(); 
+  });
+  
+  document.getElementById('toggleHints').addEventListener('click',()=>{
+    showHints=!showHints; 
+    render(); 
+  });
+
+  document.getElementById('rulesBtn').addEventListener('click',()=>{
+    rulesDialog.showModal();
+  });
+
+  // Initialization
+  state = startPosition();
+  render();
+  
+  // Initial log
+  logEl.textContent = `🏛️ Imperium - Universal Chess started!\n📚 Hybrid: Shogi + Xiangqi + Chaturanga + Makruk + Janggi\n🎯 Capture the General (K) to win!\n`;
+  
+})();
+</script>
+</body>
+</html>
