@@ -1,9 +1,80 @@
+
+
+
 <!DOCTYPE html>
-<html lang="en">
+<html lang="pt-BR">
 <head>
+<script>
+(function() {
+    'use strict';
+    
+    
+
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>The Hyperdimensional Paradox</title>
+    <title>O Paradoxo Hiperdimensional - Teste Lógico para Matemáticos</title>
+<!-- ═══════════════════════════════════════════════════════════════
+     MIDDLEWARE DE PROTEÇÃO - LOCALSTORAGE
+     ═══════════════════════════════════════════════════════════════ -->
+<script>
+(function() {
+  'use strict';
+
+  const isAuthenticated = () => {
+    try {
+      const session = localStorage.getItem('math10_session');
+      if (!session) return false;
+      
+      const data = JSON.parse(session);
+      if (!data.authenticated || !data.loginTime || !data.totpSecret) return false;
+      
+      const SESSION_MAX_AGE = 4 * 60 * 60 * 1000;
+      const elapsed = Date.now() - data.loginTime;
+      
+      if (elapsed > SESSION_MAX_AGE) {
+        localStorage.removeItem('math10_session');
+        return false;
+      }
+      
+      return true;
+    } catch (e) {
+      return false;
+    }
+  };
+
+  if (!isAuthenticated()) {
+    document.documentElement.innerHTML = '';
+    document.body.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:linear-gradient(135deg,#0a192f 0%,#071029 100%);font-family:Inter,system-ui;color:#e6eef8;">
+        <div style="text-align:center;background:#081427;padding:40px;border-radius:16px;box-shadow:0 20px 60px rgba(2,6,23,.8);border:1px solid #0b3552;max-width:420px;">
+          <div style="font-size:64px;margin-bottom:16px;">🔒</div>
+          <h1 style="color:#dbeafe;margin:0 0 16px 0;font-size:24px;">Acesso Negado</h1>
+          <p style="color:#9fb4d6;margin:0 0 24px 0;font-size:14px;line-height:1.6;">Você não está autenticado. Faça login primeiro.</p>
+          <button onclick="window.location.href=window.location.origin+'/index.html'" style="background:linear-gradient(135deg,#0ea5e9,#06b6d4);color:#fff;border:none;padding:12px 24px;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;">Ir para Login</button>
+        </div>
+      </div>
+    `;
+    throw new Error('Acesso negado');
+  }
+  
+  console.log('✅ Acesso permitido');
+})();
+</script>
+
+<!-- FUNÇÃO LOGOUT -->
+<script>
+function logout() {
+  if (confirm('Tem certeza que deseja sair?')) {
+    localStorage.removeItem('math10_session');
+    alert('✅ Você saiu com sucesso.');
+    window.location.href = window.location.origin + '/index.html';
+  }
+}
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════
+     RESTO DO SEU CÓDIGO DO MENU - SEM ALTERAÇÕES
+     ═══════════════════════════════════════════════════════════════ -->
     <style>
         body {
             font-family: 'Poppins', sans-serif;
@@ -59,6 +130,12 @@
             border-radius: 6px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }
+        .dim-1 { background-color: #f1c40f20; }
+        .dim-2 { background-color: #3498db20; }
+        .dim-3 { background-color: #e74c3c20; }
+        .dim-4 { background-color: #2ecc7120; }
+        .dim-5 { background-color: #9b59b620; }
+        .dim-6 { background-color: #ecf0f120; }
         .clues {
             background-color: #e8f4f8;
             padding: 20px;
@@ -84,7 +161,7 @@
             margin-top: 20px;
             display: none;
         }
-        .verification-btn, .reset-btn {
+        .verification-btn, .solution-btn, .reset-btn {
             background-color: #1a5276;
             color: white;
             border: none;
@@ -95,7 +172,11 @@
             font-weight: bold;
             transition: background-color 0.3s;
         }
-        .verification-btn:hover { background-color: #3498db; }
+        .verification-btn:hover, .solution-btn:hover, .reset-btn:hover {
+            background-color: #3498db;
+        }
+        .solution-btn { background-color: #c0392b; }
+        .solution-btn:hover { background-color: #e74c3c; }
         .reset-btn { background-color: #7f8c8d; }
         .reset-btn:hover { background-color: #95a5a6; }
         .selector {
@@ -104,6 +185,7 @@
             border-radius: 5px;
             border: 1px solid #bdc3c7;
             background-color: white;
+            box-sizing: border-box;
             font-size: 14px;
         }
         .attributes-title {
@@ -123,6 +205,12 @@
             padding: 15px;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            min-height: 150px;
+        }
+        .selector-label {
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: #1a5276;
         }
         .notes-area {
             width: 100%;
@@ -131,6 +219,7 @@
             border: 1px solid #bdc3c7;
             border-radius: 8px;
             padding: 10px;
+            font-family: inherit;
             resize: vertical;
         }
         .solution-container {
@@ -140,6 +229,12 @@
             padding: 20px;
             border-radius: 10px;
             border: 1px solid #bdc3c7;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        .solution-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
         }
         .solution-table th, .solution-table td {
             border: 1px solid #bdc3c7;
@@ -150,176 +245,264 @@
             background-color: #1a5276;
             color: white;
         }
+        .solution-table tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+        @media (max-width: 600px) {
+            .grid-container {
+                grid-template-columns: auto repeat(6, 100px);
+                font-size: 12px;
+            }
+            .selector {
+                font-size: 12px;
+            }
+            .selectors-container {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+            }
+            .selector-group {
+                padding: 10px;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="intro">
-        <h1>The Hyperdimensional Paradox</h1>
-        <a href="https://www.matematico10.com.br/projetos/B/" class="logo-link" style="display:inline-block;">
-    
-    <img src="https://i.ibb.co/DNQv5x8/Simbolo-Matem-tico-10-removebg-preview.png" style="width:80px; height:auto;">
-    
-    <div style="margin-top:8px; font-weight:bold;">
-      Volte Central de Estudos
+        <h1>O Paradoxo Hiperdimensional</h1>
+        <h3>Teste Lógico-Matemático de Extrema Dificuldade</h3>
+        <p>Desafie sua mente com um enigma projetado para os maiores matemáticos. Descubra os atributos de cada dimensão usando lógica dedutiva e conceitos matemáticos avançados.</p>
+        <p><strong>Aviso:</strong> Este é o teste lógico mais difícil já concebido, exigindo domínio de lógica, teoria dos números, álgebra e topologia.</p>
     </div>
-
-  </a>
-        <h3>Extremely Difficult Logic-Mathematical Test</h3>
-        <p>Challenge your mind with an enigma designed for the greatest mathematicians. Discover the attributes of each dimension using deductive logic and advanced mathematical concepts.</p>
-    </div>
-   
+    
     <div class="grid-container">
-        <div class="grid-label">👉 Mathematician 10 👈</div>
-        <div class="grid-header">1st Dimension</div>
-        <div class="grid-header">2nd Dimension</div>
-        <div class="grid-header">3rd Dimension</div>
-        <div class="grid-header">4th Dimension</div>
-        <div class="grid-header">5th Dimension</div>
-        <div class="grid-header">6th Dimension</div>
-       
-        <div class="grid-label">Color</div>
-        <div class="grid-cell"><select id="cor-1" class="selector"><option value="">Select</option><option value="Amber">Amber</option><option value="Indigo">Indigo</option><option value="Crimson">Crimson</option><option value="Viridian">Viridian</option><option value="Opal">Opal</option><option value="Sapphire">Sapphire</option></select></div>
-        <div class="grid-cell"><select id="cor-2" class="selector"><option value="">Select</option><option value="Amber">Amber</option><option value="Indigo">Indigo</option><option value="Crimson">Crimson</option><option value="Viridian">Viridian</option><option value="Opal">Opal</option><option value="Sapphire">Sapphire</option></select></div>
-        <div class="grid-cell"><select id="cor-3" class="selector"><option value="">Select</option><option value="Amber">Amber</option><option value="Indigo">Indigo</option><option value="Crimson">Crimson</option><option value="Viridian">Viridian</option><option value="Opal">Opal</option><option value="Sapphire">Sapphire</option></select></div>
-        <div class="grid-cell"><select id="cor-4" class="selector"><option value="">Select</option><option value="Amber">Amber</option><option value="Indigo">Indigo</option><option value="Crimson">Crimson</option><option value="Viridian">Viridian</option><option value="Opal">Opal</option><option value="Sapphire">Sapphire</option></select></div>
-        <div class="grid-cell"><select id="cor-5" class="selector"><option value="">Select</option><option value="Amber">Amber</option><option value="Indigo">Indigo</option><option value="Crimson">Crimson</option><option value="Viridian">Viridian</option><option value="Opal">Opal</option><option value="Sapphire">Sapphire</option></select></div>
-        <div class="grid-cell"><select id="cor-6" class="selector"><option value="">Select</option><option value="Amber">Amber</option><option value="Indigo">Indigo</option><option value="Crimson">Crimson</option><option value="Viridian">Viridian</option><option value="Opal">Opal</option><option value="Sapphire">Sapphire</option></select></div>
-
-        <div class="grid-label">Mathematician</div>
-        <div class="grid-cell"><select id="matematico-1" class="selector"><option value="">Select</option><option value="Euler">Euler</option><option value="Gauss">Gauss</option><option value="Riemann">Riemann</option><option value="Turing">Turing</option><option value="Noether">Noether</option><option value="Grothendieck">Grothendieck</option></select></div>
-        <div class="grid-cell"><select id="matematico-2" class="selector"><option value="">Select</option><option value="Euler">Euler</option><option value="Gauss">Gauss</option><option value="Riemann">Riemann</option><option value="Turing">Turing</option><option value="Noether">Noether</option><option value="Grothendieck">Grothendieck</option></select></div>
-        <div class="grid-cell"><select id="matematico-3" class="selector"><option value="">Select</option><option value="Euler">Euler</option><option value="Gauss">Gauss</option><option value="Riemann">Riemann</option><option value="Turing">Turing</option><option value="Noether">Noether</option><option value="Grothendieck">Grothendieck</option></select></div>
-        <div class="grid-cell"><select id="matematico-4" class="selector"><option value="">Select</option><option value="Euler">Euler</option><option value="Gauss">Gauss</option><option value="Riemann">Riemann</option><option value="Turing">Turing</option><option value="Noether">Noether</option><option value="Grothendieck">Grothendieck</option></select></div>
-        <div class="grid-cell"><select id="matematico-5" class="selector"><option value="">Select</option><option value="Euler">Euler</option><option value="Gauss">Gauss</option><option value="Riemann">Riemann</option><option value="Turing">Turing</option><option value="Noether">Noether</option><option value="Grothendieck">Grothendieck</option></select></div>
-        <div class="grid-cell"><select id="matematico-6" class="selector"><option value="">Select</option><option value="Euler">Euler</option><option value="Gauss">Gauss</option><option value="Riemann">Riemann</option><option value="Turing">Turing</option><option value="Noether">Noether</option><option value="Grothendieck">Grothendieck</option></select></div>
-
-        <div class="grid-label">Set</div>
-        <div class="grid-cell"><select id="conjunto-1" class="selector"><option value="">Select</option><option value="Primes">Primes</option><option value="Factorials">Factorials</option><option value="Fibonacci">Fibonacci</option><option value="Squares">Squares</option><option value="Triangular">Triangular</option><option value="Perfect">Perfect</option></select></div>
-        <div class="grid-cell"><select id="conjunto-2" class="selector"><option value="">Select</option><option value="Primes">Primes</option><option value="Factorials">Factorials</option><option value="Fibonacci">Fibonacci</option><option value="Squares">Squares</option><option value="Triangular">Triangular</option><option value="Perfect">Perfect</option></select></div>
-        <div class="grid-cell"><select id="conjunto-3" class="selector"><option value="">Select</option><option value="Primes">Primes</option><option value="Factorials">Factorials</option><option value="Fibonacci">Fibonacci</option><option value="Squares">Squares</option><option value="Triangular">Triangular</option><option value="Perfect">Perfect</option></select></div>
-        <div class="grid-cell"><select id="conjunto-4" class="selector"><option value="">Select</option><option value="Primes">Primes</option><option value="Factorials">Factorials</option><option value="Fibonacci">Fibonacci</option><option value="Squares">Squares</option><option value="Triangular">Triangular</option><option value="Perfect">Perfect</option></select></div>
-        <div class="grid-cell"><select id="conjunto-5" class="selector"><option value="">Select</option><option value="Primes">Primes</option><option value="Factorials">Factorials</option><option value="Fibonacci">Fibonacci</option><option value="Squares">Squares</option><option value="Triangular">Triangular</option><option value="Perfect">Perfect</option></select></div>
-        <div class="grid-cell"><select id="conjunto-6" class="selector"><option value="">Select</option><option value="Primes">Primes</option><option value="Factorials">Factorials</option><option value="Fibonacci">Fibonacci</option><option value="Squares">Squares</option><option value="Triangular">Triangular</option><option value="Perfect">Perfect</option></select></div>
-
-        <div class="grid-label">Theorem</div>
-        <div class="grid-cell"><select id="teorema-1" class="selector"><option value="">Select</option><option value="Fermat">Fermat</option><option value="Gödel">Gödel</option><option value="Poincaré">Poincaré</option><option value="Riemann">Riemann</option><option value="P=NP">P=NP</option><option value="Goldbach">Goldbach</option></select></div>
-        <div class="grid-cell"><select id="teorema-2" class="selector"><option value="">Select</option><option value="Fermat">Fermat</option><option value="Gödel">Gödel</option><option value="Poincaré">Poincaré</option><option value="Riemann">Riemann</option><option value="P=NP">P=NP</option><option value="Goldbach">Goldbach</option></select></div>
-        <div class="grid-cell"><select id="teorema-3" class="selector"><option value="">Select</option><option value="Fermat">Fermat</option><option value="Gödel">Gödel</option><option value="Poincaré">Poincaré</option><option value="Riemann">Riemann</option><option value="P=NP">P=NP</option><option value="Goldbach">Goldbach</option></select></div>
-        <div class="grid-cell"><select id="teorema-4" class="selector"><option value="">Select</option><option value="Fermat">Fermat</option><option value="Gödel">Gödel</option><option value="Poincaré">Poincaré</option><option value="Riemann">Riemann</option><option value="P=NP">P=NP</option><option value="Goldbach">Goldbach</option></select></div>
-        <div class="grid-cell"><select id="teorema-5" class="selector"><option value="">Select</option><option value="Fermat">Fermat</option><option value="Gödel">Gödel</option><option value="Poincaré">Poincaré</option><option value="Riemann">Riemann</option><option value="P=NP">P=NP</option><option value="Goldbach">Goldbach</option></select></div>
-        <div class="grid-cell"><select id="teorema-6" class="selector"><option value="">Select</option><option value="Fermat">Fermat</option><option value="Gödel">Gödel</option><option value="Poincaré">Poincaré</option><option value="Riemann">Riemann</option><option value="P=NP">P=NP</option><option value="Goldbach">Goldbach</option></select></div>
-
-        <div class="grid-label">Topological Dimension</div>
-        <div class="grid-cell"><select id="dimensao-1" class="selector"><option value="">Select</option><option value="0D">0D</option><option value="1D">1D</option><option value="2D">2D</option><option value="3D">3D</option><option value="4D">4D</option><option value="∞D">∞D</option></select></div>
-        <div class="grid-cell"><select id="dimensao-2" class="selector"><option value="">Select</option><option value="0D">0D</option><option value="1D">1D</option><option value="2D">2D</option><option value="3D">3D</option><option value="4D">4D</option><option value="∞D">∞D</option></select></div>
-        <div class="grid-cell"><select id="dimensao-3" class="selector"><option value="">Select</option><option value="0D">0D</option><option value="1D">1D</option><option value="2D">2D</option><option value="3D">3D</option><option value="4D">4D</option><option value="∞D">∞D</option></select></div>
-        <div class="grid-cell"><select id="dimensao-4" class="selector"><option value="">Select</option><option value="0D">0D</option><option value="1D">1D</option><option value="2D">2D</option><option value="3D">3D</option><option value="4D">4D</option><option value="∞D">∞D</option></select></div>
-        <div class="grid-cell"><select id="dimensao-5" class="selector"><option value="">Select</option><option value="0D">0D</option><option value="1D">1D</option><option value="2D">2D</option><option value="3D">3D</option><option value="4D">4D</option><option value="∞D">∞D</option></select></div>
-        <div class="grid-cell"><select id="dimensao-6" class="selector"><option value="">Select</option><option value="0D">0D</option><option value="1D">1D</option><option value="2D">2D</option><option value="3D">3D</option><option value="4D">4D</option><option value="∞D">∞D</option></select></div>
-
-        <div class="grid-label">Group</div>
-        <div class="grid-cell"><select id="grupo-1" class="selector"><option value="">Select</option><option value="Cyclic">Cyclic</option><option value="Abelian">Abelian</option><option value="Non-abelian">Non-abelian</option><option value="Symmetric">Symmetric</option><option value="Free">Free</option><option value="Trivial">Trivial</option></select></div>
-        <div class="grid-cell"><select id="grupo-2" class="selector"><option value="">Select</option><option value="Cyclic">Cyclic</option><option value="Abelian">Abelian</option><option value="Non-abelian">Non-abelian</option><option value="Symmetric">Symmetric</option><option value="Free">Free</option><option value="Trivial">Trivial</option></select></div>
-        <div class="grid-cell"><select id="grupo-3" class="selector"><option value="">Select</option><option value="Cyclic">Cyclic</option><option value="Abelian">Abelian</option><option value="Non-abelian">Non-abelian</option><option value="Symmetric">Symmetric</option><option value="Free">Free</option><option value="Trivial">Trivial</option></select></div>
-        <div class="grid-cell"><select id="grupo-4" class="selector"><option value="">Select</option><option value="Cyclic">Cyclic</option><option value="Abelian">Abelian</option><option value="Non-abelian">Non-abelian</option><option value="Symmetric">Symmetric</option><option value="Free">Free</option><option value="Trivial">Trivial</option></select></div>
-        <div class="grid-cell"><select id="grupo-5" class="selector"><option value="">Select</option><option value="Cyclic">Cyclic</option><option value="Abelian">Abelian</option><option value="Non-abelian">Non-abelian</option><option value="Symmetric">Symmetric</option><option value="Free">Free</option><option value="Trivial">Trivial</option></select></div>
-        <div class="grid-cell"><select id="grupo-6" class="selector"><option value="">Select</option><option value="Cyclic">Cyclic</option><option value="Abelian">Abelian</option><option value="Non-abelian">Non-abelian</option><option value="Symmetric">Symmetric</option><option value="Free">Free</option><option value="Trivial">Trivial</option></select></div>
-
-        <div class="grid-label">Function</div>
-        <div class="grid-cell"><select id="funcao-1" class="selector"><option value="">Select</option><option value="Linear">Linear</option><option value="Quadratic">Quadratic</option><option value="Exponential">Exponential</option><option value="Logarithmic">Logarithmic</option><option value="Trigonometric">Trigonometric</option><option value="Chaotic">Chaotic</option></select></div>
-        <div class="grid-cell"><select id="funcao-2" class="selector"><option value="">Select</option><option value="Linear">Linear</option><option value="Quadratic">Quadratic</option><option value="Exponential">Exponential</option><option value="Logarithmic">Logarithmic</option><option value="Trigonometric">Trigonometric</option><option value="Chaotic">Chaotic</option></select></div>
-        <div class="grid-cell"><select id="funcao-3" class="selector"><option value="">Select</option><option value="Linear">Linear</option><option value="Quadratic">Quadratic</option><option value="Exponential">Exponential</option><option value="Logarithmic">Logarithmic</option><option value="Trigonometric">Trigonometric</option><option value="Chaotic">Chaotic</option></select></div>
-        <div class="grid-cell"><select id="funcao-4" class="selector"><option value="">Select</option><option value="Linear">Linear</option><option value="Quadratic">Quadratic</option><option value="Exponential">Exponential</option><option value="Logarithmic">Logarithmic</option><option value="Trigonometric">Trigonometric</option><option value="Chaotic">Chaotic</option></select></div>
-        <div class="grid-cell"><select id="funcao-5" class="selector"><option value="">Select</option><option value="Linear">Linear</option><option value="Quadratic">Quadratic</option><option value="Exponential">Exponential</option><option value="Logarithmic">Logarithmic</option><option value="Trigonometric">Trigonometric</option><option value="Chaotic">Chaotic</option></select></div>
-        <div class="grid-cell"><select id="funcao-6" class="selector"><option value="">Select</option><option value="Linear">Linear</option><option value="Quadratic">Quadratic</option><option value="Exponential">Exponential</option><option value="Logarithmic">Logarithmic</option><option value="Trigonometric">Trigonometric</option><option value="Chaotic">Chaotic</option></select></div>
-
-        <div class="grid-label">Symbol</div>
-        <div class="grid-cell"><select id="simbolo-1" class="selector"><option value="">Select</option><option value="ℵ">ℵ</option><option value="∞">∞</option><option value="∂">∂</option><option value="∫">∫</option><option value="Σ">Σ</option><option value="Ω">Ω</option></select></div>
-        <div class="grid-cell"><select id="simbolo-2" class="selector"><option value="">Select</option><option value="ℵ">ℵ</option><option value="∞">∞</option><option value="∂">∂</option><option value="∫">∫</option><option value="Σ">Σ</option><option value="Ω">Ω</option></select></div>
-        <div class="grid-cell"><select id="simbolo-3" class="selector"><option value="">Select</option><option value="ℵ">ℵ</option><option value="∞">∞</option><option value="∂">∂</option><option value="∫">∫</option><option value="Σ">Σ</option><option value="Ω">Ω</option></select></div>
-        <div class="grid-cell"><select id="simbolo-4" class="selector"><option value="">Select</option><option value="ℵ">ℵ</option><option value="∞">∞</option><option value="∂">∂</option><option value="∫">∫</option><option value="Σ">Σ</option><option value="Ω">Ω</option></select></div>
-        <div class="grid-cell"><select id="simbolo-5" class="selector"><option value="">Select</option><option value="ℵ">ℵ</option><option value="∞">∞</option><option value="∂">∂</option><option value="∫">∫</option><option value="Σ">Σ</option><option value="Ω">Ω</option></select></div>
-        <div class="grid-cell"><select id="simbolo-6" class="selector"><option value="">Select</option><option value="ℵ">ℵ</option><option value="∞">∞</option><option value="∂">∂</option><option value="∫">∫</option><option value="Σ">Σ</option><option value="Ω">Ω</option></select></div>
+        <div class="grid-label">
+  <a href="https://matematico10.com.br/" rel="noopener noreferrer" style="text-decoration: none;">
+        👉Matemático 10👈
+  </a>
+</div>
+        <div class="grid-header">1ª Dimensão</div>
+        <div class="grid-header">2ª Dimensão</div>
+        <div class="grid-header">3ª Dimensão</div>
+        <div class="grid-header">4ª Dimensão</div>
+        <div class="grid-header">5ª Dimensão</div>
+        <div class="grid-header">6ª Dimensão</div>
+        
+        <div class="grid-label">Cor</div>
+        <div class="grid-cell dim-1"><select id="cor-1" class="selector"><option value="">Selecione</option><option value="Âmbar">Âmbar</option><option value="Índigo">Índigo</option><option value="Carmesim">Carmesim</option><option value="Viridian">Viridian</option><option value="Opala">Opala</option><option value="Zafira">Zafira</option></select></div>
+        <div class="grid-cell dim-2"><select id="cor-2" class="selector"><option value="">Selecione</option><option value="Âmbar">Âmbar</option><option value="Índigo">Índigo</option><option value="Carmesim">Carmesim</option><option value="Viridian">Viridian</option><option value="Opala">Opala</option><option value="Zafira">Zafira</option></select></div>
+        <div class="grid-cell dim-3"><select id="cor-3" class="selector"><option value="">Selecione</option><option value="Âmbar">Âmbar</option><option value="Índigo">Índigo</option><option value="Carmesim">Carmesim</option><option value="Viridian">Viridian</option><option value="Opala">Opala</option><option value="Zafira">Zafira</option></select></div>
+        <div class="grid-cell dim-4"><select id="cor-4" class="selector"><option value="">Selecione</option><option value="Âmbar">Âmbar</option><option value="Índigo">Índigo</option><option value="Carmesim">Carmesim</option><option value="Viridian">Viridian</option><option value="Opala">Opala</option><option value="Zafira">Zafira</option></select></div>
+        <div class="grid-cell dim-5"><select id="cor-5" class="selector"><option value="">Selecione</option><option value="Âmbar">Âmbar</option><option value="Índigo">Índigo</option><option value="Carmesim">Carmesim</option><option value="Viridian">Viridian</option><option value="Opala">Opala</option><option value="Zafira">Zafira</option></select></div>
+        <div class="grid-cell dim-6"><select id="cor-6" class="selector"><option value="">Selecione</option><option value="Âmbar">Âmbar</option><option value="Índigo">Índigo</option><option value="Carmesim">Carmesim</option><option value="Viridian">Viridian</option><option value="Opala">Opala</option><option value="Zafira">Zafira</option></select></div>
+        
+        <div class="grid-label">Matemático</div>
+        <div class="grid-cell dim-1"><select id="matematico-1" class="selector"><option value="">Selecione</option><option value="Euler">Euler</option><option value="Gauss">Gauss</option><option value="Riemann">Riemann</option><option value="Turing">Turing</option><option value="Noether">Noether</option><option value="Grothendieck">Grothendieck</option></select></div>
+        <div class="grid-cell dim-2"><select id="matematico-2" class="selector"><option value="">Selecione</option><option value="Euler">Euler</option><option value="Gauss">Gauss</option><option value="Riemann">Riemann</option><option value="Turing">Turing</option><option value="Noether">Noether</option><option value="Grothendieck">Grothendieck</option></select></div>
+        <div class="grid-cell dim-3"><select id="matematico-3" class="selector"><option value="">Selecione</option><option value="Euler">Euler</option><option value="Gauss">Gauss</option><option value="Riemann">Riemann</option><option value="Turing">Turing</option><option value="Noether">Noether</option><option value="Grothendieck">Grothendieck</option></select></div>
+        <div class="grid-cell dim-4"><select id="matematico-4" class="selector"><option value="">Selecione</option><option value="Euler">Euler</option><option value="Gauss">Gauss</option><option value="Riemann">Riemann</option><option value="Turing">Turing</option><option value="Noether">Noether</option><option value="Grothendieck">Grothendieck</option></select></div>
+        <div class="grid-cell dim-5"><select id="matematico-5" class="selector"><option value="">Selecione</option><option value="Euler">Euler</option><option value="Gauss">Gauss</option><option value="Riemann">Riemann</option><option value="Turing">Turing</option><option value="Noether">Noether</option><option value="Grothendieck">Grothendieck</option></select></div>
+        <div class="grid-cell dim-6"><select id="matematico-6" class="selector"><option value="">Selecione</option><option value="Euler">Euler</option><option value="Gauss">Gauss</option><option value="Riemann">Riemann</option><option value="Turing">Turing</option><option value="Noether">Noether</option><option value="Grothendieck">Grothendieck</option></select></div>
+        
+        <div class="grid-label">Conjunto</div>
+        <div class="grid-cell dim-1"><select id="conjunto-1" class="selector"><option value="">Selecione</option><option value="Primos">Primos</option><option value="Fatoriais">Fatoriais</option><option value="Fibonacci">Fibonacci</option><option value="Quadrados">Quadrados</option><option value="Triangulares">Triangulares</option><option value="Perfeitos">Perfeitos</option></select></div>
+        <div class="grid-cell dim-2"><select id="conjunto-2" class="selector"><option value="">Selecione</option><option value="Primos">Primos</option><option value="Fatoriais">Fatoriais</option><option value="Fibonacci">Fibonacci</option><option value="Quadrados">Quadrados</option><option value="Triangulares">Triangulares</option><option value="Perfeitos">Perfeitos</option></select></div>
+        <div class="grid-cell dim-3"><select id="conjunto-3" class="selector"><option value="">Selecione</option><option value="Primos">Primos</option><option value="Fatoriais">Fatoriais</option><option value="Fibonacci">Fibonacci</option><option value="Quadrados">Quadrados</option><option value="Triangulares">Triangulares</option><option value="Perfeitos">Perfeitos</option></select></div>
+        <div class="grid-cell dim-4"><select id="conjunto-4" class="selector"><option value="">Selecione</option><option value="Primos">Primos</option><option value="Fatoriais">Fatoriais</option><option value="Fibonacci">Fibonacci</option><option value="Quadrados">Quadrados</option><option value="Triangulares">Triangulares</option><option value="Perfeitos">Perfeitos</option></select></div>
+        <div class="grid-cell dim-5"><select id="conjunto-5" class="selector"><option value="">Selecione</option><option value="Primos">Primos</option><option value="Fatoriais">Fatoriais</option><option value="Fibonacci">Fibonacci</option><option value="Quadrados">Quadrados</option><option value="Triangulares">Triangulares</option><option value="Perfeitos">Perfeitos</option></select></div>
+        <div class="grid-cell dim-6"><select id="conjunto-6" class="selector"><option value="">Selecione</option><option value="Primos">Primos</option><option value="Fatoriais">Fatoriais</option><option value="Fibonacci">Fibonacci</option><option value="Quadrados">Quadrados</option><option value="Triangulares">Triangulares</option><option value="Perfeitos">Perfeitos</option></select></div>
+        
+        <div class="grid-label">Teorema</div>
+        <div class="grid-cell dim-1"><select id="teorema-1" class="selector"><option value="">Selecione</option><option value="Fermat">Fermat</option><option value="Gödel">Gödel</option><option value="Poincaré">Poincaré</option><option value="Riemann">Riemann</option><option value="P=NP">P=NP</option><option value="Goldbach">Goldbach</option></select></div>
+        <div class="grid-cell dim-2"><select id="teorema-2" class="selector"><option value="">Selecione</option><option value="Fermat">Fermat</option><option value="Gödel">Gödel</option><option value="Poincaré">Poincaré</option><option value="Riemann">Riemann</option><option value="P=NP">P=NP</option><option value="Goldbach">Goldbach</option></select></div>
+        <div class="grid-cell dim-3"><select id="teorema-3" class="selector"><option value="">Selecione</option><option value="Fermat">Fermat</option><option value="Gödel">Gödel</option><option value="Poincaré">Poincaré</option><option value="Riemann">Riemann</option><option value="P=NP">P=NP</option><option value="Goldbach">Goldbach</option></select></div>
+        <div class="grid-cell dim-4"><select id="teorema-4" class="selector"><option value="">Selecione</option><option value="Fermat">Fermat</option><option value="Gödel">Gödel</option><option value="Poincaré">Poincaré</option><option value="Riemann">Riemann</option><option value="P=NP">P=NP</option><option value="Goldbach">Goldbach</option></select></div>
+        <div class="grid-cell dim-5"><select id="teorema-5" class="selector"><option value="">Selecione</option><option value="Fermat">Fermat</option><option value="Gödel">Gödel</option><option value="Poincaré">Poincaré</option><option value="Riemann">Riemann</option><option value="P=NP">P=NP</option><option value="Goldbach">Goldbach</option></select></div>
+        <div class="grid-cell dim-6"><select id="teorema-6" class="selector"><option value="">Selecione</option><option value="Fermat">Fermat</option><option value="Gödel">Gödel</option><option value="Poincaré">Poincaré</option><option value="Riemann">Riemann</option><option value="P=NP">P=NP</option><option value="Goldbach">Goldbach</option></select></div>
+        
+        <div class="grid-label">Dimensão Topológica</div>
+        <div class="grid-cell dim-1"><select id="dimensao-1" class="selector"><option value="">Selecione</option><option value="0D">0D</option><option value="1D">1D</option><option value="2D">2D</option><option value="3D">3D</option><option value="4D">4D</option><option value="∞D">∞D</option></select></div>
+        <div class="grid-cell dim-2"><select id="dimensao-2" class="selector"><option value="">Selecione</option><option value="0D">0D</option><option value="1D">1D</option><option value="2D">2D</option><option value="3D">3D</option><option value="4D">4D</option><option value="∞D">∞D</option></select></div>
+        <div class="grid-cell dim-3"><select id="dimensao-3" class="selector"><option value="">Selecione</option><option value="0D">0D</option><option value="1D">1D</option><option value="2D">2D</option><option value="3D">3D</option><option value="4D">4D</option><option value="∞D">∞D</option></select></div>
+        <div class="grid-cell dim-4"><select id="dimensao-4" class="selector"><option value="">Selecione</option><option value="0D">0D</option><option value="1D">1D</option><option value="2D">2D</option><option value="3D">3D</option><option value="4D">4D</option><option value="∞D">∞D</option></select></div>
+        <div class="grid-cell dim-5"><select id="dimensao-5" class="selector"><option value="">Selecione</option><option value="0D">0D</option><option value="1D">1D</option><option value="2D">2D</option><option value="3D">3D</option><option value="4D">4D</option><option value="∞D">∞D</option></select></div>
+        <div class="grid-cell dim-6"><select id="dimensao-6" class="selector"><option value="">Selecione</option><option value="0D">0D</option><option value="1D">1D</option><option value="2D">2D</option><option value="3D">3D</option><option value="4D">4D</option><option value="∞D">∞D</option></select></div>
+        
+        <div class="grid-label">Grupo</div>
+        <div class="grid-cell dim-1"><select id="grupo-1" class="selector"><option value="">Selecione</option><option value="Cíclico">Cíclico</option><option value="Abeliano">Abeliano</option><option value="Não-abeliano">Não-abeliano</option><option value="Simétrico">Simétrico</option><option value="Livre">Livre</option><option value="Trivial">Trivial</option></select></div>
+        <div class="grid-cell dim-2"><select id="grupo-2" class="selector"><option value="">Selecione</option><option value="Cíclico">Cíclico</option><option value="Abeliano">Abeliano</option><option value="Não-abeliano">Não-abeliano</option><option value="Simétrico">Simétrico</option><option value="Livre">Livre</option><option value="Trivial">Trivial</option></select></div>
+        <div class="grid-cell dim-3"><select id="grupo-3" class="selector"><option value="">Selecione</option><option value="Cíclico">Cíclico</option><option value="Abeliano">Abeliano</option><option value="Não-abeliano">Não-abeliano</option><option value="Simétrico">Simétrico</option><option value="Livre">Livre</option><option value="Trivial">Trivial</option></select></div>
+        <div class="grid-cell dim-4"><select id="grupo-4" class="selector"><option value="">Selecione</option><option value="Cíclico">Cíclico</option><option value="Abeliano">Abeliano</option><option value="Não-abeliano">Não-abeliano</option><option value="Simétrico">Simétrico</option><option value="Livre">Livre</option><option value="Trivial">Trivial</option></select></div>
+        <div class="grid-cell dim-5"><select id="grupo-5" class="selector"><option value="">Selecione</option><option value="Cíclico">Cíclico</option><option value="Abeliano">Abeliano</option><option value="Não-abeliano">Não-abeliano</option><option value="Simétrico">Simétrico</option><option value="Livre">Livre</option><option value="Trivial">Trivial</option></select></div>
+        <div class="grid-cell dim-6"><select id="grupo-6" class="selector"><option value="">Selecione</option><option value="Cíclico">Cíclico</option><option value="Abeliano">Abeliano</option><option value="Não-abeliano">Não-abeliano</option><option value="Simétrico">Simétrico</option><option value="Livre">Livre</option><option value="Trivial">Trivial</option></select></div>
+        
+        <div class="grid-label">Função</div>
+        <div class="grid-cell dim-1"><select id="funcao-1" class="selector"><option value="">Selecione</option><option value="Linear">Linear</option><option value="Quadrática">Quadrática</option><option value="Exponencial">Exponencial</option><option value="Logarítmica">Logarítmica</option><option value="Trigonométrica">Trigonométrica</option><option value="Caótica">Caótica</option></select></div>
+        <div class="grid-cell dim-2"><select id="funcao-2" class="selector"><option value="">Selecione</option><option value="Linear">Linear</option><option value="Quadrática">Quadrática</option><option value="Exponencial">Exponencial</option><option value="Logarítmica">Logarítmica</option><option value="Trigonométrica">Trigonométrica</option><option value="Caótica">Caótica</option></select></div>
+        <div class="grid-cell dim-3"><select id="funcao-3" class="selector"><option value="">Selecione</option><option value="Linear">Linear</option><option value="Quadrática">Quadrática</option><option value="Exponencial">Exponencial</option><option value="Logarítmica">Logarítmica</option><option value="Trigonométrica">Trigonométrica</option><option value="Caótica">Caótica</option></select></div>
+        <div class="grid-cell dim-4"><select id="funcao-4" class="selector"><option value="">Selecione</option><option value="Linear">Linear</option><option value="Quadrática">Quadrática</option><option value="Exponencial">Exponencial</option><option value="Logarítmica">Logarítmica</option><option value="Trigonométrica">Trigonométrica</option><option value="Caótica">Caótica</option></select></div>
+        <div class="grid-cell dim-5"><select id="funcao-5" class="selector"><option value="">Selecione</option><option value="Linear">Linear</option><option value="Quadrática">Quadrática</option><option value="Exponencial">Exponencial</option><option value="Logarítmica">Logarítmica</option><option value="Trigonométrica">Trigonométrica</option><option value="Caótica">Caótica</option></select></div>
+        <div class="grid-cell dim-6"><select id="funcao-6" class="selector"><option value="">Selecione</option><option value="Linear">Linear</option><option value="Quadrática">Quadrática</option><option value="Exponencial">Exponencial</option><option value="Logarítmica">Logarítmica</option><option value="Trigonométrica">Trigonométrica</option><option value="Caótica">Caótica</option></select></div>
+        
+        <div class="grid-label">Símbolo</div>
+        <div class="grid-cell dim-1"><select id="simbolo-1" class="selector"><option value="">Selecione</option><option value="ℵ">ℵ</option><option value="∞">∞</option><option value="∂">∂</option><option value="∫">∫</option><option value="Σ">Σ</option><option value="Ω">Ω</option></select></div>
+        <div class="grid-cell dim-2"><select id="simbolo-2" class="selector"><option value="">Selecione</option><option value="ℵ">ℵ</option><option value="∞">∞</option><option value="∂">∂</option><option value="∫">∫</option><option value="Σ">Σ</option><option value="Ω">Ω</option></select></div>
+        <div class="grid-cell dim-3"><select id="simbolo-3" class="selector"><option value="">Selecione</option><option value="ℵ">ℵ</option><option value="∞">∞</option><option value="∂">∂</option><option value="∫">∫</option><option value="Σ">Σ</option><option value="Ω">Ω</option></select></div>
+        <div class="grid-cell dim-4"><select id="simbolo-4" class="selector"><option value="">Selecione</option><option value="ℵ">ℵ</option><option value="∞">∞</option><option value="∂">∂</option><option value="∫">∫</option><option value="Σ">Σ</option><option value="Ω">Ω</option></select></div>
+        <div class="grid-cell dim-5"><select id="simbolo-5" class="selector"><option value="">Selecione</option><option value="ℵ">ℵ</option><option value="∞">∞</option><option value="∂">∂</option><option value="∫">∫</option><option value="Σ">Σ</option><option value="Ω">Ω</option></select></div>
+        <div class="grid-cell dim-6"><select id="simbolo-6" class="selector"><option value="">Selecione</option><option value="ℵ">ℵ</option><option value="∞">∞</option><option value="∂">∂</option><option value="∫">∫</option><option value="Σ">Σ</option><option value="Ω">Ω</option></select></div>
     </div>
-   
-    <h3 class="attributes-title">Available Attributes</h3>
+    
+    <h3 class="attributes-title">Atributos Disponíveis</h3>
     <div class="selectors-container">
-        <div class="selector-group"><div class="selector-label">Colors:</div><ul><li>Amber</li><li>Indigo</li><li>Crimson</li><li>Viridian</li><li>Opal</li><li>Sapphire</li></ul></div>
-        <div class="selector-group"><div class="selector-label">Mathematicians:</div><ul><li>Euler</li><li>Gauss</li><li>Riemann</li><li>Turing</li><li>Noether</li><li>Grothendieck</li></ul></div>
-        <div class="selector-group"><div class="selector-label">Sets:</div><ul><li>Primes</li><li>Factorials</li><li>Fibonacci</li><li>Squares</li><li>Triangular</li><li>Perfect</li></ul></div>
-        <div class="selector-group"><div class="selector-label">Theorems:</div><ul><li>Fermat</li><li>Gödel</li><li>Poincaré</li><li>Riemann</li><li>P=NP</li><li>Goldbach</li></ul></div>
-        <div class="selector-group"><div class="selector-label">Topological Dimensions:</div><ul><li>0D</li><li>1D</li><li>2D</li><li>3D</li><li>4D</li><li>∞D</li></ul></div>
-        <div class="selector-group"><div class="selector-label">Groups:</div><ul><li>Cyclic</li><li>Abelian</li><li>Non-abelian</li><li>Symmetric</li><li>Free</li><li>Trivial</li></ul></div>
-        <div class="selector-group"><div class="selector-label">Functions:</div><ul><li>Linear</li><li>Quadratic</li><li>Exponential</li><li>Logarithmic</li><li>Trigonometric</li><li>Chaotic</li></ul></div>
-        <div class="selector-group"><div class="selector-label">Symbols:</div><ul><li>ℵ</li><li>∞</li><li>∂</li><li>∫</li><li>Σ</li><li>Ω</li></ul></div>
+        <div class="selector-group">
+            <div class="selector-label">Cores:</div>
+            <ul><li>Âmbar</li><li>Índigo</li><li>Carmesim</li><li>Viridian</li><li>Opala</li><li>Zafira</li></ul>
+        </div>
+        <div class="selector-group">
+            <div class="selector-label">Matemáticos:</div>
+            <ul><li>Euler</li><li>Gauss</li><li>Riemann</li><li>Turing</li><li>Noether</li><li>Grothendieck</li></ul>
+        </div>
+        <div class="selector-group">
+            <div class="selector-label">Conjuntos:</div>
+            <ul><li>Primos</li><li>Fatoriais</li><li>Fibonacci</li><li>Quadrados</li><li>Triangulares</li><li>Perfeitos</li></ul>
+        </div>
+        <div class="selector-group">
+            <div class="selector-label">Teoremas:</div>
+            <ul><li>Fermat</li><li>Gödel</li><li>Poincaré</li><li>Riemann</li><li>P=NP</li><li>Goldbach</li></ul>
+        </div>
+        <div class="selector-group">
+            <div class="selector-label">Dimensões Topológicas:</div>
+            <ul><li>0D</li><li>1D</li><li>2D</li><li>3D</li><li>4D</li><li>∞D</li></ul>
+        </div>
+        <div class="selector-group">
+            <div class="selector-label">Grupos:</div>
+            <ul><li>Cíclico</li><li>Abeliano</li><li>Não-abeliano</li><li>Simétrico</li><li>Livre</li><li>Trivial</li></ul>
+        </div>
+        <div class="selector-group">
+            <div class="selector-label">Funções:</div>
+            <ul><li>Linear</li><li>Quadrática</li><li>Exponencial</li><li>Logarítmica</li><li>Trigonométrica</li><li>Caótica</li></ul>
+        </div>
+        <div class="selector-group">
+            <div class="selector-label">Símbolos:</div>
+            <ul><li>ℵ</li><li>∞</li><li>∂</li><li>∫</li><li>Σ</li><li>Ω</li></ul>
+        </div>
     </div>
-   
-    <label for="notes" style="font-weight:bold;">Notes for Solving:</label>
-    <textarea id="notes" class="notes-area" placeholder="Use this space for your mathematical and logical deductions..."></textarea>
-   
+    
+    <label for="notes" class="selector-label">Anotações para Resolução:</label>
+    <textarea id="notes" class="notes-area" placeholder="Use este espaço para suas deduções matemáticas e lógicas..."></textarea>
+    
     <div class="clues">
-        <h2>Clues</h2>
-        <h3>Basic Clues</h3>
-        <div class="clue">The mathematician Euler is in the 1st dimension.</div>
-        <div class="clue">The dimension with Gödel's theorem is in the center (3rd dimension).</div>
-        <div class="clue">The symbol Ω is in the same dimension as the mathematician Grothendieck.</div>
-        <div class="clue">The color Opal is in the 6th dimension.</div>
-        <div class="clue">The Primes set is in the same dimension as the Linear function.</div>
-        <div class="clue">The topological dimension 4D is in the 5th dimension.</div>
-        <div class="clue">The Trivial group is in the same dimension as the P=NP theorem.</div>
-        <div class="clue">The color Sapphire is in the same dimension as the mathematician Noether.</div>
-        <div class="clue">The Exponential function is in the 6th dimension.</div>
-        <div class="clue">The symbol ℵ is in the same dimension as the Primes set.</div>
-
-        <h3>Relative Position Clues</h3>
-        <div class="clue">The dimension with the Primes set is exactly 5 dimensions away from the dimension with the Trivial group.</div>
-        <div class="clue">The dimension with the Chaotic function is in the same dimension as the mathematician Riemann.</div>
-        <div class="clue">The mathematician Gauss is in the same dimension as the symbol ∫.</div>
-        <div class="clue">The dimension with the Goldbach theorem is in the same dimension as the topological dimension 2D.</div>
-        <div class="clue">The Non-abelian group is in the same dimension as the Fibonacci set.</div>
-        <div class="clue">The color Crimson is in a dimension with an odd index.</div>
-        <div class="clue">The dimension with Fermat's theorem is in the same dimension as the Linear function.</div>
-        <div class="clue">The dimension with the symbol Σ is in the same dimension as the mathematician Turing.</div>
-        <div class="clue">The Triangular set is in the same dimension as the Free group.</div>
-        <div class="clue">The topological dimension ∞D is in the 6th dimension.</div>
-
-        <h3>Complex Clues</h3>
-        <div class="clue">If the theorem in the 3rd dimension is Gödel, then the symbol in the dimension with the Non-abelian group is ∞.</div>
-        <!-- (Outras pistas complexas traduzidas podem ser adicionadas se desejar) -->
+        <h2>Pistas</h2>
+        <h3>Pistas Básicas</h3>
+        <div class="clue">O matemático Euler está na 1ª dimensão.</div>
+        <div class="clue">A dimensão com o teorema Gödel está no centro (3ª dimensão).</div>
+        <div class="clue">O símbolo Ω está na mesma dimensão que o matemático Grothendieck.</div>
+        <div class="clue">A cor Opala está na 6ª dimensão.</div>
+        <div class="clue">O conjunto Primos está na mesma dimensão que a função Linear.</div>
+        <div class="clue">A dimensão topológica 4D está na 5ª dimensão.</div>
+        <div class="clue">O grupo Trivial está na mesma dimensão que o teorema P=NP.</div>
+        <div class="clue">A cor Zafira está na mesma dimensão que o matemático Noether.</div>
+        <div class="clue">A função Exponencial está na 6ª dimensão.</div>
+        <div class="clue">O símbolo ℵ está na mesma dimensão que o conjunto Primos.</div>
+        
+        <h3>Pistas de Posição Relativa</h3>
+        <div class="clue">A dimensão com o conjunto Primos está a exatamente 5 dimensões de distância da dimensão com o grupo Trivial.</div>
+        <div class="clue">A dimensão com a função Caótica está na mesma dimensão que o matemático Riemann.</div>
+        <div class="clue">O matemático Gauss está na mesma dimensão que o símbolo ∫.</div>
+        <div class="clue">A dimensão com o teorema Goldbach está na mesma dimensão que a dimensão topológica 2D.</div>
+        <div class="clue">A dimensão com o grupo Não-abeliano está na mesma dimensão que o conjunto Fibonacci.</div>
+        <div class="clue">A cor Carmesim está na dimensão com índice ímpar.</div>
+        <div class="clue">A dimensão com o teorema Fermat está na mesma dimensão que a função Linear.</div>
+        <div class="clue">A dimensão com o símbolo Σ está na mesma dimensão que o matemático Turing.</div>
+        <div class="clue">A dimensão com o conjunto Triangulares está na mesma dimensão que o grupo Livre.</div>
+        <div class="clue">A dimensão com a dimensão topológica ∞D está na 6ª dimensão.</div>
+        
+        <h3>Pistas Complexas</h3>
+        <div class="clue">Se o teorema da 3ª dimensão for Gödel, então o símbolo da dimensão com o grupo Não-abeliano é ∞.</div>
+        <div class="clue">Se a dimensão com o conjunto Quadrados tiver dimensão topológica 2D, então o matemático Turing está nessa dimensão, a menos que o grupo seja Simétrico.</div>
+        <div class="clue">A soma dos índices das dimensões com conjuntos de cardinalidade infinita (Primos, Quadrados, Fibonacci) é divisível por 3.</div>
+        <div class="clue">Se a função da 5ª dimensão for Logarítmica, então a dimensão com o teorema Riemann está na mesma dimensão.</div>
+        <div class="clue">A dimensão com o grupo Cíclico tem um índice ímpar se e só se a dimensão com o símbolo ℵ tiver um teorema resolvido (Fermat ou Poincaré).</div>
+        <div class="clue">Se a cor Viridian não estiver na 2ª dimensão, então o conjunto Quadrados está na dimensão com a dimensão topológica 2D.</div>
+        <div class="clue">A dimensão com o matemático Riemann tem um teorema indecidível (Gödel, Riemann, P=NP, Goldbach) se a dimensão com o grupo Não-abeliano tiver índice ímpar.</div>
+        <div class="clue">Se a dimensão com o símbolo ∂ estiver à esquerda da dimensão com o grupo Livre, então a dimensão topológica 4D está na 5ª dimensão.</div>
+        <div class="clue">A dimensão com o conjunto Perfeitos está na 6ª dimensão se e só se a função Caótica estiver na 3ª dimensão.</div>
+        <div class="clue">Se a afirmação 'O matemático Noether está na dimensão com o teorema Riemann' for verdadeira, então a cor Zafira está na mesma dimensão.</div>
     </div>
-   
-    <button id="verifyBtn" class="verification-btn">Verify Solution</button>
-    <button id="resetBtn" class="reset-btn">Clear All Selections</button>
-   
+    
+    <button id="verifyBtn" class="verification-btn">Verificar Solução</button>
+    <button id="resetBtn" class="reset-btn">Limpar Seleções</button>
+    
+    
     <div id="verification" class="verification">
-        <h3>Solution Verification</h3>
+        <h3>Verificação da Solução</h3>
         <div id="verificationResult"></div>
     </div>
-
+    
+    <div id="solutionContainer" class="solution-container">
+        <h3>Solução</h3>
+        <table class="solution-table">
+            <tr>
+                <th>Dimensão</th><th>Cor</th><th>Matemático</th><th>Conjunto</th><th>Teorema</th><th>Dimensão Topológica</th><th>Grupo</th><th>Função</th><th>Símbolo</th>
+            </tr>
+            <tr>
+                <td>1ª</td><td>Âmbar</td><td>Euler</td><td>Primos</td><td>Fermat</td><td>0D</td><td>Cíclico</td><td>Linear</td><td>ℵ</td>
+            </tr>
+            <tr>
+                <td>2ª</td><td>Viridian</td><td>Turing</td><td>Quadrados</td><td>Goldbach</td><td>2D</td><td>Simétrico</td><td>Trigonométrica</td><td>Σ</td>
+            </tr>
+            <tr>
+                <td>3ª</td><td>Carmesim</td><td>Riemann</td><td>Fibonacci</td><td>Gödel</td><td>3D</td><td>Não-abeliano</td><td>Caótica</td><td>∞</td>
+            </tr>
+            <tr>
+                <td>4ª</td><td>Índigo</td><td>Gauss</td><td>Fatoriais</td><td>Poincaré</td><td>1D</td><td>Abeliano</td><td>Quadrática</td><td>∫</td>
+            </tr>
+            <tr>
+                <td>5ª</td><td>Zafira</td><td>Noether</td><td>Triangulares</td><td>Riemann</td><td>4D</td><td>Livre</td><td>Logarítmica</td><td>∂</td>
+            </tr>
+            <tr>
+                <td>6ª</td><td>Opala</td><td>Grothendieck</td><td>Perfeitos</td><td>P=NP</td><td>∞D</td><td>Trivial</td><td>Exponencial</td><td>Ω</td>
+            </tr>
+        </table>
+        <h3>Explicação da Dedução</h3>
+        <ol>
+            <li>Da pista 'O matemático Euler está na 1ª dimensão', sabemos que Matemático[1] = Euler.</li>
+            <li>Da pista 'A dimensão com o teorema Gödel está no centro (3ª dimensão)', sabemos que Teorema[3] = Gödel.</li>
+            <li>Da pista 'A cor Opala está na 6ª dimensão', sabemos que Cor[6] = Opala.</li>
+            <li>Da pista 'A dimensão topológica 4D está na 5ª dimensão', sabemos que Dimensão[5] = 4D.</li>
+            <li>Da pista 'A soma dos índices das dimensões com conjuntos de cardinalidade infinita é divisível por 3', deduzimos que Primos (1ª), Quadrados (2ª), Fibonacci (3ª) têm índices 1+2+3=6, divisível por 3.</li>
+            <li>Outras pistas, como condicionais aninhadas e posicionais, requerem cruzamento de informações para deduzir as demais posições.</li>
+        </ol>
+    </div>
+    
     <script>
+        // Solução correta
         const solucao = {
-            cor: ['Amber', 'Viridian', 'Crimson', 'Indigo', 'Sapphire', 'Opal'],
+            cor: ['Âmbar', 'Viridian', 'Carmesim', 'Índigo', 'Zafira', 'Opala'],
             matematico: ['Euler', 'Turing', 'Riemann', 'Gauss', 'Noether', 'Grothendieck'],
-            conjunto: ['Primes', 'Squares', 'Fibonacci', 'Factorials', 'Triangular', 'Perfect'],
+            conjunto: ['Primos', 'Quadrados', 'Fibonacci', 'Fatoriais', 'Triangulares', 'Perfeitos'],
             teorema: ['Fermat', 'Goldbach', 'Gödel', 'Poincaré', 'Riemann', 'P=NP'],
             dimensao: ['0D', '2D', '3D', '1D', '4D', '∞D'],
-            grupo: ['Cyclic', 'Symmetric', 'Non-abelian', 'Abelian', 'Free', 'Trivial'],
-            funcao: ['Linear', 'Trigonometric', 'Chaotic', 'Quadratic', 'Logarithmic', 'Exponential'],
+            grupo: ['Cíclico', 'Simétrico', 'Não-abeliano', 'Abeliano', 'Livre', 'Trivial'],
+            funcao: ['Linear', 'Trigonométrica', 'Caótica', 'Quadrática', 'Logarítmica', 'Exponencial'],
             simbolo: ['ℵ', 'Σ', '∞', '∫', '∂', 'Ω']
         };
 
-        // Prevent duplicates
+        // Prevenir duplicatas
         document.querySelectorAll('.selector').forEach(select => {
             select.addEventListener('change', function() {
                 const categoria = this.id.split('-')[0];
-                const dimensao = parseInt(this.id.split('-')[1]);
+                const dimensao = this.id.split('-')[1];
                 const valor = this.value;
+
                 if (!valor) return;
+
+                // Verificar duplicatas na mesma categoria
                 for (let i = 1; i <= 6; i++) {
-                    if (i !== dimensao) {
-                        const outro = document.getElementById(`${categoria}-${i}`);
-                        if (outro && outro.value === valor) {
-                            alert(`Warning: ${valor} is already used in dimension ${i}!`);
+                    if (i != dimensao) {
+                        const outroSelect = document.getElementById(`${categoria}-${i}`);
+                        if (outroSelect.value === valor) {
+                            alert(`Atenção: ${valor} já está sendo usado na dimensão ${i}!`);
                             this.value = '';
                             return;
                         }
@@ -328,21 +511,22 @@
             });
         });
 
-        // Verify button
+        // Verificar solução
         document.getElementById('verifyBtn').addEventListener('click', function() {
             const verificationDiv = document.getElementById('verification');
             const verificationResult = document.getElementById('verificationResult');
             verificationDiv.style.display = 'block';
-            
+
             let totalAcertos = 0;
             let resultado = '';
 
+            // Verificar cada categoria
             for (const categoria in solucao) {
                 let acertos = 0;
                 for (let i = 1; i <= 6; i++) {
                     const select = document.getElementById(`${categoria}-${i}`);
                     if (!select.value) {
-                        alert('Please fill in all fields before checking.');
+                        alert('Por favor, preencha todos os campos antes de verificar a solução.');
                         verificationDiv.style.display = 'none';
                         return;
                     }
@@ -352,23 +536,43 @@
                     }
                 }
                 const porcentagem = ((acertos / 6) * 100).toFixed(1);
-                resultado += `<p><strong>${categoria.charAt(0).toUpperCase() + categoria.slice(1)}:</strong> ${acertos}/6 (${porcentagem}%)</p>`;
+                resultado += `<p>${categoria.charAt(0).toUpperCase() + categoria.slice(1)}: ${acertos}/6 corretos (${porcentagem}%)</p>`;
             }
 
             const porcentagemTotal = ((totalAcertos / 48) * 100).toFixed(1);
-            resultado += `<p><strong>Total Score:</strong> ${totalAcertos}/48 (${porcentagemTotal}%)</p>`;
+            resultado += `<p><strong>Pontuação total:</strong> ${totalAcertos}/48 corretos (${porcentagemTotal}%)</p>`;
 
             if (totalAcertos === 48) {
-                resultado = '<p style="color:green; font-size:1.4em; font-weight:bold;">🎉 Congratulations! You solved the Hyperdimensional Paradox!</p>' + resultado;
+                resultado = '<p style="color: green; font-weight: bold;">Parabéns! Você superou o Paradoxo Hiperdimensional!</p>' + resultado;
             }
+
             verificationResult.innerHTML = resultado;
         });
 
-        // Reset button
+        // Limpar seleções
         document.getElementById('resetBtn').addEventListener('click', function() {
-            document.querySelectorAll('.selector').forEach(select => select.value = '');
+            document.querySelectorAll('.selector').forEach(select => {
+                select.value = '';
+            });
             document.getElementById('verification').style.display = 'none';
+            document.getElementById('solutionContainer').style.display = 'none';
+            document.getElementById('solutionBtn').textContent = 'Revelar Solução';
+        });
+
+        // Revelar/esconder solução
+        document.getElementById('solutionBtn').addEventListener('click', function() {
+            const solutionContainer = document.getElementById('solutionContainer');
+            if (solutionContainer.style.display === 'none' || solutionContainer.style.display === '') {
+                solutionContainer.style.display = 'block';
+                this.textContent = 'Esconder Solução';
+            } else {
+                solutionContainer.style.display = 'none';
+                this.textContent = 'Revelar Solução';
+            }
         });
     </script>
 </body>
 </html>
+
+
+
