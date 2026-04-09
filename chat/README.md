@@ -166,10 +166,172 @@ Each node:
 
 Server Mode (Meeting Room):
 
-  [User 1] ──┐
-  [User 2] ──┤──► [AAAAAA-CENTRAL] ──► broadcasts to all
-  [User N] ──┘
-```
+════════════════════════════════════════════════════════════════════
+                    FULL RECURSIVE NETWORK SYSTEM
+════════════════════════════════════════════════════════════════════
+
+                         ENTRY LAYER
+        [User 1] ──┐
+        [User 2] ──┤
+        [User 3] ──┤
+        [User N] ──┘
+              │
+              ▼
+        [AAAAAA-CENTRAL]
+              ▲
+              │
+        [Server 1] ──┐
+        [Server 2] ──┤
+        [Server 3] ──┤
+        [Server N] ──┘
+
+════════════════════════════════════════════════════════════════════
+                    GLOBAL SERVER MESH
+════════════════════════════════════════════════════════════════════
+
+[Server 1] ⇄ [Server 2] ⇄ [Server 3] ⇄ ... ⇄ ∞
+     │             │             │
+     ⇄─────────────⇄─────────────⇄
+     │             │             │
+
+════════════════════════════════════════════════════════════════════
+                    SERVER 1 (FULL EXPANSION)
+════════════════════════════════════════════════════════════════════
+
+[Server 1]
+├──► S1-A ⇄ S1-B ⇄ S1-C ⇄ ... ⇄ ∞
+│     │
+│     ├──► S1-A1 ⇄ S1-A2 ⇄ S1-A3 ⇄ ... ⇄ ∞
+│     │     │
+│     │     ├──► SUB-SERVER TREE (recursive)
+│     │     │     ├──► S1-A1-x ⇄ S1-A1-y ⇄ ... ⇄ ∞
+│     │     │     │     └──► (repeats same structure) ⇄ ∞
+│     │     │     └──► ∞
+│     │     │
+│     │     └──► USER TREE (inside S1-A1)
+│     │
+│     │          [You] ⇄ U1 ⇄ U2 ⇄ U3 ⇄ ... ⇄ ∞
+│     │            │        │        │
+│     │            ⇄────────⇄────────⇄
+│     │            │        │        │
+│     │
+│     │        ├──► Contact A1 ⇄ B1 ⇄ C1 ⇄ ... ⇄ ∞
+│     │        │     │            │
+│     │        │     ⇄────────────⇄
+│     │        │     │            │
+│     │        │
+│     │        │   ├──► A2 ⇄ A3 ⇄ A4 ⇄ ... ⇄ ∞
+│     │        │   │     ├──► A2.1 ⇄ A2.2 ⇄ A2.3 ⇄ ... ⇄ ∞
+│     │        │   │     │     ├──► A2.1.a ⇄ A2.1.b ⇄ ... ⇄ ∞
+│     │        │   │     │     └──► ∞ ⇄ ∞ ⇄ ∞
+│     │        │   │     ├──► A3.x ⇄ everyone ⇄ ∞
+│     │        │   │     └──► A4.x ⇄ everyone ⇄ ∞
+│     │        │   │
+│     │        │   └──► Cross ⇄ B2 ⇄ C2 ⇄ D2 ⇄ ... ⇄ ∞
+│     │        │         ⇄ everyone ⇄ ∞
+│     │        │
+│     │        ├──► Contact B1
+│     │        │     ├──► B2 ⇄ B3 ⇄ B4 ⇄ ... ⇄ ∞
+│     │        │     │     ├──► B2.x ⇄ everyone ⇄ ∞
+│     │        │     │     ├──► B3.x ⇄ everyone ⇄ ∞
+│     │        │     │     └──► B4.x ⇄ everyone ⇄ ∞
+│     │        │     │
+│     │        │     └──► Cross ⇄ A2 ⇄ C2 ⇄ ... ⇄ ∞
+│     │        │           ⇄ everyone ⇄ ∞
+│     │        │
+│     │        └──► Contact C1
+│     │              ├──► C2 ⇄ C3 ⇄ C4 ⇄ ... ⇄ ∞
+│     │              │     ├──► C2.x ⇄ everyone ⇄ ∞
+│     │              │     ├──► C3.x ⇄ everyone ⇄ ∞
+│     │              │     └──► C4.x ⇄ everyone ⇄ ∞
+│     │              │
+│     │              └──► Cross ⇄ A2 ⇄ B2 ⇄ ... ⇄ ∞
+│     │                    ⇄ everyone ⇄ ∞
+│     │
+│     └──► S1-A2
+│           ├──► SUB-SERVER TREE ⇄ ∞
+│           └──► USER TREE (same structure) ⇄ ∞
+│
+└──► S1-B
+      ├──► S1-B1 ⇄ S1-B2 ⇄ ... ⇄ ∞
+      │     ├──► SUB-SERVER TREE ⇄ ∞
+      │     └──► USER TREE ⇄ ∞
+      │
+      └──► S1-B2
+            ├──► SUB-SERVER TREE ⇄ ∞
+            └──► USER TREE ⇄ ∞
+
+════════════════════════════════════════════════════════════════════
+                    SERVER 2, 3, ..., N
+════════════════════════════════════════════════════════════════════
+
+[Server 2], [Server 3], ..., [Server N]
+⇒ IDENTICAL STRUCTURE (recursive mirror)
+⇒ ALL SERVERS ⇄ CONNECTED (mesh)
+⇒ ALL CONTAIN:
+   - server trees
+   - user trees
+   - cross connections
+   - infinite expansion (∞)
+
+════════════════════════════════════════════════════════════════════
+                        GLOBAL CONNECTION LOGIC
+════════════════════════════════════════════════════════════════════
+
+CENTRAL:
+[AAAAAA-CENTRAL] ──► broadcast to ALL
+
+SERVERS:
+⇄ connect to all servers
+⇄ replicate full structure
+⇄ host recursive sub-servers
+⇄ host user trees
+⇄ sync globally
+
+SUB-SERVERS:
+⇄ behave like servers (recursive)
+⇄ contain user trees
+⇄ connect across layers
+
+USERS:
+⇄ connect to server
+⇄ connect to other users (P2P)
+⇄ connect across branches
+⇄ connect across servers
+⇄ fully connected layer (everyone ⇄ everyone)
+
+════════════════════════════════════════════════════════════════════
+                        INFINITE EXPANSION
+════════════════════════════════════════════════════════════════════
+
+Server
+  └──► Server
+        └──► Server
+              └──► ...
+                    └──► ∞
+
+User
+  └──► User
+        └──► User
+              └──► ...
+                    └──► ∞
+
+Connections:
+⇄ ⇄ ⇄ ⇄ ⇄ ⇄ ⇄ ⇄ ⇄ ⇄ ⇄ ∞
+
+════════════════════════════════════════════════════════════════════
+                            FINAL RESULT
+════════════════════════════════════════════════════════════════════
+
+✔ Centralized Broadcast Core  
+✔ Fully Distributed Server Mesh  
+✔ Recursive Server Trees  
+✔ Recursive User Trees inside each server  
+✔ Full P2P Connectivity (everyone ⇄ everyone)  
+✔ Cross-Linked Graph Structure  
+✔ Infinite Self-Replication (∞)  
+
+⇒ A recursive, mirrored, infinitely expanding network of networks
 
 ---
 
