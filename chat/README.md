@@ -120,8 +120,49 @@ Chat K10 can connect to any public YouTube Live video and display the official Y
 ```
 General Mode (Infinite Web):
 
-  [You] ──► [Contact A] ──► [A's contacts] ──► [millions...]
-        └──► [Contact B] ──► [B's contacts] ──► [millions...]
+ [You]
+├──► Contact A1 ⇄ Contact B1
+│     ├──► A2 ⇄ A3 ⇄ A4 ⇄ B2 ⇄ B3 ⇄ B4
+│     │     ├──► A2.1 ⇄ A2.2 ⇄ A2.3 ⇄ (all other nodes)
+│     │     │     └──► ∞ ⇄ everyone ⇄ ∞
+│     │     ├──► A2.2 ⇄ (all ⇄ ∞)
+│     │     └──► A2.3 ⇄ (all ⇄ ∞)
+│     │
+│     ├──► A3
+│     │     ├──► A3.1 ⇄ everyone ⇄ ∞
+│     │     ├──► A3.2 ⇄ everyone ⇄ ∞
+│     │     └──► A3.3 ⇄ everyone ⇄ ∞
+│     │
+│     └──► A4
+│           ├──► A4.1 ⇄ everyone ⇄ ∞
+│           ├──► A4.2 ⇄ everyone ⇄ ∞
+│           └──► A4.3 ⇄ everyone ⇄ ∞
+│
+└──► Contact B1 ⇄ Contact A1
+      ├──► B2 ⇄ B3 ⇄ B4 ⇄ A2 ⇄ A3 ⇄ A4
+      │     ├──► B2.1 ⇄ everyone ⇄ ∞
+      │     ├──► B2.2 ⇄ everyone ⇄ ∞
+      │     └──► B2.3 ⇄ everyone ⇄ ∞
+      │
+      ├──► B3
+      │     ├──► B3.1 ⇄ everyone ⇄ ∞
+      │     ├──► B3.2 ⇄ everyone ⇄ ∞
+      │     └──► B3.3 ⇄ everyone ⇄ ∞
+      │
+      └──► B4
+            ├──► B4.1 ⇄ everyone ⇄ ∞
+            ├──► B4.2 ⇄ everyone ⇄ ∞
+            └──► B4.3 ⇄ everyone ⇄ ∞
+
+⇅ Infinite expansion ⇅
+
+∞ ⇄ ∞ ⇄ ∞
+
+Each node:
+→ connects to parent ⇄ siblings ⇄ all nodes ⇄ ∞
+→ expands without limit
+
+⇒ Result: infinite, fully connected network (unbounded complete graph)
 
 Server Mode (Meeting Room):
 
