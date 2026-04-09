@@ -44,6 +44,7 @@ Users connect to a central hub that forwards messages.
 | Best for         | Private groups, meetings, classes                 |
 
 #### 🐉 Hydra Mode (Auto Scaling)
+
 When a server reaches its limit, it automatically redirects new users to **General Mode**.
 
 ---
@@ -60,18 +61,18 @@ Chat K10 uses a **hybrid model**:
 ```
 
 ```
-                 CENTRAL SERVERS (All Equivalent)
-            ┌──────────────────┬──────────────────┬──────────────────┐
-            │ Server 1-CENTRAL ⇄ Server 2-CENTRAL ⇄ Server 3-CENTRAL ⇄ ...
-            └──────────────────┴──────────────────┴──────────────────┘
-                       ↔↔↔ Inter-server connections (knownServers) ↔↔↔
+             CENTRAL SERVERS (All Equivalent)
+        ┌──────────────────┬──────────────────┬──────────────────┐
+        │ Server 1-CENTRAL ⇄ Server 2-CENTRAL ⇄ Server 3-CENTRAL ⇄ ...
+        └──────────────────┴──────────────────┴──────────────────┘
+                   ↔↔↔ Inter-server connections (knownServers) ↔↔↔
 
-                                 │
-            ┌────────────────────┼────────────────────┐
-            │                    │                    │
-     Direct Users       Sub-Server Trees        User Trees
-            │                    │                    │
-       [You] [You] ...     [You] → [U1] [U2]     [You] → [U1] [U2] ...
+                             │
+        ┌────────────────────┼────────────────────┐
+        │                    │                    │
+ Direct Users       Sub-Server Trees        User Trees
+        │                    │                    │
+   [You] [You] ...     [You] → [U1] [U2]     [You] → [U1] [U2] ...
 ```
 
 ```
@@ -87,20 +88,18 @@ Chat K10 uses a **hybrid model**:
 ```
 
 ====================================================================
-
 GENERAL P2P WEB (HYDRA MODE)
-
-====================================================================
+============================
 
 ```
-      [You] ─── [You] ─── [You] ─── [You] ─── [You]
-       │        │         │         │         │
-      [You] ─── [You] ─── [You] ─── [You] ─── [You]
-       │        │         │         │         │
-      [You] ─── [You] ─── [You] ─── [You] ─── [You]
+  [You] ─── [You] ─── [You] ─── [You] ─── [You]
+   │        │         │         │         │
+  [You] ─── [You] ─── [You] ─── [You] ─── [You]
+   │        │         │         │         │
+  [You] ─── [You] ─── [You] ─── [You] ─── [You]
 
-           Direct Browser-to-Browser Connections
-           + PEX (Peer Exchange) + Heartbeats
+       Direct Browser-to-Browser Connections
+       + PEX (Peer Exchange) + Heartbeats
 ```
 
 ```
