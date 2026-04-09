@@ -50,6 +50,17 @@ When a server reaches its limit, it automatically redirects new users to **Gener
 ---
 
 ## 📡 Network & Users Topology
+## 📡 Network & Users Topology
+
+### Visual Diagram
+
+<a href="https://ibb.co/XfV11M7H" target="_blank">
+  <img src="https://i.ibb.co/ds7FFxPZ/80326ab9-7e6d-43f6-ba10-50dee3e7d536.png" 
+       alt="Chat K10 Network Topology" 
+       style="max-width:100%; height:auto;"/>
+</a>
+
+> Click the image to view in full size.
 
 ### Overall Architecture
 
