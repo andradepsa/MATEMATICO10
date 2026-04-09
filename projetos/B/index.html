@@ -4,95 +4,138 @@
 <meta charset="UTF-8">
 <title>Central dos Estudos</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-
 <style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
 body {
-  margin: 0;
   font-family: Arial, sans-serif;
   background: #f4f4f4;
   color: #333;
 }
 
+/* ── HEADER ── */
 header {
-  text-align: center;
-  padding: 30px 20px;
   background: #111;
   color: #fff;
-}
-
-header h1 { margin: 0; font-size: 28px; }
-header p { margin: 5px 0 15px; }
-
-.logo-link {
-  display: inline-block;
+  padding: 20px 20px 16px;
   text-align: center;
-  color: #fff;
-  text-decoration: none;
-}
-
-.logo-link img {
-  width: 70px;
-  display: block;
-  margin: 0 auto;
-}
-
-.logo-link div {
-  margin-top: 5px;
-  font-size: 13px;
-}
-
-.menu-container {
-  text-align: center;
-  margin: 20px 0;
-}
-
-.dropdown {
-  display: inline-block;
   position: relative;
-  margin: 5px;
+  z-index: 100;
 }
+
+header h1 { font-size: 26px; margin-bottom: 4px; }
+header .sub { font-size: 13px; color: #ccc; margin-bottom: 14px; }
+
+/* ── MENUS ── */
+.menu-bar {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.dropdown { position: relative; }
 
 .dropbtn {
-  background: #111;
+  background: rgba(255,255,255,0.12);
   color: #fff;
-  padding: 12px 18px;
-  font-size: 15px;
-  border: none;
+  padding: 9px 20px;
+  font-size: 14px;
+  border: 1px solid rgba(255,255,255,0.25);
   border-radius: 8px;
   cursor: pointer;
 }
-
-.dropbtn:hover { background: #444; }
+.dropbtn:hover { background: rgba(255,255,255,0.22); }
 
 .dropdown-content {
   display: none;
   position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
   background: #fff;
   min-width: 220px;
-  box-shadow: 0px 6px 12px rgba(0,0,0,0.2);
   border-radius: 8px;
-  text-align: left;
-  max-height: 250px;
-  overflow-y: auto;
-  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  z-index: 9999;
+  overflow: hidden;
 }
 
-.dropdown-content::-webkit-scrollbar { width: 6px; }
-.dropdown-content::-webkit-scrollbar-thumb { background: #888; border-radius: 5px; }
-.dropdown-content::-webkit-scrollbar-thumb:hover { background: #555; }
+.dropdown-content.open { display: block; }
 
 .dropdown-content a {
   display: block;
-  padding: 10px;
+  padding: 11px 16px;
   text-decoration: none;
   color: #111;
   font-weight: bold;
+  font-size: 14px;
+  border-bottom: 1px solid #f0f0f0;
+}
+.dropdown-content a:last-child { border-bottom: none; }
+.dropdown-content a:hover { background: #f5f5f5; }
+
+/* ── LOGO VOLTAR ── */
+.logo-link {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #fff;
+  text-decoration: none;
+  text-align: center;
+  font-size: 12px;
+}
+.logo-link img { width: 44px; display: block; }
+
+/* ── HOME (stats) ── */
+#home {
+  min-height: calc(100vh - 90px);
+  background: #111;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px 60px;
+  text-align: center;
 }
 
-.dropdown-content a:hover { background: #f1f1f1; }
-.dropdown:hover .dropdown-content { display: block; }
+#home .gratuito {
+  font-size: 18px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  margin-bottom: 32px;
+  color: #fff;
+}
 
-#quiz { padding: 20px; }
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+  max-width: 700px;
+  width: 100%;
+  margin-bottom: 36px;
+}
+
+.stat-card {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.18);
+  border-radius: 12px;
+  padding: 28px 12px;
+}
+.stat-card .icon { font-size: 30px; margin-bottom: 10px; }
+.stat-card .num  { font-size: 32px; font-weight: bold; }
+.stat-card .desc { font-size: 13px; color: #aaa; margin-top: 8px; line-height: 1.5; }
+
+#home .slogan {
+  font-size: 18px;
+  color: #ddd;
+  max-width: 500px;
+}
+
+/* ── QUIZ ── */
+#quiz { display: none; padding: 20px; }
 
 .questao {
   background: #fff;
@@ -102,16 +145,29 @@ header p { margin: 5px 0 15px; }
   border: 1px solid #ddd;
 }
 
+.quiz-controls {
+  background: #fff;
+  padding: 14px 16px;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quiz-controls button, .quiz-controls label { margin: 0; }
+
 button {
-  margin: 5px;
   padding: 10px 15px;
   border: none;
   border-radius: 5px;
   background: #111;
   color: #fff;
   cursor: pointer;
+  font-size: 14px;
 }
-
 button:hover { background: #444; }
 
 .correta { color: green; font-weight: bold; }
@@ -120,50 +176,84 @@ button:hover { background: #444; }
 input[type="number"] {
   padding: 6px;
   width: 70px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+  font-size: 14px;
+}
+
+@media (max-width: 520px) {
+  .stats-grid { grid-template-columns: 1fr; max-width: 300px; }
+  .stat-card .num { font-size: 26px; }
+  header h1 { font-size: 20px; }
+  .logo-link { display: none; }
 }
 </style>
 </head>
-
 <body>
 
 <header>
-  <h1>Central dos Estudos</h1>
-  <p>Escolha uma opção</p>
   <a href="https://www.matematico10.com.br/" class="logo-link">
     <img src="https://i.ibb.co/DNQv5x8/Simbolo-Matem-tico-10-removebg-preview.png" alt="Logo">
     <div>🔙 Voltar</div>
   </a>
+
+  <h1>Central dos Estudos</h1>
+  <p class="sub">Planejamentos anuais de todas as disciplinas</p>
+
+  <div class="menu-bar">
+
+    <div class="dropdown" id="dd-disciplinas">
+      <button class="dropbtn" onclick="toggleMenu('dd-disciplinas')">📚 Disciplinas ▾</button>
+      <div class="dropdown-content">
+        <a href="#" onclick="carregar('matematica.json')">➗ Matemática</a>
+        <a href="#" onclick="carregar('geografia.json')">🌍 Geografia</a>
+        <a href="#" onclick="carregar('biologia.json')">🧬 Biologia</a>
+        <a href="#" onclick="carregar('historia.json')">📜 História</a>
+        <a href="#" onclick="carregar('fisica.json')">⚛️ Física</a>
+      </div>
+    </div>
+
+    <div class="dropdown" id="dd-recursos">
+      <button class="dropbtn" onclick="toggleMenu('dd-recursos')">📁 Recursos ▾</button>
+      <div class="dropdown-content">
+        <a href="https://www.matematico10.com.br/projetos/PlanejAnuais">📅 Planejamentos</a>
+        <a href="https://www.matematico10.com.br/VídeosK10">🎬 Minha Teca</a>
+        <a href="https://www.youtube.com/@MATEMATICO1O">🎬 Youtube</a>
+        <a href="https://revistazen.pages.dev/">📝 Revista Zenodo</a>
+        <a href="https://www.matematico10.com.br/projetos/C/ProvasObmep">📝 OBMEP</a>
+        <a href="https://andradepsa.github.io/MATEMATICO10/projetos/D/index.html">🧠 Hyperdimensional</a>
+      </div>
+    </div>
+
+  </div>
 </header>
 
-<div class="menu-container">
+<!-- PÁGINA INICIAL com as informações -->
+<div id="home">
+  <p class="gratuito">✅ TUDO 100% GRATUITO!</p>
 
-  <div class="dropdown">
-    <button class="dropbtn">📚 Disciplinas</button>
-    <div class="dropdown-content">
-      <a href="#" onclick="carregar('matematica.json')">➗ Matemática</a>
-      <a href="#" onclick="carregar('geografia.json')">🌍 Geografia</a>
-      <a href="#" onclick="carregar('biologia.json')">🧬 Biologia</a>
-      <a href="#" onclick="carregar('historia.json')">📜 História</a>
-      <a href="#" onclick="carregar('fisica.json')">⚛️ Física</a>
+  <div class="stats-grid">
+    <div class="stat-card">
+      <div class="icon">❓</div>
+      <div class="num">50 mil</div>
+      <div class="desc">questões de Matemática, Física, Geografia, História e Biologia</div>
+    </div>
+    <div class="stat-card">
+      <div class="icon">🎬</div>
+      <div class="num">60 mil</div>
+      <div class="desc">vídeos da minha teca e do canal Matemático 10 no YouTube</div>
+    </div>
+    <div class="stat-card">
+      <div class="icon">📝</div>
+      <div class="num">6 mil</div>
+      <div class="desc">artigos científicos da revista Zenodo</div>
     </div>
   </div>
 
-  <div class="dropdown">
-    <button class="dropbtn">📁 Recursos</button>
-    <div class="dropdown-content">
-    <a href="https://www.matematico10.com.br/projetos/PlanejAnuais">📅 Planejamentos</a>
-      <a href="https://www.matematico10.com.br/V%C3%ADdeosK10">🎬 Minha Teca</a>
-     <a href="https://www.youtube.com/@MATEMATICO1O">🎬 Youtube</a>
-      <a href="https://revistazen.pages.dev/">📝 Revista Zenodo</a>
-      <a href="https://www.matematico10.com.br/projetos/C/ProvasObmep">📝 OBMEP</a>
-      <a href="https://andradepsa.github.io/MATEMATICO10/projetos/D/index.html">🧠 Hyperdimensional</a>
-    
-      
-    </div>
-  </div>
-
+  <p class="slogan">Tudo em um só lugar para seus estudos</p>
 </div>
 
+<!-- ÁREA DO QUIZ (oculta até escolher disciplina) -->
 <div id="quiz"></div>
 
 <script>
@@ -172,78 +262,71 @@ let questoesSelecionadas = [];
 let respostasUsuario = [];
 let quantidade = 10;
 
-/* ============================================================
-   POR QUE O PDF CORTAVA O TEXTO?
-
-   O jsPDF usa a fonte Helvetica por padrão, que só suporta
-   o conjunto de caracteres Latin-1 (0x00–0xFF).
-   Quando encontra um caractere Unicode fora desse range
-   (letras gregas como λ, ω, θ, π, símbolos como √, ², ±…),
-   ele simplesmente PARA de renderizar o texto naquele ponto,
-   sem avisar — causando o corte que aparecia no PDF.
-
-   A solução é converter esses símbolos para equivalentes
-   ASCII legíveis ANTES de passar o texto ao jsPDF.
-   ============================================================ */
-function sanitizeText(str) {
-  if (!str) return '';
-
-  return str
-    // Remove quebras de linha embutidas nos dados JSON
-    .replace(/\r?\n/g, ' ')
-
-    // Letras gregas minúsculas
-    .replace(/α/g, 'alfa')    .replace(/β/g, 'beta')     .replace(/γ/g, 'gama')
-    .replace(/δ/g, 'delta')   .replace(/ε/g, 'epsilon')  .replace(/ζ/g, 'zeta')
-    .replace(/η/g, 'eta')     .replace(/θ/g, 'teta')     .replace(/ι/g, 'iota')
-    .replace(/κ/g, 'kapa')    .replace(/λ/g, 'lambda')   .replace(/μ/g, 'mu')
-    .replace(/ν/g, 'nu')      .replace(/ξ/g, 'xi')       .replace(/π/g, 'pi')
-    .replace(/ρ/g, 'ro')      .replace(/σ/g, 'sigma')    .replace(/τ/g, 'tau')
-    .replace(/υ/g, 'upsilon') .replace(/φ/g, 'fi')       .replace(/χ/g, 'chi')
-    .replace(/ψ/g, 'psi')     .replace(/ω/g, 'omega')
-
-    // Letras gregas maiúsculas
-    .replace(/Α/g, 'Alfa')    .replace(/Β/g, 'Beta')     .replace(/Γ/g, 'Gama')
-    .replace(/Δ/g, 'Delta')   .replace(/Ε/g, 'Epsilon')  .replace(/Θ/g, 'Teta')
-    .replace(/Λ/g, 'Lambda')  .replace(/Μ/g, 'Mu')       .replace(/Ξ/g, 'Xi')
-    .replace(/Π/g, 'Pi')      .replace(/Ρ/g, 'Ro')       .replace(/Σ/g, 'Sigma')
-    .replace(/Φ/g, 'Fi')      .replace(/Χ/g, 'Chi')      .replace(/Ψ/g, 'Psi')
-    .replace(/Ω/g, 'Omega')
-
-    // Superescritos
-    .replace(/⁰/g, '0').replace(/¹/g, '1').replace(/²/g, '^2').replace(/³/g, '^3')
-    .replace(/⁴/g, '^4').replace(/⁵/g, '^5').replace(/⁶/g, '^6')
-    .replace(/⁷/g, '^7').replace(/⁸/g, '^8').replace(/⁹/g, '^9')
-    // Subscritos
-    .replace(/₀/g, '0').replace(/₁/g, '1').replace(/₂/g, '2').replace(/₃/g, '3')
-    .replace(/₄/g, '4').replace(/₅/g, '5').replace(/₆/g, '6')
-
-    // Símbolos matemáticos e físicos
-    .replace(/√/g, 'raiz')    .replace(/∛/g, 'raiz3')
-    .replace(/∆/g, 'Delta')   .replace(/±/g, '+/-')      .replace(/∓/g, '-/+')
-    .replace(/∞/g, 'inf')     .replace(/·/g, '.')         .replace(/×/g, 'x')
-    .replace(/÷/g, '/')       .replace(/≈/g, '~=')        .replace(/≠/g, '!=')
-    .replace(/≤/g, '<=')      .replace(/≥/g, '>=')        .replace(/∝/g, 'proporcional a')
-    .replace(/∫/g, 'integral').replace(/∑/g, 'soma')      .replace(/∏/g, 'prod')
-    .replace(/∂/g, 'd')       .replace(/∇/g, 'nabla')
-    .replace(/∈/g, 'pertence').replace(/∉/g, 'nao pertence')
-    .replace(/⊂/g, 'subset')  .replace(/∪/g, 'uniao')    .replace(/∩/g, 'inter')
-    .replace(/→/g, '->')      .replace(/←/g, '<-')
-    .replace(/↑/g, 'cima')    .replace(/↓/g, 'baixo')
-    .replace(/⇒/g, '=>')      .replace(/⇔/g, '<=>')
-    .replace(/°/g, ' graus')
-
-    // Aspas tipográficas
-    .replace(/[""]/g, '"').replace(/['']/g, "'")
-
-    // Qualquer outro caractere fora do range Latin-1 vira '?'
-    // (evita corte silencioso do jsPDF)
-    .replace(/[^\x00-\xFF]/g, '?');
+/* ── Toggle de menu clicável ── */
+function toggleMenu(id) {
+  const allDropdowns = document.querySelectorAll('.dropdown-content');
+  allDropdowns.forEach(d => {
+    if (d.parentElement.id !== id) d.classList.remove('open');
+  });
+  const target = document.querySelector(`#${id} .dropdown-content`);
+  target.classList.toggle('open');
 }
 
-/* ============================================================ */
+/* Fecha menus ao clicar fora */
+document.addEventListener('click', function(e) {
+  if (!e.target.closest('.dropdown')) {
+    document.querySelectorAll('.dropdown-content').forEach(d => d.classList.remove('open'));
+  }
+});
+
+/* ── sanitizeText (para PDF) ── */
+function sanitizeText(str) {
+  if (!str) return '';
+  return str
+    .replace(/\r?\n/g, ' ')
+    .replace(/α/g,'alfa').replace(/β/g,'beta').replace(/γ/g,'gama')
+    .replace(/δ/g,'delta').replace(/ε/g,'epsilon').replace(/ζ/g,'zeta')
+    .replace(/η/g,'eta').replace(/θ/g,'teta').replace(/ι/g,'iota')
+    .replace(/κ/g,'kapa').replace(/λ/g,'lambda').replace(/μ/g,'mu')
+    .replace(/ν/g,'nu').replace(/ξ/g,'xi').replace(/π/g,'pi')
+    .replace(/ρ/g,'ro').replace(/σ/g,'sigma').replace(/τ/g,'tau')
+    .replace(/υ/g,'upsilon').replace(/φ/g,'fi').replace(/χ/g,'chi')
+    .replace(/ψ/g,'psi').replace(/ω/g,'omega')
+    .replace(/Α/g,'Alfa').replace(/Β/g,'Beta').replace(/Γ/g,'Gama')
+    .replace(/Δ/g,'Delta').replace(/Ε/g,'Epsilon').replace(/Θ/g,'Teta')
+    .replace(/Λ/g,'Lambda').replace(/Μ/g,'Mu').replace(/Ξ/g,'Xi')
+    .replace(/Π/g,'Pi').replace(/Ρ/g,'Ro').replace(/Σ/g,'Sigma')
+    .replace(/Φ/g,'Fi').replace(/Χ/g,'Chi').replace(/Ψ/g,'Psi')
+    .replace(/Ω/g,'Omega')
+    .replace(/²/g,'^2').replace(/³/g,'^3').replace(/⁴/g,'^4')
+    .replace(/⁰/g,'0').replace(/¹/g,'1').replace(/⁵/g,'^5').replace(/⁶/g,'^6')
+    .replace(/⁷/g,'^7').replace(/⁸/g,'^8').replace(/⁹/g,'^9')
+    .replace(/₀/g,'0').replace(/₁/g,'1').replace(/₂/g,'2').replace(/₃/g,'3')
+    .replace(/₄/g,'4').replace(/₅/g,'5').replace(/₆/g,'6')
+    .replace(/√/g,'raiz').replace(/∛/g,'raiz3')
+    .replace(/∆/g,'Delta').replace(/±/g,'+/-').replace(/∓/g,'-/+')
+    .replace(/∞/g,'inf').replace(/·/g,'.').replace(/×/g,'x')
+    .replace(/÷/g,'/').replace(/≈/g,'~=').replace(/≠/g,'!=')
+    .replace(/≤/g,'<=').replace(/≥/g,'>=').replace(/∝/g,'proporcional a')
+    .replace(/∫/g,'integral').replace(/∑/g,'soma').replace(/∏/g,'prod')
+    .replace(/∂/g,'d').replace(/∇/g,'nabla')
+    .replace(/∈/g,'pertence').replace(/∉/g,'nao pertence')
+    .replace(/⊂/g,'subset').replace(/∪/g,'uniao').replace(/∩/g,'inter')
+    .replace(/→/g,'->').replace(/←/g,'<-')
+    .replace(/↑/g,'cima').replace(/↓/g,'baixo')
+    .replace(/⇒/g,'=>').replace(/⇔/g,'<=>')
+    .replace(/°/g,' graus')
+    .replace(/[""]/g,'"').replace(/['']/g,"'")
+    .replace(/[^\x00-\xFF]/g,'?');
+}
 
 async function carregar(arquivo) {
+  /* fecha menus */
+  document.querySelectorAll('.dropdown-content').forEach(d => d.classList.remove('open'));
+  /* esconde home, mostra quiz */
+  document.getElementById('home').style.display = 'none';
+  document.getElementById('quiz').style.display = 'block';
+
   const resposta = await fetch(arquivo);
   questoes = await resposta.json();
   gerarLista();
@@ -255,33 +338,24 @@ function embaralhar(array) {
 
 function gerarLista() {
   quantidade = parseInt(document.getElementById('qtd')?.value) || 10;
-
   const misturadas = embaralhar([...questoes]);
   questoesSelecionadas = misturadas.slice(0, quantidade);
-
   questoesSelecionadas = questoesSelecionadas.map(q => {
-    let opcoes = q.opcoes.map((texto, index) => ({
-      texto,
-      correta: index === q.correta
-    }));
-
+    let opcoes = q.opcoes.map((texto, index) => ({ texto, correta: index === q.correta }));
     opcoes = embaralhar(opcoes);
-
     return {
       pergunta: q.pergunta,
       opcoes: opcoes.map(o => o.texto),
       correta: opcoes.findIndex(o => o.correta)
     };
   });
-
   mostrarQuestoes();
 }
 
 function mostrarQuestoes() {
   const quiz = document.getElementById('quiz');
-
   quiz.innerHTML = `
-    <div>
+    <div class="quiz-controls">
       <label>Quantidade:</label>
       <input type="number" id="qtd" value="${quantidade}">
       <button onclick="gerarLista()">🔄 Gerar</button>
@@ -289,22 +363,13 @@ function mostrarQuestoes() {
       <button onclick="baixarPDF()">📄 PDF</button>
     </div>
   `;
-
   questoesSelecionadas.forEach((q, index) => {
     const div = document.createElement('div');
     div.classList.add('questao');
-
     let html = `<p><strong>${index + 1}. ${q.pergunta}</strong></p>`;
-
     q.opcoes.forEach((opcao, i) => {
-      html += `
-        <label>
-          <input type="radio" name="q${index}" value="${i}">
-          ${String.fromCharCode(65 + i)}) ${opcao}
-        </label><br>
-      `;
+      html += `<label><input type="radio" name="q${index}" value="${i}"> ${String.fromCharCode(65+i)}) ${opcao}</label><br>`;
     });
-
     div.innerHTML = html;
     quiz.appendChild(div);
   });
@@ -313,10 +378,8 @@ function mostrarQuestoes() {
 function corrigir() {
   let acertos = 0;
   respostasUsuario = [];
-
   questoesSelecionadas.forEach((q, index) => {
     const marcada = document.querySelector(`input[name="q${index}"]:checked`);
-
     if (marcada) {
       const resposta = parseInt(marcada.value);
       respostasUsuario.push(resposta);
@@ -325,30 +388,22 @@ function corrigir() {
       respostasUsuario.push(null);
     }
   });
-
   mostrarResultado(acertos);
 }
 
 function mostrarResultado(acertos) {
   const quiz = document.getElementById('quiz');
-
-  let html = `<h2>Resultado</h2>`;
-  html += `<p>Acertos: ${acertos}/${questoesSelecionadas.length}</p><hr>`;
-
+  let html = `<h2>Resultado</h2><p>Acertos: ${acertos}/${questoesSelecionadas.length}</p><hr>`;
   questoesSelecionadas.forEach((q, index) => {
-    html += `<p><strong>${index + 1}. ${q.pergunta}</strong></p>`;
-
+    html += `<p><strong>${index+1}. ${q.pergunta}</strong></p>`;
     q.opcoes.forEach((opcao, i) => {
       let classe = '';
       if (i === q.correta) classe = 'correta';
       if (respostasUsuario[index] === i && i !== q.correta) classe = 'errada';
-
-      html += `<p class="${classe}">${String.fromCharCode(65 + i)}) ${opcao}</p>`;
+      html += `<p class="${classe}">${String.fromCharCode(65+i)}) ${opcao}</p>`;
     });
-
     html += '<br>';
   });
-
   quiz.innerHTML = html;
 }
 
@@ -357,44 +412,26 @@ function baixarPDF() {
   const doc = new jsPDF();
   const maxWidth = 180;
   let y = 20;
-
   doc.setFontSize(14);
   doc.text('SIMULADO', 105, 10, null, null, 'center');
   doc.setFontSize(11);
-
   questoesSelecionadas.forEach((q, index) => {
-    // Sanitiza o texto antes de passar ao jsPDF
-    const textoPergunta = sanitizeText(`${index + 1}. ${q.pergunta}`);
+    const textoPergunta = sanitizeText(`${index+1}. ${q.pergunta}`);
     const linhasPergunta = doc.splitTextToSize(textoPergunta, maxWidth);
-
-    // Abre nova página se não couber
-    if (y + linhasPergunta.length * 7 > 270) {
-      doc.addPage();
-      y = 20;
-    }
-
+    if (y + linhasPergunta.length * 7 > 270) { doc.addPage(); y = 20; }
     doc.text(linhasPergunta, 10, y);
     y += linhasPergunta.length * 7;
-
     q.opcoes.forEach((opcao, i) => {
-      const textoOpcao = sanitizeText(`${String.fromCharCode(65 + i)}) ${opcao}`);
+      const textoOpcao = sanitizeText(`${String.fromCharCode(65+i)}) ${opcao}`);
       const linhasOpcao = doc.splitTextToSize(textoOpcao, maxWidth - 5);
-
-      if (y + linhasOpcao.length * 6 > 270) {
-        doc.addPage();
-        y = 20;
-      }
-
+      if (y + linhasOpcao.length * 6 > 270) { doc.addPage(); y = 20; }
       doc.text(linhasOpcao, 15, y);
       y += linhasOpcao.length * 6;
     });
-
     y += 4;
   });
-
   doc.save('simulado.pdf');
 }
 </script>
-
 </body>
 </html>
