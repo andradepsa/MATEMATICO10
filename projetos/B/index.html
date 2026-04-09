@@ -62,9 +62,7 @@ header p { margin: 5px 0 15px; }
   cursor: pointer;
 }
 
-.dropbtn:hover {
-  background: #444;
-}
+.dropbtn:hover { background: #444; }
 
 .dropdown-content {
   display: none;
@@ -117,7 +115,7 @@ button {
 button:hover { background: #444; }
 
 .correta { color: green; font-weight: bold; }
-.errada { color: red; font-weight: bold; }
+.errada  { color: red;   font-weight: bold; }
 
 input[type="number"] {
   padding: 6px;
@@ -173,6 +171,77 @@ let questoesSelecionadas = [];
 let respostasUsuario = [];
 let quantidade = 10;
 
+/* ============================================================
+   POR QUE O PDF CORTAVA O TEXTO?
+
+   O jsPDF usa a fonte Helvetica por padrão, que só suporta
+   o conjunto de caracteres Latin-1 (0x00–0xFF).
+   Quando encontra um caractere Unicode fora desse range
+   (letras gregas como λ, ω, θ, π, símbolos como √, ², ±…),
+   ele simplesmente PARA de renderizar o texto naquele ponto,
+   sem avisar — causando o corte que aparecia no PDF.
+
+   A solução é converter esses símbolos para equivalentes
+   ASCII legíveis ANTES de passar o texto ao jsPDF.
+   ============================================================ */
+function sanitizeText(str) {
+  if (!str) return '';
+
+  return str
+    // Remove quebras de linha embutidas nos dados JSON
+    .replace(/\r?\n/g, ' ')
+
+    // Letras gregas minúsculas
+    .replace(/α/g, 'alfa')    .replace(/β/g, 'beta')     .replace(/γ/g, 'gama')
+    .replace(/δ/g, 'delta')   .replace(/ε/g, 'epsilon')  .replace(/ζ/g, 'zeta')
+    .replace(/η/g, 'eta')     .replace(/θ/g, 'teta')     .replace(/ι/g, 'iota')
+    .replace(/κ/g, 'kapa')    .replace(/λ/g, 'lambda')   .replace(/μ/g, 'mu')
+    .replace(/ν/g, 'nu')      .replace(/ξ/g, 'xi')       .replace(/π/g, 'pi')
+    .replace(/ρ/g, 'ro')      .replace(/σ/g, 'sigma')    .replace(/τ/g, 'tau')
+    .replace(/υ/g, 'upsilon') .replace(/φ/g, 'fi')       .replace(/χ/g, 'chi')
+    .replace(/ψ/g, 'psi')     .replace(/ω/g, 'omega')
+
+    // Letras gregas maiúsculas
+    .replace(/Α/g, 'Alfa')    .replace(/Β/g, 'Beta')     .replace(/Γ/g, 'Gama')
+    .replace(/Δ/g, 'Delta')   .replace(/Ε/g, 'Epsilon')  .replace(/Θ/g, 'Teta')
+    .replace(/Λ/g, 'Lambda')  .replace(/Μ/g, 'Mu')       .replace(/Ξ/g, 'Xi')
+    .replace(/Π/g, 'Pi')      .replace(/Ρ/g, 'Ro')       .replace(/Σ/g, 'Sigma')
+    .replace(/Φ/g, 'Fi')      .replace(/Χ/g, 'Chi')      .replace(/Ψ/g, 'Psi')
+    .replace(/Ω/g, 'Omega')
+
+    // Superescritos
+    .replace(/⁰/g, '0').replace(/¹/g, '1').replace(/²/g, '^2').replace(/³/g, '^3')
+    .replace(/⁴/g, '^4').replace(/⁵/g, '^5').replace(/⁶/g, '^6')
+    .replace(/⁷/g, '^7').replace(/⁸/g, '^8').replace(/⁹/g, '^9')
+    // Subscritos
+    .replace(/₀/g, '0').replace(/₁/g, '1').replace(/₂/g, '2').replace(/₃/g, '3')
+    .replace(/₄/g, '4').replace(/₅/g, '5').replace(/₆/g, '6')
+
+    // Símbolos matemáticos e físicos
+    .replace(/√/g, 'raiz')    .replace(/∛/g, 'raiz3')
+    .replace(/∆/g, 'Delta')   .replace(/±/g, '+/-')      .replace(/∓/g, '-/+')
+    .replace(/∞/g, 'inf')     .replace(/·/g, '.')         .replace(/×/g, 'x')
+    .replace(/÷/g, '/')       .replace(/≈/g, '~=')        .replace(/≠/g, '!=')
+    .replace(/≤/g, '<=')      .replace(/≥/g, '>=')        .replace(/∝/g, 'proporcional a')
+    .replace(/∫/g, 'integral').replace(/∑/g, 'soma')      .replace(/∏/g, 'prod')
+    .replace(/∂/g, 'd')       .replace(/∇/g, 'nabla')
+    .replace(/∈/g, 'pertence').replace(/∉/g, 'nao pertence')
+    .replace(/⊂/g, 'subset')  .replace(/∪/g, 'uniao')    .replace(/∩/g, 'inter')
+    .replace(/→/g, '->')      .replace(/←/g, '<-')
+    .replace(/↑/g, 'cima')    .replace(/↓/g, 'baixo')
+    .replace(/⇒/g, '=>')      .replace(/⇔/g, '<=>')
+    .replace(/°/g, ' graus')
+
+    // Aspas tipográficas
+    .replace(/[""]/g, '"').replace(/['']/g, "'")
+
+    // Qualquer outro caractere fora do range Latin-1 vira '?'
+    // (evita corte silencioso do jsPDF)
+    .replace(/[^\x00-\xFF]/g, '?');
+}
+
+/* ============================================================ */
+
 async function carregar(arquivo) {
   const resposta = await fetch(arquivo);
   questoes = await resposta.json();
@@ -184,7 +253,7 @@ function embaralhar(array) {
 }
 
 function gerarLista() {
-  quantidade = parseInt(document.getElementById("qtd")?.value) || 10;
+  quantidade = parseInt(document.getElementById('qtd')?.value) || 10;
 
   const misturadas = embaralhar([...questoes]);
   questoesSelecionadas = misturadas.slice(0, quantidade);
@@ -269,14 +338,14 @@ function mostrarResultado(acertos) {
     html += `<p><strong>${index + 1}. ${q.pergunta}</strong></p>`;
 
     q.opcoes.forEach((opcao, i) => {
-      let classe = "";
-      if (i === q.correta) classe = "correta";
-      if (respostasUsuario[index] === i && i !== q.correta) classe = "errada";
+      let classe = '';
+      if (i === q.correta) classe = 'correta';
+      if (respostasUsuario[index] === i && i !== q.correta) classe = 'errada';
 
       html += `<p class="${classe}">${String.fromCharCode(65 + i)}) ${opcao}</p>`;
     });
 
-    html += "<br>";
+    html += '<br>';
   });
 
   quiz.innerHTML = html;
@@ -289,38 +358,40 @@ function baixarPDF() {
   let y = 20;
 
   doc.setFontSize(14);
-  doc.text("SIMULADO", 105, 10, null, null, "center");
+  doc.text('SIMULADO', 105, 10, null, null, 'center');
   doc.setFontSize(11);
 
   questoesSelecionadas.forEach((q, index) => {
-    // Quebra a pergunta em múltiplas linhas se necessário
-    const linhasPergunta = doc.splitTextToSize(
-      `${index + 1}. ${q.pergunta}`,
-      maxWidth
-    );
+    // Sanitiza o texto antes de passar ao jsPDF
+    const textoPergunta = sanitizeText(`${index + 1}. ${q.pergunta}`);
+    const linhasPergunta = doc.splitTextToSize(textoPergunta, maxWidth);
+
+    // Abre nova página se não couber
+    if (y + linhasPergunta.length * 7 > 270) {
+      doc.addPage();
+      y = 20;
+    }
+
     doc.text(linhasPergunta, 10, y);
     y += linhasPergunta.length * 7;
 
-    // Quebra cada opção em múltiplas linhas se necessário
     q.opcoes.forEach((opcao, i) => {
-      const linhasOpcao = doc.splitTextToSize(
-        `${String.fromCharCode(65 + i)}) ${opcao}`,
-        maxWidth - 5
-      );
+      const textoOpcao = sanitizeText(`${String.fromCharCode(65 + i)}) ${opcao}`);
+      const linhasOpcao = doc.splitTextToSize(textoOpcao, maxWidth - 5);
+
+      if (y + linhasOpcao.length * 6 > 270) {
+        doc.addPage();
+        y = 20;
+      }
+
       doc.text(linhasOpcao, 15, y);
       y += linhasOpcao.length * 6;
     });
 
     y += 4;
-
-    // Nova página se ultrapassar o limite
-    if (y > 270) {
-      doc.addPage();
-      y = 20;
-    }
   });
 
-  doc.save("simulado.pdf");
+  doc.save('simulado.pdf');
 }
 </script>
 
