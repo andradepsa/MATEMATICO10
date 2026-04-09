@@ -13,7 +13,6 @@ body {
   color: #333;
 }
 
-/* HEADER */
 header {
   text-align: center;
   padding: 30px 20px;
@@ -42,7 +41,6 @@ header p { margin: 5px 0 15px; }
   font-size: 13px;
 }
 
-/* MENU */
 .menu-container {
   text-align: center;
   margin: 20px 0;
@@ -68,7 +66,6 @@ header p { margin: 5px 0 15px; }
   background: #444;
 }
 
-/* MENU INTERNO */
 .dropdown-content {
   display: none;
   position: absolute;
@@ -77,22 +74,14 @@ header p { margin: 5px 0 15px; }
   box-shadow: 0px 6px 12px rgba(0,0,0,0.2);
   border-radius: 8px;
   text-align: left;
-
   max-height: 250px;
   overflow-y: auto;
+  z-index: 100;
 }
 
-/* SCROLL BONITO */
-.dropdown-content::-webkit-scrollbar {
-  width: 6px;
-}
-.dropdown-content::-webkit-scrollbar-thumb {
-  background: #888;
-  border-radius: 5px;
-}
-.dropdown-content::-webkit-scrollbar-thumb:hover {
-  background: #555;
-}
+.dropdown-content::-webkit-scrollbar { width: 6px; }
+.dropdown-content::-webkit-scrollbar-thumb { background: #888; border-radius: 5px; }
+.dropdown-content::-webkit-scrollbar-thumb:hover { background: #555; }
 
 .dropdown-content a {
   display: block;
@@ -102,15 +91,9 @@ header p { margin: 5px 0 15px; }
   font-weight: bold;
 }
 
-.dropdown-content a:hover {
-  background: #f1f1f1;
-}
+.dropdown-content a:hover { background: #f1f1f1; }
+.dropdown:hover .dropdown-content { display: block; }
 
-.dropdown:hover .dropdown-content {
-  display: block;
-}
-
-/* QUIZ */
 #quiz { padding: 20px; }
 
 .questao {
@@ -148,7 +131,6 @@ input[type="number"] {
 <header>
   <h1>Central de Estudos</h1>
   <p>Escolha uma opção</p>
-
   <a href="https://www.matematico10.com.br/" class="logo-link">
     <img src="https://i.ibb.co/DNQv5x8/Simbolo-Matem-tico-10-removebg-preview.png" alt="Logo">
     <div>🔙 Voltar</div>
@@ -157,7 +139,6 @@ input[type="number"] {
 
 <div class="menu-container">
 
-  <!-- DISCIPLINAS -->
   <div class="dropdown">
     <button class="dropbtn">📚 Disciplinas</button>
     <div class="dropdown-content">
@@ -169,7 +150,6 @@ input[type="number"] {
     </div>
   </div>
 
-  <!-- RECURSOS -->
   <div class="dropdown">
     <button class="dropbtn">📁 Recursos</button>
     <div class="dropdown-content">
@@ -305,20 +285,35 @@ function mostrarResultado(acertos) {
 function baixarPDF() {
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF();
+  const maxWidth = 180;
   let y = 20;
 
+  doc.setFontSize(14);
   doc.text("SIMULADO", 105, 10, null, null, "center");
+  doc.setFontSize(11);
 
   questoesSelecionadas.forEach((q, index) => {
-    doc.text(`${index + 1}. ${q.pergunta}`, 10, y);
-    y += 8;
+    // Quebra a pergunta em múltiplas linhas se necessário
+    const linhasPergunta = doc.splitTextToSize(
+      `${index + 1}. ${q.pergunta}`,
+      maxWidth
+    );
+    doc.text(linhasPergunta, 10, y);
+    y += linhasPergunta.length * 7;
 
+    // Quebra cada opção em múltiplas linhas se necessário
     q.opcoes.forEach((opcao, i) => {
-      doc.text(`${String.fromCharCode(65 + i)}) ${opcao}`, 15, y);
-      y += 6;
+      const linhasOpcao = doc.splitTextToSize(
+        `${String.fromCharCode(65 + i)}) ${opcao}`,
+        maxWidth - 5
+      );
+      doc.text(linhasOpcao, 15, y);
+      y += linhasOpcao.length * 6;
     });
 
     y += 4;
+
+    // Nova página se ultrapassar o limite
     if (y > 270) {
       doc.addPage();
       y = 20;
