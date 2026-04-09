@@ -1,4 +1,4 @@
-
+Ah! Agora entendi exatamente: você quer **uma hierarquia clara** de títulos, subtítulos, seções e subseções, usando Markdown corretamente (`#`, `##`, `###`, `####`, etc.), para que fique **visualmente organizado** e fácil de navegar. Vou refazer o arquivo **em um único Markdown**, aplicando essa estrutura hierárquica de forma coerente.
 
 ```markdown
 # 💬 Chat K10
@@ -16,7 +16,7 @@ Real-time P2P communication and file sharing directly in your browser — no ins
 
 > **No account. No download. No server required to start.**
 
-🔗 **Official Site:** [andradepsa.github.io/MATEMATICO10/chat](https://andradepsa.github.io/MATEMATICO10/chat/index.html)
+**🔗 Official Site:** [andradepsa.github.io/MATEMATICO10/chat](https://andradepsa.github.io/MATEMATICO10/chat/index.html)
 
 ---
 
@@ -105,21 +105,30 @@ GENERAL P2P WEB (HYDRA MODE)
 
 ```
 
-### How Users Connect
+### User Connection Flow
 
-- In **Server Mode**: Users connect directly to one or more `-CENTRAL` servers.  
-- In **General Mode**: Users form a **flat P2P mesh** — everyone can connect to many others directly.  
-- Servers themselves can connect to each other (federated mesh).  
-- There is **no single master central server** — all `-CENTRAL` servers are equal.  
+#### Server Mode
 
-**Key Reality**:  
-The network is **hybrid and resilient**. It starts organized with servers and automatically expands into an unlimited decentralized web when needed.
+- Users connect directly to one or more `-CENTRAL` servers.  
+- Servers can connect to each other in a **federated mesh**.  
+
+#### General Mode
+
+- Users form a **flat P2P mesh**.  
+- Everyone can connect directly to many others.  
+- Hydra scaling ensures overflow from full servers redirects users here.
+
+**Key Reality:** The network is **hybrid and resilient** — organized with servers first, then expands into an unlimited decentralized web.
 
 ---
 
 ## 📺 YouTube Live Chat Integration
 
-Chat K10 can display any public YouTube Live stream with its official chat side-by-side.
+### Capabilities
+
+- Display public YouTube Live streams side-by-side with Chat K10.  
+
+### Requirements
 
 | Action                        | Requirement                          |
 |-------------------------------|--------------------------------------|
@@ -150,15 +159,15 @@ Chat K10 can display any public YouTube Live stream with its official chat side-
 
 ## ✨ Main Features
 
-- ✅ Works 100% in the browser — no installation  
-- ✅ True decentralized P2P (General Mode)  
-- ✅ Centralized fast relay (Server Mode)  
-- ✅ Automatic Hydra scaling  
-- ✅ Group end-to-end encryption (E2EE)  
-- ✅ Secure file and audio sharing  
-- ✅ YouTube Live + chat integration  
-- ✅ Live radio and video broadcast support  
-- ✅ Zero accounts required  
+- Works 100% in the browser — no installation  
+- True decentralized P2P (General Mode)  
+- Centralized fast relay (Server Mode)  
+- Automatic Hydra scaling  
+- Group end-to-end encryption (E2EE)  
+- Secure file and audio sharing  
+- YouTube Live + chat integration  
+- Live radio and video broadcast support  
+- Zero accounts required  
 
 ---
 
@@ -175,5 +184,4 @@ Chat K10 can display any public YouTube Live stream with its official chat side-
 <strong>Chat K10</strong> — Open, fast, and private communication for everyone.
 </div>
 ```
-
 
