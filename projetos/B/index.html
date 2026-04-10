@@ -36,97 +36,53 @@
     .dropdown.show .dropdown-content {
       display: block;
     }
-    #status {
-      margin-top: 12px;
-      font-size: 14px;
-      color: #555;
-    }
   </style>
 </head>
 <body>
-
 <div class="dropdown" id="dd-disciplinas">
   <button class="dropbtn" onclick="toggleMenu('dd-disciplinas')">📚 Disciplinas ▾</button>
-  <div class="dropdown-content" id="lista-disciplinas"></div>
+  <div class="dropdown-content" id="lista-disciplinas">
+    <!-- Links das disciplinas serão inseridos aqui -->
+  </div>
 </div>
-
-<div id="status"></div>
-
 <script>
+  // Função para abrir/fechar menu
   function toggleMenu(id) {
     document.getElementById(id).classList.toggle("show");
   }
-
-  // Fecha o menu ao clicar fora
-  window.addEventListener("click", function(e) {
-    if (!e.target.matches(".dropbtn")) {
-      document.querySelectorAll(".dropdown.show")
-        .forEach(el => el.classList.remove("show"));
-    }
-  });
 
   // Gera array de nomes: prefixo + 1..total + ".json"
   function gerarArquivos(prefixo, total) {
     return Array.from({ length: total }, (_, i) => `${prefixo}${i + 1}.json`);
   }
 
-  // Carrega todos os JSONs da disciplina em paralelo e mescla
-  async function carregarDisciplina(nome, arquivos) {
-    const status = document.getElementById("status");
-    status.textContent = `Carregando ${nome}...`;
-
-    try {
-      const respostas = await Promise.all(
-        arquivos.map(arq => fetch(arq))
-      );
-
-      // Verifica se todas as respostas foram OK
-      respostas.forEach((res, i) => {
-        if (!res.ok) throw new Error(`Erro ao carregar: ${arquivos[i]}`);
-      });
-
-      const jsons = await Promise.all(
-        respostas.map(res => res.json())
-      );
-
-      const dadosMesclados = jsons.flat();
-
-      status.textContent = `✅ ${nome}: ${dadosMesclados.length} itens carregados de ${arquivos.length} arquivo(s).`;
-      console.log(`[${nome}]`, dadosMesclados);
-      return dadosMesclados;
-
-    } catch (erro) {
-      status.textContent = `❌ Erro ao carregar ${nome}: ${erro.message}`;
-      console.error(erro);
-      return [];
-    }
+  // Função para carregar múltiplos arquivos JSON em paralelo e mesclar
+  async function carregar(arquivos) {
+    const respostas = await Promise.all(arquivos.map(arq => fetch(arq)));
+    const jsons = await Promise.all(respostas.map(res => res.json()));
+    const dadosMesclados = jsons.flat();
+    console.log("Carregando:", dadosMesclados);
+    // Aqui você coloca sua lógica real de leitura/uso do JSON
   }
 
-  // Definição das disciplinas
-  // Ajuste o segundo argumento de gerarArquivos() com o total de arquivos de cada disciplina
+  // Cada disciplina tem uma lista de arquivos gerada automaticamente
   const disciplinas = {
-    "➗ Matemática":  gerarArquivos("matematica",  12),
-    "🌍 Geografia":   gerarArquivos("geografia",    2),
-    "🧬 Biologia":    gerarArquivos("biologia",     2),
-    "📜 História":    gerarArquivos("historia",     2),
-    "⚛️ Física":      gerarArquivos("fisica",       2),
+    "➗ Matemática": gerarArquivos("matematica", 12),
+    "🌍 Geografia":  gerarArquivos("geografia",   2),
+    "🧬 Biologia":   gerarArquivos("biologia",    2),
+    "📜 História":   gerarArquivos("historia",    2),
+    "⚛️ Física":     gerarArquivos("fisica",      2),
   };
 
-  // Monta os links do menu dinamicamente
   const lista = document.getElementById("lista-disciplinas");
-
+  // Cria um link por disciplina
   Object.entries(disciplinas).forEach(([nome, arquivos]) => {
     const link = document.createElement("a");
     link.href = "#";
     link.textContent = nome;
-    link.onclick = async (e) => {
-      e.preventDefault();
-      const dados = await carregarDisciplina(nome, arquivos);
-      // TODO: use os dados aqui — ex: renderizarQuestoes(dados)
-    };
+    link.onclick = () => carregar(arquivos);
     lista.appendChild(link);
   });
 </script>
-
 </body>
 </html>
