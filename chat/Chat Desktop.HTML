@@ -5405,62 +5405,11 @@ const targetId = windowTargets[peerId] || peerId;
 if (userYoutubeStreams[targetId]) {
 const isPlaylist = userYoutubeStreams[targetId].startsWith('playlist:');
 const actualId = isPlaylist ? userYoutubeStreams[targetId].split(':')[1] : userYoutubeStreams[targetId];
-
-const containerId = `yt-player-local-${targetId}`;
-
-useEffect(() => {
-  if (!window.YT || !window.YT.Player) return;
-  
-  if (videoRefs.current[containerId]) {
-    try { videoRefs.current[containerId].destroy(); } catch(e) {}
-  }
-
-  const playerOptions = {
-    height: '100%',
-    width: '100%',
-    playerVars: {
-      autoplay: 1,
-      controls: 1,
-    },
-    events: {
-      onReady: (event) => {
-        event.target.playVideo();
-      },
-      onError: (event) => {
-        if (event.data === 101 || event.data === 150) {
-          console.log("Video blocked, skipping to next in playlist...");
-          if (isPlaylist) {
-             event.target.nextVideo();
-          }
-        }
-      }
-    }
-  };
-
-  if (isPlaylist) {
-    playerOptions.playerVars.listType = 'playlist';
-    playerOptions.playerVars.list = actualId;
-  } else {
-    playerOptions.videoId = actualId;
-  }
-
-  setTimeout(() => {
-    const el = document.getElementById(containerId);
-    if (el) {
-      videoRefs.current[containerId] = new window.YT.Player(containerId, playerOptions);
-    }
-  }, 100);
-
-  return () => {
-    if (videoRefs.current[containerId]) {
-      try { videoRefs.current[containerId].destroy(); } catch(e) {}
-      delete videoRefs.current[containerId];
-    }
-  };
-}, [targetId, userYoutubeStreams[targetId]]);
-
+const srcUrl = isPlaylist
+? `https://www.youtube.com/embed/videoseries?list=${actualId}&autoplay=1&mute=0`
+: `https://www.youtube.com/embed/${actualId}?autoplay=1&mute=0`;
 return (
-  <div id={containerId} style={{ display: 'block', width: '100%', height: '100%' }}></div>
+<iframe width="100%" height="100%" src={srcUrl} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ display: 'block' }}></iframe>
 );
 }
 if (targetId === peerId) {
@@ -5501,67 +5450,11 @@ const targetId = windowTargets[pId] || pId;
 if (userYoutubeStreams[targetId]) {
 const isPlaylist = userYoutubeStreams[targetId].startsWith('playlist:');
 const actualId = isPlaylist ? userYoutubeStreams[targetId].split(':')[1] : userYoutubeStreams[targetId];
-
-// Use a unique ID for the container so the YT API can target it
-const containerId = `yt-player-${targetId}`;
-
-// We need to initialize the YT player when this component renders
-useEffect(() => {
-  if (!window.YT || !window.YT.Player) return;
-  
-  // Clean up existing player if any
-  if (videoRefs.current[containerId]) {
-    try { videoRefs.current[containerId].destroy(); } catch(e) {}
-  }
-
-  const playerOptions = {
-    height: '100%',
-    width: '100%',
-    playerVars: {
-      autoplay: 1,
-      controls: 1,
-    },
-    events: {
-      onReady: (event) => {
-        event.target.playVideo();
-      },
-      onError: (event) => {
-        // Error codes 101 and 150 mean embedding is disabled
-        if (event.data === 101 || event.data === 150) {
-          console.log("Video blocked, skipping to next in playlist...");
-          if (isPlaylist) {
-             event.target.nextVideo();
-          }
-        }
-      }
-    }
-  };
-
-  if (isPlaylist) {
-    playerOptions.playerVars.listType = 'playlist';
-    playerOptions.playerVars.list = actualId;
-  } else {
-    playerOptions.videoId = actualId;
-  }
-
-  // Small timeout to ensure the div is in the DOM
-  setTimeout(() => {
-    const el = document.getElementById(containerId);
-    if (el) {
-      videoRefs.current[containerId] = new window.YT.Player(containerId, playerOptions);
-    }
-  }, 100);
-
-  return () => {
-    if (videoRefs.current[containerId]) {
-      try { videoRefs.current[containerId].destroy(); } catch(e) {}
-      delete videoRefs.current[containerId];
-    }
-  };
-}, [targetId, userYoutubeStreams[targetId]]);
-
+const srcUrl = isPlaylist
+? `https://www.youtube.com/embed/videoseries?list=${actualId}&autoplay=1&mute=0`
+: `https://www.youtube.com/embed/${actualId}?autoplay=1&mute=0`;
 return (
-  <div id={containerId} style={{ display: 'block', width: '100%', height: '100%' }}></div>
+<iframe width="100%" height="100%" src={srcUrl} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ display: 'block' }}></iframe>
 );
 }
 if (targetId === peerId) {
@@ -5628,6 +5521,5 @@ ReactDOM.render(<ErrorBoundary><App /></ErrorBoundary>, document.getElementById(
 </script>
 </body>
 </html>
-
 
 
