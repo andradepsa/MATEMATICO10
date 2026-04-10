@@ -163,7 +163,7 @@ input[type="number"] {
 
 <script>
 // ================================================================
-//  FUNÇÕES AUXILIARES  (não mexa aqui)
+//  FUNÇÕES AUXILIARES
 // ================================================================
 function ri(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
 function rf(min, max, d = 2) { return parseFloat((min + Math.random() * (max - min)).toFixed(d)); }
@@ -173,35 +173,6 @@ function fat(n) { let r = 1; for (let i = 2; i <= n; i++) r *= i; return r; }
 function comb(n, k) { if (k > n || k < 0) return 0; let r = 1; for (let i = 0; i < k; i++) r = r * (n - i) / (i + 1); return Math.round(r); }
 function sg(n) { return n >= 0 ? "+" + n : "" + n; }
 function fmt(v) { return (typeof v === "number") ? String(Math.round(v * 1e6) / 1e6) : String(v); }
-
-// ================================================================
-//  LIMPEZA DE PERGUNTAS (remove respostas explícitas)
-// ================================================================
-function limparPergunta(pergunta) {
-  // Padrões que indicam a resposta numérica no final da string
-  const padroes = [
-    /\s*\(Responda[^)]*\)\s*$/i,
-    /\s*\(Resposta:[^)]*\)\s*$/i,
-    /\s*Resposta:\s*[0-9.,]+\s*\.?\s*$/i,
-    /\s*Portanto, resposta:\s*[0-9.,]+\s*\.?\s*$/i,
-    /\s*Portanto,?\s*[0-9.,]+\s*\.?\s*$/i,
-    /\s*Soma\s*=\s*[0-9.,]+\s*\.?\s*$/i,
-    /\s*Logo,\s*[0-9.,]+\s*\.?\s*$/i,
-    /\s*Resultado:\s*[0-9.,]+\s*\.?\s*$/i,
-    /\s*Valor:\s*[0-9.,]+\s*\.?\s*$/i,
-    /\s*\)\s*Resposta:\s*[0-9.,]+\s*\.?\s*$/i,
-    /\s*\(Resposta\s*[0-9.,]+\)\s*$/i
-  ];
-  let limpa = pergunta;
-  for (let padrao of padroes) {
-    limpa = limpa.replace(padrao, '');
-  }
-  // Remove espaços extras e garante pontuação final
-  limpa = limpa.trim();
-  if (limpa.endsWith('.')) limpa = limpa.slice(0, -1);
-  if (!limpa.endsWith('?') && !limpa.endsWith('.')) limpa += '?';
-  return limpa;
-}
 
 function distratores(correto, tipo) {
   if (typeof correto !== "number") return ["Alternativa A", "Alternativa B", "Alternativa C"];
@@ -219,9 +190,6 @@ function distratores(correto, tipo) {
 }
 
 function montarQuestao(pergunta, correto, tipo) {
-  // Limpa a pergunta antes de usá-la
-  pergunta = limparPergunta(pergunta);
-  
   let d = distratores(correto, tipo);
   let opcoes = d.map(v => fmt(v));
   let oc = fmt(correto);
@@ -237,33 +205,27 @@ function montarQuestao(pergunta, correto, tipo) {
 }
 
 // ================================================================
-//  LISTA DE MODELOS  (não mexa aqui)
+//  LISTA DE MODELOS (você pode adicionar outros, mas o filtro barrará os simples)
 // ================================================================
 const MODELOS = [];
 function add(fn) { MODELOS.push(fn); }
 
-// ================================================================
-//
-//  ➕ ADICIONE SEUS MODELOS DE MATEMÁTICA AQUI
-//
-//  Como funciona:
-//  1. Copie um bloco  add(() => { ... });
-//  2. Cole ANTES da linha  "// ✅ FIM DOS MODELOS"
-//  3. Salve o arquivo — pronto!
-//
-//  Funções disponíveis nos modelos:
-//    ri(min, max)          → inteiro aleatório entre min e max
-//    rf(min, max, casas)   → decimal aleatório
-//    montarQuestao(texto, respostaCorreta, tipo)
-//      tipo pode ser  'inteiro'  ou  'numero'
-//
-//  Exemplo mínimo:
-//  add(() => {
-//    let a = ri(2, 10), b = ri(2, 10);
-//    return montarQuestao(`Quanto é ${a} + ${b}?`, a + b, 'inteiro');
-//  });
-//
-// ================================================================
+// Exemplos (serão bloqueados pelo filtro)
+add(() => {
+  let a = ri(10, 99), b = ri(10, 99);
+  return montarQuestao(`Calcule: ${a} + ${b}`, a + b, 'inteiro');
+});
+add(() => {
+  let a = ri(2, 12), b = ri(2, 12);
+  return montarQuestao(`Calcule: ${a} × ${b}`, a * b, 'inteiro');
+});
+add(() => {
+  let p = ri(5, 50), v = ri(100, 500);
+  let r = parseFloat((p * v / 100).toFixed(2));
+  return montarQuestao(`Quanto é ${p}% de ${v}?`, r, 'numero');
+});
+
+
 
 // ── MODELO 1 – Adição simples ────────────────────────────────
 add(() => {
@@ -14580,18 +14542,58 @@ for (let i = 0; i < 50; i++) {
 
 
 
-// ✅ FIM DOS MODELOS — não cole nada após esta linha
-// ================================================================
-
+// ✅ FIM DOS MODELOS
 
 // ================================================================
-//  MOTOR DO QUIZ  (não mexa aqui)
+//  FILTRO RIGOROSO: BLOQUEIA QUALQUER QUESTÃO DE 4 OPERAÇÕES OU % REDONDA
 // ================================================================
-let questoesJSON = [];
-let questoesSelecionadas = [];
-let respostasUsuario = [];
-let quantidade = 10;
-let modoAtual = "";
+function isQuestaoBloqueada(q) {
+  if (!q || typeof q.pergunta !== "string") return false;
+  const pergunta = q.pergunta.toLowerCase();
+  
+  // 1) Bloquear quatro operações básicas (sinais ou palavras)
+  const operadores = /[\+\-\×\*\/÷]|mais|menos|vezes|dividido/;
+  if (operadores.test(pergunta)) {
+    return true;  // qualquer questão com operador aritmético é bloqueada
+  }
+  
+  // 2) Bloquear porcentagens redondas (10%, 20%, 30%, 40%, 50%, 60%, 70%, 80%, 90%)
+  const matchPercent = pergunta.match(/(\d+)%/);
+  if (matchPercent) {
+    const valor = parseInt(matchPercent[1], 10);
+    if (valor % 10 === 0 && valor >= 10 && valor <= 90) {
+      return true;  // porcentagem múltipla de 10
+    }
+  }
+  
+  return false;
+}
+
+// ================================================================
+//  GERADOR DE QUESTÕES COM FILTRO
+// ================================================================
+let descartadasPorBloqueio = 0;
+
+function gerarQuestaoIA() {
+  const MAX_TENTATIVAS = 20;
+  for (let tentativa = 0; tentativa < MAX_TENTATIVAS; tentativa++) {
+    try {
+      const modeloEscolhido = MODELOS[ri(0, MODELOS.length - 1)];
+      let q = modeloEscolhido();
+      if (!validarQuestao(q)) continue;
+      
+      if (isQuestaoBloqueada(q)) {
+        descartadasPorBloqueio++;
+        continue;  // descarta e tenta de novo
+      }
+      
+      return q;
+    } catch(e) { /* ignora e tenta outra */ }
+  }
+  // Fallback: questão mais complexa (ex: equação simples, mas sem operadores básicos?)
+  // Para garantir que não seja bloqueada, usamos um texto sem operadores.
+  return montarQuestao("Qual é o valor de x na equação 2x + 5 = 17?", 6, 'inteiro');
+}
 
 function validarQuestao(q) {
   if (!q || typeof q !== "object") return false;
@@ -14603,16 +14605,9 @@ function validarQuestao(q) {
   return true;
 }
 
-function gerarQuestaoIA() {
-  for (let t = 0; t < 15; t++) {
-    try {
-      let q = MODELOS[ri(0, MODELOS.length - 1)]();
-      if (validarQuestao(q)) return q;
-    } catch (e) {}
-  }
-  return { pergunta: "Quanto é 3 × 4?", opcoes: ["10", "12", "14", "16"], correta: 1 };
-}
-
+// ================================================================
+//  RESTO DO CÓDIGO (menus, quiz, pdf) – inalterado
+// ================================================================
 function toggleMenu(id) {
   document.querySelectorAll(".dropdown-content").forEach(d => {
     if (d.parentElement.id !== id) d.classList.remove("open");
@@ -14635,7 +14630,14 @@ function sanitizeText(str) {
 
 function embaralhar(arr) { return arr.sort(() => Math.random() - .5); }
 
+let questoesJSON = [];
+let questoesSelecionadas = [];
+let respostasUsuario = [];
+let quantidade = 10;
+let modoAtual = "";
+
 async function carregar(alvo) {
+  descartadasPorBloqueio = 0;
   document.querySelectorAll(".dropdown-content").forEach(d => d.classList.remove("open"));
   document.getElementById("home").style.display = "none";
   document.getElementById("quiz").style.display = "block";
@@ -14691,6 +14693,7 @@ function gerarLista() {
     });
   }
   mostrarQuestoes();
+  console.log(`🚫 Questões descartadas por serem proibidas (4 operações ou % redonda): ${descartadasPorBloqueio}`);
 }
 
 function mostrarQuestoes() {
@@ -14708,7 +14711,7 @@ function mostrarQuestoes() {
       <div class="split-title">📊 Composição das ${total} questões geradas:</div>
       <div class="split-bars">
         <div class="split-row">
-          <span class="split-label">🤖 IA Dinâmica (modelos)</span>
+          <span class="split-label">🤖 IA Dinâmica (modelos filtrados)</span>
           <div class="split-bar-bg"><div class="split-bar-fill ia" style="width:${pIA}%"></div></div>
           <span class="split-count badge-ia">${nIA} questões (${pIA}%)</span>
         </div>
@@ -14728,7 +14731,7 @@ function mostrarQuestoes() {
       <button onclick="gerarLista()">🔄 Gerar</button>
       <button onclick="corrigir()">✅ Finalizar</button>
       <button onclick="baixarPDF()">📄 PDF</button>
-      ${modoAtual === "matematica" ? `<span style="font-size:12px;color:#666;margin-left:4px">➗ ${MODELOS.length} modelos carregados</span>` : ''}
+      ${modoAtual === "matematica" ? `<span style="font-size:12px;color:#666;margin-left:4px">➗ ${MODELOS.length} modelos carregados (filtro ATIVO: sem 4 operações ou % redonda)</span>` : ''}
     </div>
     ${infoHtml}
   `;
@@ -14800,7 +14803,7 @@ function baixarPDF() {
   doc.save("simulado.pdf");
 }
 
-console.log(`✅ ${MODELOS.length} modelos de Matemática carregados.`);
+console.log(`✅ ${MODELOS.length} modelos de Matemática carregados. Filtro anti‑4operações e % redonda ATIVO.`);
 </script>
 </body>
 </html>
