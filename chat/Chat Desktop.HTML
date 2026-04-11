@@ -1429,7 +1429,7 @@ const VoiceRecorder = ({ lang, onRecordingComplete, disabled, selectedContact })
 const [isRecording, setIsRecording] = useState(false);
 const mediaRecorderRef = useRef(null);
 const audioChunksRef = useRef([]);
-
+const recordingTimeoutRef = useRef(null);
 
 const startRecording = async () => {
 try {
@@ -1442,21 +1442,44 @@ const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
 onRecordingComplete(audioBlob, selectedContact);
 audioChunksRef.current = [];
 stream.getTracks().forEach(tr => tr.stop());
+if (recordingTimeoutRef.current) {
+clearTimeout(recordingTimeoutRef.current);
+recordingTimeoutRef.current = null;
+}
 };
 audioChunksRef.current = [];
 mediaRecorderRef.current.start(200);
 setIsRecording(true);
+
+// Limit recording to 1 minute (60000 ms)
+recordingTimeoutRef.current = setTimeout(() => {
+stopRecording();
+}, 60000);
+
 } catch (err) { alert(t(lang, 'micError') + err.message); }
 };
 
-
 const stopRecording = () => {
-if (mediaRecorderRef.current && isRecording) {
+if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
 try { mediaRecorderRef.current.stop(); } catch (e) {}
 setIsRecording(false);
+if (recordingTimeoutRef.current) {
+clearTimeout(recordingTimeoutRef.current);
+recordingTimeoutRef.current = null;
+}
 }
 };
 
+useEffect(() => {
+return () => {
+if (recordingTimeoutRef.current) {
+clearTimeout(recordingTimeoutRef.current);
+}
+if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+mediaRecorderRef.current.stop();
+}
+};
+}, []);
 
 return (
 <button className={`voice-button ${isRecording ? 'recording' : ''}`}
@@ -1723,6 +1746,7 @@ return (
 const sendDirectMessage = async () => {
 if (!userName.trim()) { alert(t(lang, 'pleaseSetName')); return; }
 if (!newMessage.trim() || cooldownRemaining > 0 || isSending) return;
+if (newMessage.length > 500) { alert("Message exceeds 500 characters limit."); return; }
 
 
 if (selectedContact) {
@@ -2043,6 +2067,7 @@ title={selectedIsServer ? t(lang, 'serverSecret') : t(lang, 'sendSecret')}>
 <input type="text" value={newMessage}
 onChange={e => setNewMessage(e.target.value)}
 placeholder={inputStatus.placeholder}
+maxLength={500}
 onKeyPress={e => { if (e.key === 'Enter' && cooldownRemaining === 0) sendDirectMessage(); }}
 className="message-input"
 disabled={cooldownRemaining > 0 || (selectedContact ? !connections.some(c => c.peer === selectedContact) : connections.length === 0)}
