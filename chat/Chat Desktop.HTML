@@ -429,8 +429,8 @@ e2eeAlreadyActive: "Group encryption is already active on this server. You can r
 contactsWithE2EE: "Contacts with E2EE active ({n}) — will receive the group secret",
 noE2EEContacts: "⚠️ No contacts with E2EE configured.\nFirst exchange individual secrets using the 🔑 button.",
 groupSecret: "Group secret (auto-generated)",
-howItWorksGroup: "How it works:",
-howItWorksGroupDesc: "The group secret is sent via direct P2P (never through the server) to all listed contacts. From then on, every message sent to the server is encrypted — the server only sees unreadable text.",
+howItWorks: "How it works:",
+howItWorksDesc: "The group secret is sent via direct P2P (never through the server) to all listed contacts. From then on, every message sent to the server is encrypted — the server only sees unreadable text.",
 offlineWarn: "OFFLINE contacts won't receive the secret now. Resend when they come online.",
 activateGroupE2EE: "🛡️ Activate Group Encryption",
 resendSecret: "Resend Secret",
@@ -607,8 +607,8 @@ e2eeAlreadyActive: "Criptografia de grupo já está ativa neste servidor. Você 
 contactsWithE2EE: "Contatos com E2EE ativo ({n}) — receberão o segredo de grupo",
 noE2EEContacts: "⚠️ Nenhum contato com E2EE configurado.\nPrimeiro troque segredos individuais usando o botão 🔑.",
 groupSecret: "Segredo de grupo (gerado automaticamente)",
-howItWorksGroup: "Como funciona:",
-howItWorksGroupDesc: "O segredo de grupo é enviado via P2P direto para todos os contatos listados. A partir daí, toda mensagem enviada ao servidor sai criptografada — o servidor só vê texto ilegível.",
+howItWorks: "Como funciona:",
+howItWorksDesc: "O segredo de grupo é enviado via P2P direto para todos os contatos listados. A partir daí, toda mensagem enviada ao servidor sai criptografada — o servidor só vê texto ilegível.",
 offlineWarn: "Contatos OFFLINE não receberão o segredo agora. Reenvie depois que ficarem online.",
 activateGroupE2EE: "🛡️ Ativar Criptografia de Grupo",
 resendSecret: "Reenviar Segredo",
@@ -705,10 +705,9 @@ broadcastYoutubeChat: "Enviar Link Chat YouTube",
 
 
 const t = (lang, key, vars = {}) => {
-  const translations = TRANSLATIONS[lang] || TRANSLATIONS['en'];
-  let str = translations[key] || TRANSLATIONS['en'][key] || key;
-  Object.entries(vars).forEach(([k, v]) => { str = str.replace(`{${k}}`, v); });
-  return str;
+let str = TRANSLATIONS[lang][key] || TRANSLATIONS['en'][key] || key;
+Object.entries(vars).forEach(([k, v]) => { str = str.replace(`{${k}}`, v); });
+return str;
 };
 
 
@@ -797,21 +796,20 @@ const PEER_ID_STORAGE_KEY = 'p2pChatClientId';
 const MESSAGES_STORAGE_KEY = 'p2pChatMessages';
 
 
-const generateId = () => {
-  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-  const buffer = new Uint8Array(9);
-  crypto.getRandomValues(buffer);
-  return Array.from(buffer).map(b => chars[b % chars.length]).join('');
-};
-
 const usePersistentId = () => {
-  const [peerId, setPeerId] = useState('');
-  useEffect(() => {
-    const savedId = localStorage.getItem(PEER_ID_STORAGE_KEY);
-    if (savedId) { setPeerId(savedId); }
-    else { const newId = generateId(); localStorage.setItem(PEER_ID_STORAGE_KEY, newId); setPeerId(newId); }
-  }, []);
-  return [peerId, setPeerId];
+const [peerId, setPeerId] = useState('');
+const generateId = () => {
+const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const buffer = new Uint8Array(9);
+crypto.getRandomValues(buffer);
+return Array.from(buffer).map(b => chars[b % chars.length]).join('');
+};
+useEffect(() => {
+const savedId = localStorage.getItem(PEER_ID_STORAGE_KEY);
+if (savedId) { setPeerId(savedId); }
+else { const newId = generateId(); localStorage.setItem(PEER_ID_STORAGE_KEY, newId); setPeerId(newId); }
+}, []);
+return [peerId, setPeerId];
 };
 
 
@@ -1416,7 +1414,7 @@ return (
 <button className="sm-copy-btn" onClick={() => { navigator.clipboard.writeText(groupSecret); setStatus({ type: 'info', msg: lang === 'pt' ? 'Segredo copiado!' : 'Secret copied!' }); }}>📋 {lang === 'pt' ? 'Copiar' : 'Copy'}</button>
 </div>
 </div>
-<div className="sm-info-box"><span>🛡️</span><div><strong>{t(lang, 'howItWorksGroup')}</strong><br />{t(lang, 'howItWorksGroupDesc')}</div></div>
+<div className="sm-info-box"><span>🛡️</span><div><strong>{t(lang, 'howItWorks')}</strong><br />{t(lang, 'howItWorksDesc')}</div></div>
 <div className="sm-warning-box"><span>⚠️</span><span>{t(lang, 'offlineWarn')}</span></div>
 {status && <div className={`sm-status ${status.type}`}>{status.msg}</div>}
 <div className="sm-btn-row">
@@ -2354,6 +2352,7 @@ const YOUTUBE_LINKS_LIST = {
     2: "https://www.youtube.com/watch?v=x-JC7sJJUW8", 
     3: "https://www.youtube.com/watch?v=0C4kZlNrhbI", 
     4: "https://www.youtube.com/watch?v=IkmLXvBfVv0", 
+    5: "http://youtube.com/watch?v=Dx5qFachd3A",
     5: "https://www.youtube.com/watch?v=kxW-HJNjs8w",
     6: "https://www.youtube.com/watch?v=mKCieTImjvU",
     7: "https://www.youtube.com/watch?v=NJyCwdWT80c",
@@ -2378,24 +2377,6 @@ const YOUTUBE_LINKS_LIST = {
 // ================================================================
 // MAIN APP
 // ================================================================
-const StreamRenderer = ({ targetId, peerId, userYoutubeStreams, localVideoRef, videoRefs }) => {
-if (userYoutubeStreams[targetId]) {
-const isPlaylist = userYoutubeStreams[targetId].startsWith('playlist:');
-const actualId = isPlaylist ? userYoutubeStreams[targetId].split(':')[1] : userYoutubeStreams[targetId];
-const srcUrl = isPlaylist
-? `https://www.youtube.com/embed/videoseries?list=${actualId}&autoplay=1&mute=0`
-: `https://www.youtube.com/embed/${actualId}?autoplay=1&mute=0`;
-return (
-<iframe width="100%" height="100%" src={srcUrl} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ display: 'block' }}></iframe>
-);
-}
-if (targetId === peerId) {
-return <video className="local-video-player" ref={localVideoRef} autoPlay muted style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
-}
-return <video className="video-player" ref={el => videoRefs.current[targetId] = el} autoPlay style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
-};
-
-
 const App = () => {
 const [lang, setLang] = useState('en');
 const [showTutorial, setShowTutorial] = useState(false);
@@ -2515,6 +2496,12 @@ return () => clearTimeout(timer);
 
 
 const isCentralServer = (id) => id && id.endsWith('-CENTRAL');
+const generateNewId = () => {
+const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const buffer = new Uint8Array(9);
+crypto.getRandomValues(buffer);
+return Array.from(buffer).map(b => chars[b % chars.length]).join('');
+};
 const getContactName = (pId) => contacts.find(c => c.peerId === pId)?.name || pId;
 const saveUserName = () => { if (userName.trim()) { localStorage.setItem('p2pUserName', userName); setEditingName(false); } };
 const formatTime = (date) => date.toLocaleTimeString('en-US');
@@ -2538,14 +2525,6 @@ if (youtubeChatIdRef.current) {
 conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
 }
 } catch(e) {}
-};
-
-
-const pruneSeenMessages = () => {
-if (seenMessagesRef.current.size > 5000) {
-const first = seenMessagesRef.current.values().next().value;
-seenMessagesRef.current.delete(first);
-}
 };
 
 
@@ -2629,14 +2608,7 @@ return;
 }
 
 
-if (data.type === 'radio-request-sync') {
-setConnections(cc => {
-const c = cc.find(x => x.peer === pId);
-if (c) sendRadioSync(c);
-return cc;
-});
-return;
-}
+if (data.type === 'radio-request-sync') { setConnections(cc => { const c = cc.find(x => x.peer === pId); if (c) sendRadioSync(c); return cc; }); return; }
 
 
 if (data.type === 'radio-sync') {
@@ -2656,7 +2628,6 @@ return;
 if (data.type === 'radio-youtube-start') {
 if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
-pruneSeenMessages();
 let ttl = data.ttl !== undefined ? data.ttl : 8;
 if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
 
@@ -2677,7 +2648,6 @@ return;
 if (data.type === 'radio-youtube-stop') {
 if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
-pruneSeenMessages();
 let ttl = data.ttl !== undefined ? data.ttl : 8;
 if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
 
@@ -2691,12 +2661,28 @@ return;
 }
 
 
+if (data.type === 'radio-request-sync') {
+if (userYoutubeStreamsRef.current[peerId]) {
+const startMsg = {
+type: 'radio-youtube-start',
+id: peerId + '_yt_sync_' + Date.now(),
+youtubeId: userYoutubeStreamsRef.current[peerId],
+sender: peerId,
+senderName: userName,
+ttl: 1
+};
+try { connections.find(c => c.peer === pId)?.send(startMsg); } catch(e){}
+}
+return;
+}
+
+
 if (data.type === 'radio-start' || data.type === 'radio-chunk') {
 if (seenMessagesRef.current.has(data.id)) return;
 if (data.type === 'radio-start' && radioStateRef.current.status !== 'idle') return;
 if (data.type === 'radio-chunk' && radioStateRef.current.status === 'idle' && !pendingRadioFiles.current[data.radioId]) return;
 seenMessagesRef.current.add(data.id);
-pruneSeenMessages();
+if (seenMessagesRef.current.size > 5000) { const f = seenMessagesRef.current.values().next().value; seenMessagesRef.current.delete(f); }
 let ttl = data.ttl !== undefined ? data.ttl : 8;
 if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
 if (data.type === 'radio-start') {
@@ -2717,7 +2703,6 @@ return;
 if (data.type === 'youtube-chat-start') {
 if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
-pruneSeenMessages();
 if (youtubeChatIdRef.current) return;
 let ttl = data.ttl !== undefined ? data.ttl : 8;
 if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
@@ -2729,7 +2714,6 @@ return;
 if (data.type === 'youtube-chat-stop') {
 if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
-pruneSeenMessages();
 setYoutubeChatId(null);
 return;
 }
@@ -2758,7 +2742,7 @@ lastMessageTimeRef.current.set(data.sender, now);
 }
 if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
-pruneSeenMessages();
+if (seenMessagesRef.current.size > 5000) { const f = seenMessagesRef.current.values().next().value; seenMessagesRef.current.delete(f); }
 let ttl = data.ttl !== undefined ? data.ttl : 15;
 if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
 }
@@ -2954,7 +2938,7 @@ conn.on('error', () => setConnections(prev => prev.filter(c => c.peer !== porta)
 peer.on('error', err => {
 console.error("PeerJS Error:", err.type, err);
 if (err.type === 'unavailable-id') {
-const newId = generateId();
+const newId = generateNewId();
 localStorage.setItem(PEER_ID_STORAGE_KEY, newId);
 window.location.reload();
 } else if (['socket-error', 'network', 'socket-closed'].includes(err.type)) {
@@ -3840,13 +3824,23 @@ const nextPeer = allPeers[(currIdx + 1) % allPeers.length];
 setWindowTargets(prev => ({ ...prev, [peerId]: nextPeer }));
 }}
 >
-<StreamRenderer
-targetId={windowTargets[peerId] || peerId}
-peerId={peerId}
-userYoutubeStreams={userYoutubeStreams}
-localVideoRef={localVideoRef}
-videoRefs={videoRefs}
-/>
+{(() => {
+const targetId = windowTargets[peerId] || peerId;
+if (userYoutubeStreams[targetId]) {
+const isPlaylist = userYoutubeStreams[targetId].startsWith('playlist:');
+const actualId = isPlaylist ? userYoutubeStreams[targetId].split(':')[1] : userYoutubeStreams[targetId];
+const srcUrl = isPlaylist
+? `https://www.youtube.com/embed/videoseries?list=${actualId}&autoplay=1&mute=0`
+: `https://www.youtube.com/embed/${actualId}?autoplay=1&mute=0`;
+return (
+<iframe width="100%" height="100%" src={srcUrl} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ display: 'block' }}></iframe>
+);
+}
+if (targetId === peerId) {
+return <video className="local-video-player" ref={localVideoRef} autoPlay muted style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
+}
+return <video className="video-player" ref={el => videoRefs.current[targetId] = el} autoPlay style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
+})()}
 </FloatingWindow>
 )}
 
@@ -3875,13 +3869,23 @@ const nextPeer = allPeers[(currIdx + 1) % allPeers.length];
 setWindowTargets(prev => ({ ...prev, [pId]: nextPeer }));
 }}
 >
-<StreamRenderer
-targetId={windowTargets[pId] || pId}
-peerId={peerId}
-userYoutubeStreams={userYoutubeStreams}
-localVideoRef={localVideoRef}
-videoRefs={videoRefs}
-/>
+{(() => {
+const targetId = windowTargets[pId] || pId;
+if (userYoutubeStreams[targetId]) {
+const isPlaylist = userYoutubeStreams[targetId].startsWith('playlist:');
+const actualId = isPlaylist ? userYoutubeStreams[targetId].split(':')[1] : userYoutubeStreams[targetId];
+const srcUrl = isPlaylist
+? `https://www.youtube.com/embed/videoseries?list=${actualId}&autoplay=1&mute=0`
+: `https://www.youtube.com/embed/${actualId}?autoplay=1&mute=0`;
+return (
+<iframe width="100%" height="100%" src={srcUrl} frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ display: 'block' }}></iframe>
+);
+}
+if (targetId === peerId) {
+return <video className="local-video-player" ref={localVideoRef} autoPlay muted style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
+}
+return <video className="video-player" ref={el => videoRefs.current[targetId] = el} autoPlay style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
+})()}
 </FloatingWindow>
 ));
 })()}
