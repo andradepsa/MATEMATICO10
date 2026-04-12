@@ -365,6 +365,31 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 .message-bubble.sent { justify-content: flex-end; }
 .message-content-wrapper { max-width: 85%; display: flex; flex-direction: column; }
 .message-bubble.sent .message-content-wrapper { align-items: flex-end; }
+
+/* REACTIONS & REPLIES */
+.message-actions { display: flex; gap: 8px; margin-top: 4px; opacity: 0; transition: opacity 0.2s; }
+.message-bubble:hover .message-actions { opacity: 1; }
+.action-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 12px; padding: 2px 4px; border-radius: 4px; transition: background 0.2s; }
+.action-btn:hover { background: rgba(0,0,0,0.05); color: var(--primary); }
+
+.reactions-container { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.reaction-badge { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 2px 6px; font-size: 12px; cursor: pointer; display: flex; align-items: center; gap: 4px; transition: all 0.2s; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+.reaction-badge:hover { border-color: var(--primary); transform: scale(1.1); }
+.reaction-badge.active { background: #eff6ff; border-color: #3b82f6; color: #3b82f6; }
+.reaction-count { font-size: 10px; font-weight: 600; }
+
+.reply-quote { background: rgba(0,0,0,0.05); border-left: 3px solid var(--primary); padding: 4px 8px; border-radius: 4px; margin-bottom: 6px; font-size: 11px; color: var(--text-muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.message-bubble.sent .reply-quote { border-left: none; border-right: 3px solid white; background: rgba(255,255,255,0.2); color: white; text-align: right; }
+
+.reply-preview { background: #f8fafc; border-top: 1px solid #e2e8f0; padding: 8px 14px; display: flex; align-items: center; justify-content: space-between; animation: slideUp 0.2s ease; }
+.reply-preview-content { flex: 1; border-left: 3px solid var(--primary); padding-left: 8px; font-size: 12px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reply-preview-close { background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px; }
+
+@keyframes slideUp { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+.emoji-picker-mini { position: absolute; bottom: 100%; left: 0; background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 8px; display: flex; gap: 8px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); z-index: 100; animation: fadeIn 0.2s ease; }
+.mini-emoji { font-size: 18px; cursor: pointer; transition: transform 0.2s; }
+.mini-emoji:hover { transform: scale(1.3); }
 </style>
 </head>
 <body>
@@ -1928,6 +1953,45 @@ if (!youtubeChatId) setActiveChatTab('native');
 
 const [isSending, setIsSending] = useState(false);
 const decryptionCache = useRef(new Map());
+const [replyingTo, setReplyingTo] = useState(null);
+const [showMiniEmojiPicker, setShowMiniEmojiPicker] = useState(null);
+
+
+const handleReaction = (msg, emoji) => {
+  const reactionId = peerId + '_' + Date.now();
+  const reactionData = {
+    type: 'reaction',
+    id: reactionId,
+    targetTimestamp: msg.timestamp,
+    emoji,
+    sender: peerId,
+    timestamp: Date.now()
+  };
+  
+  setMessages(prev => prev.map(m => {
+    if (m.timestamp === msg.timestamp) {
+      const reactions = { ...(m.reactions || {}) };
+      const emojiReactions = [...(reactions[emoji] || [])];
+      if (emojiReactions.includes(peerId)) {
+        reactions[emoji] = emojiReactions.filter(u => u !== peerId);
+      } else {
+        reactions[emoji] = [...emojiReactions, peerId];
+      }
+      return { ...m, reactions };
+    }
+    return m;
+  }));
+
+  if (selectedContact) {
+    const conn = connections.find(c => c.peer === selectedContact && c.open);
+    if (conn) try { conn.send({ ...reactionData, direct: true }); } catch(e) {}
+  } else {
+    connections.forEach(c => {
+      if (c.open) try { c.send(reactionData); } catch(e) {}
+    });
+  }
+  setShowMiniEmojiPicker(null);
+};
 
 
 const formatTime = (date) => {
@@ -2122,22 +2186,52 @@ textToSend = GROUP_E2EE_PREFIX + await encryptMsg(newMessage, serverE2EE[selecte
 textToSend = E2EE_PREFIX + await encryptMsg(newMessage, e2eeState[selectedContact].mySecret);
 }
 const conn = connections.find(c => c.peer === selectedContact);
-conn.send({ type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: true, time: formatTime(timestamp) });
-const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
+const msgData = { 
+  type: 'text', 
+  id: msgId, 
+  ttl: 15, 
+  text: textToSend, 
+  senderName: userName, 
+  direct: true, 
+  time: formatTime(timestamp),
+  timestamp: timestamp.getTime(),
+  replyTo: replyingTo ? {
+    timestamp: replyingTo.timestamp,
+    text: replyingTo.text,
+    senderName: replyingTo.senderName
+  } : null
+};
+conn.send(msgData);
+const newMsgObj = { ...msgData, sender: 'you', recipient: selectedContact, timestamp: timestamp.getTime() };
 setMessages(prev => {
 const updated = [...prev, newMsgObj].slice(-500);
 return updated;
 });
 } else {
-const msgData = { type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: false, time: formatTime(timestamp) };
+const msgData = { 
+  type: 'text', 
+  id: msgId, 
+  ttl: 15, 
+  text: textToSend, 
+  senderName: userName, 
+  direct: false, 
+  time: formatTime(timestamp),
+  timestamp: timestamp.getTime(),
+  replyTo: replyingTo ? {
+    timestamp: replyingTo.timestamp,
+    text: replyingTo.text,
+    senderName: replyingTo.senderName
+  } : null
+};
 connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
-const newMsgObj = { text: textToSend, sender: 'you', recipient: 'general', senderName: userName, time: formatTime(timestamp), type: 'text', direct: false, timestamp: timestamp.getTime() };
+const newMsgObj = { ...msgData, sender: 'you', recipient: 'general', timestamp: timestamp.getTime() };
 setMessages(prev => {
 const updated = [...prev, newMsgObj].slice(-500);
 return updated;
 });
 }
 setNewMessage('');
+setReplyingTo(null);
 } catch (err) { alert(t(lang, 'sendError') + err.message); }
 finally { setIsSending(false); }
 };
@@ -2339,6 +2433,7 @@ style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab ===
 if (hiddenMessages.has(msg.timestamp)) return null;
 return (
 <div key={msg.timestamp || i}
+id={`msg-${msg.timestamp}`}
 className={`message-bubble ${msg.sender === 'you' ? 'sent' : 'received'}`}
 style={msg.sender === '__system__' ? { background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', fontSize: '12px', maxWidth: '92%', borderRadius: '10px' } : {}}>
 {msg.sender !== '__system__' && (
@@ -2355,6 +2450,16 @@ style={msg.sender === '__system__' ? { background: '#eff6ff', border: '1px solid
 {msg.sender !== '__system__' && (
 <div className="chat-user-bubble">{msg.sender === 'you' ? (t(lang, 'you') + ' · ' + userName) : (msg.senderName || getContactName(msg.sender))}</div>
 )}
+
+{msg.replyTo && (
+  <div className="reply-quote" onClick={() => {
+    const el = document.getElementById(`msg-${msg.replyTo.timestamp}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }}>
+    <strong>{msg.replyTo.senderName}:</strong> {msg.replyTo.text}
+  </div>
+)}
+
 {msg.type === 'text' ? (
 msg.text && msg.text.includes('🧲 TORRENT:') ? (
 <div className="torrent-card">
@@ -2379,7 +2484,42 @@ msg.text && msg.text.includes('🧲 TORRENT:') ? (
 </div>
 )}
 {msg.sender !== '__system__' && <div className="message-timestamp">{msg.time}</div>}
-{msg.sender !== '__system__' && <div className="green-delete-icon" onClick={() => deleteMessage(msg.timestamp)} title="Remove"><i className="fas fa-trash"></i></div>}
+
+{msg.reactions && Object.keys(msg.reactions).length > 0 && (
+  <div className="reactions-container">
+    {Object.entries(msg.reactions).map(([emoji, users]) => users.length > 0 && (
+      <div 
+        key={emoji} 
+        className={`reaction-badge ${users.includes(peerId) ? 'active' : ''}`}
+        onClick={() => handleReaction(msg, emoji)}
+      >
+        <span>{emoji}</span>
+        <span className="reaction-count">{users.length}</span>
+      </div>
+    ))}
+  </div>
+)}
+
+{msg.sender !== '__system__' && (
+  <div className="message-actions">
+    <button className="action-btn" onClick={() => setReplyingTo(msg)} title="Reply">
+      <i className="fas fa-reply"></i>
+    </button>
+    <div style={{ position: 'relative' }}>
+      <button className="action-btn" onClick={() => setShowMiniEmojiPicker(showMiniEmojiPicker === msg.timestamp ? null : msg.timestamp)} title="React">
+        <i className="far fa-smile"></i>
+      </button>
+      {showMiniEmojiPicker === msg.timestamp && (
+        <div className="emoji-picker-mini">
+          {['👍', '❤️', '😂', '😮', '😢', '🔥'].map(emoji => (
+            <span key={emoji} className="mini-emoji" onClick={() => handleReaction(msg, emoji)}>{emoji}</span>
+          ))}
+        </div>
+      )}
+    </div>
+    <div className="action-btn" onClick={() => deleteMessage(msg.timestamp)} title="Remove"><i className="fas fa-trash"></i></div>
+  </div>
+)}
 </div>
 </div>
 )})}
@@ -2408,6 +2548,18 @@ return (
 </div>
 );
 })()}
+
+
+{replyingTo && (
+  <div className="reply-preview">
+    <div className="reply-preview-content">
+      <strong>{replyingTo.senderName}:</strong> {replyingTo.text}
+    </div>
+    <button className="reply-preview-close" onClick={() => setReplyingTo(null)}>
+      <i className="fas fa-times"></i>
+    </button>
+  </div>
+)}
 
 
 <div className="chat-input-container">
@@ -3261,6 +3413,30 @@ return;
 }
 
 
+if (data.type === 'reaction') {
+  if (seenMessagesRef.current.has(data.id)) return;
+  seenMessagesRef.current.add(data.id);
+  pruneSeenMessages();
+  let ttl = data.ttl !== undefined ? data.ttl : 15;
+  if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+  
+  setMessages(prev => prev.map(m => {
+    if (m.timestamp === data.targetTimestamp) {
+      const reactions = { ...(m.reactions || {}) };
+      const emojiReactions = [...(reactions[data.emoji] || [])];
+      if (emojiReactions.includes(data.sender)) {
+        reactions[data.emoji] = emojiReactions.filter(u => u !== data.sender);
+      } else {
+        reactions[data.emoji] = [...emojiReactions, data.sender];
+      }
+      return { ...m, reactions };
+    }
+    return m;
+  }));
+  return;
+}
+
+
 if (data.type === 'message' && data.id) {
 if (data.sender) {
 if (!knownUsersRef.current.has(data.sender)) {
@@ -3299,12 +3475,14 @@ senderName: data.senderName || getContactName(pId),
 time: messageTime,
 direct: data.direct || false,
 timestamp,
-recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general')
+recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general'),
+replyTo: data.replyTo || null,
+reactions: data.reactions || {}
 };
 let messageToAdd = null;
 
 
-if (data.type === 'message') {
+if (data.type === 'message' || data.type === 'text') {
 if (data.text && data.text.length > 500) { console.log("Mensagem muito longa ignorada no cliente."); return; }
 if (data.text === '#$%') {
 if (radioStateRef.current.status === 'idle') setRadioState({ status: 'playing', startTime: Date.now(), duration: 300, audioUrl: null, fileName: t(lang, 'radioGlobal'), sender: data.senderName || 'Server' });
