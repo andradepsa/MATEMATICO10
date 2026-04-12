@@ -4043,16 +4043,20 @@ if (radioAudioRef.current) { radioAudioRef.current.pause(); radioAudioRef.curren
 return { status: 'idle', type: 'file', startTime: 0, duration: 0, audioUrl: null, youtubeId: null, fileName: '', sender: '', showVideo: false, videoSize: 'medium' };
 }
 if (current.status === 'buffering') {
-if (now >= current.startTime) {
-if (current.audioUrl && radioAudioRef.current) {
-const off = (now - current.startTime) / 1000;
-radioAudioRef.current.src = current.audioUrl;
-radioAudioRef.current.currentTime = off;
-radioAudioRef.current.play().catch(() => {});
-}
-return { ...current, status: 'playing' };
-}
-return { ...current, _tick: now };
+  if (now >= current.startTime) {
+    if (current.audioUrl && radioAudioRef.current) {
+      const off = Math.max(0, (now - current.startTime) / 1000);
+      radioAudioRef.current.src = current.audioUrl;
+      radioAudioRef.current.currentTime = off;
+      radioAudioRef.current.play().catch(err => {
+        console.warn('[Radio] play() bloqueado:', err);
+      });
+      return { ...current, status: 'playing' }; // só muda se audioUrl existe
+    }
+    // audioUrl ainda null (baixando) — fica em buffering
+    return { ...current, _tick: now };
+  }
+  return { ...current, _tick: now };
 }
 } else if (current.type === 'youtube') {
 const endTime = current.startTime + (current.duration || 300) * 1000;
@@ -4101,13 +4105,23 @@ if (current.status === 'buffering') {
 if (now >= current.startTime) {
 if (current.audioUrl && radioAudioRef.current) {
 radioAudioRef.current.src = current.audioUrl;
-radioAudioRef.current.play().catch(() => {});
+radioAudioRef.current.crossOrigin = 'anonymous';
+radioAudioRef.current.play().catch(err => {
+console.warn('[Radio] stream play() falhou:', err);
+});
 }
 return { ...current, status: 'playing' };
 }
 return { ...current, _tick: now };
 }
+// retry se parou de tocar
+if (current.status === 'playing' && radioAudioRef.current && radioAudioRef.current.paused && current.audioUrl) {
+radioAudioRef.current.play().catch(() => {});
 }
+}
+
+
+
 return current;
 });
 };
@@ -4115,6 +4129,22 @@ radioIntervalRef.current = setInterval(check, 500);
 return () => clearInterval(radioIntervalRef.current);
 }, []);
 
+useEffect(() => {
+  if (
+    radioState.status === 'playing' &&
+    radioState.type === 'file' &&
+    radioState.audioUrl &&
+    radioAudioRef.current &&
+    !radioAudioRef.current.src.includes('blob:')
+  ) {
+    const off = Math.max(0, (Date.now() - radioState.startTime) / 1000);
+    radioAudioRef.current.src = radioState.audioUrl;
+    radioAudioRef.current.currentTime = off;
+    radioAudioRef.current.play().catch(err => {
+      console.warn('[Radio] play() ao receber audioUrl:', err);
+    });
+  }
+}, [radioState.audioUrl]);
 
 const stopRadio = () => {
 if (radioAudioRef.current) { radioAudioRef.current.pause(); radioAudioRef.current.src = ''; }
