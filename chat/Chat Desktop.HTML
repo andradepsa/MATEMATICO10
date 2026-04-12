@@ -386,6 +386,22 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 .poll-option-input-row { display: flex; gap: 8px; margin-bottom: 8px; }
 .poll-creator-btn { width: 100%; padding: 12px; background: #2563eb; color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; margin-top: 10px; }
 .poll-creator-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
+
+/* MARKDOWN EDITOR */
+.md-editor-container { background: white; border-radius: 16px; width: 100%; max-width: 1000px; height: 85vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
+.md-editor-body { flex: 1; display: flex; overflow: hidden; background: #f8fafc; }
+.md-editor-input { flex: 1; border: none; padding: 20px; font-family: 'JetBrains Mono', monospace; font-size: 14px; resize: none; outline: none; background: #ffffff; border-right: 1px solid #e2e8f0; color: #1e293b; }
+.md-editor-preview { flex: 1; padding: 20px; overflow-y: auto; background: #f8fafc; color: #1e293b; }
+.md-editor-preview h1 { font-size: 24px; margin-bottom: 16px; }
+.md-editor-preview h2 { font-size: 20px; margin-bottom: 14px; }
+.md-editor-preview h3 { font-size: 18px; margin-bottom: 12px; }
+.md-editor-preview p { margin-bottom: 12px; line-height: 1.6; }
+.md-editor-preview code { background: #e2e8f0; padding: 2px 4px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 0.9em; }
+.md-editor-preview pre { background: #1e293b; color: #f8fafc; padding: 16px; border-radius: 8px; overflow-x: auto; margin-bottom: 16px; }
+.md-editor-preview pre code { background: transparent; padding: 0; color: inherit; }
+.md-editor-preview blockquote { border-left: 4px solid #3b82f6; padding-left: 16px; color: #64748b; margin: 16px 0; font-style: italic; }
+.md-editor-preview ul, .md-editor-preview ol { padding-left: 24px; margin-bottom: 16px; }
+.md-editor-preview img { max-width: 100%; border-radius: 8px; }
 </style>
 </head>
 <body>
@@ -398,6 +414,8 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.1/peerjs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
 <script src="https://www.youtube.com/iframe_api"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
 
 
 <script type="text/babel">
@@ -1726,6 +1744,65 @@ const Poll = ({ msg, peerId, onVote }) => {
 };
 
 
+const MarkdownEditor = ({ lang, connections, selectedContact, onClose }) => {
+  const [content, setContent] = useState('');
+  const [html, setHtml] = useState('');
+
+  useEffect(() => {
+    const handleEvent = (e) => {
+      if (e.detail.type === 'md-editor' && e.detail.content !== undefined) {
+        setContent(e.detail.content);
+      }
+    };
+    window.addEventListener('md-editor-event', handleEvent);
+    return () => window.removeEventListener('md-editor-event', handleEvent);
+  }, []);
+
+  useEffect(() => {
+    if (window.marked) {
+      const rawHtml = marked.parse(content || '');
+      const cleanHtml = window.DOMPurify ? DOMPurify.sanitize(rawHtml) : rawHtml;
+      setHtml(cleanHtml);
+    }
+  }, [content]);
+
+  const handleChange = (e) => {
+    const newContent = e.target.value;
+    setContent(newContent);
+    
+    const payload = { type: 'md-editor', content: newContent };
+    if (selectedContact) {
+      const conn = connections.find(c => c.peer === selectedContact);
+      if (conn && conn.open) conn.send(payload);
+    } else {
+      connections.forEach(conn => {
+        if (conn.open) try { conn.send(payload); } catch(err) {}
+      });
+    }
+  };
+
+  return (
+    <div className="whiteboard-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="md-editor-container">
+        <div className="whiteboard-header">
+          <h3 style={{ margin: 0, fontSize: '16px' }}><i className="fas fa-file-code"></i> {lang === 'pt' ? 'Editor Markdown Colaborativo' : 'Collaborative Markdown Editor'}</h3>
+          <button className="tutorial-close" onClick={onClose}><i className="fas fa-times"></i></button>
+        </div>
+        <div className="md-editor-body">
+          <textarea 
+            className="md-editor-input" 
+            value={content} 
+            onChange={handleChange}
+            placeholder={lang === 'pt' ? 'Digite seu markdown aqui...' : 'Type your markdown here...'}
+          />
+          <div className="md-editor-preview" dangerouslySetInnerHTML={{ __html: html }} />
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
 const SendSecretModal = ({ lang, connections, contacts, getContactName, isCentralServer, onSend, onClose, e2eeState }) => {
 const [selectedPeer, setSelectedPeer] = useState(null);
 const [mySecret] = useState(() => generateSecret());
@@ -2115,132 +2192,121 @@ return messages.filter(msg =>
 
 
 const MessageText = ({ msg, onContentChange, onHide }) => {
-const contactPeer = msg.sender === 'you' ? msg.recipient : msg.sender;
-const isE2EE = typeof msg.text === 'string' && msg.text.startsWith(E2EE_PREFIX);
-const isGroup = typeof msg.text === 'string' && msg.text.startsWith(GROUP_E2EE_PREFIX);
+  const contactPeer = msg.sender === 'you' ? msg.recipient : msg.sender;
+  const isE2EE = typeof msg.text === 'string' && msg.text.startsWith(E2EE_PREFIX);
+  const isGroup = typeof msg.text === 'string' && msg.text.startsWith(GROUP_E2EE_PREFIX);
 
+  const cacheKey = `${msg.timestamp}-${msg.text}`;
+  const [display, setDisplay] = useState(() => {
+    if (!isE2EE && !isGroup) return { plain: msg.text, encrypted: false };
+    if (decryptionCache.current.has(cacheKey)) return decryptionCache.current.get(cacheKey);
+    return null;
+  });
 
-const cacheKey = `${msg.timestamp}-${msg.text}`;
-const [display, setDisplay] = useState(() => {
-if (!isE2EE && !isGroup) return { plain: msg.text, encrypted: false };
-if (decryptionCache.current.has(cacheKey)) return decryptionCache.current.get(cacheKey);
-return null;
-});
+  useEffect(() => {
+    if (onContentChange) onContentChange();
+  }, [display, onContentChange]);
 
+  useEffect(() => {
+    if (display && (display.noKey || display.error)) {
+      if (onHide) onHide(msg.timestamp);
+    }
+  }, [display, msg.timestamp, onHide]);
 
-useEffect(() => {
-if (onContentChange) onContentChange();
-}, [display, onContentChange]);
+  useEffect(() => {
+    if (!isE2EE && !isGroup) return;
+    if (decryptionCache.current.has(cacheKey)) {
+      setDisplay(decryptionCache.current.get(cacheKey));
+      return;
+    }
 
+    let isMounted = true;
+    const runDecryption = async () => {
+      if (isGroup) {
+        const b64 = msg.text.slice(GROUP_E2EE_PREFIX.length);
+        const serverSecrets = Object.values(serverE2EE).filter(s => s.groupSecret).map(s => s.groupSecret);
+        if (serverSecrets.length === 0) {
+          if (isMounted) setDisplay({ plain: null, encrypted: true, noKey: true, isGroup: true });
+          return;
+        }
+        for (const secret of serverSecrets) {
+          try {
+            const plain = await decryptMsg(b64, secret);
+            const result = { plain, encrypted: true, isGroup: true };
+            decryptionCache.current.set(cacheKey, result);
+            if (isMounted) setDisplay(result);
+            return;
+          } catch(e) {}
+        }
+        if (isMounted) setDisplay({ plain: null, encrypted: true, error: true, isGroup: true });
+      } else {
+        const b64 = msg.text.slice(E2EE_PREFIX.length);
+        const isMine = msg.sender === 'you';
+        const secret = isMine ? e2eeState[contactPeer]?.mySecret : e2eeState[contactPeer]?.contactSecret;
+        if (!secret) {
+          if (isMounted) setDisplay({ plain: null, encrypted: true, noKey: true });
+          return;
+        }
+        try {
+          const plain = await decryptMsg(b64, secret);
+          const result = { plain, encrypted: true };
+          decryptionCache.current.set(cacheKey, result);
+          if (isMounted) setDisplay(result);
+        } catch(e) {
+          if (isMounted) setDisplay({ plain: null, encrypted: true, error: true });
+        }
+      }
+    };
 
-useEffect(() => {
-if (display && (display.noKey || display.error)) {
-if (onHide) onHide(msg.timestamp);
-}
-}, [display, msg.timestamp, onHide]);
+    runDecryption();
+    return () => { isMounted = false; };
+  }, [msg.text, contactPeer, e2eeState[contactPeer]?.mySecret, e2eeState[contactPeer]?.contactSecret, JSON.stringify(serverE2EE)]);
 
+  const renderMarkdown = (text) => {
+    if (!text) return null;
+    if (window.marked && window.DOMPurify) {
+      const rawHtml = marked.parse(text);
+      const cleanHtml = DOMPurify.sanitize(rawHtml);
+      return <div className="md-editor-preview" style={{ padding: 0, background: 'transparent' }} dangerouslySetInnerHTML={{ __html: cleanHtml }} />;
+    }
+    return text;
+  };
 
-useEffect(() => {
-if (!isE2EE && !isGroup) return;
-if (decryptionCache.current.has(cacheKey)) {
-setDisplay(decryptionCache.current.get(cacheKey));
-return;
-}
+  const isInvite = msg.isInvite;
 
+  const handleAcceptInvite = () => {
+    if (msg.inviteData) {
+      setServerE2EE(prev => ({ ...prev, [msg.inviteData.serverId]: { active: true, groupSecret: msg.inviteData.groupSecret } }));
+      connectToPeer(msg.inviteData.serverId);
+      setMessages(prev => prev.map(m => m.timestamp === msg.timestamp ? { ...m, isInvite: false, text: t(lang, 'joinedGroup', { id: msg.inviteData.serverId }) } : m));
+    }
+  };
 
-let isMounted = true;
-const runDecryption = async () => {
-if (isGroup) {
-const b64 = msg.text.slice(GROUP_E2EE_PREFIX.length);
-const serverSecrets = Object.values(serverE2EE).filter(s => s.groupSecret).map(s => s.groupSecret);
-if (serverSecrets.length === 0) {
-if (isMounted) setDisplay({ plain: null, encrypted: true, noKey: true, isGroup: true });
-return;
-}
-for (const secret of serverSecrets) {
-try {
-const plain = await decryptMsg(b64, secret);
-const result = { plain, encrypted: true, isGroup: true };
-decryptionCache.current.set(cacheKey, result);
-if (isMounted) setDisplay(result);
-return;
-} catch(e) {}
-}
-if (isMounted) setDisplay({ plain: null, encrypted: true, error: true, isGroup: true });
-} else {
-const b64 = msg.text.slice(E2EE_PREFIX.length);
-const isMine = msg.sender === 'you';
-const secret = isMine ? e2eeState[contactPeer]?.mySecret : e2eeState[contactPeer]?.contactSecret;
-if (!secret) {
-if (isMounted) setDisplay({ plain: null, encrypted: true, noKey: true });
-return;
-}
-try {
-const plain = await decryptMsg(b64, secret);
-const result = { plain, encrypted: true };
-decryptionCache.current.set(cacheKey, result);
-if (isMounted) setDisplay(result);
-} catch(e) {
-if (isMounted) setDisplay({ plain: null, encrypted: true, error: true });
-}
-}
-};
+  const handleDeclineInvite = () => {
+    setMessages(prev => prev.map(m => m.timestamp === msg.timestamp ? { ...m, isInvite: false, text: t(lang, 'declinedGroup', { id: msg.inviteData.serverId }) } : m));
+  };
 
+  if (isInvite) {
+    return (
+      <div className="invite-container" style={{ marginTop: '8px', padding: '10px', background: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd' }}>
+        <div style={{ fontSize: '13px', marginBottom: '8px', color: '#0369a1', fontWeight: '500' }}>{msg.text}</div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={handleAcceptInvite} style={{ background: '#10b981', color: 'white', border: 'none', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}>{t(lang, 'accept')}</button>
+          <button onClick={handleDeclineInvite} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}>{t(lang, 'decline')}</button>
+        </div>
+      </div>
+    );
+  }
 
-runDecryption();
-return () => { isMounted = false; };
-}, [msg.text, contactPeer, e2eeState[contactPeer]?.mySecret, e2eeState[contactPeer]?.contactSecret, JSON.stringify(serverE2EE)]);
-
-
-const isInvite = msg.isInvite;
-
-
-const handleAcceptInvite = () => {
-if (msg.inviteData) {
-setServerE2EE(prev => ({ ...prev, [msg.inviteData.serverId]: { active: true, groupSecret: msg.inviteData.groupSecret } }));
-connectToPeer(msg.inviteData.serverId);
-setMessages(prev => prev.map(m => m.timestamp === msg.timestamp ? { ...m, isInvite: false, text: t(lang, 'joinedGroup', { id: msg.inviteData.serverId }) } : m));
-}
-};
-
-
-const handleDeclineInvite = () => {
-setMessages(prev => prev.map(m => m.timestamp === msg.timestamp ? { ...m, isInvite: false, text: t(lang, 'declinedGroup', { id: msg.inviteData.serverId }) } : m));
-};
-
-
-if (isInvite) {
-return (
-<div className="invite-container" style={{ marginTop: '8px', padding: '10px', background: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd' }}>
-<div style={{ fontSize: '13px', marginBottom: '8px', color: '#0369a1', fontWeight: '500' }}>{msg.text}</div>
-<div style={{ display: 'flex', gap: '8px' }}>
-<button
-onClick={handleAcceptInvite}
-style={{ background: '#10b981', color: 'white', border: 'none', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}
->
-{t(lang, 'accept')}
-</button>
-<button
-onClick={handleDeclineInvite}
-style={{ background: '#ef4444', color: 'white', border: 'none', padding: '5px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}
->
-{t(lang, 'decline')}
-</button>
-</div>
-</div>
-);
-}
-
-
-if (display === null) return null;
-if (!display.encrypted) return <div>{display.plain}</div>;
-if (display.noKey || display.error) return null;
-return (
-<div>
-<div className={`msg-encrypted-badge${display.isGroup ? ' group' : ''}`}>{display.isGroup ? '🛡️ GROUP' : '🔒 PRIVATE'}</div>
-<div>{display.plain}</div>
-</div>
-);
+  if (display === null) return null;
+  if (!display.encrypted) return <div>{renderMarkdown(display.plain)}</div>;
+  if (display.noKey || display.error) return null;
+  return (
+    <div>
+      <div className={`msg-encrypted-badge${display.isGroup ? ' group' : ''}`}>{display.isGroup ? '🛡️ GROUP' : '🔒 PRIVATE'}</div>
+      <div>{renderMarkdown(display.plain)}</div>
+    </div>
+  );
 };
 
 
@@ -3069,6 +3135,7 @@ useEffect(() => { userYoutubeStreamsRef.current = userYoutubeStreams; }, [userYo
 const [showYoutubeGrid, setShowYoutubeGrid] = useState(false);
 const [showMediaControls, setShowMediaControls] = useState(false);
 const [showPollCreator, setShowPollCreator] = useState(false);
+const [showMarkdownEditor, setShowMarkdownEditor] = useState(false);
 
 
 const handlePollCreated = (question, options) => {
@@ -3379,6 +3446,12 @@ return;
 
 if (data.type === 'whiteboard') {
   window.dispatchEvent(new CustomEvent('whiteboard-event', { detail: data }));
+  return;
+}
+
+
+if (data.type === 'md-editor') {
+  window.dispatchEvent(new CustomEvent('md-editor-event', { detail: data }));
   return;
 }
 
@@ -4436,11 +4509,15 @@ return (
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowPollCreator(true); }}>
           <i className="fas fa-poll"></i> {lang === 'pt' ? 'Criar Enquete' : 'Create Poll'}
         </button>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowMarkdownEditor(true); }}>
+          <i className="fas fa-file-code"></i> {lang === 'pt' ? 'Editor Markdown' : 'Markdown Editor'}
+        </button>
       </div>
     </div>
   </div>
 )}
 {showPollCreator && <PollCreator onClose={() => setShowPollCreator(false)} onCreated={handlePollCreated} />}
+{showMarkdownEditor && <MarkdownEditor lang={lang} connections={connections} selectedContact={selectedContact} onClose={() => setShowMarkdownEditor(false)} />}
 {showGeneralModeInfo && <GeneralModeInfoModal lang={lang} selectedContact={selectedContact} onClose={() => setShowGeneralModeInfo(false)} />}
 {showTorrentManager && (
 <TorrentManagerModal
