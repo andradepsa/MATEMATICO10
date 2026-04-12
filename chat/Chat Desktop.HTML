@@ -365,6 +365,27 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 .message-bubble.sent { justify-content: flex-end; }
 .message-content-wrapper { max-width: 85%; display: flex; flex-direction: column; }
 .message-bubble.sent .message-content-wrapper { align-items: flex-end; }
+
+/* POLLS */
+.poll-container { background: white; border: 1px solid #e2e8f0; border-radius: 12px; padding: 14px; margin: 8px 0; width: 100%; min-width: 240px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); color: #1e293b; }
+.message-bubble.sent .poll-container { background: #f0f9ff; border-color: #bae6fd; }
+.poll-question { font-weight: 700; font-size: 14px; margin-bottom: 12px; text-align: left; }
+.poll-options { display: flex; flex-direction: column; gap: 8px; }
+.poll-option { position: relative; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; cursor: pointer; transition: all 0.2s; overflow: hidden; }
+.poll-option:hover { border-color: #3b82f6; background: #f1f5f9; }
+.poll-option.voted { border-color: #3b82f6; background: #eff6ff; font-weight: 600; }
+.poll-option-progress { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(59, 130, 246, 0.15); transition: width 0.4s ease; z-index: 0; }
+.poll-option-text { position: relative; z-index: 1; font-size: 13px; display: flex; justify-content: space-between; align-items: center; pointer-events: none; }
+.poll-option-count { font-size: 11px; color: #64748b; font-weight: 600; }
+.poll-total-votes { font-size: 11px; color: #94a3b8; margin-top: 10px; text-align: right; }
+
+.poll-creator-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 2600; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.poll-creator-modal { background: white; border-radius: 16px; width: 100%; max-width: 400px; padding: 20px; box-shadow: 0 20px 50px rgba(0,0,0,0.3); }
+.poll-creator-input { width: 100%; padding: 10px; border: 1px solid #e2e8f0; border-radius: 8px; margin-bottom: 12px; font-size: 14px; outline: none; }
+.poll-creator-input:focus { border-color: #3b82f6; }
+.poll-option-input-row { display: flex; gap: 8px; margin-bottom: 8px; }
+.poll-creator-btn { width: 100%; padding: 12px; background: #2563eb; color: white; border: none; border-radius: 8px; font-weight: 600; cursor: pointer; margin-top: 10px; }
+.poll-creator-btn:disabled { background: #cbd5e1; cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -1604,6 +1625,107 @@ const Whiteboard = ({ lang, connections, selectedContact, onClose }) => {
 };
 
 
+const PollCreator = ({ onClose, onCreated }) => {
+  const [question, setQuestion] = useState('');
+  const [options, setOptions] = useState(['', '']);
+
+  const addOption = () => setOptions([...options, '']);
+  const removeOption = (index) => setOptions(options.filter((_, i) => i !== index));
+  const updateOption = (index, val) => {
+    const newOptions = [...options];
+    newOptions[index] = val;
+    setOptions(newOptions);
+  };
+
+  const handleCreate = () => {
+    const validOptions = options.filter(o => o.trim() !== '');
+    if (question.trim() && validOptions.length >= 2) {
+      onCreated(question.trim(), validOptions);
+    }
+  };
+
+  return (
+    <div className="poll-creator-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
+      <div className="poll-creator-modal">
+        <h3 style={{ margin: '0 0 16px 0' }}>Create Poll</h3>
+        <input 
+          className="poll-creator-input" 
+          placeholder="Question (e.g. What's your favorite color?)" 
+          value={question} 
+          onChange={e => setQuestion(e.target.value)}
+        />
+        <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '12px' }}>
+          {options.map((opt, i) => (
+            <div key={i} className="poll-option-input-row">
+              <input 
+                className="poll-creator-input" 
+                style={{ marginBottom: 0 }}
+                placeholder={`Option ${i + 1}`} 
+                value={opt} 
+                onChange={e => updateOption(i, e.target.value)}
+              />
+              {options.length > 2 && (
+                <button className="wb-tool-btn" onClick={() => removeOption(i)} style={{ color: '#ef4444' }}>
+                  <i className="fas fa-times"></i>
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+        <button className="wb-tool-btn" onClick={addOption} style={{ width: '100%', justifyContent: 'center', marginBottom: '12px' }}>
+          <i className="fas fa-plus"></i> Add Option
+        </button>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button className="wb-tool-btn" onClick={onClose} style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>
+          <button 
+            className="poll-creator-btn" 
+            style={{ flex: 1, marginTop: 0 }}
+            onClick={handleCreate}
+            disabled={!question.trim() || options.filter(o => o.trim() !== '').length < 2}
+          >
+            Create
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const Poll = ({ msg, peerId, onVote }) => {
+  const totalVotes = Object.values(msg.pollVotes || {}).length;
+  const voteCounts = msg.pollOptions.map((_, i) => 
+    Object.values(msg.pollVotes || {}).filter(v => v === i).length
+  );
+  const myVote = msg.pollVotes ? msg.pollVotes[peerId] : null;
+
+  return (
+    <div className="poll-container">
+      <div className="poll-question">{msg.pollQuestion}</div>
+      <div className="poll-options">
+        {msg.pollOptions.map((opt, i) => {
+          const count = voteCounts[i];
+          const percent = totalVotes > 0 ? (count / totalVotes) * 100 : 0;
+          return (
+            <div 
+              key={i} 
+              className={`poll-option ${myVote === i ? 'voted' : ''}`}
+              onClick={() => onVote(msg.pollId, i)}
+            >
+              <div className="poll-option-progress" style={{ width: `${percent}%` }}></div>
+              <div className="poll-option-text">
+                <span>{opt}</span>
+                <span className="poll-option-count">{count} ({Math.round(percent)}%)</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <div className="poll-total-votes">{totalVotes} votes total</div>
+    </div>
+  );
+};
+
+
 const SendSecretModal = ({ lang, connections, contacts, getContactName, isCentralServer, onSend, onClose, e2eeState }) => {
 const [selectedPeer, setSelectedPeer] = useState(null);
 const [mySecret] = useState(() => generateSecret());
@@ -1919,6 +2041,39 @@ const [showSendSecretModal, setShowSendSecretModal] = useState(false);
 const [showServerE2EEModal, setShowServerE2EEModal] = useState(false);
 const [hiddenMessages, setHiddenMessages] = useState(new Set());
 const [activeChatTab, setActiveChatTab] = useState('native');
+
+
+const handleVote = (pollId, optionIndex) => {
+  // Update local state first for immediate feedback
+  setMessages(prev => prev.map(m => {
+    if (m.pollId === pollId) {
+      const votes = { ...(m.pollVotes || {}) };
+      if (votes[peerId] === optionIndex) {
+        delete votes[peerId]; // Toggle off
+      } else {
+        votes[peerId] = optionIndex;
+      }
+      return { ...m, pollVotes: votes };
+    }
+    return m;
+  }));
+
+  const voteData = {
+    type: 'poll-vote',
+    id: 'vote-' + Date.now(),
+    pollId,
+    optionIndex,
+    sender: peerId,
+    ttl: 15
+  };
+
+  if (selectedContact) {
+    const conn = connections.find(c => c.peer === selectedContact);
+    if (conn && conn.open) conn.send({ ...voteData, direct: true });
+  } else {
+    connections.forEach(c => { if (c.open) try { c.send({ ...voteData, direct: false }); } catch(e){} });
+  }
+};
 
 
 useEffect(() => {
@@ -2355,7 +2510,9 @@ style={msg.sender === '__system__' ? { background: '#eff6ff', border: '1px solid
 {msg.sender !== '__system__' && (
 <div className="chat-user-bubble">{msg.sender === 'you' ? (t(lang, 'you') + ' · ' + userName) : (msg.senderName || getContactName(msg.sender))}</div>
 )}
-{msg.type === 'text' ? (
+{msg.type === 'poll-create' ? (
+  <Poll msg={msg} peerId={peerId} onVote={handleVote} />
+) : msg.type === 'text' ? (
 msg.text && msg.text.includes('🧲 TORRENT:') ? (
 <div className="torrent-card">
 <div className="torrent-card-header">
@@ -2425,7 +2582,6 @@ title={selectedIsServer ? t(lang, 'serverSecret') : t(lang, 'sendSecret')}>
 </button>
 <div className="message-input-container">
 <button className="emoji-button" onClick={() => setShowEmojiPanel(!showEmojiPanel)} title={t(lang, 'emojis')}>😊</button>
-<button className="emoji-button" onClick={() => setShowWhiteboard(true)} title="Whiteboard" style={{ marginLeft: '4px' }}>🎨</button>
 <input type="text" value={newMessage}
 onChange={e => setNewMessage(e.target.value)}
 placeholder={inputStatus.placeholder}
@@ -2912,6 +3068,36 @@ useEffect(() => { userYoutubeStreamsRef.current = userYoutubeStreams; }, [userYo
 
 const [showYoutubeGrid, setShowYoutubeGrid] = useState(false);
 const [showMediaControls, setShowMediaControls] = useState(false);
+const [showPollCreator, setShowPollCreator] = useState(false);
+
+
+const handlePollCreated = (question, options) => {
+  const pollId = 'poll-' + Date.now() + '-' + Math.random().toString(36).substring(7);
+  const timestamp = new Date();
+  const timeStr = timestamp.toLocaleTimeString('en-US');
+  const msgData = {
+    type: 'poll-create',
+    id: pollId,
+    pollId,
+    pollQuestion: question,
+    pollOptions: options,
+    pollVotes: {}, // peerId: optionIndex
+    senderName: userName,
+    time: timeStr,
+    timestamp: timestamp.getTime(),
+    ttl: 15
+  };
+
+  if (selectedContact) {
+    const conn = connections.find(c => c.peer === selectedContact);
+    if (conn && conn.open) conn.send({ ...msgData, direct: true });
+    setMessages(prev => [...prev, { ...msgData, sender: 'you', recipient: selectedContact }]);
+  } else {
+    connections.forEach(c => { if (c.open) try { c.send({ ...msgData, direct: false }); } catch(e){} });
+    setMessages(prev => [...prev, { ...msgData, sender: 'you', recipient: 'general' }]);
+  }
+  setShowPollCreator(false);
+};
 const [showWhiteboard, setShowWhiteboard] = useState(false);
 const [showWorldRadios, setShowWorldRadios] = useState(false);
 const [youtubeLinks, setYoutubeLinks] = useState(YOUTUBE_LINKS_LIST);
@@ -3258,6 +3444,52 @@ seenMessagesRef.current.add(data.id);
 pruneSeenMessages();
 setYoutubeChatId(null);
 return;
+}
+
+
+if (data.type === 'poll-create') {
+  if (seenMessagesRef.current.has(data.id)) return;
+  seenMessagesRef.current.add(data.id);
+  pruneSeenMessages();
+  let ttl = data.ttl !== undefined ? data.ttl : 15;
+  if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+  
+  const timestamp = data.timestamp || Date.now();
+  const messageTime = data.time || formatTime(new Date(timestamp));
+  const isFromSrv = isCentralServer(pId);
+  const pollMsg = {
+    ...data,
+    sender: pId,
+    senderName: data.senderName || getContactName(pId),
+    time: messageTime,
+    direct: data.direct || false,
+    timestamp,
+    recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general')
+  };
+  setMessages(prev => [...prev, pollMsg].slice(-500));
+  return;
+}
+
+if (data.type === 'poll-vote') {
+  if (seenMessagesRef.current.has(data.id)) return;
+  seenMessagesRef.current.add(data.id);
+  pruneSeenMessages();
+  let ttl = data.ttl !== undefined ? data.ttl : 15;
+  if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+  
+  setMessages(prev => prev.map(m => {
+    if (m.pollId === data.pollId) {
+      const votes = { ...(m.pollVotes || {}) };
+      if (votes[data.sender] === data.optionIndex) {
+        delete votes[data.sender];
+      } else {
+        votes[data.sender] = data.optionIndex;
+      }
+      return { ...m, pollVotes: votes };
+    }
+    return m;
+  }));
+  return;
 }
 
 
@@ -4198,10 +4430,17 @@ return (
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowWorldRadios(true); }}>
           <i className="fas fa-globe"></i> World Radios
         </button>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowWhiteboard(true); }}>
+          <i className="fas fa-chalkboard"></i> {lang === 'pt' ? 'Lousa Colaborativa' : 'Collaborative Whiteboard'}
+        </button>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowPollCreator(true); }}>
+          <i className="fas fa-poll"></i> {lang === 'pt' ? 'Criar Enquete' : 'Create Poll'}
+        </button>
       </div>
     </div>
   </div>
 )}
+{showPollCreator && <PollCreator onClose={() => setShowPollCreator(false)} onCreated={handlePollCreated} />}
 {showGeneralModeInfo && <GeneralModeInfoModal lang={lang} selectedContact={selectedContact} onClose={() => setShowGeneralModeInfo(false)} />}
 {showTorrentManager && (
 <TorrentManagerModal
