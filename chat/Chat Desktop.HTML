@@ -345,6 +345,26 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 .wb-tool-btn.active { background: #2563eb; color: white; border-color: #2563eb; }
 .wb-color-picker { width: 30px; height: 30px; border-radius: 50%; border: 2px solid white; cursor: pointer; box-shadow: 0 0 0 1px #cbd5e1; }
 .wb-color-picker.active { box-shadow: 0 0 0 2px #2563eb; }
+
+/* AVATARS */
+.avatar-circle { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; background: #e2e8f0; border: 1px solid rgba(0,0,0,0.05); flex-shrink: 0; }
+.avatar-circle.large { width: 48px; height: 48px; }
+.avatar-circle.small { width: 24px; height: 24px; }
+.avatar-placeholder { width: 32px; height: 32px; border-radius: 50%; background: #cbd5e1; display: flex; align-items: center; justify-content: center; color: white; font-size: 12px; font-weight: bold; flex-shrink: 0; }
+.avatar-placeholder.large { width: 48px; height: 48px; font-size: 18px; }
+.avatar-placeholder.small { width: 24px; height: 24px; font-size: 10px; }
+
+.user-avatar-upload { position: relative; cursor: pointer; border-radius: 50%; overflow: hidden; width: 48px; height: 48px; border: 2px solid #3b82f6; transition: all 0.2s; }
+.user-avatar-upload:hover { opacity: 0.8; transform: scale(1.05); }
+.user-avatar-upload .upload-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; color: white; opacity: 0; transition: opacity 0.2s; }
+.user-avatar-upload:hover .upload-overlay { opacity: 1; }
+
+.message-bubble .avatar-container { margin-right: 8px; align-self: flex-start; margin-top: 4px; }
+.message-bubble.sent .avatar-container { margin-right: 0; margin-left: 8px; order: 2; }
+.message-bubble { display: flex; align-items: flex-start; }
+.message-bubble.sent { justify-content: flex-end; }
+.message-content-wrapper { max-width: 85%; display: flex; flex-direction: column; }
+.message-bubble.sent .message-content-wrapper { align-items: flex-end; }
 </style>
 </head>
 <body>
@@ -777,6 +797,23 @@ const GROUP_E2EE_PREFIX = "\u{1F6E1}GRP:";
 // ================================================================
 // ERROR BOUNDARY
 // ================================================================
+const Avatar = ({ peerId, name, avatars, size = 'medium', className = '' }) => {
+  const avatarData = avatars[peerId];
+  const initial = (name || peerId || '?').charAt(0).toUpperCase();
+  const sizeClass = size === 'large' ? 'large' : (size === 'small' ? 'small' : '');
+  
+  if (avatarData) {
+    return <img src={avatarData} alt={name} className={`avatar-circle ${sizeClass} ${className}`} referrerPolicy="no-referrer" />;
+  }
+  
+  return (
+    <div className={`avatar-placeholder ${sizeClass} ${className}`}>
+      {initial}
+    </div>
+  );
+};
+
+
 class ErrorBoundary extends React.Component {
 state = { error: null };
 static getDerivedStateFromError(error) { return { error }; }
@@ -1798,7 +1835,7 @@ disabled={disabled} title={t(lang, 'recordAudio')}>
 // ================================================================
 // ContactsScreen
 // ================================================================
-const ContactsScreen = ({ lang, contacts, setContacts, onBack, onSelectContact }) => {
+const ContactsScreen = ({ lang, contacts, setContacts, onBack, onSelectContact, avatars }) => {
 const [newName, setNewName] = useState('');
 const [newPeerId, setNewPeerId] = useState('');
 const [nameError, setNameError] = useState('');
@@ -1845,7 +1882,10 @@ return (
 <div className="connected-peers">
 {contacts.length === 0 ? <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>{t(lang, 'noContacts')}</p> : contacts.map((contact, i) => (
 <div key={i} className="peer-item" onClick={() => onSelectContact(contact.peerId)}>
-<span style={{ flex: 1, fontSize: '14px' }}>{contact.name} <span style={{ color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace", fontSize: '12px' }}>— {contact.peerId}</span></span>
+<div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+<Avatar peerId={contact.peerId} name={contact.name} avatars={avatars} size="small" />
+<span style={{ fontSize: '14px' }}>{contact.name} <span style={{ color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace", fontSize: '12px' }}>— {contact.peerId}</span></span>
+</div>
 <button onClick={(e) => handleRemoveContact(contact.peerId, e)}>🗑️</button>
 </div>
 ))}
@@ -1870,7 +1910,8 @@ e2eeState, setE2eeState, isCentralServer, serverE2EE, setServerE2EE, connectToPe
 handleTorrentSeed, handleTorrentDownload, setShowTorrentManager,
 pendingTorrentRequests, setPendingTorrentRequests, handleTorrentDirectSeed,
 youtubeChatId, disconnectPeer,
-showWhiteboard, setShowWhiteboard
+showWhiteboard, setShowWhiteboard,
+avatars
 }) => {
 const messagesEndRef = useRef(null);
 const messagesContainerRef = useRef(null);
@@ -2204,6 +2245,8 @@ return (
 <div key={i} className={`conversation-item${isSelected ? ' selected' : ''}${conn.peer === centralServerId ? ' central-server' : ''}`}
 onClick={() => setSelectedContact(isSelected ? null : conn.peer)}>
 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+<div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+<Avatar peerId={conn.peer} name={getContactName(conn.peer)} avatars={avatars} size="medium" />
 <div>
 <div className="conversation-name">
 {!isServer && hasMine && hasTheirs && <span title="Full E2EE active" style={{ marginRight: '4px' }}>🔒</span>}
@@ -2213,6 +2256,7 @@ onClick={() => setSelectedContact(isSelected ? null : conn.peer)}>
 {getContactName(conn.peer)}
 </div>
 <div className="conversation-peer-id">{conn.peer}</div>
+</div>
 </div>
 <div style={{ display: 'flex', gap: '8px' }}>
 <div className="green-delete-icon" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); deleteMessagesByContact(conn.peer); }} title={t(lang, 'deleteMessages')}>
@@ -2298,6 +2342,17 @@ return (
 className={`message-bubble ${msg.sender === 'you' ? 'sent' : 'received'}`}
 style={msg.sender === '__system__' ? { background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', fontSize: '12px', maxWidth: '92%', borderRadius: '10px' } : {}}>
 {msg.sender !== '__system__' && (
+  <div className="avatar-container">
+    <Avatar 
+      peerId={msg.sender === 'you' ? peerId : msg.sender} 
+      name={msg.sender === 'you' ? userName : (msg.senderName || getContactName(msg.sender))} 
+      avatars={msg.sender === 'you' ? { [peerId]: avatars[peerId] || localStorage.getItem('p2pUserAvatar') } : avatars} 
+      size="small" 
+    />
+  </div>
+)}
+<div className="message-content-wrapper">
+{msg.sender !== '__system__' && (
 <div className="chat-user-bubble">{msg.sender === 'you' ? (t(lang, 'you') + ' · ' + userName) : (msg.senderName || getContactName(msg.sender))}</div>
 )}
 {msg.type === 'text' ? (
@@ -2325,6 +2380,7 @@ msg.text && msg.text.includes('🧲 TORRENT:') ? (
 )}
 {msg.sender !== '__system__' && <div className="message-timestamp">{msg.time}</div>}
 {msg.sender !== '__system__' && <div className="green-delete-icon" onClick={() => deleteMessage(msg.timestamp)} title="Remove"><i className="fas fa-trash"></i></div>}
+</div>
 </div>
 )})}
 <div ref={messagesEndRef} />
@@ -2810,7 +2866,9 @@ setLang(newLang);
 
 const [peerId, setPeerId] = usePersistentId();
 const [userName, setUserName] = useState(() => localStorage.getItem('p2pUserName') || '');
+const [userAvatar, setUserAvatar] = useState(() => localStorage.getItem('p2pUserAvatar') || '');
 const [editingName, setEditingName] = useState(!localStorage.getItem('p2pUserName'));
+const [avatars, setAvatars] = useState({}); // { peerId: base64 }
 const [connections, setConnections] = useState([]);
 const [messages, setMessages] = useState([]);
 const [newMessage, setNewMessage] = useState('');
@@ -2908,6 +2966,53 @@ return () => clearTimeout(timer);
 const isCentralServer = (id) => id && id.endsWith('-CENTRAL');
 const getContactName = (pId) => contacts.find(c => c.peerId === pId)?.name || pId;
 const saveUserName = () => { if (userName.trim()) { localStorage.setItem('p2pUserName', userName); setEditingName(false); } };
+
+const handleAvatarChange = (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const MAX_WIDTH = 120;
+      const MAX_HEIGHT = 120;
+      let width = img.width;
+      let height = img.height;
+      
+      if (width > height) {
+        if (width > MAX_WIDTH) {
+          height *= MAX_WIDTH / width;
+          width = MAX_WIDTH;
+        }
+      } else {
+        if (height > MAX_HEIGHT) {
+          width *= MAX_HEIGHT / height;
+          height = MAX_HEIGHT;
+        }
+      }
+      
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      
+      const base64 = canvas.toDataURL('image/jpeg', 0.7); // Compress to 70% quality
+      setUserAvatar(base64);
+      localStorage.setItem('p2pUserAvatar', base64);
+      
+      // Notify all connected peers about the new avatar
+      connections.forEach(conn => {
+        if (conn.open) {
+          try { conn.send({ type: 'avatar-update', peerId, avatar: base64 }); } catch(err) {}
+        }
+      });
+    };
+    img.src = event.target.result;
+  };
+  reader.readAsDataURL(file);
+};
 const formatTime = (date) => date.toLocaleTimeString('en-US');
 
 
@@ -2924,7 +3029,7 @@ else { const first = localStreamsRef.current.values().next().value; if (localVid
 
 const sendHandshake = (conn) => {
 try {
-conn.send({ type: 'handshake', peerId });
+conn.send({ type: 'handshake', peerId, avatar: userAvatar });
 if (youtubeChatIdRef.current) {
 conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
 }
@@ -2974,7 +3079,18 @@ return;
 }
 
 
-if (data.type === 'handshake') { if (isCentralServer(pId)) setCentralServerId(pId); return; }
+if (data.type === 'handshake') { 
+  if (isCentralServer(pId)) setCentralServerId(pId); 
+  if (data.avatar) {
+    setAvatars(prev => ({ ...prev, [pId]: data.avatar }));
+  }
+  return; 
+}
+
+if (data.type === 'avatar-update' && data.avatar) {
+  setAvatars(prev => ({ ...prev, [pId]: data.avatar }));
+  return;
+}
 
 
 if (data.type === 'e2ee-secret' && data.secret) {
@@ -4211,19 +4327,28 @@ overflow: 'hidden'
 )}
 
 
-<div className="user-info-container">
-{editingName ? (
-<div className="user-name-form">
-<input type="text" value={userName} onChange={e => setUserName(e.target.value)} placeholder={t(lang, 'typeName')} autoFocus />
-<button onClick={saveUserName} disabled={!userName.trim()}>{t(lang, 'save')}</button>
-</div>
-) : (
-<div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-<span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{t(lang, 'yourName')}:</span>
-<span className="username">{userName}</span>
-<button className="user-edit-button" onClick={() => setEditingName(true)}>{t(lang, 'edit')}</button>
-</div>
-)}
+<div className="user-info-container" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+  <div className="user-avatar-upload" onClick={() => document.getElementById('avatarInput').click()}>
+    <Avatar peerId={peerId} name={userName} avatars={{ [peerId]: userAvatar }} size="large" />
+    <div className="upload-overlay">
+      <i className="fas fa-camera"></i>
+    </div>
+    <input type="file" id="avatarInput" accept="image/*" style={{ display: 'none' }} onChange={handleAvatarChange} />
+  </div>
+  <div style={{ flex: 1 }}>
+    {editingName ? (
+      <div className="user-name-form">
+        <input type="text" value={userName} onChange={e => setUserName(e.target.value)} placeholder={t(lang, 'typeName')} autoFocus />
+        <button onClick={saveUserName} disabled={!userName.trim()}>{t(lang, 'save')}</button>
+      </div>
+    ) : (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{t(lang, 'yourName')}:</span>
+        <span className="username">{userName}</span>
+        <button className="user-edit-button" onClick={() => setEditingName(true)}>{t(lang, 'edit')}</button>
+      </div>
+    )}
+  </div>
 </div>
 
 
@@ -4400,7 +4525,7 @@ videoRefs={videoRefs}
 
 {showContacts ? (
 <ContactsScreen lang={lang} contacts={contacts} setContacts={setContacts} onBack={() => setShowContacts(false)}
-onSelectContact={(pId) => { connectToPeer(pId); setSelectedContact(pId); setShowContacts(false); }} />
+onSelectContact={(pId) => { connectToPeer(pId); setSelectedContact(pId); setShowContacts(false); }} avatars={avatars} />
 ) : (
 <ChatManager
 lang={lang}
@@ -4429,6 +4554,7 @@ youtubeChatId={youtubeChatId}
 disconnectPeer={disconnectPeer}
 showWhiteboard={showWhiteboard}
 setShowWhiteboard={setShowWhiteboard}
+avatars={avatars}
 />
 )}
 
