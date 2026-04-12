@@ -3466,6 +3466,13 @@ if (data.radioType === 'stream') {
     }
     return prev;
   });
+} else if (data.radioType === 'youtube') {
+  setRadioState(prev => {
+    if (prev.status === 'idle') {
+      return { status: now >= data.startTime ? 'playing' : 'buffering', type: 'youtube', startTime: data.startTime, duration: data.duration || 300, audioUrl: null, youtubeId: data.youtubeId, fileName: data.fileName, sender: data.senderName, showVideo: false, videoSize: 'medium' };
+    }
+    return prev;
+  });
 } else {
   const endTime = data.startTime + data.duration * 1000;
   if (now < endTime) {
@@ -3706,7 +3713,6 @@ setPendingTorrentRequests(prev => ({ ...prev, [pId]: { magnet: data.magnet, file
 return;
 }
 
-
 if (messageToAdd) {
 setMessages(prev => {
 const updated = [...prev, messageToAdd].slice(-500);
@@ -3725,7 +3731,8 @@ const syncMsg = {
   duration: radioStateRef.current.duration, 
   fileName: radioStateRef.current.fileName, 
   senderName: radioStateRef.current.sender,
-  streamUrl: radioStateRef.current.type === 'stream' ? radioStateRef.current.audioUrl : undefined
+  streamUrl: radioStateRef.current.type === 'stream' ? radioStateRef.current.audioUrl : undefined,
+  youtubeId: radioStateRef.current.type === 'youtube' ? radioStateRef.current.youtubeId : undefined
 };
 const send = () => { try { conn.send(syncMsg); } catch(e) {} };
 send(); setTimeout(send, 1000); setTimeout(send, 2000);
@@ -3743,7 +3750,6 @@ const sendYt = () => { try { conn.send(ytSyncMsg); } catch(e) {} };
 sendYt(); setTimeout(sendYt, 1000);
 }
 };
-
 
 const disconnectPeer = (pId) => {
 if (!pId) return;
