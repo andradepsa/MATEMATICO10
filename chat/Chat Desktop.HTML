@@ -4132,19 +4132,24 @@ return () => clearInterval(radioIntervalRef.current);
 useEffect(() => {
   if (
     radioState.status === 'playing' &&
-    radioState.type === 'file' &&
+    (radioState.type === 'file' || radioState.type === 'stream') &&
     radioState.audioUrl &&
     radioAudioRef.current &&
-    !radioAudioRef.current.src.includes('blob:')
+    (!radioAudioRef.current.src || radioAudioRef.current.paused)
   ) {
-    const off = Math.max(0, (Date.now() - radioState.startTime) / 1000);
-    radioAudioRef.current.src = radioState.audioUrl;
-    radioAudioRef.current.currentTime = off;
+    if (radioState.type === 'file') {
+      const off = Math.max(0, (Date.now() - radioState.startTime) / 1000);
+      radioAudioRef.current.src = radioState.audioUrl;
+      radioAudioRef.current.currentTime = off;
+    } else {
+      radioAudioRef.current.src = radioState.audioUrl;
+      radioAudioRef.current.crossOrigin = 'anonymous';
+    }
     radioAudioRef.current.play().catch(err => {
       console.warn('[Radio] play() ao receber audioUrl:', err);
     });
   }
-}, [radioState.audioUrl]);
+}, [radioState.status, radioState.audioUrl]);
 
 const stopRadio = () => {
 if (radioAudioRef.current) { radioAudioRef.current.pause(); radioAudioRef.current.src = ''; }
