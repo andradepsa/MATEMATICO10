@@ -33,8 +33,9 @@ body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; background-color
 .header-buttons { display: flex; gap: 8px; align-items: center; }
 .header-button { background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.25); color: white; font-size: 15px; cursor: pointer; width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; }
 .header-button:hover { background: rgba(255,255,255,0.28); }
-.lang-btn { background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.5); color: white; font-size: 11px; font-weight: 800; cursor: pointer; height: 36px; padding: 0 12px; border-radius: 8px; letter-spacing: 0.5px; transition: all 0.2s; display: flex; align-items: center; gap: 5px; text-shadow: 0 1px 2px rgba(0,0,0,0.2); }
-.lang-btn:hover { background: rgba(255,255,255,0.28); }
+.lang-btn { background: rgba(255,255,255,0.25); border: 1px solid rgba(255,255,255,0.5); color: white; font-size: 11px; font-weight: 800; cursor: pointer; height: 36px; padding: 0 10px; border-radius: 8px; letter-spacing: 0.3px; transition: all 0.2s; display: flex; align-items: center; gap: 5px; text-shadow: 0 1px 2px rgba(0,0,0,0.2); appearance: none; -webkit-appearance: none; outline: none; }
+.lang-btn:hover { background: rgba(255,255,255,0.38); }
+.lang-btn option { color: #1e293b; background: white; font-weight: 700; text-shadow: none; }
 
 
 /* USER INFO */
@@ -794,8 +795,38 @@ const t = (lang, key, vars = {}) => {
 
 
 // ================================================================
-// AES-GCM E2EE HELPERS
+// MULTI-LANGUAGE CONFIG (8 languages for quiz translation)
 // ================================================================
+const LANGUAGES = [
+  { code: 'en', label: 'EN 🇺🇸', name: 'English',    gtCode: 'en'    },
+  { code: 'zh', label: 'ZH 🇨🇳', name: '中文',        gtCode: 'zh-CN' },
+  { code: 'es', label: 'ES 🇪🇸', name: 'Español',     gtCode: 'es'    },
+  { code: 'hi', label: 'HI 🇮🇳', name: 'हिंदी',       gtCode: 'hi'    },
+  { code: 'bn', label: 'BN 🇧🇩', name: 'বাংলা',       gtCode: 'bn'    },
+  { code: 'pt', label: 'PT 🇧🇷', name: 'Português',   gtCode: 'pt'    },
+  { code: 'ru', label: 'RU 🇷🇺', name: 'Русский',     gtCode: 'ru'    },
+  { code: 'ja', label: 'JA 🇯🇵', name: '日本語',      gtCode: 'ja'    },
+];
+// Map our lang code → Google Translate target code
+const GT_LANG = (code) => (LANGUAGES.find(l => l.code === code) || LANGUAGES[0]).gtCode;
+
+// Detect the user's preferred language from the browser.
+// Returns one of the 8 supported codes, or 'en' as fallback.
+const detectBrowserLang = () => {
+  const supportedCodes = LANGUAGES.map(l => l.code); // ['en','zh','es','hi','bn','pt','ru','ja']
+  const browserList = navigator.languages && navigator.languages.length
+    ? Array.from(navigator.languages)
+    : [navigator.language || 'en'];
+  for (const bl of browserList) {
+    const prefix = bl.toLowerCase().split('-')[0]; // 'pt-BR' → 'pt', 'zh-CN' → 'zh'
+    if (supportedCodes.includes(prefix)) return prefix;
+  }
+  return 'en';
+};
+
+
+// Module-level cache for quiz translations (shared across all MessageText instances)
+const quizTranslationCache = new Map();
 const keyCache = new Map();
 async function deriveKey(secret) {
 if (keyCache.has(secret)) return keyCache.get(secret);
@@ -2276,6 +2307,37 @@ const MessageText = ({ msg, onContentChange, onHide }) => {
   const isE2EE = typeof msg.text === 'string' && msg.text.startsWith(E2EE_PREFIX);
   const isGroup = typeof msg.text === 'string' && msg.text.startsWith(GROUP_E2EE_PREFIX);
 
+  // ── Per-user quiz-bot translation ──────────────────────────────
+  const isQuizBot = msg.senderName === '🤖 Quiz Bot';
+  const [quizTranslated, setQuizTranslated] = useState(null);
+  const [quizTranslating, setQuizTranslating] = useState(false);
+  const quizTranslateKey = `${msg.timestamp}-${lang}`;
+
+  useEffect(() => {
+    if (!isQuizBot || !msg.text) { setQuizTranslated(null); return; }
+    const targetGt = GT_LANG(lang);
+    if (targetGt === 'pt') { setQuizTranslated(msg.text); return; }
+    const cacheKey = quizTranslateKey;
+    if (quizTranslationCache.has(cacheKey)) {
+      setQuizTranslated(quizTranslationCache.get(cacheKey));
+      return;
+    }
+    let cancelled = false;
+    setQuizTranslating(true);
+    fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=pt&tl=${targetGt}&dt=t&q=${encodeURIComponent(msg.text)}`)
+      .then(r => r.json())
+      .then(d => {
+        if (cancelled) return;
+        const translated = d[0].map(item => item[0]).join('');
+        quizTranslationCache.set(cacheKey, translated);
+        setQuizTranslated(translated);
+      })
+      .catch(() => { if (!cancelled) setQuizTranslated(msg.text); })
+      .finally(() => { if (!cancelled) setQuizTranslating(false); });
+    return () => { cancelled = true; };
+  }, [isQuizBot, msg.text, lang]);
+  // ──────────────────────────────────────────────────────────────
+
   const cacheKey = `${msg.timestamp}-${msg.text}`;
   const [display, setDisplay] = useState(() => {
     if (!isE2EE && !isGroup) return { plain: msg.text, encrypted: false };
@@ -2379,7 +2441,23 @@ const MessageText = ({ msg, onContentChange, onHide }) => {
   }
 
   if (display === null) return null;
-  if (!display.encrypted) return <div>{renderMarkdown(display.plain)}</div>;
+  if (!display.encrypted) {
+    if (isQuizBot) {
+      const displayTxt = quizTranslated !== null ? quizTranslated : (quizTranslating ? '⏳ ...' : display.plain);
+      const langInfo = LANGUAGES.find(l => l.code === lang);
+      return (
+        <div>
+          {langInfo && lang !== 'pt' && (
+            <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '3px', fontStyle: 'italic' }}>
+              🌐 {langInfo.name}
+            </div>
+          )}
+          <div style={{ whiteSpace: 'pre-wrap' }}>{displayTxt}</div>
+        </div>
+      );
+    }
+    return <div>{renderMarkdown(display.plain)}</div>;
+  }
   if (display.noKey || display.error) return null;
   return (
     <div>
@@ -3155,34 +3233,44 @@ const QUIZ_SUBJECTS = [
 ];
 
 const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizDiscipline, setQuizDiscipline }) => {
+  const langInfo = LANGUAGES.find(l => l.code === lang) || LANGUAGES[0];
   return (
     <FloatingWindow
-      title={lang === 'pt' ? '🤖 Quiz Bot K10' : '🤖 Quiz Bot K10'}
+      title='🤖 Quiz Bot K10'
       onClose={onClose}
       initialPosition={{ x: window.innerWidth / 2 - 160, y: window.innerHeight / 2 - 200 }}
     >
       <div style={{ padding: '20px', textAlign: 'center', height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' }}>
-        <p style={{ marginBottom: '15px', color: 'var(--text-muted)', fontSize: '13px' }}>
-          {lang === 'pt' ? 'O bot fará perguntas no chat e verificará as respostas automaticamente.' : 'The bot will ask questions in chat and check answers automatically.'}
+        <p style={{ marginBottom: '8px', color: 'var(--text-muted)', fontSize: '13px' }}>
+          The bot sends questions in <strong>Portuguese</strong>. Each user's K10 chat auto-translates to their own selected language.
         </p>
+        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '8px 12px', marginBottom: '14px', fontSize: '12px', color: '#1d4ed8' }}>
+          🌐 Your language: <strong>{langInfo.label} {langInfo.name}</strong>
+          {lang === 'pt'
+            ? ' — questions arrive in Portuguese (original).'
+            : ' — questions will be auto-translated to your language.'}
+          <div style={{ marginTop: '4px', color: '#64748b', fontSize: '11px' }}>
+            💡 Auto-detected from your browser. Change it with the 🌐 dropdown in the header.
+          </div>
+        </div>
         
         <div style={{ marginBottom: '10px', textAlign: 'left' }}>
-          <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{lang === 'pt' ? 'Disciplina' : 'Discipline'}</label>
+          <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Discipline</label>
           <select value={quizDiscipline} onChange={e => setQuizDiscipline(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', marginTop: '4px' }} disabled={quizBotActive}>
-            <option value="all">📚 Todas as Disciplinas</option>
+            <option value="all">📚 All Disciplines</option>
             {QUIZ_SUBJECTS.map(sub => (
               <option key={sub.id} value={sub.id}>{sub.emoji} {sub.name}</option>
             ))}
           </select>
         </div>
         <div style={{ marginBottom: '20px', textAlign: 'left' }}>
-          <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{lang === 'pt' ? 'Tempo por pergunta (segundos)' : 'Time per question (seconds)'}</label>
+          <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Time per question (seconds)</label>
           <input type="number" value={quizInterval} onChange={e => setQuizInterval(Number(e.target.value))} min="5" style={{ width: '100%', padding: '8px', borderRadius: '4px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', marginTop: '4px' }} disabled={quizBotActive} />
         </div>
 
         <div style={{ marginBottom: '20px' }}>
           <span style={{ display: 'inline-block', padding: '8px 16px', borderRadius: '20px', background: quizBotActive ? '#10b98120' : '#ef444420', color: quizBotActive ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
-            {quizBotActive ? (lang === 'pt' ? '🟢 Ativado' : '🟢 Active') : (lang === 'pt' ? '🔴 Desativado' : '🔴 Inactive')}
+            {quizBotActive ? '🟢 Active' : '🔴 Inactive'}
           </span>
         </div>
 
@@ -3198,7 +3286,7 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
             }}
             style={{ background: quizBotActive ? '#ef4444' : '#10b981', width: '100%' }}
           >
-            {quizBotActive ? (lang === 'pt' ? 'Parar Bot' : 'Stop Bot') : (lang === 'pt' ? 'Iniciar Bot' : 'Start Bot')}
+            {quizBotActive ? 'Stop Bot' : 'Start Bot'}
           </button>
         </div>
       </div>
@@ -3207,7 +3295,7 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
 };
 
 const App = () => {
-const [lang, setLang] = useState('en');
+const [lang, setLang] = useState(() => localStorage.getItem('p2pUserLang') || detectBrowserLang());
 const [showTutorial, setShowTutorial] = useState(false);
 const [showGeneralModeInfo, setShowGeneralModeInfo] = useState(false);
 
@@ -3223,10 +3311,9 @@ document.body.classList.toggle('dark-mode');
 };
 
 
-const toggleLang = () => {
-const newLang = lang === 'en' ? 'pt' : 'en';
-setLang(newLang);
-// No longer saving lang to localStorage
+const setLangAndSave = (code) => {
+setLang(code);
+localStorage.setItem('p2pUserLang', code);
 };
 
 
@@ -3397,29 +3484,13 @@ const askNextQuestion = async () => {
 
   const answerText = `${L[q.correta]}) ${cleanOpts[q.correta]}`;
   
-  let translatedQ = questionText;
-  let translatedOpts = [...cleanOpts];
+  // Bot always sends in original Portuguese.
+  // Each user's K10 chat auto-translates to their own language.
+  const translatedQ = questionText;
+  const translatedOpts = [...cleanOpts];
   
-  if (lang === 'en') {
-    try {
-      // FIX: Traduz a pergunta E todas as opções em paralelo
-      const translateOne = async (text) => {
-        const r = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=pt&tl=en&dt=t&q=${encodeURIComponent(text)}`);
-        const d = await r.json();
-        return d[0].map(item => item[0]).join('');
-      };
-      const [tQ, ...tOpts] = await Promise.all([translateOne(questionText), ...cleanOpts.map(translateOne)]);
-      translatedQ = tQ || questionText;
-      translatedOpts = tOpts.map((t, i) => t || cleanOpts[i]);
-    } catch (e) {
-      console.error("Translation error", e);
-    }
-  }
-  
-  // Build the display answer in the active language (used when revealing the answer)
-  const displayAnswerText = (lang === 'en' && translatedOpts.length > q.correta)
-    ? `${L[q.correta]}) ${translatedOpts[q.correta]}`
-    : answerText;
+  // displayAnswerText always in Portuguese (will be auto-translated per user)
+  const displayAnswerText = answerText;
 
   currentQuizQuestionRef.current = {
     ...q,
@@ -3437,7 +3508,7 @@ const askNextQuestion = async () => {
   
   quizTimerRef.current = setTimeout(() => {
     if (quizBotActiveRef.current && currentQuizQuestionRef.current) {
-      sendBotMessage(`⏳ ${lang === 'pt' ? 'Tempo esgotado! A resposta era:' : 'Time is up! The answer was:'} ${displayAnswerText}`);
+      sendBotMessage(`⏳ Tempo esgotado! A resposta era: ${displayAnswerText}`);
       currentQuizQuestionRef.current = null;
       setTimeout(() => {
         if (quizBotActiveRef.current) askNextQuestion();
@@ -3477,7 +3548,7 @@ useEffect(() => {
   
   if (isLetterMatch || isTextMatch) {
     if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
-    sendBotMessage(`🎉 ${lastMsg.senderName || getContactName(lastMsg.sender)} ${lang === 'pt' ? 'acertou! A resposta é:' : 'got it right! The answer is:'} ${q.r}`);
+    sendBotMessage(`🎉 ${lastMsg.senderName || getContactName(lastMsg.sender)} acertou! A resposta é: ${q.r}`);
     currentQuizQuestionRef.current = null;
     setTimeout(() => {
       if (quizBotActiveRef.current) askNextQuestion();
@@ -4940,9 +5011,19 @@ Chat K10
 <i className="fas fa-address-book"></i>
 </button>
 <button onClick={toggleDarkMode} className="header-button" title={t(lang, 'darkMode')}>🌙</button>
-<button onClick={toggleLang} className="lang-btn" title="Switch Language">
-🌐 {t(lang, 'language')}
-</button>
+<select
+  value={lang}
+  onChange={e => setLangAndSave(e.target.value)}
+  className="lang-btn"
+  title="Switch Language / Idioma do Quiz"
+  style={{ fontFamily: 'inherit', fontWeight: 800, letterSpacing: '0.3px', fontSize: '11px' }}
+>
+  {LANGUAGES.map(l => (
+    <option key={l.code} value={l.code} style={{ color: '#1e293b', background: 'white', fontWeight: 700 }}>
+      {l.label} {l.name}
+    </option>
+  ))}
+</select>
 </div>
 </div>
 
