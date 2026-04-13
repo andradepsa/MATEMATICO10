@@ -3706,13 +3706,16 @@ const sendBotMessage = (text) => {
     timestamp: timestamp.getTime()
   };
 
-  // Broadcast to ALL open connections so every user in the room receives quiz messages
-  const openConns = connections.filter(c => c.open);
-  openConns.forEach(conn => {
-    try { conn.send(wireMsg); } catch(e) { console.error('Quiz bot send error', e); }
-  });
-
-  setMessages(prev => [...prev, { ...localMsg, recipient: 'general' }]);
+  if (selectedContact) {
+    // Conectado a um servidor: envia SÓ para o servidor, ele faz o relay para todos
+    const conn = connections.find(c => c.peer === selectedContact && c.open);
+    if (conn) try { conn.send(wireMsg); } catch(e) { console.error('Quiz bot send error', e); }
+    setMessages(prev => [...prev, { ...localMsg, recipient: selectedContact }]);
+  } else {
+    // Modo geral (sem servidor): broadcast direto para todos os peers
+    connections.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
+    setMessages(prev => [...prev, { ...localMsg, recipient: 'general' }]);
+  }
 };
 
 const askNextQuestion = async () => {
