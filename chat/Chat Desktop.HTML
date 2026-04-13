@@ -3706,13 +3706,13 @@ const sendBotMessage = (text) => {
     timestamp: timestamp.getTime()
   };
 
-  const targetId = selectedContact || centralServerId;
-  if (targetId) {
-    const conn = connections.find(c => c.peer === targetId && c.open);
-    if (conn) try { conn.send(wireMsg); } catch(e) { console.error('Quiz bot send error', e); }
-  }
+  // Broadcast to ALL open connections so every user in the room receives quiz messages
+  const openConns = connections.filter(c => c.open);
+  openConns.forEach(conn => {
+    try { conn.send(wireMsg); } catch(e) { console.error('Quiz bot send error', e); }
+  });
 
-  setMessages(prev => [...prev, { ...localMsg, recipient: targetId || 'general' }]);
+  setMessages(prev => [...prev, { ...localMsg, recipient: 'general' }]);
 };
 
 const askNextQuestion = async () => {
@@ -3797,30 +3797,43 @@ useEffect(() => {
   const lastMsg = messages[messages.length - 1];
   if (lastMsg.sender === 'you' || lastMsg.senderName === '🤖 Quiz Bot' || lastMsg.type !== 'text') return;
   
-  const answer = lastMsg.text.trim().toLowerCase();
+  // Check BOTH the original text AND the translated text the user may have seen
+  const rawAnswer = (lastMsg.text || '').trim().toLowerCase();
+  const translatedAnswer = (lastMsg.translatedText || '').trim().toLowerCase();
+  
   const L = ['a','b','c','d','e','f'];
   const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   
   const q = currentQuizQuestionRef.current;
   const correctLetter = L[q.corretaIndex];
-  // Use translated opts (EN) if available, else cleaned PT opts, else strip raw
-  const optsForCheck = (q.translatedOpts && q.translatedOpts.length > 0)
-    ? q.translatedOpts
-    : (q.cleanOpts || q.opcoes.map(s => s.replace(/^[A-Fa-f]\)\s*/, '').trim()));
-  // FIX: remove prefixo duplicado ao comparar resposta
-  const cleanCorrectText = normalize(optsForCheck[q.corretaIndex].toLowerCase());
-  const correctText = cleanCorrectText;
-  const normalizedAnswer = normalize(answer);
+
+  // Build all texts to check for correct answer (PT original + any cached translation)
+  const stripPrefix = (s) => s.replace(/^[A-Fa-f]\)\s*/, '').trim();
+  const ptOpts = q.cleanOpts || q.opcoes.map(stripPrefix);
+  const correctPtText = normalize(ptOpts[q.corretaIndex].toLowerCase());
+
+  // Helper: check a single answer string
+  const checkAnswer = (answer) => {
+    if (!answer) return false;
+    const norm = normalize(answer);
+    // Letter match — universal across languages: "a", "a)", "letra a", "letter a", "lettre a", "letra: a", etc.
+    const isLetterMatch = norm === correctLetter ||
+                          norm === `${correctLetter})` ||
+                          /^(?:letra|letter|lettre|letra:|буква|harfi|harf|litera|letra\s*:?)\s*/.test(norm) && norm.includes(correctLetter) ||
+                          norm === `${correctLetter}.`;
+    // Text match against PT original
+    const isTextMatch = norm === correctPtText || norm.includes(correctPtText);
+    // Text match against translated text the user saw (if translation was stored on the question)
+    const translatedOptText = q.translatedOpts && q.translatedOpts[q.corretaIndex]
+      ? normalize(q.translatedOpts[q.corretaIndex].toLowerCase())
+      : null;
+    const isTranslatedMatch = translatedOptText && (norm === translatedOptText || norm.includes(translatedOptText));
+    return isLetterMatch || isTextMatch || isTranslatedMatch;
+  };
+
+  const isCorrect = checkAnswer(rawAnswer) || (translatedAnswer && translatedAnswer !== rawAnswer && checkAnswer(translatedAnswer));
   
-  // Check if they answered with just the letter (e.g., "a", "A", "a)", "letra a")
-  const isLetterMatch = normalizedAnswer === correctLetter || 
-                        normalizedAnswer === `${correctLetter})` || 
-                        normalizedAnswer === `letra ${correctLetter}`;
-                        
-  // Check if they typed the full answer text
-  const isTextMatch = normalizedAnswer === correctText || normalizedAnswer.includes(correctText);
-  
-  if (isLetterMatch || isTextMatch) {
+  if (isCorrect) {
     if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
     sendBotMessage(`🎉 ${lastMsg.senderName || getContactName(lastMsg.sender)} acertou! A resposta é: ${q.r}`);
     currentQuizQuestionRef.current = null;
