@@ -3287,6 +3287,7 @@ const [quizDiscipline, setQuizDiscipline] = useState('mat');
 const currentQuizQuestionRef = useRef(null);
 const quizTimerRef = useRef(null);
 const quizAllIndexRef = useRef(0);
+const askedQuestionsRef = useRef({});
 
 
 const handlePollCreated = (question, options) => {
@@ -3374,7 +3375,25 @@ const askNextQuestion = async () => {
     ];
   }
 
-  const q = questions[Math.floor(Math.random() * questions.length)];
+  let availableIndices = questions.map((_, i) => i);
+  if (askedQuestionsRef.current[selectedSubject.id]) {
+    availableIndices = availableIndices.filter(i => !askedQuestionsRef.current[selectedSubject.id].includes(i));
+  }
+  
+  if (availableIndices.length === 0) {
+    // Reset if all questions asked
+    askedQuestionsRef.current[selectedSubject.id] = [];
+    availableIndices = questions.map((_, i) => i);
+  }
+  
+  const randomIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)];
+  const q = questions[randomIndex];
+  
+  if (!askedQuestionsRef.current[selectedSubject.id]) {
+    askedQuestionsRef.current[selectedSubject.id] = [];
+  }
+  askedQuestionsRef.current[selectedSubject.id].push(randomIndex);
+
   const questionText = q.pergunta;
   const L = ['A','B','C','D','E','F'];
   const answerText = `${L[q.correta]}) ${q.opcoes[q.correta]}`;
