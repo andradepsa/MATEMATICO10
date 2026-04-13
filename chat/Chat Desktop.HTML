@@ -3332,14 +3332,14 @@ const sendBotMessage = (text) => {
     timestamp: timestamp.getTime()
   };
   
-  if (centralServerId && !isCentralServer(peerId)) {
-    const conn = connections.find(c => c.peer === centralServerId && c.open);
+  // Send only to the active server/contact
+  const targetId = selectedContact || centralServerId;
+  if (targetId) {
+    const conn = connections.find(c => c.peer === targetId && c.open);
     if (conn) conn.send({ ...msgObj, direct: false });
-  } else {
-    connections.forEach(c => { if (c.open) c.send({ ...msgObj, direct: false }); });
   }
-  
-  setMessages(prev => [...prev, { ...msgObj, sender: 'you', senderName: '🤖 Quiz Bot', recipient: 'general' }]);
+
+  setMessages(prev => [...prev, { ...msgObj, sender: 'you', senderName: '🤖 Quiz Bot', recipient: targetId || 'general' }]);
 };
 
 const askNextQuestion = async () => {
