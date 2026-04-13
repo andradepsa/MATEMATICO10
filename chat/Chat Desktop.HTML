@@ -3322,24 +3322,36 @@ const handlePollCreated = (question, options) => {
 const sendBotMessage = (text) => {
   const timestamp = new Date();
   const timeStr = timestamp.toLocaleTimeString('en-US');
-  
-  const msgObj = {
+  const msgId = Date.now() + Math.random().toString(36).substring(7);
+
+  // Wire format must match normal messages: type:'message', id, ttl
+  const wireMsg = {
+    type: 'message',
+    id: msgId,
+    ttl: 15,
+    text: text,
+    senderName: '🤖 Quiz Bot',
+    direct: false,
+    time: timeStr
+  };
+
+  // Local display object
+  const localMsg = {
     type: 'text',
     text: text,
-    sender: peerId,
+    sender: 'you',
     senderName: '🤖 Quiz Bot',
     time: timeStr,
     timestamp: timestamp.getTime()
   };
-  
-  // Send only to the active server/contact
+
   const targetId = selectedContact || centralServerId;
   if (targetId) {
     const conn = connections.find(c => c.peer === targetId && c.open);
-    if (conn) conn.send({ ...msgObj, direct: false });
+    if (conn) try { conn.send(wireMsg); } catch(e) { console.error('Quiz bot send error', e); }
   }
 
-  setMessages(prev => [...prev, { ...msgObj, sender: 'you', senderName: '🤖 Quiz Bot', recipient: targetId || 'general' }]);
+  setMessages(prev => [...prev, { ...localMsg, recipient: targetId || 'general' }]);
 };
 
 const askNextQuestion = async () => {
