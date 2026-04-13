@@ -3169,6 +3169,7 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
         <div style={{ marginBottom: '10px', textAlign: 'left' }}>
           <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{lang === 'pt' ? 'Disciplina' : 'Discipline'}</label>
           <select value={quizDiscipline} onChange={e => setQuizDiscipline(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', marginTop: '4px' }} disabled={quizBotActive}>
+            <option value="all">📚 Todas as Disciplinas</option>
             {QUIZ_SUBJECTS.map(sub => (
               <option key={sub.id} value={sub.id}>{sub.emoji} {sub.name}</option>
             ))}
@@ -3285,6 +3286,8 @@ const [quizInterval, setQuizInterval] = useState(30);
 const [quizDiscipline, setQuizDiscipline] = useState('mat');
 const currentQuizQuestionRef = useRef(null);
 const quizTimerRef = useRef(null);
+const quizAllIndexRef = useRef(0);
+const askedQuestionsRef = useRef({});
 
 
 const handlePollCreated = (question, options) => {
@@ -3343,7 +3346,14 @@ const askNextQuestion = async () => {
   if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
   
   let questions = [];
-  const selectedSubject = QUIZ_SUBJECTS.find(s => s.id === quizDiscipline) || QUIZ_SUBJECTS[0];
+  let selectedSubject;
+  
+  if (quizDiscipline === 'all') {
+    selectedSubject = QUIZ_SUBJECTS[quizAllIndexRef.current];
+    quizAllIndexRef.current = (quizAllIndexRef.current + 1) % QUIZ_SUBJECTS.length;
+  } else {
+    selectedSubject = QUIZ_SUBJECTS.find(s => s.id === quizDiscipline) || QUIZ_SUBJECTS[0];
+  }
   
   try {
     const res = await fetch(selectedSubject.url);
@@ -3365,7 +3375,25 @@ const askNextQuestion = async () => {
     ];
   }
 
-  const q = questions[Math.floor(Math.random() * questions.length)];
+  let availableIndices = questions.map((_, i) => i);
+  if (askedQuestionsRef.current[selectedSubject.id]) {
+    availableIndices = availableIndices.filter(i => !askedQuestionsRef.current[selectedSubject.id].includes(i));
+  }
+  
+  if (availableIndices.length === 0) {
+    // Reset if all questions asked
+    askedQuestionsRef.current[selectedSubject.id] = [];
+    availableIndices = questions.map((_, i) => i);
+  }
+  
+  const randomIndex = availableIndices[Math.floor(Math.random() * availableIndices.length)];
+  const q = questions[randomIndex];
+  
+  if (!askedQuestionsRef.current[selectedSubject.id]) {
+    askedQuestionsRef.current[selectedSubject.id] = [];
+  }
+  askedQuestionsRef.current[selectedSubject.id].push(randomIndex);
+
   const questionText = q.pergunta;
   const L = ['A','B','C','D','E','F'];
   const answerText = `${L[q.correta]}) ${q.opcoes[q.correta]}`;
