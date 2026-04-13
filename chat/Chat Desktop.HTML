@@ -1004,6 +1004,17 @@ content: (
     </span>
   </div>
 </div>
+<div className="tutorial-step">
+  <div className="tutorial-step-num red">🤖</div>
+  <div className="tutorial-step-text">
+    <strong>Quiz Bot</strong>
+    <span>
+      <strong>What it is:</strong> An interactive bot that sends multiple-choice questions to the chat. Users answer by typing the correct letter (A, B, C...) or the full answer.<br/>
+      <strong>How it works:</strong> The server owner selects a subject (Math, Physics, etc.) and an interval. The bot fetches questions from a JSON file and broadcasts them to everyone. It automatically checks answers, announces the winner, and waits 15 seconds before the next question.<br/>
+      <strong>Impact:</strong> Makes the chat fun and educational, keeping users engaged with interactive trivia.
+    </span>
+  </div>
+</div>
 <div className="tutorial-step"><div className="tutorial-step-num red">🎧</div><div className="tutorial-step-text"><strong>Radios & YouTube</strong><span>Broadcast music, YouTube videos, or world radios synchronized for everyone in the room.</span></div></div>
 <div className="tutorial-step"><div className="tutorial-step-num red">🌍</div><div className="tutorial-step-text"><strong>World Radios</strong><span>Search for online radios worldwide, listen to a preview, and broadcast to the room!</span></div></div>
 </div>
@@ -1199,6 +1210,17 @@ content: (
       <strong>O que é:</strong> Permite enviar textos formatados em negrito, itálico ou blocos de código em uma janela colaborativa.<br/>
       <strong>Por que é gratuito/escalável:</strong> O processamento é feito 100% no navegador de quem recebe a mensagem usando bibliotecas gratuitas (como marked.js).<br/>
       <strong>Impacto:</strong> Essencial para programadores compartilharem código ou para destacar informações importantes no chat.
+    </span>
+  </div>
+</div>
+<div className="tutorial-step">
+  <div className="tutorial-step-num red">🤖</div>
+  <div className="tutorial-step-text">
+    <strong>Quiz Bot</strong>
+    <span>
+      <strong>O que é:</strong> Um bot interativo que envia perguntas de múltipla escolha no chat. Os usuários respondem digitando a letra correta (A, B, C...) ou a resposta completa.<br/>
+      <strong>Como funciona:</strong> O dono do servidor escolhe uma disciplina (Matemática, Física, etc.) e um intervalo. O bot busca as perguntas de um arquivo JSON e transmite para todos. Ele verifica as respostas automaticamente, anuncia o vencedor e aguarda 15 segundos antes da próxima pergunta.<br/>
+      <strong>Impacto:</strong> Torna o chat divertido e educativo, mantendo os usuários engajados com curiosidades interativas.
     </span>
   </div>
 </div>
@@ -3128,12 +3150,11 @@ const QUIZ_SUBJECTS = [
   { id:'fis', name:'Física',     emoji:'⚡', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/fisica.json'     },
   { id:'bio', name:'Biologia',   emoji:'🧬', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/biologia.json'   },
   { id:'his', name:'História',   emoji:'📜', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/historia.json'   },
-  { id:'geo', name:'Geografia',  emoji:'🌍', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/geografia.json'  }
+  { id:'geo', name:'Geografia',  emoji:'🌍', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/geografia.json'  },
+  { id:'ger', name:'Conhecimentos Gerais', emoji:'🧠', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/gerais.json' }
 ];
 
-const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizDiscipline, setQuizDiscipline, centralServerId, peerId, isCentralServer }) => {
-  const isConnected = centralServerId || isCentralServer(peerId);
-  
+const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizDiscipline, setQuizDiscipline }) => {
   return (
     <FloatingWindow
       title={lang === 'pt' ? '🤖 Quiz Bot K10' : '🤖 Quiz Bot K10'}
@@ -3145,46 +3166,37 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
           {lang === 'pt' ? 'O bot fará perguntas no chat e verificará as respostas automaticamente.' : 'The bot will ask questions in chat and check answers automatically.'}
         </p>
         
-        {!isConnected ? (
-          <div style={{ color: '#ef4444', marginBottom: '20px' }}>
-            {lang === 'pt' ? '⚠️ Conecte-se a um servidor primeiro!' : '⚠️ Connect to a server first!'}
-          </div>
-        ) : (
-          <>
-            <div style={{ marginBottom: '10px', textAlign: 'left' }}>
-              <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{lang === 'pt' ? 'Disciplina' : 'Discipline'}</label>
-              <select value={quizDiscipline} onChange={e => setQuizDiscipline(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', marginTop: '4px' }} disabled={quizBotActive}>
-                {QUIZ_SUBJECTS.map(sub => (
-                  <option key={sub.id} value={sub.id}>{sub.emoji} {sub.name}</option>
-                ))}
-              </select>
-            </div>
-            <div style={{ marginBottom: '20px', textAlign: 'left' }}>
-              <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{lang === 'pt' ? 'Tempo por pergunta (segundos)' : 'Time per question (seconds)'}</label>
-              <input type="number" value={quizInterval} onChange={e => setQuizInterval(Number(e.target.value))} min="5" style={{ width: '100%', padding: '8px', borderRadius: '4px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', marginTop: '4px' }} disabled={quizBotActive} />
-            </div>
+        <div style={{ marginBottom: '10px', textAlign: 'left' }}>
+          <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{lang === 'pt' ? 'Disciplina' : 'Discipline'}</label>
+          <select value={quizDiscipline} onChange={e => setQuizDiscipline(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', marginTop: '4px' }} disabled={quizBotActive}>
+            <option value="all">📚 Todas as Disciplinas</option>
+            {QUIZ_SUBJECTS.map(sub => (
+              <option key={sub.id} value={sub.id}>{sub.emoji} {sub.name}</option>
+            ))}
+          </select>
+        </div>
+        <div style={{ marginBottom: '20px', textAlign: 'left' }}>
+          <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{lang === 'pt' ? 'Tempo por pergunta (segundos)' : 'Time per question (seconds)'}</label>
+          <input type="number" value={quizInterval} onChange={e => setQuizInterval(Number(e.target.value))} min="5" style={{ width: '100%', padding: '8px', borderRadius: '4px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', marginTop: '4px' }} disabled={quizBotActive} />
+        </div>
 
-            <div style={{ marginBottom: '20px' }}>
-              <span style={{ display: 'inline-block', padding: '8px 16px', borderRadius: '20px', background: quizBotActive ? '#10b98120' : '#ef444420', color: quizBotActive ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
-                {quizBotActive ? (lang === 'pt' ? '🟢 Ativado' : '🟢 Active') : (lang === 'pt' ? '🔴 Desativado' : '🔴 Inactive')}
-              </span>
-            </div>
-          </>
-        )}
+        <div style={{ marginBottom: '20px' }}>
+          <span style={{ display: 'inline-block', padding: '8px 16px', borderRadius: '20px', background: quizBotActive ? '#10b98120' : '#ef444420', color: quizBotActive ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
+            {quizBotActive ? (lang === 'pt' ? '🟢 Ativado' : '🟢 Active') : (lang === 'pt' ? '🔴 Desativado' : '🔴 Inactive')}
+          </span>
+        </div>
 
         <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: 'auto' }}>
           <button 
             className="primary-btn" 
             onClick={() => {
-              if (!isConnected) return;
               const newActive = !quizBotActive;
               setQuizBotActive(newActive);
               if (newActive) {
                 setTimeout(askNextQuestion, 1000);
               }
             }}
-            disabled={!isConnected}
-            style={{ background: quizBotActive ? '#ef4444' : '#10b981', width: '100%', opacity: isConnected ? 1 : 0.5 }}
+            style={{ background: quizBotActive ? '#ef4444' : '#10b981', width: '100%' }}
           >
             {quizBotActive ? (lang === 'pt' ? 'Parar Bot' : 'Stop Bot') : (lang === 'pt' ? 'Iniciar Bot' : 'Start Bot')}
           </button>
@@ -3269,16 +3281,12 @@ const [showMediaControls, setShowMediaControls] = useState(false);
 const [showPollCreator, setShowPollCreator] = useState(false);
 const [showMarkdownEditor, setShowMarkdownEditor] = useState(false);
 const [showQuizBot, setShowQuizBot] = useState(false);
-const [quizBotActive, setQuizBotActiveState] = useState(false);
-const quizBotActiveRef = useRef(false);
-const setQuizBotActive = (active) => {
-  setQuizBotActiveState(active);
-  quizBotActiveRef.current = active;
-};
+const [quizBotActive, setQuizBotActive] = useState(false);
 const [quizInterval, setQuizInterval] = useState(30);
 const [quizDiscipline, setQuizDiscipline] = useState('mat');
 const currentQuizQuestionRef = useRef(null);
 const quizTimerRef = useRef(null);
+const quizAllIndexRef = useRef(0);
 
 
 const handlePollCreated = (question, options) => {
@@ -3337,7 +3345,14 @@ const askNextQuestion = async () => {
   if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
   
   let questions = [];
-  const selectedSubject = QUIZ_SUBJECTS.find(s => s.id === quizDiscipline) || QUIZ_SUBJECTS[0];
+  let selectedSubject;
+  
+  if (quizDiscipline === 'all') {
+    selectedSubject = QUIZ_SUBJECTS[quizAllIndexRef.current];
+    quizAllIndexRef.current = (quizAllIndexRef.current + 1) % QUIZ_SUBJECTS.length;
+  } else {
+    selectedSubject = QUIZ_SUBJECTS.find(s => s.id === quizDiscipline) || QUIZ_SUBJECTS[0];
+  }
   
   try {
     const res = await fetch(selectedSubject.url);
@@ -3388,12 +3403,12 @@ const askNextQuestion = async () => {
   sendBotMessage(`🤖 Quiz (${selectedSubject.emoji} ${selectedSubject.name}):\n${translatedQ}${optsText}`);
   
   quizTimerRef.current = setTimeout(() => {
-    if (quizBotActiveRef.current && currentQuizQuestionRef.current) {
+    if (quizBotActive && currentQuizQuestionRef.current) {
       sendBotMessage(`⏳ ${lang === 'pt' ? 'Tempo esgotado! A resposta era:' : 'Time is up! The answer was:'} ${answerText}`);
       currentQuizQuestionRef.current = null;
       setTimeout(() => {
-        if (quizBotActiveRef.current) askNextQuestion();
-      }, 3000);
+        if (quizBotActive) askNextQuestion();
+      }, 15000);
     }
   }, quizInterval * 1000);
 };
@@ -3426,8 +3441,8 @@ useEffect(() => {
     sendBotMessage(`🎉 ${lastMsg.senderName || getContactName(lastMsg.sender)} ${lang === 'pt' ? 'acertou! A resposta é:' : 'got it right! The answer is:'} ${q.r}`);
     currentQuizQuestionRef.current = null;
     setTimeout(() => {
-      if (quizBotActiveRef.current) askNextQuestion();
-    }, 5000);
+      if (quizBotActive) askNextQuestion();
+    }, 15000);
   }
 }, [messages, quizBotActive]);
 
@@ -4840,7 +4855,7 @@ return (
 {showPollCreator && <PollCreator onClose={() => setShowPollCreator(false)} onCreated={handlePollCreated} />}
 {showMarkdownEditor && <MarkdownEditor lang={lang} connections={connections} selectedContact={selectedContact} onClose={() => setShowMarkdownEditor(false)} />}
 {showGeneralModeInfo && <GeneralModeInfoModal lang={lang} selectedContact={selectedContact} onClose={() => setShowGeneralModeInfo(false)} />}
-{showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} centralServerId={centralServerId} peerId={peerId} isCentralServer={isCentralServer} />}
+{showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} />}
 {showTorrentManager && (
 <TorrentManagerModal
 lang={lang}
