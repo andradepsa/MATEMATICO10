@@ -3150,7 +3150,8 @@ const QUIZ_SUBJECTS = [
   { id:'fis', name:'Física',     emoji:'⚡', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/fisica.json'     },
   { id:'bio', name:'Biologia',   emoji:'🧬', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/biologia.json'   },
   { id:'his', name:'História',   emoji:'📜', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/historia.json'   },
-  { id:'geo', name:'Geografia',  emoji:'🌍', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/geografia.json'  }
+  { id:'geo', name:'Geografia',  emoji:'🌍', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/geografia.json'  },
+  { id:'ger', name:'Conhecimentos Gerais', emoji:'🧠', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/gerais.json' }
 ];
 
 const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizDiscipline, setQuizDiscipline }) => {
@@ -3168,6 +3169,7 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
         <div style={{ marginBottom: '10px', textAlign: 'left' }}>
           <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{lang === 'pt' ? 'Disciplina' : 'Discipline'}</label>
           <select value={quizDiscipline} onChange={e => setQuizDiscipline(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', marginTop: '4px' }} disabled={quizBotActive}>
+            <option value="all">📚 Todas as Disciplinas</option>
             {QUIZ_SUBJECTS.map(sub => (
               <option key={sub.id} value={sub.id}>{sub.emoji} {sub.name}</option>
             ))}
@@ -3284,6 +3286,8 @@ const [quizInterval, setQuizInterval] = useState(30);
 const [quizDiscipline, setQuizDiscipline] = useState('mat');
 const currentQuizQuestionRef = useRef(null);
 const quizTimerRef = useRef(null);
+const quizAllIndexRef = useRef(0);
+const quizBotActiveRef = useRef(false); // FIX: ref para evitar stale closure nos timers
 
 
 const handlePollCreated = (question, options) => {
@@ -3342,7 +3346,14 @@ const askNextQuestion = async () => {
   if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
   
   let questions = [];
-  const selectedSubject = QUIZ_SUBJECTS.find(s => s.id === quizDiscipline) || QUIZ_SUBJECTS[0];
+  let selectedSubject;
+  
+  if (quizDiscipline === 'all') {
+    selectedSubject = QUIZ_SUBJECTS[quizAllIndexRef.current];
+    quizAllIndexRef.current = (quizAllIndexRef.current + 1) % QUIZ_SUBJECTS.length;
+  } else {
+    selectedSubject = QUIZ_SUBJECTS.find(s => s.id === quizDiscipline) || QUIZ_SUBJECTS[0];
+  }
   
   try {
     const res = await fetch(selectedSubject.url);
@@ -3393,11 +3404,11 @@ const askNextQuestion = async () => {
   sendBotMessage(`🤖 Quiz (${selectedSubject.emoji} ${selectedSubject.name}):\n${translatedQ}${optsText}`);
   
   quizTimerRef.current = setTimeout(() => {
-    if (quizBotActive && currentQuizQuestionRef.current) {
+    if (quizBotActiveRef.current && currentQuizQuestionRef.current) {
       sendBotMessage(`⏳ ${lang === 'pt' ? 'Tempo esgotado! A resposta era:' : 'Time is up! The answer was:'} ${answerText}`);
       currentQuizQuestionRef.current = null;
       setTimeout(() => {
-        if (quizBotActive) askNextQuestion();
+        if (quizBotActiveRef.current) askNextQuestion();
       }, 15000);
     }
   }, quizInterval * 1000);
@@ -3431,11 +3442,12 @@ useEffect(() => {
     sendBotMessage(`🎉 ${lastMsg.senderName || getContactName(lastMsg.sender)} ${lang === 'pt' ? 'acertou! A resposta é:' : 'got it right! The answer is:'} ${q.r}`);
     currentQuizQuestionRef.current = null;
     setTimeout(() => {
-      if (quizBotActive) askNextQuestion();
+      if (quizBotActiveRef.current) askNextQuestion();
     }, 15000);
   }
 }, [messages, quizBotActive]);
 
+useEffect(() => { quizBotActiveRef.current = quizBotActive; }, [quizBotActive]); // FIX: mantém o ref sincronizado
 useEffect(() => {
   if (!quizBotActive) {
     if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
