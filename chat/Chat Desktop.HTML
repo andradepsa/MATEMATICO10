@@ -795,31 +795,74 @@ const t = (lang, key, vars = {}) => {
 
 
 // ================================================================
-// MULTI-LANGUAGE CONFIG (8 languages for quiz translation)
+// UNIVERSAL LANGUAGE CONFIG — ALL Google Translate languages
 // ================================================================
-const LANGUAGES = [
-  { code: 'en', label: 'EN 🇺🇸', name: 'English',    gtCode: 'en'    },
-  { code: 'zh', label: 'ZH 🇨🇳', name: '中文',        gtCode: 'zh-CN' },
-  { code: 'es', label: 'ES 🇪🇸', name: 'Español',     gtCode: 'es'    },
-  { code: 'hi', label: 'HI 🇮🇳', name: 'हिंदी',       gtCode: 'hi'    },
-  { code: 'bn', label: 'BN 🇧🇩', name: 'বাংলা',       gtCode: 'bn'    },
-  { code: 'pt', label: 'PT 🇧🇷', name: 'Português',   gtCode: 'pt'    },
-  { code: 'ru', label: 'RU 🇷🇺', name: 'Русский',     gtCode: 'ru'    },
-  { code: 'ja', label: 'JA 🇯🇵', name: '日本語',      gtCode: 'ja'    },
-];
-// Map our lang code → Google Translate target code
-const GT_LANG = (code) => (LANGUAGES.find(l => l.code === code) || LANGUAGES[0]).gtCode;
+// lang state = Google Translate language code (e.g. 'pt', 'en', 'zh-CN', 'ar', 'ja' …)
+// The quiz bot sends in PT; each user's K10 auto-translates to their lang.
+// For the UI t() calls, falls back to 'en' for any unsupported lang — so the
+// interface stays in English for everyone except PT users.
 
-// Detect the user's preferred language from the browser.
-// Returns one of the 8 supported codes, or 'en' as fallback.
+const LANG_LABELS = {
+  'af':'Afrikaans','sq':'Shqip (Albanian)','am':'አማርኛ (Amharic)','ar':'العربية (Arabic)',
+  'hy':'Հայերեն (Armenian)','az':'Azərbaycan (Azerbaijani)','eu':'Euskara (Basque)',
+  'be':'Беларуская (Belarusian)','bn':'বাংলা (Bengali)','bs':'Bosanski (Bosnian)',
+  'bg':'Български (Bulgarian)','ca':'Català (Catalan)','ceb':'Cebuano','ny':'Chichewa',
+  'zh-CN':'中文简体 (Chinese Simplified)','zh-TW':'中文繁體 (Chinese Traditional)',
+  'co':'Corsu (Corsican)','hr':'Hrvatski (Croatian)','cs':'Čeština (Czech)',
+  'da':'Dansk (Danish)','nl':'Nederlands (Dutch)','en':'English',
+  'eo':'Esperanto','et':'Eesti (Estonian)','tl':'Filipino','fi':'Suomi (Finnish)',
+  'fr':'Français (French)','fy':'Frysk (Frisian)','gl':'Galego (Galician)',
+  'ka':'ქართული (Georgian)','de':'Deutsch (German)','el':'Ελληνικά (Greek)',
+  'gu':'ગુજરાતી (Gujarati)','ht':'Kreyòl ayisyen (Haitian Creole)','ha':'Hausa',
+  'haw':'ʻŌlelo Hawaiʻi (Hawaiian)','iw':'עברית (Hebrew)','hi':'हिन्दी (Hindi)',
+  'hmn':'Hmong','hu':'Magyar (Hungarian)','is':'Íslenska (Icelandic)',
+  'ig':'Igbo','id':'Indonesia (Indonesian)','ga':'Gaeilge (Irish)',
+  'it':'Italiano (Italian)','ja':'日本語 (Japanese)','jw':'Jawa (Javanese)',
+  'kn':'ಕನ್ನಡ (Kannada)','kk':'Қазақ (Kazakh)','km':'ខ្មែរ (Khmer)',
+  'ko':'한국어 (Korean)','ku':'Kurdî (Kurdish)','ky':'Кыргызча (Kyrgyz)',
+  'lo':'ລາວ (Lao)','la':'Latina (Latin)','lv':'Latviešu (Latvian)',
+  'lt':'Lietuvių (Lithuanian)','lb':'Lëtzebuergesch (Luxembourgish)',
+  'mk':'Македонски (Macedonian)','mg':'Malagasy','ms':'Melayu (Malay)',
+  'ml':'മലയാളം (Malayalam)','mt':'Malti (Maltese)','mi':'Māori',
+  'mr':'मराठी (Marathi)','mn':'Монгол (Mongolian)','my':'မြန်မာ (Myanmar/Burmese)',
+  'ne':'नेपाली (Nepali)','no':'Norsk (Norwegian)','ps':'پښتو (Pashto)',
+  'fa':'فارسی (Persian)','pl':'Polski (Polish)','pt':'Português (Portuguese)',
+  'pa':'ਪੰਜਾਬੀ (Punjabi)','ro':'Română (Romanian)','ru':'Русский (Russian)',
+  'sm':'Samoan','gd':'Gàidhlig (Scots Gaelic)','sr':'Српски (Serbian)',
+  'st':'Sesotho','sn':'Shona','sd':'سنڌي (Sindhi)','si':'සිංහල (Sinhala)',
+  'sk':'Slovenčina (Slovak)','sl':'Slovenščina (Slovenian)','so':'Soomaali (Somali)',
+  'es':'Español (Spanish)','su':'Sunda (Sundanese)','sw':'Kiswahili (Swahili)',
+  'sv':'Svenska (Swedish)','tg':'Тоҷикӣ (Tajik)','ta':'தமிழ் (Tamil)',
+  'te':'తెలుగు (Telugu)','th':'ไทย (Thai)','tr':'Türkçe (Turkish)',
+  'uk':'Українська (Ukrainian)','ur':'اردو (Urdu)','uz':'O\'zbek (Uzbek)',
+  'vi':'Tiếng Việt (Vietnamese)','cy':'Cymraeg (Welsh)','xh':'isiXhosa',
+  'yi':'ייִדיש (Yiddish)','yo':'Yorùbá','zu':'isiZulu (Zulu)'
+};
+
+// Returns a human-readable name for a lang code
+const getLangName = (code) => LANG_LABELS[code] || code;
+
+// Map a raw browser BCP-47 tag to the closest Google Translate code.
+const toGTCode = (tag) => {
+  if (!tag) return 'en';
+  const t = tag.toLowerCase();
+  if (t.startsWith('zh')) return t.includes('tw') || t.includes('hant') ? 'zh-TW' : 'zh-CN';
+  const base = t.split('-')[0];
+  // Hebrew: browser uses 'he', GT uses 'iw'
+  if (base === 'he') return 'iw';
+  return base;
+};
+
+// Auto-detect the user's preferred language from the browser.
+// Returns a Google Translate language code; falls back to 'en'.
 const detectBrowserLang = () => {
-  const supportedCodes = LANGUAGES.map(l => l.code); // ['en','zh','es','hi','bn','pt','ru','ja']
-  const browserList = navigator.languages && navigator.languages.length
-    ? Array.from(navigator.languages)
-    : [navigator.language || 'en'];
-  for (const bl of browserList) {
-    const prefix = bl.toLowerCase().split('-')[0]; // 'pt-BR' → 'pt', 'zh-CN' → 'zh'
-    if (supportedCodes.includes(prefix)) return prefix;
+  const saved = localStorage.getItem('p2pUserLang');
+  if (saved) return saved;
+  const list = (navigator.languages && navigator.languages.length)
+    ? Array.from(navigator.languages) : [navigator.language || 'en'];
+  for (const bl of list) {
+    const code = toGTCode(bl);
+    if (LANG_LABELS[code]) return code;
   }
   return 'en';
 };
@@ -2315,7 +2358,7 @@ const MessageText = ({ msg, onContentChange, onHide }) => {
 
   useEffect(() => {
     if (!isQuizBot || !msg.text) { setQuizTranslated(null); return; }
-    const targetGt = GT_LANG(lang);
+    const targetGt = lang; // lang IS the Google Translate code
     if (targetGt === 'pt') { setQuizTranslated(msg.text); return; }
     const cacheKey = quizTranslateKey;
     if (quizTranslationCache.has(cacheKey)) {
@@ -2324,7 +2367,7 @@ const MessageText = ({ msg, onContentChange, onHide }) => {
     }
     let cancelled = false;
     setQuizTranslating(true);
-    fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=pt&tl=${targetGt}&dt=t&q=${encodeURIComponent(msg.text)}`)
+    fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=pt&tl=${encodeURIComponent(targetGt)}&dt=t&q=${encodeURIComponent(msg.text)}`)
       .then(r => r.json())
       .then(d => {
         if (cancelled) return;
@@ -2444,12 +2487,12 @@ const MessageText = ({ msg, onContentChange, onHide }) => {
   if (!display.encrypted) {
     if (isQuizBot) {
       const displayTxt = quizTranslated !== null ? quizTranslated : (quizTranslating ? '⏳ ...' : display.plain);
-      const langInfo = LANGUAGES.find(l => l.code === lang);
+      const langName = getLangName(lang);
       return (
         <div>
-          {langInfo && lang !== 'pt' && (
+          {lang !== 'pt' && (
             <div style={{ fontSize: '10px', color: '#64748b', marginBottom: '3px', fontStyle: 'italic' }}>
-              🌐 {langInfo.name}
+              🌐 {langName}
             </div>
           )}
           <div style={{ whiteSpace: 'pre-wrap' }}>{displayTxt}</div>
@@ -3233,7 +3276,7 @@ const QUIZ_SUBJECTS = [
 ];
 
 const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizDiscipline, setQuizDiscipline }) => {
-  const langInfo = LANGUAGES.find(l => l.code === lang) || LANGUAGES[0];
+  const langName = getLangName(lang);
   return (
     <FloatingWindow
       title='🤖 Quiz Bot K10'
@@ -3245,7 +3288,7 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
           The bot sends questions in <strong>Portuguese</strong>. Each user's K10 chat auto-translates to their own selected language.
         </p>
         <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '8px 12px', marginBottom: '14px', fontSize: '12px', color: '#1d4ed8' }}>
-          🌐 Your language: <strong>{langInfo.label} {langInfo.name}</strong>
+          🌐 Your language: <strong>{langName}</strong>
           {lang === 'pt'
             ? ' — questions arrive in Portuguese (original).'
             : ' — questions will be auto-translated to your language.'}
@@ -5015,12 +5058,12 @@ Chat K10
   value={lang}
   onChange={e => setLangAndSave(e.target.value)}
   className="lang-btn"
-  title="Switch Language / Idioma do Quiz"
-  style={{ fontFamily: 'inherit', fontWeight: 800, letterSpacing: '0.3px', fontSize: '11px' }}
+  title="Your language / Seu idioma"
+  style={{ fontFamily: 'inherit', fontWeight: 700, fontSize: '11px', maxWidth: '160px' }}
 >
-  {LANGUAGES.map(l => (
-    <option key={l.code} value={l.code} style={{ color: '#1e293b', background: 'white', fontWeight: 700 }}>
-      {l.label} {l.name}
+  {Object.entries(LANG_LABELS).map(([code, label]) => (
+    <option key={code} value={code} style={{ color: '#1e293b', background: 'white' }}>
+      {label}
     </option>
   ))}
 </select>
