@@ -2571,10 +2571,11 @@ const MessageText = ({ msg, onContentChange, onHide }) => {
   const isQuizBot = msg.senderName === '🤖 Quiz Bot';
   const quizCacheKey = `pt|${lang}|${msg.text}`;
   const [quizTranslated, setQuizTranslated] = useState(() => {
-    if (!isQuizBot || lang === 'pt') return msg.text || null;
-    // Prioridade 1: pré-tradução já feita pelo handleIncomingData
+    if (!isQuizBot) return null;
+    if (lang === 'pt') return msg.text || null;
+    // Prioridade 1: já veio traduzido do handleIncomingData (caso normal)
     if (msg.translatedText) return msg.translatedText;
-    // Prioridade 2: cache sessionStorage
+    // Prioridade 2: cache sessionStorage (recarregou a página)
     return _gtCache[quizCacheKey] || null;
   });
   const [quizTranslating, setQuizTranslating] = useState(false);
@@ -2582,11 +2583,11 @@ const MessageText = ({ msg, onContentChange, onHide }) => {
   useEffect(() => {
     if (!isQuizBot || !msg.text) { setQuizTranslated(null); return; }
     if (lang === 'pt') { setQuizTranslated(msg.text); return; }
-    // Pré-tradução já disponível no objeto da mensagem?
+    // Caso 1: já traduzido — usa direto, zero fetch
     if (msg.translatedText) { setQuizTranslated(msg.translatedText); return; }
-    // Cache sessionStorage?
+    // Caso 2: cache sessionStorage disponível — usa direto, zero fetch
     if (_gtCache[quizCacheKey]) { setQuizTranslated(_gtCache[quizCacheKey]); return; }
-    // Fallback: fetch com deduplicação
+    // Caso 3: fallback (mensagem antiga sem pré-tradução) — fetch com deduplicação
     let cancelled = false;
     setQuizTranslating(true);
     translateQuizText(msg.text, lang)
@@ -4341,27 +4342,30 @@ return;
 }
 const currentLang = langRef.current;
 const isQuizBotMsg = data.senderName === '🤖 Quiz Bot';
-const msgObj = { ...baseMessage, text: data.text, type: 'text' };
-messageToAdd = msgObj;
+const needsTranslation = currentLang !== 'pt' && data.text &&
+  !data.text.startsWith('🧲 TORRENT:') && !data.text.startsWith(E2EE_PREFIX) &&
+  !data.text.startsWith(GROUP_E2EE_PREFIX) && !data.text.startsWith('🔑') && !data.text.startsWith('🛡️');
 
-if (currentLang !== 'pt' && data.text && !data.text.startsWith('🧲 TORRENT:') && !data.text.startsWith(E2EE_PREFIX) && !data.text.startsWith(GROUP_E2EE_PREFIX) && !data.text.startsWith('🔑') && !data.text.startsWith('🛡️')) {
-  const msgTimestamp = msgObj.timestamp;
-  const msgSender = msgObj.sender;
-
-  if (isQuizBotMsg) {
-    // Quiz Bot: pré-traduz de PT com translateQuizText (cache + deduplicação)
-    // Se já está no cache, a tradução é instantânea (sem piscar "⏳")
-    translateQuizText(data.text, currentLang).then(translated => {
-      if (translated && translated !== data.text) {
-        setMessages(prev => prev.map(m =>
-          (m.sender === msgSender && m.timestamp === msgTimestamp && m.type === 'text')
-            ? { ...m, translatedText: translated }
-            : m
-        ));
-      }
-    });
-  } else {
-    // Mensagem normal: detecta idioma automaticamente e traduz
+if (isQuizBotMsg && needsTranslation) {
+  // QUIZ BOT: traduz PRIMEIRO, só adiciona a mensagem depois de ter a tradução pronta
+  // Assim o usuário NUNCA vê o texto em PT — já aparece traduzido direto
+  translateQuizText(data.text, currentLang).then(translated => {
+    const msgObj = {
+      ...baseMessage,
+      text: data.text,           // texto PT original (guardado para o quiz answer checker)
+      translatedText: translated, // texto já traduzido (exibido pelo MessageText)
+      type: 'text'
+    };
+    setMessages(prev => [...prev, msgObj].slice(-500));
+  });
+  // Não define messageToAdd — o setMessages é feito dentro do .then()
+} else {
+  // MENSAGEM NORMAL: adiciona primeiro, traduz depois em background
+  const msgObj = { ...baseMessage, text: data.text, type: 'text' };
+  messageToAdd = msgObj;
+  if (needsTranslation) {
+    const msgTimestamp = msgObj.timestamp;
+    const msgSender = msgObj.sender;
     gtTranslate(data.text, currentLang, 'auto').then(translated => {
       if (translated && translated !== data.text) {
         setMessages(prev => prev.map(m =>
