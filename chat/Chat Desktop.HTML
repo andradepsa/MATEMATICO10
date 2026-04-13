@@ -3378,25 +3378,45 @@ const askNextQuestion = async () => {
   const q = questions[Math.floor(Math.random() * questions.length)];
   const questionText = q.pergunta;
   const L = ['A','B','C','D','E','F'];
-  const answerText = `${L[q.correta]}) ${q.opcoes[q.correta]}`;
+
+  // FIX: Remove prefixo duplicado (ex: "A) texto" -> "texto") que alguns JSONs já incluem
+  const stripPrefix = (str) => str.replace(/^[A-Fa-f]\)\s*/, '').trim();
+  const cleanOpts = q.opcoes.map(stripPrefix);
+
+  const answerText = `${L[q.correta]}) ${cleanOpts[q.correta]}`;
   
   let translatedQ = questionText;
-  let translatedOpts = [...q.opcoes];
+  let translatedOpts = [...cleanOpts];
   
   if (lang === 'en') {
     try {
-      const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=pt&tl=en&dt=t&q=${encodeURI(questionText)}`);
-      const data = await res.json();
-      translatedQ = data[0][0][0];
-      
-      // Translate options (simplified for now, could be improved)
-      // In a real scenario, you'd translate each option or send them all in one request
+      // FIX: Traduz a pergunta E todas as opções em paralelo
+      const translateOne = async (text) => {
+        const r = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=pt&tl=en&dt=t&q=${encodeURIComponent(text)}`);
+        const d = await r.json();
+        return d[0].map(item => item[0]).join('');
+      };
+      const [tQ, ...tOpts] = await Promise.all([translateOne(questionText), ...cleanOpts.map(translateOne)]);
+      translatedQ = tQ || questionText;
+      translatedOpts = tOpts.map((t, i) => t || cleanOpts[i]);
     } catch (e) {
       console.error("Translation error", e);
     }
   }
   
-  currentQuizQuestionRef.current = { ...q, p: questionText, r: answerText, corretaIndex: q.correta };
+  // Build the display answer in the active language (used when revealing the answer)
+  const displayAnswerText = (lang === 'en' && translatedOpts.length > q.correta)
+    ? `${L[q.correta]}) ${translatedOpts[q.correta]}`
+    : answerText;
+
+  currentQuizQuestionRef.current = {
+    ...q,
+    p: questionText,
+    r: displayAnswerText,      // answer shown to users (translated when EN)
+    corretaIndex: q.correta,
+    cleanOpts,                 // stripped PT options (for PT answer checking)
+    translatedOpts             // translated options (for EN answer checking)
+  };
   
   let optsText = '';
   translatedOpts.forEach((op, i) => { optsText += `\n${L[i]}) ${op}`; });
@@ -3405,7 +3425,7 @@ const askNextQuestion = async () => {
   
   quizTimerRef.current = setTimeout(() => {
     if (quizBotActiveRef.current && currentQuizQuestionRef.current) {
-      sendBotMessage(`⏳ ${lang === 'pt' ? 'Tempo esgotado! A resposta era:' : 'Time is up! The answer was:'} ${answerText}`);
+      sendBotMessage(`⏳ ${lang === 'pt' ? 'Tempo esgotado! A resposta era:' : 'Time is up! The answer was:'} ${displayAnswerText}`);
       currentQuizQuestionRef.current = null;
       setTimeout(() => {
         if (quizBotActiveRef.current) askNextQuestion();
@@ -3426,7 +3446,13 @@ useEffect(() => {
   
   const q = currentQuizQuestionRef.current;
   const correctLetter = L[q.corretaIndex];
-  const correctText = normalize(q.opcoes[q.corretaIndex].toLowerCase());
+  // Use translated opts (EN) if available, else cleaned PT opts, else strip raw
+  const optsForCheck = (q.translatedOpts && q.translatedOpts.length > 0)
+    ? q.translatedOpts
+    : (q.cleanOpts || q.opcoes.map(s => s.replace(/^[A-Fa-f]\)\s*/, '').trim()));
+  // FIX: remove prefixo duplicado ao comparar resposta
+  const cleanCorrectText = normalize(optsForCheck[q.corretaIndex].toLowerCase());
+  const correctText = cleanCorrectText;
   const normalizedAnswer = normalize(answer);
   
   // Check if they answered with just the letter (e.g., "a", "A", "a)", "letra a")
