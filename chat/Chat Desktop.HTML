@@ -3120,6 +3120,80 @@ const WorldRadiosModal = ({ lang, onClose, onBroadcast }) => {
 };
 
 
+// ================================================================
+// QuizBotWindow
+// ================================================================
+const QUIZ_SUBJECTS = [
+  { id:'mat', name:'Matemática', emoji:'📐', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/matematica.json' },
+  { id:'fis', name:'Física',     emoji:'⚡', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/fisica.json'     },
+  { id:'bio', name:'Biologia',   emoji:'🧬', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/biologia.json'   },
+  { id:'his', name:'História',   emoji:'📜', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/historia.json'   },
+  { id:'geo', name:'Geografia',  emoji:'🌍', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/geografia.json'  }
+];
+
+const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizDiscipline, setQuizDiscipline, centralServerId, peerId, isCentralServer }) => {
+  const isConnected = centralServerId || isCentralServer(peerId);
+  
+  return (
+    <FloatingWindow
+      title={lang === 'pt' ? '🤖 Quiz Bot K10' : '🤖 Quiz Bot K10'}
+      onClose={onClose}
+      initialPosition={{ x: window.innerWidth / 2 - 160, y: window.innerHeight / 2 - 200 }}
+    >
+      <div style={{ padding: '20px', textAlign: 'center', height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' }}>
+        <p style={{ marginBottom: '15px', color: 'var(--text-muted)', fontSize: '13px' }}>
+          {lang === 'pt' ? 'O bot fará perguntas no chat e verificará as respostas automaticamente.' : 'The bot will ask questions in chat and check answers automatically.'}
+        </p>
+        
+        {!isConnected ? (
+          <div style={{ color: '#ef4444', marginBottom: '20px' }}>
+            {lang === 'pt' ? '⚠️ Conecte-se a um servidor primeiro!' : '⚠️ Connect to a server first!'}
+          </div>
+        ) : (
+          <>
+            <div style={{ marginBottom: '10px', textAlign: 'left' }}>
+              <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{lang === 'pt' ? 'Disciplina' : 'Discipline'}</label>
+              <select value={quizDiscipline} onChange={e => setQuizDiscipline(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', marginTop: '4px' }} disabled={quizBotActive}>
+                {QUIZ_SUBJECTS.map(sub => (
+                  <option key={sub.id} value={sub.id}>{sub.emoji} {sub.name}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ marginBottom: '20px', textAlign: 'left' }}>
+              <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{lang === 'pt' ? 'Tempo por pergunta (segundos)' : 'Time per question (seconds)'}</label>
+              <input type="number" value={quizInterval} onChange={e => setQuizInterval(Number(e.target.value))} min="5" style={{ width: '100%', padding: '8px', borderRadius: '4px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', marginTop: '4px' }} disabled={quizBotActive} />
+            </div>
+
+            <div style={{ marginBottom: '20px' }}>
+              <span style={{ display: 'inline-block', padding: '8px 16px', borderRadius: '20px', background: quizBotActive ? '#10b98120' : '#ef444420', color: quizBotActive ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
+                {quizBotActive ? (lang === 'pt' ? '🟢 Ativado' : '🟢 Active') : (lang === 'pt' ? '🔴 Desativado' : '🔴 Inactive')}
+              </span>
+            </div>
+          </>
+        )}
+
+        <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: 'auto' }}>
+          <button 
+            className="primary-btn" 
+            onClick={() => {
+              if (!isConnected) return;
+              const newActive = !quizBotActive;
+              setQuizBotActive(newActive);
+              if (newActive) {
+                setTimeout(askNextQuestion, 1000);
+              }
+            }}
+            disabled={!isConnected}
+            style={{ background: quizBotActive ? '#ef4444' : '#10b981', width: '100%', opacity: isConnected ? 1 : 0.5 }}
+          >
+            {quizBotActive ? (lang === 'pt' ? 'Parar Bot' : 'Stop Bot') : (lang === 'pt' ? 'Iniciar Bot' : 'Start Bot')}
+          </button>
+        </div>
+      </div>
+    </FloatingWindow>
+  );
+};
+
 const App = () => {
 const [lang, setLang] = useState('en');
 const [showTutorial, setShowTutorial] = useState(false);
@@ -3194,6 +3268,17 @@ const [showYoutubeGrid, setShowYoutubeGrid] = useState(false);
 const [showMediaControls, setShowMediaControls] = useState(false);
 const [showPollCreator, setShowPollCreator] = useState(false);
 const [showMarkdownEditor, setShowMarkdownEditor] = useState(false);
+const [showQuizBot, setShowQuizBot] = useState(false);
+const [quizBotActive, setQuizBotActiveState] = useState(false);
+const quizBotActiveRef = useRef(false);
+const setQuizBotActive = (active) => {
+  setQuizBotActiveState(active);
+  quizBotActiveRef.current = active;
+};
+const [quizInterval, setQuizInterval] = useState(30);
+const [quizDiscipline, setQuizDiscipline] = useState('mat');
+const currentQuizQuestionRef = useRef(null);
+const quizTimerRef = useRef(null);
 
 
 const handlePollCreated = (question, options) => {
@@ -3223,6 +3308,135 @@ const handlePollCreated = (question, options) => {
   }
   setShowPollCreator(false);
 };
+
+// Quiz Bot Logic
+const sendBotMessage = (text) => {
+  const timestamp = new Date();
+  const timeStr = timestamp.toLocaleTimeString('en-US');
+  
+  const msgObj = {
+    type: 'text',
+    text: text,
+    sender: peerId,
+    senderName: '🤖 Quiz Bot',
+    time: timeStr,
+    timestamp: timestamp.getTime()
+  };
+  
+  if (centralServerId && !isCentralServer(peerId)) {
+    const conn = connections.find(c => c.peer === centralServerId && c.open);
+    if (conn) conn.send({ ...msgObj, direct: false });
+  } else {
+    connections.forEach(c => { if (c.open) c.send({ ...msgObj, direct: false }); });
+  }
+  
+  setMessages(prev => [...prev, { ...msgObj, sender: 'you', senderName: '🤖 Quiz Bot', recipient: 'general' }]);
+};
+
+const askNextQuestion = async () => {
+  if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
+  
+  let questions = [];
+  const selectedSubject = QUIZ_SUBJECTS.find(s => s.id === quizDiscipline) || QUIZ_SUBJECTS[0];
+  
+  try {
+    const res = await fetch(selectedSubject.url);
+    const data = await res.json();
+    
+    // Handle the specific JSON format provided (array of arrays or direct array)
+    const arr = Array.isArray(data) ? data : (Object.values(data).find(v => Array.isArray(v)) || []);
+    questions = arr.filter(p => p.pergunta && Array.isArray(p.opcoes) && typeof p.correta === 'number');
+    
+  } catch (e) {
+    console.error("Fetch error", e);
+  }
+  
+  if (!questions || questions.length === 0) {
+    questions = [
+      { pergunta: "Qual a capital do Brasil?", opcoes: ["São Paulo", "Rio de Janeiro", "Brasília", "Salvador"], correta: 2 },
+      { pergunta: "Qual o maior planeta do sistema solar?", opcoes: ["Terra", "Marte", "Júpiter", "Saturno"], correta: 2 },
+      { pergunta: "Quem pintou a Mona Lisa?", opcoes: ["Van Gogh", "Leonardo da Vinci", "Picasso", "Michelangelo"], correta: 1 }
+    ];
+  }
+
+  const q = questions[Math.floor(Math.random() * questions.length)];
+  const questionText = q.pergunta;
+  const L = ['A','B','C','D','E','F'];
+  const answerText = `${L[q.correta]}) ${q.opcoes[q.correta]}`;
+  
+  let translatedQ = questionText;
+  let translatedOpts = [...q.opcoes];
+  
+  if (lang === 'en') {
+    try {
+      const res = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=pt&tl=en&dt=t&q=${encodeURI(questionText)}`);
+      const data = await res.json();
+      translatedQ = data[0][0][0];
+      
+      // Translate options (simplified for now, could be improved)
+      // In a real scenario, you'd translate each option or send them all in one request
+    } catch (e) {
+      console.error("Translation error", e);
+    }
+  }
+  
+  currentQuizQuestionRef.current = { ...q, p: questionText, r: answerText, corretaIndex: q.correta };
+  
+  let optsText = '';
+  translatedOpts.forEach((op, i) => { optsText += `\n${L[i]}) ${op}`; });
+  
+  sendBotMessage(`🤖 Quiz (${selectedSubject.emoji} ${selectedSubject.name}):\n${translatedQ}${optsText}`);
+  
+  quizTimerRef.current = setTimeout(() => {
+    if (quizBotActiveRef.current && currentQuizQuestionRef.current) {
+      sendBotMessage(`⏳ ${lang === 'pt' ? 'Tempo esgotado! A resposta era:' : 'Time is up! The answer was:'} ${answerText}`);
+      currentQuizQuestionRef.current = null;
+      setTimeout(() => {
+        if (quizBotActiveRef.current) askNextQuestion();
+      }, 3000);
+    }
+  }, quizInterval * 1000);
+};
+
+useEffect(() => {
+  if (!quizBotActive || !currentQuizQuestionRef.current || messages.length === 0) return;
+  
+  const lastMsg = messages[messages.length - 1];
+  if (lastMsg.sender === 'you' || lastMsg.senderName === '🤖 Quiz Bot' || lastMsg.type !== 'text') return;
+  
+  const answer = lastMsg.text.trim().toLowerCase();
+  const L = ['a','b','c','d','e','f'];
+  const normalize = (str) => str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  
+  const q = currentQuizQuestionRef.current;
+  const correctLetter = L[q.corretaIndex];
+  const correctText = normalize(q.opcoes[q.corretaIndex].toLowerCase());
+  const normalizedAnswer = normalize(answer);
+  
+  // Check if they answered with just the letter (e.g., "a", "A", "a)", "letra a")
+  const isLetterMatch = normalizedAnswer === correctLetter || 
+                        normalizedAnswer === `${correctLetter})` || 
+                        normalizedAnswer === `letra ${correctLetter}`;
+                        
+  // Check if they typed the full answer text
+  const isTextMatch = normalizedAnswer === correctText || normalizedAnswer.includes(correctText);
+  
+  if (isLetterMatch || isTextMatch) {
+    if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
+    sendBotMessage(`🎉 ${lastMsg.senderName || getContactName(lastMsg.sender)} ${lang === 'pt' ? 'acertou! A resposta é:' : 'got it right! The answer is:'} ${q.r}`);
+    currentQuizQuestionRef.current = null;
+    setTimeout(() => {
+      if (quizBotActiveRef.current) askNextQuestion();
+    }, 5000);
+  }
+}, [messages, quizBotActive]);
+
+useEffect(() => {
+  if (!quizBotActive) {
+    if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
+    currentQuizQuestionRef.current = null;
+  }
+}, [quizBotActive]);
 const [showWhiteboard, setShowWhiteboard] = useState(false);
 const [showWorldRadios, setShowWorldRadios] = useState(false);
 const [youtubeLinks, setYoutubeLinks] = useState(YOUTUBE_LINKS_LIST);
@@ -4568,6 +4782,11 @@ prompt(t(lang, 'inviteLinkCopied'), finalUrl);
 
 return (
 <div>
+{quizBotActive && (
+  <div style={{ position: 'absolute', top: '70px', left: '50%', transform: 'translateX(-50%)', background: '#10b981', color: 'white', padding: '6px 16px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', zIndex: 100, display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
+    <i className="fas fa-robot"></i> {lang === 'pt' ? 'Quiz Bot Ativado' : 'Quiz Bot Active'}
+  </div>
+)}
 {showTutorial && <TutorialModal lang={lang} onClose={() => setShowTutorial(false)} />}
 {showWorldRadios && <WorldRadiosModal lang={lang} onClose={() => setShowWorldRadios(false)} onBroadcast={startWorldRadioBroadcast} />}
 {showMediaControls && (
@@ -4611,6 +4830,9 @@ return (
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowMarkdownEditor(true); }}>
           <i className="fas fa-file-code"></i> {lang === 'pt' ? 'Editor Markdown' : 'Markdown Editor'}
         </button>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowQuizBot(true); }}>
+          <i className="fas fa-robot"></i> {lang === 'pt' ? 'Quiz Bot' : 'Quiz Bot'}
+        </button>
       </div>
     </div>
   </div>
@@ -4618,6 +4840,7 @@ return (
 {showPollCreator && <PollCreator onClose={() => setShowPollCreator(false)} onCreated={handlePollCreated} />}
 {showMarkdownEditor && <MarkdownEditor lang={lang} connections={connections} selectedContact={selectedContact} onClose={() => setShowMarkdownEditor(false)} />}
 {showGeneralModeInfo && <GeneralModeInfoModal lang={lang} selectedContact={selectedContact} onClose={() => setShowGeneralModeInfo(false)} />}
+{showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} centralServerId={centralServerId} peerId={peerId} isCentralServer={isCentralServer} />}
 {showTorrentManager && (
 <TorrentManagerModal
 lang={lang}
