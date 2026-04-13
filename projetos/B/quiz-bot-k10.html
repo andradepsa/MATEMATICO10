@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Quiz Bot — K10</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.1/peerjs.min.js"></script>
+  <style>
+    :root {
+      --bg: #0d0f14;
+      --surface: #161921;
+      --surface2: #1e2230;
+      --surface3: #252a3a;
+      --border: #2a3048;
+      --border2: #3a4260;
+      --accent: #6c63ff;
+      --accent2: #8b85ff;
+      --green: #22c55e;
+      --green-bg: #052011;
+      --yellow: #f59e0b;
+      --yellow-bg: #1a1000;
+      --red: #ef4444;
+      --red-bg: #1a0505;
+      --text: #e8eaf6;
+      --text2: #8892b0;
+      --text3: #5a6480;
+      --font: 'Space Grotesk', sans-serif;
+      --mono: 'JetBrains Mono', monospace;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: var(--font);
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px 16px;
+    }
+
+    /* ── Layout ── */
+    .app { max-width: 860px; margin: 0 auto; }
+
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+    .logo {
+      width: 40px; height: 40px;
+      background: var(--accent);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+    }
+    .header h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
+    .header span { font-size: 13px; color: var(--text3); margin-top: 2px; display: block; font-family: var(--mono); }
+
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media(max-width:620px) { .grid { grid-template-columns: 1fr; } }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+    }
+    .card-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: var(--text3);
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    .card-title .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+    }
+
+    /* ── Connection ── */
+    .input-row { display: flex; gap: 8px; }
+    input[type="text"] {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 9px 13px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 12px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input[type="text"]:focus { border-color: var(--accent); }
+    input[type="text"]::placeholder { color: var(--text3); }
+
+    .btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 9px 16px;
+      font-family: var(--font);
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn:hover { opacity: 0.88; }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.35; cursor: not-allowed; transform: none; }
+    .btn.danger { background: var(--red); }
+    .btn.ghost {
+      background: var(--surface2);
+      border: 1px solid var(--border2);
+      color: var(--text);
+    }
+    .btn.ghost:hover { background: var(--surface3); }
+    .btn.green-btn { background: var(--green); }
+    .btn.small { padding: 6px 11px; font-size: 12px; }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 99px;
+      font-size: 12px;
+      font-weight: 600;
+      font-family: var(--mono);
+      margin-top: 10px;
+    }
+    .status-pill .led {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+    }
+    .status-pill.offline { background: var(--surface3); color: var(--text3); }
+    .status-pill.offline .led { background: var(--text3); }
+    .status-pill.connecting { background: #1a1400; color: var(--yellow); }
+    .status-pill.connecting .led { background: var(--yellow); animation: pulse 0.8s infinite; }
+    .status-pill.online { background: var(--green-bg); color: var(--green); }
+    .status-pill.online .led { background: var(--green); }
+    .status-pill.error { background: var(--red-bg); color: var(--red); }
+    .status-pill.error .led { background: var(--red); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+    .my-id-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-family: var(--mono);
+      font-size: 11px;
+      color: var(--accent2);
+      margin-top: 10px;
+      word-break: break-all;
+    }
+
+    /* ── JSON Manager ── */
+    .tabs { display: flex; gap: 4px; margin-bottom: 14px; flex-wrap: wrap; }
+    .tab-btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text2);
+      border-radius: 7px;
+      padding: 5px 12px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+      font-family: var(--font);
+    }
+    .tab-btn:hover { border-color: var(--border2); color: var(--text); }
+    .tab-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .tab-btn .badge {
+      display: inline-block;
+      background: rgba(255,255,255,0.25);
+      border-radius: 99px;
+      font-size: 10px;
+      padding: 1px 5px;
+      margin-left: 4px;
+    }
+    .tab-btn:not(.active) .badge {
+      background: var(--surface3);
+      color: var(--text3);
+    }
+
+    textarea {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 11px;
+      outline: none;
+      resize: vertical;
+      min-height: 120px;
+      transition: border-color 0.2s;
+      line-height: 1.5;
+    }
+    textarea:focus { border-color: var(--accent); }
+    textarea::placeholder { color: var(--text3); }
+
+    .json-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+
+    .q-count {
+      font-size: 11px;
+      color: var(--text3);
+      font-family: var(--mono);
+      margin-top: 6px;
+    }
+    .q-count span { color: var(--green); font-weight: 600; }
+
+    /* ── Control Panel (full width) ── */
+    .control-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 20px;
+      margin-top: 16px;
+    }
+
+    .control-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 18px; }
+
+    .control-item label {
+      display: block;
+      font-size: 11px;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--text3);
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    select {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 13px;
+      outline: none;
+      cursor: pointer;
+    }
+    select:focus { border-color: var(--accent); }
+    input[type="number"] {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 12px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: 13px;
+      outline: none;
+    }
+    input[type="number"]:focus { border-color: var(--accent); }
+
+    .run-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
+    /* ── Live Panel ── */
+    .live-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      margin-top: 14px;
+      display: none;
+    }
+    .live-box.show { display: block; }
+
+    .live-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+    .live-header .live-badge {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--red);
+      background: var(--red-bg);
+      padding: 4px 10px;
+      border-radius: 99px;
+      letter-spacing: 0.5px;
+    }
+    .live-badge .led { width: 6px; height: 6px; border-radius: 50%; background: var(--red); animation: pulse 0.8s infinite; }
+
+    .current-q {
+      background: var(--surface);
+      border-radius: 8px;
+      padding: 12px;
+      font-size: 14px;
+      line-height: 1.6;
+      color: var(--text);
+      margin-bottom: 10px;
+      white-space: pre-wrap;
+      font-family: var(--mono);
+      font-size: 12px;
+    }
+
+    .countdown-bar-wrap {
+      background: var(--surface3);
+      border-radius: 99px;
+      height: 5px;
+      overflow: hidden;
+      margin-bottom: 8px;
+    }
+    .countdown-fill {
+      height: 5px;
+      background: var(--accent);
+      border-radius: 99px;
+      transition: width 1s linear;
+    }
+    .countdown-fill.warn { background: var(--yellow); }
+    .countdown-fill.danger { background: var(--red); }
+
+    .live-stats { display: flex; gap: 12px; font-size: 12px; color: var(--text3); font-family: var(--mono); }
+    .live-stats span { color: var(--text2); }
+
+    /* ── Log ── */
+    .log {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-top: 16px;
+      height: 140px;
+      overflow-y: auto;
+      font-family: var(--mono);
+      font-size: 11px;
+      line-height: 1.8;
+    }
+    .log-entry { color: var(--text3); }
+    .log-entry .ts { color: var(--text3); }
+    .log-entry .ok { color: var(--green); }
+    .log-entry .info { color: var(--accent2); }
+    .log-entry .warn { color: var(--yellow); }
+    .log-entry .err { color: var(--red); }
+
+    /* ── Banco de JSONs ── */
+    .bank-list { display: grid; gap: 8px; max-height: 220px; overflow-y: auto; }
+    .bank-item {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .bank-item.selected { border-color: var(--accent); background: #1a1a35; }
+    .bank-name { font-size: 13px; font-weight: 600; color: var(--text); }
+    .bank-meta { font-size: 11px; color: var(--text3); font-family: var(--mono); }
+    .bank-actions { display: flex; gap: 5px; }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: var(--surface); }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 99px; }
+
+    .sep { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+
+    .notice {
+      background: var(--yellow-bg);
+      border: 1px solid #2a1e00;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: var(--yellow);
+      margin-top: 10px;
+      display: none;
+    }
+    .notice.show { display: block; }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- Header -->
+  <div class="header">
+    <div class="logo">🤖</div>
+    <div>
+      <h1>Quiz Bot K10</h1>
+      <span>Envia quizzes direto no servidor</span>
+    </div>
+  </div>
+
+  <!-- Row 1: Conexão + Banco de JSONs -->
+  <div class="grid">
+
+    <!-- Conexão -->
+    <div class="card">
+      <div class="card-title"><div class="dot"></div>Conexão com o Servidor</div>
+      <div class="input-row">
+        <input type="text" id="serverIdInput" placeholder="ID do servidor (ex: AAAAAA-CENTRAL)" />
+        <button class="btn" id="connectBtn" onclick="toggleConnect()">Conectar</button>
+      </div>
+      <div id="statusPill" class="status-pill offline">
+        <div class="led"></div>
+        <span id="statusText">Desconectado</span>
+      </div>
+      <div class="my-id-box">Bot ID: <span id="myIdSpan">gerando...</span></div>
+      <div id="noticeBox" class="notice">⚠️ Conecte ao servidor antes de iniciar o quiz.</div>
+    </div>
+
+    <!-- Banco de JSONs -->
+    <div class="card">
+      <div class="card-title"><div class="dot"></div>Banco de Perguntas</div>
+      <div id="bankList" class="bank-list">
+        <div style="font-size:12px;color:var(--text3);padding:8px 0;">Nenhum banco carregado ainda.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Importar JSON (full width) -->
+  <div class="control-card">
+    <div class="card-title"><div class="dot"></div>Importar JSON de Perguntas</div>
+
+    <div class="tabs" id="bankTabs">
+      <button class="tab-btn active" id="newTabBtn" onclick="selectBank(null)">+ Novo</button>
+    </div>
+
+    <textarea id="jsonInput" placeholder='Cole aqui o JSON. Pode ser um array [...] ou um objeto com chave, ex: {"perguntas":[...]}
+
+Formato aceito:
+[
+  {
+    "pergunta": "Qual é a unidade de força?",
+    "opcoes": ["Joule", "Newton", "Watt", "Pascal"],
+    "correta": 1
+  }
+]'></textarea>
+
+    <div class="json-actions">
+      <input type="text" id="bankNameInput" placeholder="Nome do banco (ex: Física)" style="width:160px;flex-shrink:0;" />
+      <button class="btn" onclick="importJSON()">💾 Salvar Banco</button>
+      <button class="btn ghost" onclick="validateJSON()">✅ Validar</button>
+      <button class="btn ghost small" onclick="loadExample()">Exemplo</button>
+    </div>
+    <div id="qCount" class="q-count"></div>
+  </div>
+
+  <!-- Controle do Quiz (full width) -->
+  <div class="control-card">
+    <div class="card-title"><div class="dot"></div>Configurar e Enviar Quiz</div>
+
+    <div class="control-grid">
+      <div class="control-item">
+        <label>Banco de perguntas</label>
+        <select id="bankSelect">
+          <option value="">— Selecione —</option>
+        </select>
+      </div>
+      <div class="control-item">
+        <label>Qtd de perguntas</label>
+        <input type="number" id="qtyInput" value="5" min="1" max="50" />
+      </div>
+      <div class="control-item">
+        <label>Tempo por pergunta (s)</label>
+        <input type="number" id="timerInput" value="20" min="5" max="120" />
+      </div>
+      <div class="control-item">
+        <label>Ordem</label>
+        <select id="orderSelect">
+          <option value="random">Aleatória</option>
+          <option value="sequential">Sequencial</option>
+        </select>
+      </div>
+      <div class="control-item">
+        <label>Revelar resposta</label>
+        <select id="revealSelect">
+          <option value="auto">Automático (após timer)</option>
+          <option value="never">Nunca revelar</option>
+        </select>
+      </div>
+      <div class="control-item">
+        <label>Intervalo entre Qs (s)</label>
+        <input type="number" id="intervalInput" value="5" min="2" max="30" />
+      </div>
+    </div>
+
+    <div class="run-row">
+      <button class="btn green-btn" id="startBtn" onclick="startQuiz()">▶ Iniciar Quiz</button>
+      <button class="btn danger" id="stopBtn" onclick="stopQuiz()" style="display:none;">■ Parar</button>
+      <button class="btn ghost" onclick="sendCustomMessage()">💬 Enviar mensagem</button>
+    </div>
+
+    <!-- Live -->
+    <div id="liveBox" class="live-box">
+      <div class="live-header">
+        <div class="live-badge"><div class="led"></div>AO VIVO</div>
+        <div id="liveCounter" style="font-size:12px;color:var(--text3);font-family:var(--mono);">Q 0/0</div>
+      </div>
+      <div id="currentQ" class="current-q">—</div>
+      <div class="countdown-bar-wrap">
+        <div id="countdownBar" class="countdown-fill" style="width:100%"></div>
+      </div>
+      <div class="live-stats">
+        Respondendo em: <span id="timerDisplay">—</span>s &nbsp;|&nbsp;
+        Enviadas: <span id="sentCount">0</span> &nbsp;|&nbsp;
+        Conexão: <span id="connStatus">—</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Log -->
+  <div id="logBox" class="log"></div>
+
+</div>
+
+<script>
+  // ── Estado ──────────────────────────────────────────────
+  let peer = null;
+  let serverConn = null;
+  let banks = JSON.parse(localStorage.getItem('quizBotBanks') || '[]');
+  let activeBankIdx = null;
+
+  let quizRunning = false;
+  let quizQueue = [];
+  let quizIdx = 0;
+  let questionTimer = null;
+  let intervalTimer = null;
+  let countdownInterval = null;
+  let sentCount = 0;
+
+  const LETTERS = ['A', 'B', 'C', 'D', 'E', 'F'];
+
+  // ── Log ─────────────────────────────────────────────────
+  function log(msg, type = 'info') {
+    const box = document.getElementById('logBox');
+    const ts = new Date().toLocaleTimeString('pt-BR');
+    const el = document.createElement('div');
+    el.className = 'log-entry';
+    el.innerHTML = `<span class="ts">[${ts}]</span> <span class="${type}">${msg}</span>`;
+    box.appendChild(el);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  // ── PeerJS ──────────────────────────────────────────────
+  function setStatus(cls, text) {
+    const pill = document.getElementById('statusPill');
+    pill.className = 'status-pill ' + cls;
+    document.getElementById('statusText').textContent = text;
+    document.getElementById('connStatus').textContent = text;
+  }
+
+  function toggleConnect() {
+    if (peer && !peer.destroyed) {
+      disconnectBot();
+    } else {
+      connectBot();
+    }
+  }
+
+  function connectBot() {
+    const serverId = document.getElementById('serverIdInput').value.trim();
+    if (!serverId) { log('Digite o ID do servidor!', 'warn'); return; }
+
+    setStatus('connecting', 'Conectando...');
+    document.getElementById('connectBtn').textContent = 'Aguarde...';
+    document.getElementById('connectBtn').disabled = true;
+
+    const botId = 'QuizBot-' + Math.random().toString(36).substr(2, 6).toUpperCase();
+    document.getElementById('myIdSpan').textContent = botId;
+
+    peer = new Peer(botId, {
+      host: '0.peerjs.com', port: 443, secure: true,
+      config: { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] }
+    });
+
+    peer.on('open', (id) => {
+      log(`Bot conectado com ID: ${id}`, 'ok');
+      log(`Conectando ao servidor: ${serverId}`, 'info');
+
+      serverConn = peer.connect(serverId);
+
+      serverConn.on('open', () => {
+        setStatus('online', 'Conectado');
+        document.getElementById('connectBtn').textContent = 'Desconectar';
+        document.getElementById('connectBtn').disabled = false;
+        document.getElementById('noticeBox').classList.remove('show');
+        log(`✅ Conectado ao servidor ${serverId}`, 'ok');
+        sendToServer({ type: 'message', text: '🤖 Quiz Bot conectado e pronto!', senderName: 'Quiz Bot', id: uid(), ttl: 8 });
+      });
+
+      serverConn.on('data', (data) => {
+        // Recebe mensagens do servidor (respostas dos usuários, etc.)
+        if (data && data.text && data.senderName) {
+          log(`📨 ${data.senderName}: ${data.text}`, 'info');
+        }
+      });
+
+      serverConn.on('close', () => {
+        setStatus('offline', 'Desconectado');
+        document.getElementById('connectBtn').textContent = 'Conectar';
+        document.getElementById('connectBtn').disabled = false;
+        log('Conexão com servidor encerrada.', 'warn');
+        if (quizRunning) stopQuiz();
+      });
+
+      serverConn.on('error', (err) => {
+        setStatus('error', 'Erro');
+        log('Erro na conexão: ' + err, 'err');
+        document.getElementById('connectBtn').textContent = 'Conectar';
+        document.getElementById('connectBtn').disabled = false;
+      });
+    });
+
+    peer.on('error', (err) => {
+      setStatus('error', 'Erro');
+      log('Erro no peer: ' + err.type + ' — ' + err.message, 'err');
+      document.getElementById('connectBtn').textContent = 'Conectar';
+      document.getElementById('connectBtn').disabled = false;
+    });
+  }
+
+  function disconnectBot() {
+    if (quizRunning) stopQuiz();
+    if (serverConn) { try { serverConn.close(); } catch(e) {} serverConn = null; }
+    if (peer) { try { peer.destroy(); } catch(e) {} peer = null; }
+    setStatus('offline', 'Desconectado');
+    document.getElementById('connectBtn').textContent = 'Conectar';
+    document.getElementById('connectBtn').disabled = false;
+    log('Bot desconectado.', 'warn');
+  }
+
+  function sendToServer(data) {
+    if (!serverConn || serverConn.peerConnection?.connectionState === 'closed') {
+      log('Sem conexão com o servidor!', 'err');
+      return false;
+    }
+    try {
+      serverConn.send(data);
+      return true;
+    } catch(e) {
+      log('Erro ao enviar: ' + e.message, 'err');
+      return false;
+    }
+  }
+
+  function uid() {
+    return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+  }
+
+  // ── Formatar mensagem de pergunta ────────────────────────
+  function formatQuestion(q, num, total, timer) {
+    const letters = LETTERS;
+    let msg = `🎯 PERGUNTA ${num}/${total}\n`;
+    msg += `━━━━━━━━━━━━━━━━\n`;
+    msg += `${q.pergunta}\n\n`;
+    q.opcoes.forEach((op, i) => {
+      msg += `${letters[i]}) ${op}\n`;
+    });
+    msg += `\n⏱️ Você tem ${timer} segundos para responder!`;
+    return msg;
+  }
+
+  function formatAnswer(q) {
+    const correta = q.opcoes[q.correta];
+    const letra = LETTERS[q.correta];
+    let msg = `✅ RESPOSTA: ${letra}) ${correta}`;
+    if (q.explicacao) msg += `\n📖 ${q.explicacao}`;
+    return msg;
+  }
+
+  function formatStart(bankName, total, timer) {
+    return `🤖 Quiz iniciando!\n📚 Banco: ${bankName}\n❓ ${total} perguntas\n⏱️ ${timer}s por pergunta\n\nFique atento! Primeira pergunta em breve...`;
+  }
+
+  function formatEnd(total) {
+    return `🏁 Quiz encerrado!\n${total} pergunta(s) enviada(s).\n\nObrigado por participar! 🎉`;
+  }
+
+  // ── Quiz ────────────────────────────────────────────────
+  function startQuiz() {
+    if (!serverConn) {
+      document.getElementById('noticeBox').classList.add('show');
+      log('Conecte ao servidor primeiro!', 'warn');
+      return;
+    }
+
+    const bankIdx = document.getElementById('bankSelect').value;
+    if (bankIdx === '' || !banks[bankIdx]) {
+      log('Selecione um banco de perguntas!', 'warn');
+      return;
+    }
+
+    const bank = banks[bankIdx];
+    const qty = Math.min(parseInt(document.getElementById('qtyInput').value) || 5, bank.perguntas.length);
+    const timer = parseInt(document.getElementById('timerInput').value) || 20;
+    const order = document.getElementById('orderSelect').value;
+    const interval = parseInt(document.getElementById('intervalInput').value) || 5;
+
+    // Prepara fila
+    let pool = [...bank.perguntas];
+    if (order === 'random') pool = pool.sort(() => Math.random() - 0.5);
+    quizQueue = pool.slice(0, qty);
+    quizIdx = 0;
+    sentCount = 0;
+    quizRunning = true;
+
+    document.getElementById('startBtn').style.display = 'none';
+    document.getElementById('stopBtn').style.display = 'inline-block';
+    document.getElementById('liveBox').classList.add('show');
+
+    log(`Quiz iniciado: "${bank.nome}" — ${qty} Qs, ${timer}s cada`, 'ok');
+
+    // Mensagem de início
+    sendToServer({ type: 'message', text: formatStart(bank.nome, qty, timer), senderName: '🤖 Quiz Bot', id: uid(), ttl: 8 });
+
+    setTimeout(() => sendNextQuestion(timer, interval, bank.nome, qty), 3000);
+  }
+
+  function sendNextQuestion(timer, interval, bankName, total) {
+    if (!quizRunning || quizIdx >= quizQueue.length) {
+      finishQuiz(total);
+      return;
+    }
+
+    const q = quizQueue[quizIdx];
+    const num = quizIdx + 1;
+    const reveal = document.getElementById('revealSelect').value;
+
+    const msgText = formatQuestion(q, num, total, timer);
+
+    // Atualiza UI
+    document.getElementById('currentQ').textContent = msgText;
+    document.getElementById('liveCounter').textContent = `Q ${num}/${total}`;
+    document.getElementById('timerDisplay').textContent = timer;
+    document.getElementById('sentCount').textContent = num;
+
+    // Envia ao servidor
+    sendToServer({ type: 'message', text: msgText, senderName: '🤖 Quiz Bot', id: uid(), ttl: 8 });
+    log(`📤 Pergunta ${num}/${total}: ${q.pergunta.substring(0, 50)}...`, 'ok');
+
+    // Countdown visual
+    let elapsed = 0;
+    const bar = document.getElementById('countdownBar');
+    bar.style.transition = 'none';
+    bar.style.width = '100%';
+    bar.className = 'countdown-fill';
+
+    clearInterval(countdownInterval);
+    countdownInterval = setInterval(() => {
+      elapsed++;
+      const pct = Math.max(0, 100 - (elapsed / timer) * 100);
+      bar.style.transition = 'width 1s linear';
+      bar.style.width = pct + '%';
+      document.getElementById('timerDisplay').textContent = timer - elapsed;
+
+      if (pct < 30) bar.className = 'countdown-fill danger';
+      else if (pct < 60) bar.className = 'countdown-fill warn';
+
+      if (elapsed >= timer) {
+        clearInterval(countdownInterval);
+
+        if (reveal === 'auto') {
+          const ansText = formatAnswer(q);
+          sendToServer({ type: 'message', text: ansText, senderName: '🤖 Quiz Bot', id: uid(), ttl: 8 });
+          log(`💡 Resposta enviada: ${LETTERS[q.correta]}) ${q.opcoes[q.correta]}`, 'info');
+        }
+
+        quizIdx++;
+        if (quizIdx < quizQueue.length && quizRunning) {
+          log(`⏸ Aguardando ${interval}s para a próxima...`, 'info');
+          questionTimer = setTimeout(() => sendNextQuestion(timer, interval, bankName, total), interval * 1000);
+        } else {
+          questionTimer = setTimeout(() => finishQuiz(total), interval * 1000);
+        }
+      }
+    }, 1000);
+  }
+
+  function finishQuiz(total) {
+    quizRunning = false;
+    clearInterval(countdownInterval);
+    clearTimeout(questionTimer);
+    clearTimeout(intervalTimer);
+
+    sendToServer({ type: 'message', text: formatEnd(quizIdx), senderName: '🤖 Quiz Bot', id: uid(), ttl: 8 });
+    log(`✅ Quiz finalizado! ${quizIdx} perguntas enviadas.`, 'ok');
+
+    document.getElementById('startBtn').style.display = 'inline-block';
+    document.getElementById('stopBtn').style.display = 'none';
+    document.getElementById('liveBox').classList.remove('show');
+
+    const bar = document.getElementById('countdownBar');
+    bar.style.width = '0%';
+  }
+
+  function stopQuiz() {
+    if (!quizRunning) return;
+    quizRunning = false;
+    clearInterval(countdownInterval);
+    clearTimeout(questionTimer);
+    clearTimeout(intervalTimer);
+
+    sendToServer({ type: 'message', text: '⏹️ Quiz interrompido pelo administrador.', senderName: '🤖 Quiz Bot', id: uid(), ttl: 8 });
+    log('Quiz interrompido.', 'warn');
+
+    document.getElementById('startBtn').style.display = 'inline-block';
+    document.getElementById('stopBtn').style.display = 'none';
+    document.getElementById('liveBox').classList.remove('show');
+  }
+
+  function sendCustomMessage() {
+    const msg = prompt('Mensagem para enviar no servidor:');
+    if (!msg) return;
+    const ok = sendToServer({ type: 'message', text: msg, senderName: '🤖 Quiz Bot', id: uid(), ttl: 8 });
+    if (ok) log(`💬 Mensagem enviada: ${msg}`, 'ok');
+  }
+
+  // ── JSON Manager ─────────────────────────────────────────
+  function importJSON() {
+    const raw = document.getElementById('jsonInput').value.trim();
+    const name = document.getElementById('bankNameInput').value.trim() || ('Banco ' + (banks.length + 1));
+    if (!raw) { log('Cole um JSON antes de salvar!', 'warn'); return; }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch(e) {
+      log('JSON inválido: ' + e.message, 'err');
+      return;
+    }
+
+    // Aceita array direto ou objeto com várias chaves
+    let perguntas = null;
+    if (Array.isArray(parsed)) {
+      perguntas = parsed;
+    } else if (typeof parsed === 'object') {
+      const key = Object.keys(parsed).find(k => Array.isArray(parsed[k]));
+      if (key) perguntas = parsed[key];
+    }
+
+    if (!perguntas || perguntas.length === 0) {
+      log('Não encontrei perguntas no JSON!', 'err');
+      return;
+    }
+
+    // Valida estrutura mínima
+    const valid = perguntas.filter(p => p.pergunta && Array.isArray(p.opcoes) && typeof p.correta === 'number');
+    if (valid.length === 0) {
+      log('Nenhuma pergunta com formato válido encontrada!', 'err');
+      return;
+    }
+
+    // Atualiza banco existente ou cria novo
+    if (activeBankIdx !== null) {
+      banks[activeBankIdx] = { nome: name, perguntas: valid };
+      log(`Banco "${name}" atualizado: ${valid.length} perguntas.`, 'ok');
+    } else {
+      banks.push({ nome: name, perguntas: valid });
+      log(`Banco "${name}" criado: ${valid.length} perguntas.`, 'ok');
+    }
+
+    localStorage.setItem('quizBotBanks', JSON.stringify(banks));
+    renderBanks();
+    document.getElementById('jsonInput').value = '';
+    document.getElementById('bankNameInput').value = '';
+    activeBankIdx = null;
+    document.getElementById('qCount').innerHTML = '';
+  }
+
+  function validateJSON() {
+    const raw = document.getElementById('jsonInput').value.trim();
+    if (!raw) return;
+    try {
+      let parsed = JSON.parse(raw);
+      let arr = Array.isArray(parsed) ? parsed : Object.values(parsed).find(v => Array.isArray(v));
+      const valid = (arr || []).filter(p => p.pergunta && Array.isArray(p.opcoes) && typeof p.correta === 'number');
+      document.getElementById('qCount').innerHTML = `Encontradas: <span>${valid.length} perguntas válidas</span>`;
+      log(`Validação OK: ${valid.length} perguntas.`, 'ok');
+    } catch(e) {
+      document.getElementById('qCount').innerHTML = `<span style="color:var(--red)">JSON inválido: ${e.message}</span>`;
+      log('JSON inválido: ' + e.message, 'err');
+    }
+  }
+
+  function loadExample() {
+    document.getElementById('jsonInput').value = JSON.stringify([
+      { "pergunta": "Qual é a unidade de força no SI?", "opcoes": ["Joule", "Newton", "Watt", "Pascal"], "correta": 1 },
+      { "pergunta": "Qual é a fórmula da Segunda Lei de Newton?", "opcoes": ["F = m/a", "F = m·v", "F = m·a", "F = a/m"], "correta": 2 },
+      { "pergunta": "O que mede o Joule?", "opcoes": ["Força", "Pressão", "Energia", "Potência"], "correta": 2 },
+      { "pergunta": "Velocidade da luz no vácuo (aprox)?", "opcoes": ["3×10⁶ m/s", "3×10⁸ m/s", "3×10¹⁰ m/s", "3×10⁴ m/s"], "correta": 1 },
+      { "pergunta": "Lei da Inércia é a _____ Lei de Newton?", "opcoes": ["Segunda", "Terceira", "Quarta", "Primeira"], "correta": 3 }
+    ], null, 2);
+    document.getElementById('bankNameInput').value = 'Física — Exemplo';
+    validateJSON();
+  }
+
+  function selectBank(idx) {
+    activeBankIdx = idx;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    if (idx === null) {
+      document.getElementById('newTabBtn').classList.add('active');
+      document.getElementById('jsonInput').value = '';
+      document.getElementById('bankNameInput').value = '';
+      document.getElementById('qCount').innerHTML = '';
+    } else {
+      document.getElementById('bankTabs').querySelectorAll('.tab-btn')[idx + 1].classList.add('active');
+      document.getElementById('jsonInput').value = JSON.stringify(banks[idx].perguntas, null, 2);
+      document.getElementById('bankNameInput').value = banks[idx].nome;
+      document.getElementById('qCount').innerHTML = `Carregado: <span>${banks[idx].perguntas.length} perguntas</span>`;
+    }
+  }
+
+  function deleteBank(idx) {
+    if (!confirm(`Excluir "${banks[idx].nome}"?`)) return;
+    banks.splice(idx, 1);
+    localStorage.setItem('quizBotBanks', JSON.stringify(banks));
+    activeBankIdx = null;
+    renderBanks();
+    log('Banco excluído.', 'warn');
+  }
+
+  function renderBanks() {
+    const list = document.getElementById('bankList');
+    const sel = document.getElementById('bankSelect');
+    const tabs = document.getElementById('bankTabs');
+
+    // Limpa
+    list.innerHTML = banks.length === 0
+      ? '<div style="font-size:12px;color:var(--text3);padding:8px 0;">Nenhum banco carregado ainda.</div>'
+      : '';
+
+    sel.innerHTML = '<option value="">— Selecione —</option>';
+
+    // Remove tabs antigos (mantém o "Novo")
+    Array.from(tabs.querySelectorAll('.tab-btn:not(#newTabBtn)')).forEach(b => b.remove());
+
+    banks.forEach((bank, i) => {
+      // Lista
+      const item = document.createElement('div');
+      item.className = 'bank-item';
+      item.innerHTML = `
+        <div>
+          <div class="bank-name">${bank.nome}</div>
+          <div class="bank-meta">${bank.perguntas.length} perguntas</div>
+        </div>
+        <div class="bank-actions">
+          <button class="btn ghost small" onclick="selectBank(${i})">✏️ Editar</button>
+          <button class="btn danger small" onclick="deleteBank(${i})">🗑</button>
+        </div>`;
+      list.appendChild(item);
+
+      // Select
+      const opt = document.createElement('option');
+      opt.value = i;
+      opt.textContent = `${bank.nome} (${bank.perguntas.length}q)`;
+      sel.appendChild(opt);
+
+      // Tab
+      const tab = document.createElement('button');
+      tab.className = 'tab-btn';
+      tab.innerHTML = `${bank.nome} <span class="badge">${bank.perguntas.length}</span>`;
+      tab.onclick = () => selectBank(i);
+      tabs.appendChild(tab);
+    });
+  }
+
+  // ── Init ──────────────────────────────────────────────
+  renderBanks();
+  log('Quiz Bot inicializado. Cole um JSON e conecte ao servidor.', 'info');
+
+  // Mostra ID estático enquanto não conecta
+  document.getElementById('myIdSpan').textContent = 'QuizBot-' + Math.random().toString(36).substr(2,6).toUpperCase() + ' (ao conectar)';
+</script>
+</body>
+</html>
