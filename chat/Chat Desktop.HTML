@@ -127,6 +127,7 @@ text-shadow: 0 0 8px rgba(74, 222, 128, 0.3);
 .voice-button { padding: 8px; background: var(--success); color: white; border: none; border-radius: 50%; cursor: pointer; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0; }
 .voice-button.recording { background: var(--danger); animation: pulse 1s infinite; }
 @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 .voice-button:disabled { background: #cbd5e1; cursor: not-allowed; }
 .icon-btn { padding: 8px; background: #f1f5f9; color: var(--text-muted); border: 1px solid var(--border); border-radius: 50%; cursor: pointer; width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; transition: all 0.2s; flex-shrink: 0; }
 .icon-btn:hover { background: #e2e8f0; }
@@ -604,6 +605,16 @@ sendTorrent: "Send Torrent File",
 startYoutubeChat: "Start YouTube Chat",
 stopYoutubeChat: "Stop YouTube Chat",
 broadcastYoutubeChat: "Broadcast YouTube Chat Link",
+tools: "Tools",
+collaborativeWhiteboard: "Collaborative Whiteboard",
+createPoll: "Create Poll",
+markdownEditor: "Markdown Editor",
+quizBotActive: "Quiz Bot Active",
+secretCopied: "Secret copied!",
+collaborativeMarkdownEditor: "Collaborative Markdown Editor",
+typeMarkdownHere: "Type your markdown here...",
+msgTooLong: "Message exceeds 2000 characters limit.",
+usersOnlineGeneral: "Users Online in General Web",
 },
 pt: {
 appTitle: "Chat K10",
@@ -782,13 +793,156 @@ sendTorrent: "Enviar Arquivo Torrent",
 startYoutubeChat: "Iniciar Chat YouTube",
 stopYoutubeChat: "Parar Chat YouTube",
 broadcastYoutubeChat: "Enviar Link Chat YouTube",
+tools: "Ferramentas",
+collaborativeWhiteboard: "Lousa Colaborativa",
+createPoll: "Criar Enquete",
+markdownEditor: "Editor Markdown",
+quizBotActive: "Quiz Bot Ativado",
+secretCopied: "Segredo copiado!",
+collaborativeMarkdownEditor: "Editor Markdown Colaborativo",
+typeMarkdownHere: "Digite seu markdown aqui...",
+msgTooLong: "A mensagem excede o limite de 2000 caracteres.",
+usersOnlineGeneral: "Usuários Online na Teia Geral",
 }
 };
 
 
+// ================================================================
+// DYNAMIC TRANSLATION ENGINE — Google Translate (no API key)
+// ================================================================
+let _dynTransl = {};           // module-level cache of translated UI strings
+let _dynTranslLang = '';       // which lang _dynTransl is for
+let _dynTranslReady = false;   // true once the current lang is fully translated
+
+// Per-session translation cache (both UI keys and message text)
+const _gtCache = (() => {
+  try {
+    const s = sessionStorage.getItem('k10_gt_cache');
+    return s ? JSON.parse(s) : {};
+  } catch(e) { return {}; }
+})();
+
+function _saveGtCache() {
+  try { sessionStorage.setItem('k10_gt_cache', JSON.stringify(_gtCache)); } catch(e) {}
+}
+
+// Translate a single text string via unofficial Google Translate endpoint
+async function gtTranslate(text, targetLang, sourceLang = 'en') {
+  if (!text || !text.trim()) return text;
+  if (targetLang === sourceLang && sourceLang !== 'auto') return text;
+  const key = `${sourceLang}|${targetLang}|${text}`;
+  if (_gtCache[key]) return _gtCache[key];
+  try {
+    const sl = sourceLang === 'auto' ? 'auto' : sourceLang;
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sl}&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(text)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    // data[0] is array of [translated_segment, original_segment]
+    const translated = (data[0] || []).map(s => s[0] || '').join('');
+    // Only cache if actually translated (different from original)
+    if (translated && translated !== text) {
+      _gtCache[key] = translated;
+      _saveGtCache();
+    }
+    return translated || text;
+  } catch(e) {
+    return text;
+  }
+}
+
+// Translate a batch of texts (join with separator, split result)
+async function gtTranslateBatch(texts, targetLang, sourceLang = 'en') {
+  if (!texts.length || targetLang === sourceLang) return texts;
+  const SEP = '\n⟨|⟩\n';
+  // Filter already-cached
+  const needsTranslation = texts.map(t => {
+    const key = `${sourceLang}|${targetLang}|${t}`;
+    return _gtCache[key] ? null : t;
+  });
+  const unique = [...new Set(needsTranslation.filter(Boolean))];
+  if (unique.length) {
+    try {
+      const joined = unique.join(SEP);
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${sourceLang}&tl=${targetLang}&dt=t&q=${encodeURIComponent(joined)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const translatedJoined = (data[0] || []).map(s => s[0] || '').join('');
+      const parts = translatedJoined.split(/\n[⟨<]\|[⟩>]\n/);
+      unique.forEach((orig, i) => {
+        const translated = (parts[i] || orig).trim();
+        const cacheKey = `${sourceLang}|${targetLang}|${orig}`;
+        _gtCache[cacheKey] = translated;
+      });
+      _saveGtCache();
+    } catch(e) {}
+  }
+  return texts.map(text => {
+    const key = `${sourceLang}|${targetLang}|${text}`;
+    return _gtCache[key] || text;
+  });
+}
+
+// Build dynamic translation object for the given language (all TRANSLATIONS.en keys)
+// Returns a promise that resolves when done; updates _dynTransl in place
+async function buildDynTransl(targetLang) {
+  if (targetLang === 'en' || targetLang === 'pt') {
+    _dynTransl = {};
+    _dynTranslLang = targetLang;
+    _dynTranslReady = true;
+    return;
+  }
+
+  // Check localStorage for pre-built translations
+  const lsKey = `k10_ui_transl_${targetLang}`;
+  try {
+    const saved = localStorage.getItem(lsKey);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (parsed && Object.keys(parsed).length > 50) {
+        _dynTransl = parsed;
+        _dynTranslLang = targetLang;
+        _dynTranslReady = true;
+        return;
+      }
+    }
+  } catch(e) {}
+
+  _dynTranslReady = false;
+  _dynTranslLang = targetLang;
+
+  const enKeys = Object.keys(TRANSLATIONS.en);
+  const enVals = enKeys.map(k => TRANSLATIONS.en[k]);
+
+  // Batch in groups of 40 to avoid URL length limits
+  const BATCH = 40;
+  const result = {};
+  for (let i = 0; i < enKeys.length; i += BATCH) {
+    const bKeys = enKeys.slice(i, i + BATCH);
+    const bVals = enVals.slice(i, i + BATCH);
+    const translated = await gtTranslateBatch(bVals, targetLang);
+    bKeys.forEach((k, j) => { result[k] = translated[j]; });
+    // Update partially as we go
+    Object.assign(_dynTransl, result);
+  }
+
+  _dynTransl = result;
+  _dynTranslLang = targetLang;
+  _dynTranslReady = true;
+
+  try { localStorage.setItem(lsKey, JSON.stringify(result)); } catch(e) {}
+}
+
 const t = (lang, key, vars = {}) => {
-  const translations = TRANSLATIONS[lang] || TRANSLATIONS['en'];
-  let str = translations[key] || TRANSLATIONS['en'][key] || key;
+  let str;
+  if (lang === 'pt') {
+    str = TRANSLATIONS.pt[key];
+  } else if (lang === 'en') {
+    str = TRANSLATIONS.en[key];
+  } else {
+    // Use dynamic translation if ready for this lang, else fall back to EN
+    str = (_dynTranslLang === lang) ? _dynTransl[key] : undefined;
+  }
+  str = str || TRANSLATIONS.en[key] || key;
   Object.entries(vars).forEach(([k, v]) => { str = str.replace(`{${k}}`, v); });
   return str;
 };
@@ -1487,29 +1641,62 @@ textAlign: 'center'
 
 const TutorialModal = ({ lang, onClose }) => {
 const [page, setPage] = useState(0);
+// For non-en/pt languages, we show the EN tutorial content (JSX) but translate the tab/title text
+// and show a live-translation iframe overlay on the text when clicked
 const pages = lang === 'pt' ? TUTORIAL_PAGES_PT : TUTORIAL_PAGES_EN;
 const current = pages[page];
+
+// Translate tutorial navigation words
+const prevWord = t(lang, 'back')?.replace('← ', '') || 'Previous';
+const nextWord = 'Next →';
+const doneWord = '✅ Done';
+
+// Tab label translation for non-en/pt
+const [translatedTabs, setTranslatedTabs] = useState([]);
+const [translatedTitle, setTranslatedTitle] = useState('');
+useEffect(() => {
+  if (lang === 'en' || lang === 'pt') {
+    setTranslatedTabs([]);
+    setTranslatedTitle('');
+    return;
+  }
+  const tabTexts = pages.map(p => p.tab);
+  gtTranslateBatch([current.title, ...tabTexts], lang, lang === 'pt' ? 'pt' : 'en').then(results => {
+    setTranslatedTitle(results[0] || current.title);
+    setTranslatedTabs(results.slice(1));
+  });
+}, [lang, page]);
+
+const displayTitle = (lang !== 'en' && lang !== 'pt' && translatedTitle) ? translatedTitle : current.title;
+const displayTab = (i) => (lang !== 'en' && lang !== 'pt' && translatedTabs[i]) ? translatedTabs[i] : pages[i].tab;
+
 return (
 <div className="tutorial-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
 <div className="tutorial-modal">
 <div className="tutorial-header">
-<h2>📖 {current.title}</h2>
+<h2>📖 {displayTitle}</h2>
 <button className="tutorial-close" onClick={onClose}>✕</button>
 </div>
+{lang !== 'en' && lang !== 'pt' && (
+  <div style={{ background: '#1e3a5f', color: '#93c5fd', padding: '6px 16px', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px', borderBottom: '1px solid #334155' }}>
+    🌐 {getLangName(lang)} — {t(lang, 'tutorial') || 'Tutorial'}
+    <span style={{ opacity: 0.6 }}>· Content auto-translated from English</span>
+  </div>
+)}
 <div className="tutorial-tabs">
 {pages.map((p, i) => (
-<div key={i} className={`tutorial-tab${page === i ? ' active' : ''}`} onClick={() => setPage(i)}>{p.tab}</div>
+<div key={i} className={`tutorial-tab${page === i ? ' active' : ''}`} onClick={() => setPage(i)}>{displayTab(i)}</div>
 ))}
 </div>
 <div className="tutorial-content">{current.content}</div>
 <div className="tutorial-nav">
-<button onClick={() => setPage(p => p - 1)} disabled={page === 0}>← {lang === 'pt' ? 'Anterior' : 'Previous'}</button>
+<button onClick={() => setPage(p => p - 1)} disabled={page === 0}>← {lang === 'pt' ? 'Anterior' : prevWord}</button>
 <div className="tutorial-dots">
 {pages.map((_, i) => <div key={i} className={`tutorial-dot${page === i ? ' active' : ''}`} />)}
 </div>
 {page < pages.length - 1
-? <button className="primary" onClick={() => setPage(p => p + 1)}>{lang === 'pt' ? 'Próximo' : 'Next'} →</button>
-: <button className="primary" onClick={onClose}>{lang === 'pt' ? '✅ Concluir' : '✅ Done'}</button>
+? <button className="primary" onClick={() => setPage(p => p + 1)}>{lang === 'pt' ? 'Próximo →' : nextWord}</button>
+: <button className="primary" onClick={onClose}>{lang === 'pt' ? '✅ Concluir' : doneWord}</button>
 }
 </div>
 </div>
@@ -1939,7 +2126,7 @@ const MarkdownEditor = ({ lang, connections, selectedContact, onClose }) => {
     <div className="whiteboard-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="md-editor-container">
         <div className="whiteboard-header">
-          <h3 style={{ margin: 0, fontSize: '16px' }}><i className="fas fa-file-code"></i> {lang === 'pt' ? 'Editor Markdown Colaborativo' : 'Collaborative Markdown Editor'}</h3>
+          <h3 style={{ margin: 0, fontSize: '16px' }}><i className="fas fa-file-code"></i> {t(lang, 'collaborativeMarkdownEditor')}</h3>
           <button className="tutorial-close" onClick={onClose}><i className="fas fa-times"></i></button>
         </div>
         <div className="md-editor-body">
@@ -1947,7 +2134,7 @@ const MarkdownEditor = ({ lang, connections, selectedContact, onClose }) => {
             className="md-editor-input" 
             value={content} 
             onChange={handleChange}
-            placeholder={lang === 'pt' ? 'Digite seu markdown aqui...' : 'Type your markdown here...'}
+            placeholder={t(lang, 'typeMarkdownHere')}
           />
           <div className="md-editor-preview" dangerouslySetInnerHTML={{ __html: html }} />
         </div>
@@ -1980,7 +2167,7 @@ setStatus({ type: 'ok', msg: t(lang, 'secretSentSuccess', { name: getContactName
 
 const copySecret = () => {
 navigator.clipboard.writeText(mySecret);
-setStatus({ type: 'info', msg: lang === 'pt' ? 'Segredo copiado!' : 'Secret copied!' });
+setStatus({ type: 'info', msg: t(lang, 'secretCopied') });
 };
 
 
@@ -2093,7 +2280,7 @@ return (
 <span className="sm-label">{t(lang, 'groupSecret')}</span>
 <div className="sm-secret-display">
 <span className="sm-secret-text">{groupSecret.substring(0, 20)}...{groupSecret.substring(groupSecret.length - 8)}</span>
-<button className="sm-copy-btn" onClick={() => { navigator.clipboard.writeText(groupSecret); setStatus({ type: 'info', msg: lang === 'pt' ? 'Segredo copiado!' : 'Secret copied!' }); }}>📋 {lang === 'pt' ? 'Copiar' : 'Copy'}</button>
+<button className="sm-copy-btn" onClick={() => { navigator.clipboard.writeText(groupSecret); setStatus({ type: 'info', msg: t(lang, 'secretCopied') }); }}>📋 {lang === 'pt' ? 'Copiar' : 'Copy'}</button>
 </div>
 </div>
 <div className="sm-info-box"><span>🛡️</span><div><strong>{t(lang, 'howItWorksGroup')}</strong><br />{t(lang, 'howItWorksGroupDesc')}</div></div>
@@ -2499,13 +2686,36 @@ const MessageText = ({ msg, onContentChange, onHide }) => {
         </div>
       );
     }
+    // For regular text messages: show translated text when available (from auto-translate)
+    const isSentByMe = msg.sender === 'you';
+    if (!isSentByMe && msg.translatedText && msg.translatedText !== display.plain) {
+      return (
+        <div>
+          <div>{renderMarkdown(msg.translatedText)}</div>
+          <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '3px', fontStyle: 'italic', display: 'flex', alignItems: 'center', gap: '4px' }}>
+            🌐 <span style={{ textDecoration: 'line-through', opacity: 0.6 }}>{display.plain.slice(0, 50)}{display.plain.length > 50 ? '…' : ''}</span>
+          </div>
+        </div>
+      );
+    }
     return <div>{renderMarkdown(display.plain)}</div>;
   }
   if (display.noKey || display.error) return null;
+  const decryptedText = display.plain;
+  // Show translated version of decrypted text when available
+  if (msg.sender !== 'you' && msg.translatedText && msg.translatedText !== decryptedText) {
+    return (
+      <div>
+        <div className={`msg-encrypted-badge${display.isGroup ? ' group' : ''}`}>{display.isGroup ? '🛡️ GROUP' : '🔒 PRIVATE'}</div>
+        <div>{renderMarkdown(msg.translatedText)}</div>
+        <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '3px', fontStyle: 'italic' }}>🌐 {decryptedText.slice(0, 40)}{decryptedText.length > 40 ? '…' : ''}</div>
+      </div>
+    );
+  }
   return (
     <div>
       <div className={`msg-encrypted-badge${display.isGroup ? ' group' : ''}`}>{display.isGroup ? '🛡️ GROUP' : '🔒 PRIVATE'}</div>
-      <div>{renderMarkdown(display.plain)}</div>
+      <div>{renderMarkdown(decryptedText)}</div>
     </div>
   );
 };
@@ -2514,7 +2724,7 @@ const MessageText = ({ msg, onContentChange, onHide }) => {
 const sendDirectMessage = async () => {
 if (!userName.trim()) { alert(t(lang, 'pleaseSetName')); return; }
 if (!newMessage.trim() || cooldownRemaining > 0 || isSending) return;
-if (newMessage.length > 2000) { alert(lang === 'pt' ? "A mensagem excede o limite de 2000 caracteres." : "Message exceeds 2000 characters limit."); return; }
+if (newMessage.length > 2000) { alert(t(lang, 'msgTooLong')); return; }
 
 
 if (selectedContact) {
@@ -3341,7 +3551,25 @@ const App = () => {
 const [lang, setLang] = useState(() => localStorage.getItem('p2pUserLang') || detectBrowserLang());
 const [showTutorial, setShowTutorial] = useState(false);
 const [showGeneralModeInfo, setShowGeneralModeInfo] = useState(false);
+const [dynTranslTick, setDynTranslTick] = useState(0);
+const [dynTranslLoading, setDynTranslLoading] = useState(false);
 
+// Translate UI when language changes
+useEffect(() => {
+  if (lang === 'en' || lang === 'pt') {
+    _dynTransl = {};
+    _dynTranslLang = lang;
+    _dynTranslReady = true;
+    setDynTranslTick(v => v + 1);
+    setDynTranslLoading(false);
+    return;
+  }
+  setDynTranslLoading(true);
+  buildDynTransl(lang).then(() => {
+    setDynTranslTick(v => v + 1);
+    setDynTranslLoading(false);
+  });
+}, [lang]);
 
 useEffect(() => {
 // No longer reading theme from localStorage
@@ -3361,6 +3589,9 @@ localStorage.setItem('p2pUserLang', code);
 
 
 const [peerId, setPeerId] = usePersistentId();
+// Keep a ref to lang so event handlers inside closures always see the current value
+const langRef = useRef(lang);
+useEffect(() => { langRef.current = lang; }, [lang]);
 const [userName, setUserName] = useState(() => localStorage.getItem('p2pUserName') || '');
 const [userAvatar, setUserAvatar] = useState(() => localStorage.getItem('p2pUserAvatar') || '');
 const [editingName, setEditingName] = useState(!localStorage.getItem('p2pUserName'));
@@ -4063,7 +4294,24 @@ if (data.text === '#$%') {
 if (radioStateRef.current.status === 'idle') setRadioState({ status: 'playing', startTime: Date.now(), duration: 300, audioUrl: null, fileName: t(lang, 'radioGlobal'), sender: data.senderName || 'Server' });
 return;
 }
-messageToAdd = { ...baseMessage, text: data.text, type: 'text' };
+const msgObj = { ...baseMessage, text: data.text, type: 'text' };
+messageToAdd = msgObj;
+// Auto-translate incoming message to user's language
+const currentLang = langRef.current;
+if (currentLang !== 'pt' && data.text && !data.text.startsWith('🧲 TORRENT:') && !data.text.startsWith(E2EE_PREFIX) && !data.text.startsWith(GROUP_E2EE_PREFIX) && !data.text.startsWith('🔑') && !data.text.startsWith('🛡️')) {
+  const msgTimestamp = msgObj.timestamp;
+  const msgSender = msgObj.sender;
+  // Detect source language as auto, translate to user lang
+  gtTranslate(data.text, currentLang, 'auto').then(translated => {
+    if (translated && translated !== data.text) {
+      setMessages(prev => prev.map(m =>
+        (m.sender === msgSender && m.timestamp === msgTimestamp && m.type === 'text')
+          ? { ...m, translatedText: translated }
+          : m
+      ));
+    }
+  });
+}
 } else if (data.type === 'file-start') {
 pendingFiles.current[data.fileId] = { fileName: data.fileName, chunks: new Uint8Array(data.fileSize), receivedBytes: 0, totalSize: data.fileSize, fileType: data.fileType };
 messageToAdd = { ...baseMessage, fileId: data.fileId, fileName: data.fileName, type: 'file', receiving: true, progress: 0 };
@@ -4953,7 +5201,7 @@ return (
 <div>
 {quizBotActive && (
   <div style={{ position: 'absolute', top: '70px', left: '50%', transform: 'translateX(-50%)', background: '#10b981', color: 'white', padding: '6px 16px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold', zIndex: 100, display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)' }}>
-    <i className="fas fa-robot"></i> {lang === 'pt' ? 'Quiz Bot Ativado' : 'Quiz Bot Active'}
+    <i className="fas fa-robot"></i> {t(lang, 'quizBotActive')}
   </div>
 )}
 {showTutorial && <TutorialModal lang={lang} onClose={() => setShowTutorial(false)} />}
@@ -4962,7 +5210,7 @@ return (
   <div className="media-controls-overlay" onClick={e => { if (e.target === e.currentTarget) setShowMediaControls(false); }}>
   <div className="media-controls-modal">
     <div className="media-controls-header">
-      <h2>{lang === 'pt' ? 'Ferramentas' : 'Tools'}</h2>
+      <h2>{t(lang, 'tools')}</h2>
       <button className="tutorial-close" onClick={() => setShowMediaControls(false)}>×</button>
     </div>
       <div className="media-controls-options">
@@ -4991,13 +5239,13 @@ return (
           <i className="fas fa-globe"></i> World Radios
         </button>
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowWhiteboard(true); }}>
-          <i className="fas fa-chalkboard"></i> {lang === 'pt' ? 'Lousa Colaborativa' : 'Collaborative Whiteboard'}
+          <i className="fas fa-chalkboard"></i> {t(lang, 'collaborativeWhiteboard')}
         </button>
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowPollCreator(true); }}>
-          <i className="fas fa-poll"></i> {lang === 'pt' ? 'Criar Enquete' : 'Create Poll'}
+          <i className="fas fa-poll"></i> {t(lang, 'createPoll')}
         </button>
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowMarkdownEditor(true); }}>
-          <i className="fas fa-file-code"></i> {lang === 'pt' ? 'Editor Markdown' : 'Markdown Editor'}
+          <i className="fas fa-file-code"></i> {t(lang, 'markdownEditor')}
         </button>
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowQuizBot(true); }}>
           <i className="fas fa-robot"></i> {lang === 'pt' ? 'Quiz Bot' : 'Quiz Bot'}
@@ -5041,32 +5289,40 @@ Chat K10
 {t(lang, !selectedContact ? 'generalModeActivatedDesc' : 'generalModeDeactivatedDesc')}
 </span>
 </div>
-<div className="network-size-badge" title={lang === 'pt' ? 'Usuários Online na Teia Geral' : 'Users Online in General Web'}>
+<div className="network-size-badge" title={t(lang, 'usersOnlineGeneral')}>
 <i className="fas fa-users"></i> {networkSize} ONLINE
 </div>
 <button onClick={() => setShowTutorial(true)} className="header-button" title={t(lang, 'tutorial')}>
 <i className="fas fa-book-open"></i>
 </button>
-<button onClick={() => setShowMediaControls(true)} className="header-button" title={lang === 'pt' ? 'Ferramentas' : 'Tools'}>
+<button onClick={() => setShowMediaControls(true)} className="header-button" title={t(lang, 'tools')}>
   <i className="fas fa-tools"></i>
 </button>
 <button onClick={() => setShowContacts(true)} className="header-button" title={t(lang, 'contacts')}>
 <i className="fas fa-address-book"></i>
 </button>
 <button onClick={toggleDarkMode} className="header-button" title={t(lang, 'darkMode')}>🌙</button>
-<select
-  value={lang}
-  onChange={e => setLangAndSave(e.target.value)}
-  className="lang-btn"
-  title="Your language / Seu idioma"
-  style={{ fontFamily: 'inherit', fontWeight: 700, fontSize: '11px', maxWidth: '160px' }}
->
-  {Object.entries(LANG_LABELS).map(([code, label]) => (
-    <option key={code} value={code} style={{ color: '#1e293b', background: 'white' }}>
-      {label}
-    </option>
-  ))}
-</select>
+<div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+  {dynTranslLoading && (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.25)', borderRadius: '8px', padding: '0 10px', height: '36px', fontSize: '11px', color: 'white', fontWeight: 700 }}>
+      <span style={{ animation: 'spin 1s linear infinite', display: 'inline-block' }}>⏳</span>
+      {lang.toUpperCase()}
+    </div>
+  )}
+  <select
+    value={lang}
+    onChange={e => setLangAndSave(e.target.value)}
+    className="lang-btn"
+    title="Your language / Seu idioma"
+    style={{ fontFamily: 'inherit', fontWeight: 700, fontSize: '11px', maxWidth: '160px' }}
+  >
+    {Object.entries(LANG_LABELS).map(([code, label]) => (
+      <option key={code} value={code} style={{ color: '#1e293b', background: 'white' }}>
+        {label}
+      </option>
+    ))}
+  </select>
+</div>
 </div>
 </div>
 
