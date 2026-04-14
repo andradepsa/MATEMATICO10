@@ -888,6 +888,7 @@
       const isHydraModeRef = useRef(false);
       const recentPeersRef = useRef([]);
       const heartbeatsRef = useRef(new Map());
+      const worldQuizNodesRef = useRef(new Set()); // Rastreia quem é distribuidor do World Quiz
       const quizBotPeerRef = useRef(null); // peer do usuário com Quiz Bot ativo
       const HYDRA_THRESHOLD = 150;
       const CHUNK_SIZE = 16 * 1024;
@@ -1163,12 +1164,21 @@
           const now = Date.now();
           let changed = false;
           heartbeatsRef.current.forEach((time, id) => {
-            if (now - time > 45000) { heartbeatsRef.current.delete(id); changed = true; }
+            if (now - time > 45000) {
+              heartbeatsRef.current.delete(id);
+              worldQuizNodesRef.current.delete(id);
+              changed = true;
+            }
           });
           if (changed) setStats(prev => ({ ...prev, hydraNodes: heartbeatsRef.current.size }));
           
           // Broadcast de estatísticas para todos os conectados
-          const statsMsg = { type: 'network-stats', totalOnline: heartbeatsRef.current.size, timestamp: now };
+          const statsMsg = {
+            type: 'network-stats',
+            totalOnline: heartbeatsRef.current.size,
+            timestamp: now,
+            worldQuizNodes: Array.from(worldQuizNodesRef.current)
+          };
           activeConnectionsRef.current.forEach(conn => { try { conn.send(statsMsg); } catch(e) {} });
           
         }, 15000);
@@ -1262,10 +1272,25 @@
         // Handle Heartbeat from any user (even if not directly connected long-term)
         if (data && data.type === 'heartbeat') {
           heartbeatsRef.current.set(sourceConn.peer, Date.now());
+          if (data.worldQuizAtivo) {
+            worldQuizNodesRef.current.add(sourceConn.peer);
+          } else {
+            worldQuizNodesRef.current.delete(sourceConn.peer);
+          }
           setStats(prev => ({
             ...prev,
             hydraNodes: heartbeatsRef.current.size
           }));
+          
+          // Responde com as estatísticas para que o nó saiba quem são os distribuidores
+          try {
+            sourceConn.send({
+              type: 'network-stats',
+              totalOnline: heartbeatsRef.current.size,
+              timestamp: Date.now(),
+              worldQuizNodes: Array.from(worldQuizNodesRef.current)
+            });
+          } catch(e) {}
           
           // If it's just a heartbeat and we are in Hydra Mode, we can close the connection to save resources
           if (isHydraModeRef.current) {
@@ -1286,6 +1311,15 @@
         }
 
         // ── Quiz Bot: controle de slot único por servidor ────────────────
+        if (data.type === 'subscribe-world-quiz') {
+          // O servidor apenas repassa essa mensagem para o distribuidor correto
+          const distributorConn = activeConnectionsRef.current.get(data.distributorId);
+          if (distributorConn) {
+            try { distributorConn.send(data); } catch(e) {}
+          }
+          return;
+        }
+
         if (data.type === 'quiz-bot-start') {
           quizBotPeerRef.current = sourceConn.peer;
           // Notifica TODOS os conectados que o bot está ativo
@@ -1342,7 +1376,7 @@
           
           distributeMessage(data, sourceConn.peer);
         }
-        else if (data.type === 'radio-start' || data.type === 'radio-stream-start' || data.type === 'radio-chunk' || data.type === 'radio-sync' || data.type === 'radio-request-sync' || data.type === 'radio-youtube-start') {
+        else if (data.type === 'radio-start' || data.type === 'radio-stream-start' || data.type === 'radio-chunk' || data.type === 'radio-sync' || data.type === 'radio-request-sync') {
           if (data.id) {
             if (seenMessagesRef.current.has(data.id)) return;
             seenMessagesRef.current.add(data.id);
