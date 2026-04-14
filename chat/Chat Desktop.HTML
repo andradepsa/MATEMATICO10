@@ -3773,21 +3773,24 @@ const getPixabayKey = () => {
 };
 
 // Cache de imagens: query -> URL  (evita chamar API repetidamente)
+// Cache de rodada: guarda SÓ a URL escolhida para etapa 2 reusar a mesma foto
+// Limpo a cada nova rodada — nunca acumula no computador do usuário
 const _worldImgCache = {};
 
 async function fetchWorldImage(query) {
+  // Etapa 2 reutiliza a URL já escolhida na etapa 1 — zero chamada extra
   if (_worldImgCache[query]) return _worldImgCache[query];
+
   const key = getPixabayKey();
   try {
-    const url = `https://pixabay.com/api/?key=${key}&q=${encodeURIComponent(query)}&image_type=photo&safesearch=true&per_page=10&orientation=horizontal`;
+    const url = `https://pixabay.com/api/?key=${key}&q=${encodeURIComponent(query)}&image_type=photo&safesearch=true&per_page=200&orientation=horizontal`;
     const res = await fetch(url);
     const data = await res.json();
     if (data.hits && data.hits.length > 0) {
-      // Pega imagem aleatória entre os 5 primeiros resultados para variar
-      const pick = data.hits[Math.floor(Math.random() * Math.min(5, data.hits.length))];
-      const imgUrl = pick.webformatURL;
-      _worldImgCache[query] = imgUrl;
-      return imgUrl;
+      // Escolhe 1 foto aleatória entre as 10 — só a URL é guardada, nada mais
+      const pick = data.hits[Math.floor(Math.random() * data.hits.length)];
+      _worldImgCache[query] = pick.webformatURL;
+      return pick.webformatURL;
     }
   } catch(e) { console.warn('Pixabay fetch error', e); }
   return null;
@@ -4070,6 +4073,35 @@ const worldQuizPlaceRef    = useRef(null); // lugar atual { query, country, stat
 const worldQuizImageRef    = useRef(null); // URL da imagem (reutilizada na etapa 2)
 const worldQuizId1Ref      = useRef(null); // quizId da etapa 1
 const worldQuizId2Ref      = useRef(null); // quizId da etapa 2
+const worldQuizQueueRef    = useRef([]);   // fila embaralhada — garante que todos os lugares apareçam antes de repetir
+
+// Embaralha array in-place (Fisher-Yates)
+function shuffleArray(arr) {
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// Retira o próximo lugar da fila; quando vazia, reembaralha tudo de novo
+function nextWorldPlace() {
+  if (worldQuizQueueRef.current.length === 0) {
+    // Cria nova fila com todos os índices embaralhados + seed de tempo para variar sempre
+    const indices = WORLD_PLACES.map((_, i) => i);
+    shuffleArray(indices);
+    // Garante que o primeiro da nova fila ≠ último lugar jogado (evita repetição na virada)
+    if (worldQuizPlaceRef.current) {
+      const lastIdx = WORLD_PLACES.indexOf(worldQuizPlaceRef.current);
+      if (indices[0] === lastIdx && indices.length > 1) {
+        [indices[0], indices[1]] = [indices[1], indices[0]];
+      }
+    }
+    worldQuizQueueRef.current = indices;
+  }
+  const idx = worldQuizQueueRef.current.shift();
+  return WORLD_PLACES[idx];
+}
 
 
 const handlePollCreated = (question, options) => {
@@ -4225,8 +4257,10 @@ const askWorldQuestion = async () => {
   if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
   worldQuizStageRef.current = 0;
 
-  // Escolhe lugar aleatório
-  const place = WORLD_PLACES[Math.floor(Math.random() * WORLD_PLACES.length)];
+  // Pega próximo lugar da fila embaralhada (nunca repete antes de ver todos os 35)
+  const place = nextWorldPlace();
+  // Limpa o cache desta query para garantir foto diferente na próxima vez que este lugar aparecer
+  delete _worldImgCache[place.query];
   worldQuizPlaceRef.current = place;
   worldQuizImageRef.current = null;
 
