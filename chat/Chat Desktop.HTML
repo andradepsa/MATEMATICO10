@@ -455,6 +455,17 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 .quiz-option-text-wrap { flex: 1; padding: 0 10px; font-size: 13px; }
 .quiz-correct-banner { margin-top: 10px; background: #ecfdf5; border: 1px solid #6ee7b7; border-radius: 8px; padding: 8px 12px; font-size: 12px; font-weight: 700; color: #065f46; display: flex; align-items: center; gap: 7px; }
 .quiz-status-bar { display: flex; align-items: flex-start; justify-content: space-between; margin-top: 10px; padding-top: 8px; border-top: 1px solid #e2e8f0; font-size: 12px; gap: 8px; flex-wrap: wrap; }
+/* WORLD QUIZ IMAGE */
+.quiz-world-image-wrap { position: relative; width: 100%; border-radius: 10px; overflow: hidden; margin-bottom: 10px; background: #e2e8f0; }
+.quiz-world-image { width: 100%; max-height: 190px; object-fit: cover; display: block; border-radius: 10px; }
+.quiz-world-image-loading { width: 100%; height: 150px; display: flex; align-items: center; justify-content: center; color: #94a3b8; font-size: 13px; }
+.quiz-stage-badge { display: inline-flex; align-items: center; gap: 5px; background: #0f172a; color: #f0b429; font-size: 10px; font-weight: 800; padding: 3px 9px; border-radius: 20px; letter-spacing: 0.5px; text-transform: uppercase; border: 1px solid #f0b42940; }
+.dark-mode .quiz-container { background: #1e293b; border-color: #6366f1; color: #e2e8f0; }
+.dark-mode .quiz-question-text { color: #f1f5f9; }
+.dark-mode .quiz-option-btn { background: #0f172a; border-color: #334155; color: #e2e8f0; }
+.dark-mode .quiz-option-letter { background: #334155; color: #94a3b8; }
+.dark-mode .quiz-option-btn:hover:not(:disabled) { border-color: #818cf8; background: #1e1b4b; }
+.dark-mode .quiz-correct-banner { background: #052e16; border-color: #166534; color: #4ade80; }
 
 /* MARKDOWN EDITOR */
 .md-editor-container { background: white; border-radius: 16px; width: 100%; max-width: 1000px; height: 85vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
@@ -2237,7 +2248,20 @@ const QuizQuestion = ({ msg, peerId, onAnswer }) => {
       <div className="quiz-header">
         <span className="quiz-badge">🤖 Quiz</span>
         {msg.quizSubject && <span className="quiz-subject">{msg.quizSubject}</span>}
+        {msg.quizStage && <span className="quiz-stage-badge">{msg.quizStage === 1 ? '🌍 ETAPA 1' : '🗺️ ETAPA 2'}</span>}
       </div>
+
+      {/* Imagem do Lugar (World Quiz) */}
+      {msg.quizImage && (
+        <div className="quiz-world-image-wrap">
+          <img
+            className="quiz-world-image"
+            src={msg.quizImage}
+            alt="lugar do mundo"
+            onError={e => { e.target.style.display='none'; }}
+          />
+        </div>
+      )}
 
       {/* Pergunta */}
       <div className="quiz-question-text">{displayQuestion}</div>
@@ -3725,8 +3749,157 @@ const QUIZ_SUBJECTS = [
   { id:'bio', name:'Biologia',   emoji:'🧬', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/biologia.json'   },
   { id:'his', name:'História',   emoji:'📜', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/historia.json'   },
   { id:'geo', name:'Geografia',  emoji:'🌍', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/geografia.json'  },
-  { id:'ger', name:'Conhecimentos Gerais', emoji:'🧠', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/gerais.json' }
+  { id:'ger', name:'Conhecimentos Gerais', emoji:'🧠', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/gerais.json' },
+  { id:'world', name:'Lugares do Mundo 🌍', emoji:'📸', url: null }
 ];
+
+// ═══════════════════════════════════════════════
+// WORLD QUIZ — Pixabay keys (rotação automática)
+// ═══════════════════════════════════════════════
+const PIXABAY_KEYS = [
+  '55432112-4ff85572d2ddb1603d2c7c5c4',
+  '55432140-1856231bf5468f5af7b691a86',
+  '55432148-234a48c7b984585064aade170',
+  '55432161-ff1841689e09db89ef2fd6d7f',
+  '55432169-b8c497c53f9188c1fa4bd0a4c',
+  '55432176-243ee3339ef5979afa573d77c',
+  '55432183-ff41b44ad26dd56e5a0a10120'
+];
+let _pixabayKeyIdx = 0;
+const getPixabayKey = () => {
+  const k = PIXABAY_KEYS[_pixabayKeyIdx % PIXABAY_KEYS.length];
+  _pixabayKeyIdx++;
+  return k;
+};
+
+// Cache de imagens: query -> URL  (evita chamar API repetidamente)
+const _worldImgCache = {};
+
+async function fetchWorldImage(query) {
+  if (_worldImgCache[query]) return _worldImgCache[query];
+  const key = getPixabayKey();
+  try {
+    const url = `https://pixabay.com/api/?key=${key}&q=${encodeURIComponent(query)}&image_type=photo&safesearch=true&per_page=10&orientation=horizontal`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.hits && data.hits.length > 0) {
+      // Pega imagem aleatória entre os 5 primeiros resultados para variar
+      const pick = data.hits[Math.floor(Math.random() * Math.min(5, data.hits.length))];
+      const imgUrl = pick.webformatURL;
+      _worldImgCache[query] = imgUrl;
+      return imgUrl;
+    }
+  } catch(e) { console.warn('Pixabay fetch error', e); }
+  return null;
+}
+
+// ── 35 lugares famosos do mundo ──
+const WORLD_PLACES = [
+  { query:'Cristo Redentor Rio de Janeiro Brazil',       country:'Brasil',         state:'Rio de Janeiro',  place:'Cristo Redentor' },
+  { query:'Torre Eiffel Paris France',                   country:'França',          state:'Paris',           place:'Torre Eiffel' },
+  { query:'Coliseu Roma Italy',                          country:'Itália',          state:'Roma',            place:'Coliseu' },
+  { query:'Taj Mahal Agra India',                        country:'Índia',           state:'Uttar Pradesh',   place:'Taj Mahal' },
+  { query:'Grande Muralha China',                        country:'China',           state:'Pequim',          place:'Grande Muralha' },
+  { query:'Machu Picchu Peru',                           country:'Peru',            state:'Cusco',           place:'Machu Picchu' },
+  { query:'Pirâmides de Gizé Egito',                     country:'Egito',           state:'Cairo',           place:'Pirâmides de Gizé' },
+  { query:'Acropolis Athens Greece',                     country:'Grécia',          state:'Atenas',          place:'Acrópole' },
+  { query:'Angkor Wat Cambodia',                         country:'Camboja',         state:'Siem Reap',       place:'Angkor Wat' },
+  { query:'Big Ben London England',                      country:'Reino Unido',     state:'Londres',         place:'Big Ben' },
+  { query:'Sagrada Familia Barcelona Spain',             country:'Espanha',         state:'Barcelona',       place:'Sagrada Família' },
+  { query:'Statue of Liberty New York USA',              country:'Estados Unidos',  state:'Nova York',       place:'Estátua da Liberdade' },
+  { query:'Sydney Opera House Australia',                country:'Austrália',       state:'Sydney',          place:'Ópera de Sydney' },
+  { query:'Mount Fuji Japan',                            country:'Japão',           state:'Honshu',          place:'Monte Fuji' },
+  { query:'Burj Khalifa Dubai UAE',                      country:'Emirados Árabes', state:'Dubai',           place:'Burj Khalifa' },
+  { query:'Niagara Falls Canada',                        country:'Canadá',          state:'Ontário',         place:'Cataratas do Niágara' },
+  { query:'Stonehenge England UK',                       country:'Reino Unido',     state:'Wiltshire',       place:'Stonehenge' },
+  { query:'Alhambra Granada Spain',                      country:'Espanha',         state:'Granada',         place:'Alhambra' },
+  { query:'Hagia Sophia Istanbul Turkey',                country:'Turquia',         state:'Istambul',        place:'Hagia Sophia' },
+  { query:'Chichen Itza Mexico Yucatan',                 country:'México',          state:'Yucatán',         place:'Chichén Itzá' },
+  { query:'Petra Jordan desert',                         country:'Jordânia',        state:'Ma\'an',          place:'Petra' },
+  { query:'Iguazu Falls Brazil Argentina',               country:'Brasil',          state:'Paraná',          place:'Cataratas do Iguaçu' },
+  { query:'Santorini Greece island',                     country:'Grécia',          state:'Santorini',       place:'Ilha de Santorini' },
+  { query:'Colosseum Rome ancient',                      country:'Itália',          state:'Roma',            place:'Fórum Romano' },
+  { query:'Golden Gate Bridge San Francisco',            country:'Estados Unidos',  state:'Califórnia',      place:'Golden Gate' },
+  { query:'Neuschwanstein Castle Bavaria Germany',       country:'Alemanha',        state:'Baviera',         place:'Castelo Neuschwanstein' },
+  { query:'Bali temple Indonesia',                       country:'Indonésia',       state:'Bali',            place:'Templo de Uluwatu' },
+  { query:'Louvre Museum Paris France',                  country:'França',          state:'Paris',           place:'Museu do Louvre' },
+  { query:'Amazon River Brazil rainforest',              country:'Brasil',          state:'Amazonas',        place:'Rio Amazonas' },
+  { query:'Serengeti Africa safari',                     country:'Tanzânia',        state:'Serengeti',       place:'Parque Serengeti' },
+  { query:'Havana Cuba old city',                        country:'Cuba',            state:'Havana',          place:'Havana Velha' },
+  { query:'Prague Castle Czech Republic',                country:'República Tcheca',state:'Praga',           place:'Castelo de Praga' },
+  { query:'Pisa Tower Italy Leaning',                    country:'Itália',          state:'Toscana',         place:'Torre de Pisa' },
+  { query:'Victoria Falls Zimbabwe Zambia',              country:'Zimbábue',        state:'Matabeleland Sul',place:'Cataratas Vitória' },
+  { query:'Cappadocia Turkey hot air balloons',          country:'Turquia',         state:'Capadócia',       place:'Capadócia' }
+];
+
+// ── Array grande de países (67) — garante que alternativas erradas não sejam óbvias ──
+const ALL_COUNTRIES = [
+  'Brasil','França','Itália','Índia','China','Peru','Egito','Grécia','Camboja',
+  'Reino Unido','Espanha','Estados Unidos','Austrália','Japão','Emirados Árabes',
+  'Canadá','Turquia','México','Jordânia','Indonésia','Alemanha','Portugal',
+  'Argentina','Chile','Colômbia','Venezuela','Bolívia','Equador','Paraguai',
+  'Uruguai','Cuba','Jamaica','Haiti','Costa Rica','Panamá','Guatemala',
+  'Rússia','Ucrânia','Polônia','República Tcheca','Hungria','Áustria','Suíça',
+  'Holanda','Bélgica','Suécia','Noruega','Finlândia','Dinamarca','Irlanda',
+  'Irã','Arábia Saudita','Israel','Líbano','Paquistão','Bangladesh','Sri Lanka',
+  'Tailândia','Vietnã','Coreia do Sul','Filipinas','Malásia','Singapura',
+  'África do Sul','Quênia','Tanzânia','Etiópia','Zimbábue','Marrocos','Nigéria',
+  'Nova Zelândia'
+];
+
+// ── Array grande de estados/cidades (100+) — para alternativas da etapa 2 ──
+const ALL_STATES = [
+  'Rio de Janeiro','São Paulo','Minas Gerais','Bahia','Amazonas','Paraná','Pernambuco',
+  'Paris','Lyon','Marselha','Nice','Bordeaux',
+  'Roma','Milão','Florença','Nápoles','Veneza','Toscana','Baviera',
+  'Uttar Pradesh','Maharashtra','Rajastão','Kerala','Bengala',
+  'Pequim','Xangai','Guangdong','Sichuan','Yunnan',
+  'Cusco','Lima','Arequipa',
+  'Cairo','Alexandria','Luxor',
+  'Atenas','Santorini','Creta','Tessalônica',
+  'Siem Reap','Phnom Penh',
+  'Londres','Edimburgo','Manchester','Wiltshire','Yorkshire',
+  'Barcelona','Madri','Sevilha','Granada','Valência',
+  'Nova York','Califórnia','Texas','Flórida','Illinois','Nevada','Havaí',
+  'Sydney','Melbourne','Queensland','Perth','Adelaide',
+  'Tóquio','Kyoto','Osaka','Honshu','Hokkaido',
+  'Dubai','Abu Dhabi',
+  'Ontário','Quebec','Colúmbia Britânica','Alberta',
+  'Istambul','Ancara','Capadócia','Esmirna',
+  'Yucatán','Cidade do México','Oaxaca','Jalisco',
+  'Ma\'an','Ácaba','Amã',
+  'Bali','Java','Sumatra',
+  'Berlim','Munique','Hamburgo','Baviera','Renânia',
+  'Lisboa','Porto','Algarve',
+  'Havana','Santiago de Cuba',
+  'Praga','Brno',
+  'Pisa','Toscana','Lácio',
+  'Matabeleland Sul','Harare',
+  'Serengeti','Dar es Salaam','Zanzibar',
+  'Buenos Aires','Córdoba','Mendoza','Patagônia',
+  'Bangcoc','Chiang Mai','Phuket',
+  'Cidade do Cabo','Joanesburgo','Durban',
+  'Berlim','Viena','Zurique','Amsterdã',
+  'Oslo','Estocolmo','Helsinque','Copenhague',
+  'Seul','Busan','Jeju',
+  'Manila','Cebu',
+  'Kuala Lumpur','Penang'
+];
+
+// Gera 3 alternativas falsas de um array, evitando o valor correto
+function pickFakeAlts(pool, correct, count = 3) {
+  const filtered = pool.filter(v => v.toLowerCase() !== correct.toLowerCase());
+  const shuffled = filtered.sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count);
+}
+
+// Monta 4 alternativas (1 certa + 3 erradas) embaralhadas; retorna [opts, correctIndex]
+function buildAlternatives(pool, correct) {
+  const fakes = pickFakeAlts(pool, correct, 3);
+  const all = [...fakes, correct].sort(() => Math.random() - 0.5);
+  const correctIdx = all.findIndex(v => v.toLowerCase() === correct.toLowerCase());
+  return [all, correctIdx];
+}
 
 const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizDiscipline, setQuizDiscipline }) => {
   const langName = getLangName(lang);
@@ -3892,6 +4065,11 @@ const currentQuizQuestionRef = useRef(null);
 const quizTimerRef = useRef(null);
 const quizAllIndexRef = useRef(0);
 const quizBotActiveRef = useRef(false); // FIX: ref para evitar stale closure nos timers
+const worldQuizStageRef    = useRef(0);    // 0=idle, 1=etapa1 rodando, 2=etapa2 rodando
+const worldQuizPlaceRef    = useRef(null); // lugar atual { query, country, state, place }
+const worldQuizImageRef    = useRef(null); // URL da imagem (reutilizada na etapa 2)
+const worldQuizId1Ref      = useRef(null); // quizId da etapa 1
+const worldQuizId2Ref      = useRef(null); // quizId da etapa 2
 
 
 const handlePollCreated = (question, options) => {
@@ -4040,8 +4218,97 @@ const sendQuizReveal = (quizId) => {
   });
 };
 
+// ══════════════════════════════════════════════
+// WORLD QUIZ — lógica de 2 etapas com Pixabay
+// ══════════════════════════════════════════════
+const askWorldQuestion = async () => {
+  if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
+  worldQuizStageRef.current = 0;
+
+  // Escolhe lugar aleatório
+  const place = WORLD_PLACES[Math.floor(Math.random() * WORLD_PLACES.length)];
+  worldQuizPlaceRef.current = place;
+  worldQuizImageRef.current = null;
+
+  // Busca imagem na Pixabay (com rotação de chaves)
+  const imgUrl = await fetchWorldImage(place.query);
+  worldQuizImageRef.current = imgUrl;
+
+  // ── ETAPA 1: Qual o PAÍS? ──
+  const [countryOpts, countryCorrectIdx] = buildAlternatives(ALL_COUNTRIES, place.country);
+  const quizId1 = 'quiz-world1-' + Date.now() + '-' + Math.random().toString(36).substring(7);
+  worldQuizId1Ref.current = quizId1;
+  worldQuizStageRef.current = 1;
+
+  const quizData1 = {
+    quizId:      quizId1,
+    quizQuestion:'🌍 Em qual PAÍS fica este lugar famoso?',
+    quizOptions: countryOpts,
+    quizCorrect: countryCorrectIdx,
+    quizSubject: '📸 Lugares do Mundo',
+    quizStage:   1,
+    quizImage:   imgUrl || undefined
+  };
+
+  currentQuizQuestionRef.current = { ...quizData1, quizId: quizId1, votes: {} };
+  sendQuizQuestion(quizData1);
+
+  // Após 2 min: revela etapa 1, depois 5s lança etapa 2
+  quizTimerRef.current = setTimeout(() => {
+    if (!quizBotActiveRef.current) return;
+    sendQuizReveal(quizId1);
+    currentQuizQuestionRef.current = null;
+    worldQuizStageRef.current = 0;
+
+    setTimeout(() => {
+      if (!quizBotActiveRef.current) return;
+
+      // ── ETAPA 2: Qual o ESTADO/CIDADE? ── (mesma imagem, sem nova chamada API)
+      const [stateOpts, stateCorrectIdx] = buildAlternatives(ALL_STATES, place.state);
+      const quizId2 = 'quiz-world2-' + Date.now() + '-' + Math.random().toString(36).substring(7);
+      worldQuizId2Ref.current = quizId2;
+      worldQuizStageRef.current = 2;
+
+      const quizData2 = {
+        quizId:      quizId2,
+        quizQuestion:'🗺️ Em qual ESTADO ou CIDADE fica este lugar?',
+        quizOptions: stateOpts,
+        quizCorrect: stateCorrectIdx,
+        quizSubject: '📸 Lugares do Mundo',
+        quizStage:   2,
+        quizImage:   worldQuizImageRef.current || undefined  // mesma imagem — zero chamadas extras
+      };
+
+      currentQuizQuestionRef.current = { ...quizData2, quizId: quizId2, votes: {} };
+      sendQuizQuestion(quizData2);
+
+      // Após mais 2 min: revela etapa 2, depois 10s próxima rodada
+      quizTimerRef.current = setTimeout(() => {
+        if (!quizBotActiveRef.current) return;
+        sendQuizReveal(quizId2);
+        currentQuizQuestionRef.current = null;
+        worldQuizStageRef.current = 0;
+
+        setTimeout(() => {
+          if (quizBotActiveRef.current) askNextQuestion();
+        }, 10000); // 10s de respiro entre rodadas
+      }, 120000); // 2 minutos etapa 2
+
+    }, 5000); // 5s entre etapa 1 e etapa 2
+  }, 120000); // 2 minutos etapa 1
+};
+
 const askNextQuestion = async () => {
   if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
+
+  // ── World Quiz: delega para engine de 2 etapas com Pixabay ──
+  const effectiveDiscipline = quizDiscipline === 'all'
+    ? QUIZ_SUBJECTS[quizAllIndexRef.current % QUIZ_SUBJECTS.length].id
+    : quizDiscipline;
+  if (effectiveDiscipline === 'world') {
+    if (quizDiscipline === 'all') quizAllIndexRef.current++;
+    return askWorldQuestion();
+  }
   
   let questions = [];
   let selectedSubject;
@@ -4623,7 +4890,9 @@ if (data.text === '__QUIZ__' && data.quizPayload) {
     quizCorrect: qd.quizCorrect,
     quizSubject: qd.quizSubject,
     quizVotes: {},
-    quizRevealed: false
+    quizRevealed: false,
+    quizImage: qd.quizImage || null,
+    quizStage: qd.quizStage || null
   };
   if (currentLang !== 'pt') {
     const texts = [qd.quizQuestion, ...(qd.quizOptions || [])];
