@@ -103,7 +103,7 @@ text-shadow: 0 0 8px rgba(74, 222, 128, 0.3);
 .chat-main-container { display: flex; gap: 14px; height: calc(100vh - 280px); min-height: 400px; }
 .conversations-list { width: 280px; min-width: 220px; background: var(--surface); border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); overflow-y: auto; display: flex; flex-direction: column; }
 .conversations-list h4 { padding: 14px 16px 10px; margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); border-bottom: 1px solid var(--border); }
-.conversation-item { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.15s; }
+.conversation-item { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.15s; position: relative; }
 .conversation-item:hover { background: #f8fafc; }
 .conversation-item.selected { background: #eff6ff; border-left: 3px solid var(--primary); }
 .conversation-item.central-server { border-left: 3px solid var(--warning) !important; }
@@ -154,6 +154,8 @@ text-shadow: 0 0 8px rgba(74, 222, 128, 0.3);
 
 /* MISC */
 .green-delete-icon { position: absolute; top: 5px; right: 5px; color: #94a3b8; cursor: pointer; font-size: 11px; opacity: 0; transition: opacity 0.2s; }
+.sidebar-icon-btn { cursor: pointer; font-size: 14px; padding: 4px; transition: transform 0.1s; }
+.sidebar-icon-btn:hover { transform: scale(1.1); }
 .message-bubble:hover .green-delete-icon { opacity: 1; }
 .progress-container { margin-top: 5px; }
 .progress-bar { width: 100%; background: rgba(255,255,255,0.3); border-radius: 5px; overflow: hidden; }
@@ -224,7 +226,7 @@ text-shadow: 0 0 8px rgba(74, 222, 128, 0.3);
 .contact-form input:focus { border-color: var(--primary); }
 .contact-form button { background: var(--success); color: white; border: none; padding: 8px 16px; border-radius: 7px; cursor: pointer; font-weight: 600; font-size: 13px; }
 .connected-peers { background: var(--surface); padding: 14px 16px; border-radius: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
-.peer-item { padding: 10px 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; cursor: pointer; transition: background 0.15s; color: var(--text); }
+.peer-item { padding: 10px 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; cursor: pointer; transition: background 0.15s; color: var(--text); position: relative; }
 .peer-item:hover { background: #f8fafc; }
 .peer-item:last-child { border-bottom: none; }
 .peer-item button { background: var(--danger); color: white; border: none; padding: 4px 10px; border-radius: 5px; cursor: pointer; font-size: 12px; }
@@ -3234,11 +3236,11 @@ onClick={() => setSelectedContact(isSelected ? null : conn.peer)}>
 <div className="conversation-peer-id">{conn.peer}</div>
 </div>
 </div>
-<div style={{ display: 'flex', gap: '8px' }}>
-<div className="green-delete-icon" style={{ opacity: 1 }} onClick={e => { e.stopPropagation(); deleteMessagesByContact(conn.peer); }} title={t(lang, 'deleteMessages')}>
+<div style={{ display: 'flex', gap: '8px', position: 'relative' }}>
+<div className="sidebar-icon-btn" style={{ color: '#94a3b8' }} onClick={e => { e.stopPropagation(); deleteMessagesByContact(conn.peer); }} title={t(lang, 'deleteMessages')}>
 <i className="fas fa-trash"></i>
 </div>
-<div className="red-delete-icon" style={{ opacity: 1, color: '#ef4444' }} onClick={e => { e.stopPropagation(); if(confirm(t(lang, 'confirmRemoveFriend', { name: getContactName(conn.peer) }))) { disconnectPeer(conn.peer); deleteMessagesByContact(conn.peer); } }} title={t(lang, 'removeFriend')}>
+<div className="sidebar-icon-btn" style={{ color: '#ef4444' }} onClick={e => { e.stopPropagation(); if(confirm(t(lang, 'confirmRemoveFriend', { name: getContactName(conn.peer) }))) { disconnectPeer(conn.peer); deleteMessagesByContact(conn.peer); } }} title={t(lang, 'removeFriend')}>
 <i className="fas fa-user-minus"></i>
 </div>
 </div>
@@ -4210,7 +4212,7 @@ function buildAlternatives(pool, correct) {
 
 const MIN_QUIZ_INTERVAL = 120; // TRAVA: mínimo absoluto de 2 minutos — não remova
 
-const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizDiscipline, setQuizDiscipline, serverQuizBotActive, notifyServer }) => {
+const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizIntervalInput, setQuizIntervalInput, quizDiscipline, setQuizDiscipline, serverQuizBotActive, notifyServer }) => {
   const langName = getLangName(lang);
   return (
     <FloatingWindow
@@ -6438,7 +6440,7 @@ return (
 {showPollCreator && <PollCreator onClose={() => setShowPollCreator(false)} onCreated={handlePollCreated} />}
 {showMarkdownEditor && <MarkdownEditor lang={lang} connections={connections} selectedContact={selectedContact} onClose={() => setShowMarkdownEditor(false)} />}
 {showGeneralModeInfo && <GeneralModeInfoModal lang={lang} selectedContact={selectedContact} onClose={() => setShowGeneralModeInfo(false)} />}
-{showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} />}
+{showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} />}
 {showTorrentManager && (
 <TorrentManagerModal
 lang={lang}
