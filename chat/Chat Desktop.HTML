@@ -3825,13 +3825,27 @@ const QUIZ_SUBJECTS = [
 // WORLD QUIZ — Pixabay keys (rotação automática)
 // ═══════════════════════════════════════════════
 const PIXABAY_KEYS = [
+  // ── Chaves originais (7) ──
   '55432112-4ff85572d2ddb1603d2c7c5c4',
   '55432140-1856231bf5468f5af7b691a86',
   '55432148-234a48c7b984585064aade170',
   '55432161-ff1841689e09db89ef2fd6d7f',
   '55432169-b8c497c53f9188c1fa4bd0a4c',
   '55432176-243ee3339ef5979afa573d77c',
-  '55432183-ff41b44ad26dd56e5a0a10120'
+  '55432183-ff41b44ad26dd56e5a0a10120',
+  // ── Chaves novas (12) ──
+  '55434585-1f45fab6e0f62be2d54cb12bd',
+  '55434613-3c2e2bd501e5f1a5f204ceece',
+  '55434627-5996e4b3c4a08ba9ed91a5646',
+  '55434641-65e1978df07d3aa5c5be3d2f0',
+  '55434655-89ae41b0976a93b5bc5c6036d',
+  '55434671-f6cddfcc74591c01d66a7ff18',
+  '55434681-4437946d973be5211da5447ee',
+  '55434697-5842274a69a83edbae6ec914d',
+  '55434738-c5fef1c5c12906b9243fe306b',
+  '55434756-6131f2df55c3e8d28ec5b5fd1',
+  '55434766-66ba5ff749cea752a19570bbd',
+  '55434774-343de34f6280ce716fe14916e'
 ];
 let _pixabayKeyIdx = 0;
 const getPixabayKey = () => {
@@ -4222,7 +4236,10 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
               const newActive = !quizBotActive;
               setQuizBotActive(newActive);
               if (newActive) {
-                setTimeout(askNextQuestion, 1000);
+                // Jitter: atraso aleatório entre 1s e o intervalo configurado
+                // Dessincroniza os ciclos de centenas de servidores simultâneos
+                const jitterMs = 1000 + Math.floor(Math.random() * safeQuizInterval() * 1000);
+                setTimeout(askNextQuestion, jitterMs);
               }
             }}
             style={{ background: quizBotActive ? '#ef4444' : '#10b981', width: '100%' }}
@@ -4640,17 +4657,18 @@ const askNextQuestion = async () => {
     return askWorldQuestion();
   }
 
-  // Pool do modo 'all': inclui 'world' para rodar junto com as disciplinas
-  const ALL_POOL = QUIZ_SUBJECTS;
   const ALL_POOL_NO_WORLD = QUIZ_SUBJECTS.filter(s => s.id !== 'world');
+  const worldSubject = QUIZ_SUBJECTS.find(s => s.id === 'world');
+  // World aparece 1x a cada 13 rodadas no ALL (6 disciplinas x 2 + world x 1)
+  // Limite: ~49.400 servidores simultaneos sem erro 429
+  const ALL_POOL_BALANCED = [...ALL_POOL_NO_WORLD, ...ALL_POOL_NO_WORLD, worldSubject];
 
   let questions = [];
   let selectedSubject;
 
   if (quizDiscipline === 'all') {
-    selectedSubject = ALL_POOL[quizAllIndexRef.current % ALL_POOL.length];
-    quizAllIndexRef.current = (quizAllIndexRef.current + 1) % ALL_POOL.length;
-    // Se caiu em 'world', redireciona para askWorldQuestion
+    selectedSubject = ALL_POOL_BALANCED[quizAllIndexRef.current % ALL_POOL_BALANCED.length];
+    quizAllIndexRef.current = (quizAllIndexRef.current + 1) % ALL_POOL_BALANCED.length;
     if (selectedSubject.id === 'world') {
       return askWorldQuestion();
     }
