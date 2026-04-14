@@ -4292,32 +4292,36 @@ const askWorldQuestion = async () => {
         setTimeout(() => {
           if (quizBotActiveRef.current) askNextQuestion();
         }, 10000); // 10s de respiro entre rodadas
-      }, 120000); // 2 minutos etapa 2
+      }, quizInterval * 1000); // etapa 2 — mesmo tempo do quiz normal
 
     }, 5000); // 5s entre etapa 1 e etapa 2
-  }, 120000); // 2 minutos etapa 1
+  }, quizInterval * 1000); // etapa 1 — mesmo tempo do quiz normal
 };
 
 const askNextQuestion = async () => {
   if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
 
-  // ── World Quiz: delega para engine de 2 etapas com Pixabay ──
-  const effectiveDiscipline = quizDiscipline === 'all'
-    ? QUIZ_SUBJECTS[quizAllIndexRef.current % QUIZ_SUBJECTS.length].id
-    : quizDiscipline;
-  if (effectiveDiscipline === 'world') {
-    if (quizDiscipline === 'all') quizAllIndexRef.current++;
+  // ── World Quiz: rota direta, sem tocar no pool normal ──
+  if (quizDiscipline === 'world') {
     return askWorldQuestion();
   }
-  
+
+  // Pool do modo 'all': exclui 'world' (tem url:null) para nunca quebrar o fetch
+  const ALL_POOL = QUIZ_SUBJECTS.filter(s => s.id !== 'world');
+
   let questions = [];
   let selectedSubject;
-  
+
   if (quizDiscipline === 'all') {
-    selectedSubject = QUIZ_SUBJECTS[quizAllIndexRef.current];
-    quizAllIndexRef.current = (quizAllIndexRef.current + 1) % QUIZ_SUBJECTS.length;
+    selectedSubject = ALL_POOL[quizAllIndexRef.current % ALL_POOL.length];
+    quizAllIndexRef.current = (quizAllIndexRef.current + 1) % ALL_POOL.length;
   } else {
-    selectedSubject = QUIZ_SUBJECTS.find(s => s.id === quizDiscipline) || QUIZ_SUBJECTS[0];
+    selectedSubject = QUIZ_SUBJECTS.find(s => s.id === quizDiscipline);
+  }
+
+  // Guarda contra subject inválido ou sem url
+  if (!selectedSubject || !selectedSubject.url) {
+    selectedSubject = ALL_POOL[0];
   }
   
   try {
