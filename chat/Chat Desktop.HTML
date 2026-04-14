@@ -2695,14 +2695,15 @@ const handleQuizAnswer = (quizId, optionIndex) => {
   }
 
   // Broadcast the answer so host and others can update stats
+  // IMPORTANTE: usa type:'message' para relay pelo servidor
   const answerData = {
-    type: 'quiz-answer',
+    type: 'message',
     id: 'qans-' + Date.now() + '-' + Math.random().toString(36).substring(7),
-    quizId,
-    optionIndex,
-    voterId: peerId,
+    text: '__QUIZ_ANSWER__',
+    quizAnswerPayload: { quizId, optionIndex, voterId: peerId },
     senderName: userName || peerId,
-    ttl: 15
+    ttl: 15,
+    direct: false
   };
 
   if (selectedContact) {
@@ -3945,15 +3946,18 @@ const sendQuizQuestion = (quizData) => {
   const timeStr = timestamp.toLocaleTimeString('en-US');
   const msgId = Date.now() + Math.random().toString(36).substring(7);
 
+  // IMPORTANTE: usa type:'message' para que o servidor faça relay automaticamente
+  // O campo quizPayload embute os dados estruturados do quiz
   const wireMsg = {
-    type: 'quiz-question',
+    type: 'message',
     id: msgId,
     ttl: 15,
     senderName: '🤖 Quiz Bot',
     direct: false,
     time: timeStr,
     timestamp: timestamp.getTime(),
-    ...quizData
+    text: '__QUIZ__',          // texto sentinela — clientes antigos ignoram, clientes novos detectam
+    quizPayload: quizData      // dados completos do quiz
   };
 
   const localMsg = {
@@ -3986,23 +3990,21 @@ const sendQuizReveal = (quizId) => {
   const q = currentQuizQuestionRef.current;
   const refVotes = q ? (q.votes || {}) : {};
 
-  // Read votes from messages state (most complete — includes local + received P2P)
-  // We capture this via a functional update so we always get the latest state
   setMessages(prev => {
     const quizMsg = prev.find(m => m.quizId === quizId);
     const stateVotes = quizMsg ? (quizMsg.quizVotes || {}) : {};
-    // Merge both sources: ref votes (from P2P answers received as bot host) + state votes
     const mergedVotes = { ...stateVotes, ...refVotes };
 
+    // IMPORTANTE: usa type:'message' para relay pelo servidor
     const wireMsg = {
-      type: 'quiz-reveal',
+      type: 'message',
       id: msgId,
       ttl: 15,
       senderName: '🤖 Quiz Bot',
       direct: false,
       time: timeStr,
-      quizId,
-      votes: mergedVotes
+      text: '__QUIZ_REVEAL__',
+      quizRevealPayload: { quizId, votes: mergedVotes }
     };
 
     if (selectedContact) {
@@ -4012,7 +4014,6 @@ const sendQuizReveal = (quizId) => {
       connections.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
     }
 
-    // Update all messages: mark this quiz as revealed with merged votes
     return prev.map(m =>
       m.quizId === quizId ? { ...m, quizRevealed: true, quizVotes: mergedVotes } : m
     );
@@ -4461,95 +4462,6 @@ return;
 }
 
 
-if (data.type === 'quiz-question') {
-  if (seenMessagesRef.current.has(data.id)) return;
-  seenMessagesRef.current.add(data.id);
-  pruneSeenMessages();
-  let ttl = data.ttl !== undefined ? data.ttl : 15;
-  if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
-
-  const currentLang = langRef.current;
-  const needsTranslation = currentLang !== 'pt';
-  const timestamp = data.timestamp || Date.now();
-  const messageTime = data.time || formatTime(new Date(timestamp));
-  const isFromSrv = isCentralServer(pId);
-
-  const baseQuizMsg = {
-    type: 'quiz-question',
-    sender: pId,
-    senderName: data.senderName || '🤖 Quiz Bot',
-    time: messageTime,
-    timestamp,
-    direct: data.direct || false,
-    recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general'),
-    quizId: data.quizId,
-    quizQuestion: data.quizQuestion,
-    quizOptions: data.quizOptions,
-    quizCorrect: data.quizCorrect,
-    quizSubject: data.quizSubject,
-    quizVotes: {},
-    quizRevealed: false
-  };
-
-  if (needsTranslation) {
-    const textsToTranslate = [data.quizQuestion, ...(data.quizOptions || [])];
-    Promise.all(textsToTranslate.map(t => translateQuizText(t, currentLang))).then(results => {
-      const translatedQ = results[0];
-      const translatedOpts = results.slice(1);
-      setMessages(prev => [...prev, { ...baseQuizMsg, translatedText: translatedQ, translatedOpts }].slice(-500));
-    }).catch(() => {
-      setMessages(prev => [...prev, baseQuizMsg].slice(-500));
-    });
-  } else {
-    setMessages(prev => [...prev, baseQuizMsg].slice(-500));
-  }
-  return;
-}
-
-if (data.type === 'quiz-answer') {
-  // Relay to others (so everyone's stats are updated)
-  if (seenMessagesRef.current.has(data.id)) return;
-  seenMessagesRef.current.add(data.id);
-  pruneSeenMessages();
-  let ttl = data.ttl !== undefined ? data.ttl : 15;
-  if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
-
-  // Update vote counts on the quiz message
-  setMessages(prev => prev.map(m => {
-    if (m.quizId === data.quizId && !m.quizRevealed) {
-      const votes = { ...(m.quizVotes || {}) };
-      if (votes[data.voterId] === undefined) { // only count first answer per user
-        votes[data.voterId] = data.optionIndex;
-      }
-      return { ...m, quizVotes: votes };
-    }
-    return m;
-  }));
-
-  // If we are the quiz bot host, also record for stats
-  if (currentQuizQuestionRef.current && currentQuizQuestionRef.current.quizId === data.quizId) {
-    if (!currentQuizQuestionRef.current.votes) currentQuizQuestionRef.current.votes = {};
-    if (currentQuizQuestionRef.current.votes[data.voterId] === undefined) {
-      currentQuizQuestionRef.current.votes[data.voterId] = data.optionIndex;
-    }
-    // If all connected peers answered, reveal early? Optional — skip for now.
-  }
-  return;
-}
-
-if (data.type === 'quiz-reveal') {
-  if (seenMessagesRef.current.has(data.id)) return;
-  seenMessagesRef.current.add(data.id);
-  pruneSeenMessages();
-  let ttl = data.ttl !== undefined ? data.ttl : 15;
-  if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
-
-  setMessages(prev => prev.map(m =>
-    m.quizId === data.quizId ? { ...m, quizRevealed: true, quizVotes: { ...(m.quizVotes || {}), ...(data.votes || {}) } } : m
-  ));
-  return;
-}
-
 if (data.type === 'poll-create') {
   if (seenMessagesRef.current.has(data.id)) return;
   seenMessagesRef.current.add(data.id);
@@ -4645,6 +4557,67 @@ if (data.text === '#$%') {
 if (radioStateRef.current.status === 'idle') setRadioState({ status: 'playing', startTime: Date.now(), duration: 300, audioUrl: null, fileName: t(lang, 'radioGlobal'), sender: data.senderName || 'Server' });
 return;
 }
+
+// ── Quiz via relay do servidor ────────────────────────────────────
+if (data.text === '__QUIZ__' && data.quizPayload) {
+  const currentLang = langRef.current;
+  const qd = data.quizPayload;
+  const baseQuizMsg = {
+    type: 'quiz-question',
+    sender: pId,
+    senderName: data.senderName || '🤖 Quiz Bot',
+    time: messageTime,
+    timestamp,
+    direct: data.direct || false,
+    recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general'),
+    quizId: qd.quizId,
+    quizQuestion: qd.quizQuestion,
+    quizOptions: qd.quizOptions,
+    quizCorrect: qd.quizCorrect,
+    quizSubject: qd.quizSubject,
+    quizVotes: {},
+    quizRevealed: false
+  };
+  if (currentLang !== 'pt') {
+    const texts = [qd.quizQuestion, ...(qd.quizOptions || [])];
+    Promise.all(texts.map(tx => translateQuizText(tx, currentLang))).then(results => {
+      setMessages(prev => [...prev, { ...baseQuizMsg, translatedText: results[0], translatedOpts: results.slice(1) }].slice(-500));
+    }).catch(() => setMessages(prev => [...prev, baseQuizMsg].slice(-500)));
+  } else {
+    setMessages(prev => [...prev, baseQuizMsg].slice(-500));
+  }
+  return;
+}
+
+if (data.text === '__QUIZ_REVEAL__' && data.quizRevealPayload) {
+  const { quizId, votes } = data.quizRevealPayload;
+  setMessages(prev => prev.map(m =>
+    m.quizId === quizId ? { ...m, quizRevealed: true, quizVotes: { ...(m.quizVotes || {}), ...(votes || {}) } } : m
+  ));
+  return;
+}
+
+if (data.text === '__QUIZ_ANSWER__' && data.quizAnswerPayload) {
+  const { quizId, optionIndex, voterId } = data.quizAnswerPayload;
+  setMessages(prev => prev.map(m => {
+    if (m.quizId === quizId && !m.quizRevealed) {
+      const votes = { ...(m.quizVotes || {}) };
+      if (votes[voterId] === undefined) votes[voterId] = optionIndex;
+      return { ...m, quizVotes: votes };
+    }
+    return m;
+  }));
+  // Se somos o host do bot, acumular no ref também
+  if (currentQuizQuestionRef.current && currentQuizQuestionRef.current.quizId === quizId) {
+    if (!currentQuizQuestionRef.current.votes) currentQuizQuestionRef.current.votes = {};
+    if (currentQuizQuestionRef.current.votes[voterId] === undefined) {
+      currentQuizQuestionRef.current.votes[voterId] = optionIndex;
+    }
+  }
+  return;
+}
+// ─────────────────────────────────────────────────────────────────
+
 const currentLang = langRef.current;
 const isQuizBotMsg = data.senderName === '🤖 Quiz Bot';
 const needsTranslation = currentLang !== 'pt' && data.text &&
