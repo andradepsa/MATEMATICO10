@@ -888,6 +888,7 @@
       const isHydraModeRef = useRef(false);
       const recentPeersRef = useRef([]);
       const heartbeatsRef = useRef(new Map());
+      const quizBotPeerRef = useRef(null); // peer do usuário com Quiz Bot ativo
       const HYDRA_THRESHOLD = 150;
       const CHUNK_SIZE = 16 * 1024;
 
@@ -1284,6 +1285,25 @@
           return; // Servidor não precisa processar PEX de clientes
         }
 
+        // ── Quiz Bot: controle de slot único por servidor ────────────────
+        if (data.type === 'quiz-bot-start') {
+          quizBotPeerRef.current = sourceConn.peer;
+          // Notifica TODOS os conectados que o bot está ativo
+          activeConnectionsRef.current.forEach((c, id) => {
+            try { c.send({ type: 'quiz-bot-status', active: true, owner: sourceConn.peer }); } catch(e) {}
+          });
+          return;
+        }
+        if (data.type === 'quiz-bot-stop') {
+          if (quizBotPeerRef.current === sourceConn.peer) {
+            quizBotPeerRef.current = null;
+            activeConnectionsRef.current.forEach((c) => {
+              try { c.send({ type: 'quiz-bot-status', active: false }); } catch(e) {}
+            });
+          }
+          return;
+        }
+
         if (data.type === 'message' || data.type === 'torrent-request') {
           if (data.id) {
             if (seenMessagesRef.current.has(data.id)) {
@@ -1457,6 +1477,11 @@
 
           activeConnectionsRef.current.set(conn.peer, conn);
           
+          // Informa ao novo peer se já há um Quiz Bot ativo no servidor
+          if (quizBotPeerRef.current) {
+            try { conn.send({ type: 'quiz-bot-status', active: true, owner: quizBotPeerRef.current }); } catch(e) {}
+          }
+          
           setConnections(Array.from(activeConnectionsRef.current.keys()));
           
           setStats(prev => ({
@@ -1574,6 +1599,14 @@
 
         conn.on('close', () => {
           console.log(`Conexão fechada com ${conn.peer}`);
+          
+          // Libera slot do Quiz Bot se era o dono
+          if (quizBotPeerRef.current === conn.peer) {
+            quizBotPeerRef.current = null;
+            activeConnectionsRef.current.forEach((c) => {
+              try { c.send({ type: 'quiz-bot-status', active: false }); } catch(e) {}
+            });
+          }
           
           activeConnectionsRef.current.delete(conn.peer);
           
