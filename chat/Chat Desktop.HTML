@@ -2686,6 +2686,14 @@ const handleQuizAnswer = (quizId, optionIndex) => {
     return m;
   }));
 
+  // Also record in currentQuizQuestionRef so sendQuizReveal picks it up
+  if (currentQuizQuestionRef.current && currentQuizQuestionRef.current.quizId === quizId) {
+    if (!currentQuizQuestionRef.current.votes) currentQuizQuestionRef.current.votes = {};
+    if (currentQuizQuestionRef.current.votes[peerId] === undefined) {
+      currentQuizQuestionRef.current.votes[peerId] = optionIndex;
+    }
+  }
+
   // Broadcast the answer so host and others can update stats
   const answerData = {
     type: 'quiz-answer',
@@ -3976,30 +3984,39 @@ const sendQuizReveal = (quizId) => {
   const msgId = Date.now() + Math.random().toString(36).substring(7);
 
   const q = currentQuizQuestionRef.current;
-  const votes = q ? (q.votes || {}) : {};
+  const refVotes = q ? (q.votes || {}) : {};
 
-  const wireMsg = {
-    type: 'quiz-reveal',
-    id: msgId,
-    ttl: 15,
-    senderName: '🤖 Quiz Bot',
-    direct: false,
-    time: timeStr,
-    quizId,
-    votes
-  };
+  // Read votes from messages state (most complete — includes local + received P2P)
+  // We capture this via a functional update so we always get the latest state
+  setMessages(prev => {
+    const quizMsg = prev.find(m => m.quizId === quizId);
+    const stateVotes = quizMsg ? (quizMsg.quizVotes || {}) : {};
+    // Merge both sources: ref votes (from P2P answers received as bot host) + state votes
+    const mergedVotes = { ...stateVotes, ...refVotes };
 
-  if (selectedContact) {
-    const conn = connections.find(c => c.peer === selectedContact && c.open);
-    if (conn) try { conn.send(wireMsg); } catch(e) {}
-  } else {
-    connections.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
-  }
+    const wireMsg = {
+      type: 'quiz-reveal',
+      id: msgId,
+      ttl: 15,
+      senderName: '🤖 Quiz Bot',
+      direct: false,
+      time: timeStr,
+      quizId,
+      votes: mergedVotes
+    };
 
-  // Update local message
-  setMessages(prev => prev.map(m =>
-    m.quizId === quizId ? { ...m, quizRevealed: true, quizVotes: votes } : m
-  ));
+    if (selectedContact) {
+      const conn = connections.find(c => c.peer === selectedContact && c.open);
+      if (conn) try { conn.send(wireMsg); } catch(e) {}
+    } else {
+      connections.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
+    }
+
+    // Update all messages: mark this quiz as revealed with merged votes
+    return prev.map(m =>
+      m.quizId === quizId ? { ...m, quizRevealed: true, quizVotes: mergedVotes } : m
+    );
+  });
 };
 
 const askNextQuestion = async () => {
