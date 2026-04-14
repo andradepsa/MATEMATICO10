@@ -2205,8 +2205,6 @@ const QuizQuestion = ({ msg, peerId, onAnswer }) => {
       <div className="quiz-options">
         {(msg.quizOptions || []).map((opt, i) => {
           const cls = getOptionClass(i);
-          const count = voteCounts[i];
-          const pct = revealed && totalVotes > 0 ? Math.round((count / totalVotes) * 100) : 0;
           const isCorrectOpt = i === msg.quizCorrect;
 
           return (
@@ -2216,29 +2214,11 @@ const QuizQuestion = ({ msg, peerId, onAnswer }) => {
               onClick={() => handleClick(i)}
               disabled={myAnswer !== null || revealed}
             >
-              {/* Barra de progresso (apenas no reveal) */}
-              {revealed && (
-                <div
-                  className="quiz-option-bar"
-                  style={{
-                    width: `${pct}%`,
-                    background: isCorrectOpt ? 'rgba(16,185,129,0.18)' : 'rgba(148,163,184,0.13)'
-                  }}
-                />
-              )}
               <div className="quiz-option-content">
-                {/* Letra */}
                 <span className="quiz-option-letter">{L[i]}</span>
-
-                {/* Texto da alternativa */}
                 <span className="quiz-option-text-wrap">{getOptText(i)}</span>
-
-                {/* Estatísticas — SÓ após o reveal */}
-                {revealed && (
-                  <span className="quiz-option-stat">
-                    {count} {count === 1 ? 'resp.' : 'resp.'} ({pct}%)
-                    {isCorrectOpt && <span style={{ marginLeft: '4px', color: '#10b981', fontWeight: 800 }}>✓</span>}
-                  </span>
+                {revealed && isCorrectOpt && (
+                  <span style={{ marginRight: '12px', color: '#10b981', fontWeight: 800, fontSize: '15px' }}>✓</span>
                 )}
               </div>
             </button>
@@ -2251,13 +2231,12 @@ const QuizQuestion = ({ msg, peerId, onAnswer }) => {
         <div className="quiz-correct-banner">🎉 Você acertou!</div>
       )}
 
-      {/* Rodapé do reveal — total de respostas */}
+      {/* Rodapé do reveal — apenas a resposta correta */}
       {revealed && (
         <div className="quiz-status-bar">
           <span style={{ color: '#10b981', fontWeight: 700 }}>
             ✅ Resposta: {L[msg.quizCorrect]}) {getOptText(msg.quizCorrect)}
           </span>
-          <span style={{ color: '#94a3b8' }}>{totalVotes} resposta{totalVotes !== 1 ? 's' : ''}</span>
         </div>
       )}
     </div>
