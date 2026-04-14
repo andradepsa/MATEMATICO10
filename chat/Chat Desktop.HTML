@@ -4187,7 +4187,7 @@ function buildAlternatives(pool, correct) {
 
 const MIN_QUIZ_INTERVAL = 120; // TRAVA: mínimo absoluto de 2 minutos — não remova
 
-const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizDiscipline, setQuizDiscipline }) => {
+const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizDiscipline, setQuizDiscipline, serverQuizBotActive, notifyServer }) => {
   const langName = getLangName(lang);
   return (
     <FloatingWindow
@@ -4237,6 +4237,7 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
             onClick={() => {
               const newActive = !quizBotActive;
               setQuizBotActive(newActive);
+              notifyServer(newActive ? 'quiz-bot-start' : 'quiz-bot-stop');
               if (newActive) {
                 // Jitter: atraso aleatório entre 1s e o intervalo configurado
                 // Dessincroniza os ciclos de centenas de servidores simultâneos
@@ -4244,9 +4245,10 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
                 setTimeout(askNextQuestion, jitterMs);
               }
             }}
-            style={{ background: quizBotActive ? '#ef4444' : '#10b981', width: '100%' }}
+            disabled={!quizBotActive && serverQuizBotActive}
+            style={{ background: quizBotActive ? '#ef4444' : serverQuizBotActive ? '#94a3b8' : '#10b981', width: '100%', cursor: (!quizBotActive && serverQuizBotActive) ? 'not-allowed' : 'pointer' }}
           >
-            {quizBotActive ? 'Stop Bot' : 'Start Bot'}
+            {quizBotActive ? 'Stop Bot' : serverQuizBotActive ? '🔒 Bot em uso no servidor' : 'Start Bot'}
           </button>
         </div>
       </div>
@@ -4357,6 +4359,7 @@ const currentQuizQuestionRef = useRef(null);
 const quizTimerRef = useRef(null);
 const quizAllIndexRef = useRef(0);
 const quizBotActiveRef = useRef(false); // FIX: ref para evitar stale closure nos timers
+const [serverQuizBotActive, setServerQuizBotActive] = useState(false); // outro usuário tem bot ativo no servidor
 const worldQuizStageRef    = useRef(0);    // 0=idle, 1=etapa1 rodando, 2=etapa2 rodando
 const worldQuizPlaceRef    = useRef(null); // lugar atual { query, country, state, place }
 const worldQuizImageRef    = useRef(null); // URL da imagem (reutilizada na etapa 2)
@@ -4425,6 +4428,13 @@ const handlePollCreated = (question, options) => {
 };
 
 // Quiz Bot Logic
+const notifyServer = (type) => {
+  if (selectedContact) {
+    const conn = connections.find(c => c.peer === selectedContact && c.open);
+    if (conn) try { conn.send({ type }); } catch(e) {}
+  }
+};
+
 const sendBotMessage = (text) => {
   const timestamp = new Date();
   const timeStr = timestamp.toLocaleTimeString('en-US');
@@ -4977,8 +4987,16 @@ return;
 }
 
 
+if (data.type === 'quiz-bot-status') {
+  if (data.active && !quizBotActive) {
+    setServerQuizBotActive(true);
+  } else if (!data.active) {
+    setServerQuizBotActive(false);
+  }
+  return;
+}
+
 if (data.type === 'pex' && Array.isArray(data.peers)) {
-const maxConnections = isSuperNode ? 50 : 15;
 if (peerInstance.current) {
 const activeCount = Object.keys(peerInstance.current.connections).length;
 if (activeCount < maxConnections) {
@@ -5426,7 +5444,7 @@ try { conn.close(); } catch(e) {}
 setConnections(prev => prev.filter(c => c.peer !== pId));
 endCall(pId, 'video');
 endCall(pId, 'voice');
-if (selectedContact === pId) setSelectedContact(null);
+if (selectedContact === pId) { setSelectedContact(null); setServerQuizBotActive(false); }
 
 
 // Also remove from messages if user wants (optional, but requested as "exclude from list")
@@ -6292,7 +6310,7 @@ return (
 {showPollCreator && <PollCreator onClose={() => setShowPollCreator(false)} onCreated={handlePollCreated} />}
 {showMarkdownEditor && <MarkdownEditor lang={lang} connections={connections} selectedContact={selectedContact} onClose={() => setShowMarkdownEditor(false)} />}
 {showGeneralModeInfo && <GeneralModeInfoModal lang={lang} selectedContact={selectedContact} onClose={() => setShowGeneralModeInfo(false)} />}
-{showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} />}
+{showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} />}
 {showTorrentManager && (
 <TorrentManagerModal
 lang={lang}
