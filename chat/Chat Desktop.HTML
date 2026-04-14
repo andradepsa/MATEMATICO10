@@ -4128,9 +4128,11 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
           <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Discipline</label>
           <select value={quizDiscipline} onChange={e => setQuizDiscipline(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', marginTop: '4px' }} disabled={quizBotActive}>
             <option value="all">📚 All Disciplines</option>
-            {QUIZ_SUBJECTS.map(sub => (
+            {QUIZ_SUBJECTS.filter(s => s.id !== 'world').map(sub => (
               <option key={sub.id} value={sub.id}>{sub.emoji} {sub.name}</option>
             ))}
+            <option disabled>──────────────────</option>
+            <option value="world">📸 Lugares do Mundo 🌍</option>
           </select>
         </div>
         <div style={{ marginBottom: '20px', textAlign: 'left' }}>
@@ -4539,8 +4541,9 @@ const askNextQuestion = async () => {
     return askWorldQuestion();
   }
 
-  // Pool do modo 'all': exclui 'world' (tem url:null) para nunca quebrar o fetch
-  const ALL_POOL = QUIZ_SUBJECTS.filter(s => s.id !== 'world');
+  // Pool do modo 'all': inclui 'world' para rodar junto com as disciplinas
+  const ALL_POOL = QUIZ_SUBJECTS;
+  const ALL_POOL_NO_WORLD = QUIZ_SUBJECTS.filter(s => s.id !== 'world');
 
   let questions = [];
   let selectedSubject;
@@ -4548,13 +4551,17 @@ const askNextQuestion = async () => {
   if (quizDiscipline === 'all') {
     selectedSubject = ALL_POOL[quizAllIndexRef.current % ALL_POOL.length];
     quizAllIndexRef.current = (quizAllIndexRef.current + 1) % ALL_POOL.length;
+    // Se caiu em 'world', redireciona para askWorldQuestion
+    if (selectedSubject.id === 'world') {
+      return askWorldQuestion();
+    }
   } else {
     selectedSubject = QUIZ_SUBJECTS.find(s => s.id === quizDiscipline);
   }
 
   // Guarda contra subject inválido ou sem url
   if (!selectedSubject || !selectedSubject.url) {
-    selectedSubject = ALL_POOL[0];
+    selectedSubject = ALL_POOL_NO_WORLD[0];
   }
   
   try {
