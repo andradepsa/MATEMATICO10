@@ -466,6 +466,12 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 .dark-mode .quiz-option-letter { background: #334155; color: #94a3b8; }
 .dark-mode .quiz-option-btn:hover:not(:disabled) { border-color: #818cf8; background: #1e1b4b; }
 .dark-mode .quiz-correct-banner { background: #052e16; border-color: #166534; color: #4ade80; }
+.dark-mode .message-bubble.sent .quiz-container { background: #1e293b; border-color: #818cf8; color: #e2e8f0; }
+.dark-mode .message-bubble.sent .quiz-question-text { color: #f1f5f9; }
+.dark-mode .message-bubble.sent .quiz-option-btn { background: #0f172a; border-color: #334155; color: #e2e8f0; }
+.dark-mode .message-bubble.sent .quiz-option-letter { background: #334155; color: #94a3b8; }
+.dark-mode .message-bubble.sent .quiz-subject { color: #a5b4fc; }
+.dark-mode .message-bubble.sent .quiz-status-bar { color: #94a3b8; border-color: #334155; }
 
 /* MARKDOWN EDITOR */
 .md-editor-container { background: white; border-radius: 16px; width: 100%; max-width: 1000px; height: 85vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
@@ -4137,7 +4143,7 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
         </div>
         <div style={{ marginBottom: '20px', textAlign: 'left' }}>
           <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Time per question (seconds)</label>
-          <input type="number" value={quizInterval} onChange={e => setQuizInterval(Number(e.target.value))} min="5" style={{ width: '100%', padding: '8px', borderRadius: '4px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', marginTop: '4px' }} disabled={quizBotActive} />
+          <input type="number" value={quizInterval} onChange={e => setQuizInterval(Math.max(MIN_QUIZ_INTERVAL, Number(e.target.value)))} min="60" style={{ width: '100%', padding: '8px', borderRadius: '4px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', marginTop: '4px' }} disabled={quizBotActive} />
         </div>
 
         <div style={{ marginBottom: '20px' }}>
@@ -4262,7 +4268,9 @@ const [showPollCreator, setShowPollCreator] = useState(false);
 const [showMarkdownEditor, setShowMarkdownEditor] = useState(false);
 const [showQuizBot, setShowQuizBot] = useState(false);
 const [quizBotActive, setQuizBotActive] = useState(false);
-const [quizInterval, setQuizInterval] = useState(30);
+const MIN_QUIZ_INTERVAL = 60; // TRAVA: mínimo absoluto de 1 minuto — não remova
+const [quizInterval, setQuizInterval] = useState(MIN_QUIZ_INTERVAL);
+const safeQuizInterval = () => Math.max(MIN_QUIZ_INTERVAL, quizInterval); // sempre >= 60s
 const [quizDiscipline, setQuizDiscipline] = useState('mat');
 const currentQuizQuestionRef = useRef(null);
 const quizTimerRef = useRef(null);
@@ -4274,6 +4282,9 @@ const worldQuizImageRef    = useRef(null); // URL da imagem (reutilizada na etap
 const worldQuizId1Ref      = useRef(null); // quizId da etapa 1
 const worldQuizId2Ref      = useRef(null); // quizId da etapa 2
 const worldQuizQueueRef    = useRef([]);   // fila embaralhada — garante que todos os lugares apareçam antes de repetir
+// ── VIGILÂNCIA P2P: rastreia último quiz recebido por peer ──────────────────
+const quizLastSeenRef = useRef({}); // { peerId: timestampMs }
+const QUIZ_VIGILANCE_MIN_MS = MIN_QUIZ_INTERVAL * 1000; // 60 000 ms — trava absoluta
 
 // Embaralha array in-place (Fisher-Yates)
 function shuffleArray(arr) {
@@ -4527,10 +4538,35 @@ const askWorldQuestion = async () => {
         setTimeout(() => {
           if (quizBotActiveRef.current) askNextQuestion();
         }, 10000); // 10s de respiro entre rodadas
-      }, quizInterval * 1000); // etapa 2 — mesmo tempo do quiz normal
+      }, safeQuizInterval() * 1000); // etapa 2 — mesmo tempo do quiz normal
 
     }, 5000); // 5s entre etapa 1 e etapa 2
-  }, quizInterval * 1000); // etapa 1 — mesmo tempo do quiz normal
+  }, safeQuizInterval() * 1000); // etapa 1 — mesmo tempo do quiz normal
+};
+
+// ── VIGILÂNCIA P2P: denuncia violação de intervalo para toda a rede ─────────
+const broadcastQuizViolation = (violatorId, violatorName, elapsedSec) => {
+  const msg = {
+    type: 'quiz-violation',
+    violatorId,
+    violatorName: violatorName || violatorId,
+    elapsedSec: Math.round(elapsedSec),
+    detectedBy: peerId,
+    detectedByName: userName,
+    timestamp: Date.now()
+  };
+  connections.forEach(c => { if (c.open) try { c.send(msg); } catch(e) {} });
+  // Exibe alerta local também
+  const alertMsg = {
+    type: 'text',
+    sender: 'system',
+    senderName: '🚨 Vigilância da Rede',
+    time: new Date().toLocaleTimeString('en-US'),
+    timestamp: Date.now(),
+    recipient: 'general',
+    text: `⚠️ VIOLAÇÃO DETECTADA: "${violatorName || violatorId}" enviou quiz com apenas ${Math.round(elapsedSec)}s de intervalo (mínimo: 60s). Mensagem BLOQUEADA pela rede.`
+  };
+  setMessages(prev => [...prev, alertMsg].slice(-500));
 };
 
 const askNextQuestion = async () => {
@@ -4621,7 +4657,7 @@ const askNextQuestion = async () => {
         if (quizBotActiveRef.current) askNextQuestion();
       }, 15000);
     }
-  }, quizInterval * 1000);
+  }, safeQuizInterval() * 1000);
 };
 
 useEffect(() => { quizBotActiveRef.current = quizBotActive; }, [quizBotActive]); // FIX: mantém o ref sincronizado
@@ -4765,6 +4801,26 @@ seenMessagesRef.current.delete(first);
 
 
 const handleIncomingData = (data, pId) => {
+// ── VIGILÂNCIA P2P: alerta de violação vindo de outro peer ──────────────────
+if (data.type === 'quiz-violation') {
+  // Relay para os demais peers (propaga pelo grafo)
+  connections.forEach(c => { if (c.peer !== pId && c.open) try { c.send(data); } catch(e) {} });
+  // Exibe alerta na conversa local (deduplicado por timestamp+violatorId)
+  const dedupKey = `viol-${data.violatorId}-${data.timestamp}`;
+  if (seenMessagesRef.current.has(dedupKey)) return;
+  seenMessagesRef.current.add(dedupKey);
+  setMessages(prev => [...prev, {
+    type: 'text',
+    sender: 'system',
+    senderName: '🚨 Vigilância da Rede',
+    time: new Date(data.timestamp).toLocaleTimeString('en-US'),
+    timestamp: data.timestamp,
+    recipient: 'general',
+    text: `⚠️ VIOLAÇÃO DETECTADA por ${data.detectedByName || data.detectedBy}: "${data.violatorName}" enviou quiz com apenas ${data.elapsedSec}s de intervalo (mínimo: 60s). Mensagem BLOQUEADA.`
+  }].slice(-500));
+  return;
+}
+
 if (data.type === 'network-stats' && data.totalOnline !== undefined) {
 setNetworkSize(prev => Math.max(data.totalOnline, connections.length + 1));
 // Relay stats to other peers to spread the info
@@ -5118,6 +5174,19 @@ return;
 
 // ── Quiz via relay do servidor ────────────────────────────────────
 if (data.text === '__QUIZ__' && data.quizPayload) {
+  // ── VIGILÂNCIA: verifica intervalo mínimo de 60s por peer ──────
+  const senderId = pId || data.senderId || 'unknown';
+  const now = Date.now();
+  const lastSeen = quizLastSeenRef.current[senderId];
+  if (lastSeen) {
+    const elapsed = (now - lastSeen) / 1000;
+    if (elapsed < MIN_QUIZ_INTERVAL) {
+      // VIOLAÇÃO: rejeita mensagem e alerta toda a rede
+      broadcastQuizViolation(senderId, data.senderName, elapsed);
+      return; // bloqueia o quiz
+    }
+  }
+  quizLastSeenRef.current[senderId] = now; // atualiza timestamp
   const currentLang = langRef.current;
   const qd = data.quizPayload;
   const baseQuizMsg = {
