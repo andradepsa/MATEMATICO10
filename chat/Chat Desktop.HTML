@@ -4508,6 +4508,33 @@ if (data.type === 'poll-vote') {
 }
 
 
+// ── QUIZ ANSWER — processa ANTES do filtro de spam para votos nunca serem descartados ──
+if (data.type === 'message' && data.id && data.text === '__QUIZ_ANSWER__' && data.quizAnswerPayload) {
+  if (!seenMessagesRef.current.has(data.id)) {
+    seenMessagesRef.current.add(data.id);
+    pruneSeenMessages();
+    let ttl = data.ttl !== undefined ? data.ttl : 15;
+    if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+    const { quizId, optionIndex, voterId } = data.quizAnswerPayload;
+    setMessages(prev => prev.map(m => {
+      if (m.quizId === quizId && !m.quizRevealed) {
+        const votes = { ...(m.quizVotes || {}) };
+        if (votes[voterId] === undefined) votes[voterId] = optionIndex;
+        return { ...m, quizVotes: votes };
+      }
+      return m;
+    }));
+    if (currentQuizQuestionRef.current && currentQuizQuestionRef.current.quizId === quizId) {
+      if (!currentQuizQuestionRef.current.votes) currentQuizQuestionRef.current.votes = {};
+      if (currentQuizQuestionRef.current.votes[voterId] === undefined) {
+        currentQuizQuestionRef.current.votes[voterId] = optionIndex;
+      }
+    }
+  }
+  return;
+}
+// ────────────────────────────────────────────────────────────────────────────────
+
 if (data.type === 'message' && data.id) {
 if (data.sender) {
 if (!knownUsersRef.current.has(data.sender)) {
@@ -4597,25 +4624,6 @@ if (data.text === '__QUIZ_REVEAL__' && data.quizRevealPayload) {
   return;
 }
 
-if (data.text === '__QUIZ_ANSWER__' && data.quizAnswerPayload) {
-  const { quizId, optionIndex, voterId } = data.quizAnswerPayload;
-  setMessages(prev => prev.map(m => {
-    if (m.quizId === quizId && !m.quizRevealed) {
-      const votes = { ...(m.quizVotes || {}) };
-      if (votes[voterId] === undefined) votes[voterId] = optionIndex;
-      return { ...m, quizVotes: votes };
-    }
-    return m;
-  }));
-  // Se somos o host do bot, acumular no ref também
-  if (currentQuizQuestionRef.current && currentQuizQuestionRef.current.quizId === quizId) {
-    if (!currentQuizQuestionRef.current.votes) currentQuizQuestionRef.current.votes = {};
-    if (currentQuizQuestionRef.current.votes[voterId] === undefined) {
-      currentQuizQuestionRef.current.votes[voterId] = optionIndex;
-    }
-  }
-  return;
-}
 // ─────────────────────────────────────────────────────────────────
 
 const currentLang = langRef.current;
