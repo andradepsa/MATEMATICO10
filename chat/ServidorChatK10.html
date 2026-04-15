@@ -1454,6 +1454,19 @@
             setMessages(prev => [...prev, newMessage].slice(-100));
           }
           
+          // Inject sender avatar from stored profiles if not present
+          if (!data.senderAvatar) {
+            const senderProfile = clientProfilesRef.current.get(sourceConn.peer);
+            if (senderProfile && senderProfile.avatar) {
+              data.senderAvatar = senderProfile.avatar;
+            }
+            if (senderProfile && senderProfile.gender) {
+              data.senderGender = senderProfile.gender;
+            }
+          }
+          if (!data.sender) {
+            data.sender = sourceConn.peer;
+          }
           distributeMessage(data, sourceConn.peer);
         }
         else if (data.type === 'radio-start' || data.type === 'radio-stream-start' || data.type === 'radio-chunk' || data.type === 'radio-sync' || data.type === 'radio-request-sync') {
