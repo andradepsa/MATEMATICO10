@@ -104,9 +104,8 @@ text-shadow: 0 0 8px rgba(74, 222, 128, 0.3);
 .conversations-list { width: 280px; min-width: 220px; background: var(--surface); border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); overflow-y: auto; display: flex; flex-direction: column; }
 .conversations-list h4 { padding: 14px 16px 10px; margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); border-bottom: 1px solid var(--border); }
 .conversation-item { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.15s; position: relative; }
-.conversation-item:hover { background: #f1f5f9; }
-.conversation-item.selected:hover { background: #dbeafe; }
-.conversation-item.selected { background: #dbeafe; border-left: 3px solid var(--primary); box-shadow: inset 0 0 0 1px rgba(37,99,235,0.2); }
+.conversation-item:hover { background: #f8fafc; }
+.conversation-item.selected { background: #eff6ff; border-left: 3px solid var(--primary); }
 .conversation-item.central-server { border-left: 3px solid var(--warning) !important; }
 .conversation-name { font-weight: 600; color: var(--text); font-size: 14px; }
 .conversation-peer-id { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
@@ -326,7 +325,7 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 /* Conversations list */
 .dark-mode .conversation-item { border-bottom-color: #293548; }
 .dark-mode .conversation-item:hover { background: #293548; }
-.dark-mode .conversation-item.selected { background: #1e3a5f; border-left-color: #3b82f6; box-shadow: inset 0 0 0 1px rgba(59,130,246,0.3); }
+.dark-mode .conversation-item.selected { background: #1e3a5f; border-left-color: #3b82f6; }
 .dark-mode .conversation-name { color: #e2e8f0; }
 .dark-mode .conversation-peer-id { color: #64748b; }
 
@@ -2708,9 +2707,6 @@ const [newName, setNewName] = useState('');
 const [newPeerId, setNewPeerId] = useState('');
 const [nameError, setNameError] = useState('');
 const [idError, setIdError] = useState('');
-const [editingIndex, setEditingIndex] = useState(null);
-const [editName, setEditName] = useState('');
-const [editPeerId, setEditPeerId] = useState('');
 
 
 const handleAddContact = (e) => {
@@ -2730,30 +2726,6 @@ setNewName(''); setNewPeerId('');
 const handleRemoveContact = (pId, e) => {
 e.stopPropagation();
 setContacts(prev => { const updated = prev.filter(c => c.peerId !== pId); localStorage.setItem('p2pContacts', JSON.stringify(updated)); return updated; });
-};
-
-const handleEditContact = (index, e) => {
-e.stopPropagation();
-setEditingIndex(index);
-setEditName(contacts[index].name);
-setEditPeerId(contacts[index].peerId);
-};
-
-const handleSaveEdit = (e) => {
-e.stopPropagation();
-if (!editName.trim() || !editPeerId.trim()) return;
-setContacts(prev => {
-const updated = [...prev];
-updated[editingIndex] = { name: editName.trim(), peerId: editPeerId.trim() };
-localStorage.setItem('p2pContacts', JSON.stringify(updated));
-return updated;
-});
-setEditingIndex(null);
-};
-
-const handleCancelEdit = (e) => {
-e.stopPropagation();
-setEditingIndex(null);
 };
 
 
@@ -2776,30 +2748,12 @@ return (
 </form>
 <div className="connected-peers">
 {contacts.length === 0 ? <p style={{ color: 'var(--text-muted)', fontSize: '14px' }}>{t(lang, 'noContacts')}</p> : contacts.map((contact, i) => (
-<div key={i} className="peer-item" onClick={() => editingIndex !== i && onSelectContact(contact.peerId)} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-{editingIndex === i ? (
-<div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }} onClick={e => e.stopPropagation()}>
-<div style={{ display: 'flex', gap: '8px' }}>
-<input type="text" value={editName} onChange={e => setEditName(e.target.value)} placeholder={t(lang, 'contactName')} style={{ flex: 1, padding: '6px 10px', border: '1.5px solid var(--primary)', borderRadius: '6px', fontSize: '13px', outline: 'none' }} />
-<input type="text" value={editPeerId} onChange={e => setEditPeerId(e.target.value)} placeholder={t(lang, 'contactId')} style={{ flex: 1, padding: '6px 10px', border: '1.5px solid var(--border)', borderRadius: '6px', fontSize: '13px', fontFamily: "'JetBrains Mono', monospace", outline: 'none' }} />
-</div>
-<div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-<button onClick={handleSaveEdit} style={{ background: '#10b981', fontSize: '12px', padding: '5px 12px' }}>✔ Salvar</button>
-<button onClick={handleCancelEdit} style={{ background: '#94a3b8', fontSize: '12px', padding: '5px 12px' }}>✖ Cancelar</button>
-</div>
-</div>
-) : (
-<div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+<div key={i} className="peer-item" onClick={() => onSelectContact(contact.peerId)}>
 <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
 <Avatar peerId={contact.peerId} name={contact.name} avatars={avatars} size="small" />
 <span style={{ fontSize: '14px' }}>{contact.name} <span style={{ color: 'var(--text-muted)', fontFamily: "'JetBrains Mono', monospace", fontSize: '12px' }}>— {contact.peerId}</span></span>
 </div>
-<div style={{ display: 'flex', gap: '4px' }}>
-<button onClick={(e) => handleEditContact(i, e)} style={{ background: '#3b82f6', fontSize: '12px', padding: '5px 10px' }}>✏️</button>
 <button onClick={(e) => handleRemoveContact(contact.peerId, e)}>🗑️</button>
-</div>
-</div>
-)}
 </div>
 ))}
 </div>
@@ -3400,7 +3354,7 @@ style={msg.sender === '__system__' ? { background: '#eff6ff', border: '1px solid
     <Avatar 
       peerId={msg.sender === 'you' ? peerId : msg.sender} 
       name={msg.sender === 'you' ? userName : (msg.senderName || getContactName(msg.sender))} 
-      avatars={msg.sender === 'you' ? { [peerId]: avatars[peerId] || localStorage.getItem('p2pUserAvatar') } : (msg.senderAvatar ? { ...avatars, [msg.sender]: avatars[msg.sender] || msg.senderAvatar } : avatars)} 
+      avatars={msg.sender === 'you' ? { [peerId]: avatars[peerId] || localStorage.getItem('p2pUserAvatar') } : (msg.senderAvatar ? { ...avatars, [msg.sender]: msg.senderAvatar } : avatars)} 
       size="small" 
     />
   </div>
@@ -5482,9 +5436,14 @@ recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general')
 };
 let messageToAdd = null;
 
-// Store senderAvatar from message if we don't already have it
-if (data.senderAvatar && !avatars[pId]) {
-  setAvatars(prev => prev[pId] ? prev : { ...prev, [pId]: data.senderAvatar });
+// Cache sender avatar from relayed messages
+if (data.senderAvatar && data.senderName) {
+  setAvatars(prev => {
+    // Use senderName-based key if we don't have the original peerId
+    const key = pId;
+    if (!prev[key]) return { ...prev, [key]: data.senderAvatar };
+    return prev;
+  });
 }
 
 if (data.type === 'message') {
