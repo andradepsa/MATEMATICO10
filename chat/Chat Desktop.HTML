@@ -553,6 +553,28 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 .md-editor-preview blockquote { border-left: 4px solid #3b82f6; padding-left: 16px; color: #64748b; margin: 16px 0; font-style: italic; }
 .md-editor-preview ul, .md-editor-preview ol { padding-left: 24px; margin-bottom: 16px; }
 .md-editor-preview img { max-width: 100%; border-radius: 8px; }
+
+/* GENDER COLORS */
+.conversation-item.gender-male { background: #166534; }
+.conversation-item.gender-male .conversation-name { color: #ffffff; }
+.conversation-item.gender-male .conversation-peer-id { color: #bbf7d0; }
+.conversation-item.gender-male.selected { background: #15803d; border-left-color: #22c55e; }
+.conversation-item.gender-female { background: #9d174d; }
+.conversation-item.gender-female .conversation-name { color: #ffffff; }
+.conversation-item.gender-female .conversation-peer-id { color: #fbcfe8; }
+.conversation-item.gender-female.selected { background: #be185d; border-left-color: #ec4899; }
+.dark-mode .conversation-item.gender-male { background: #14532d; }
+.dark-mode .conversation-item.gender-male:hover { background: #166534; }
+.dark-mode .conversation-item.gender-male .conversation-name { color: #ffffff; }
+.dark-mode .conversation-item.gender-male .conversation-peer-id { color: #86efac; }
+.dark-mode .conversation-item.gender-female { background: #831843; }
+.dark-mode .conversation-item.gender-female:hover { background: #9d174d; }
+.dark-mode .conversation-item.gender-female .conversation-name { color: #ffffff; }
+.dark-mode .conversation-item.gender-female .conversation-peer-id { color: #f9a8d4; }
+.gender-select { padding: 7px 12px; border: 1.5px solid var(--border); border-radius: 7px; font-family: inherit; font-size: 14px; outline: none; transition: border-color 0.2s; background: var(--surface); color: var(--text); min-width: 130px; }
+.gender-select:focus { border-color: var(--primary); }
+.dark-mode .gender-select { background: #0f172a; color: #e2e8f0; border-color: #334155; }
+
 </style>
 </head>
 <body>
@@ -2745,7 +2767,7 @@ return (
 // ChatManager
 // ================================================================
 const ChatManager = ({
-lang, connections, messages, setMessages, contacts, userName, peerId,
+lang, connections, messages, setMessages, contacts, setContacts, userName, peerId,
 activeCalls, endCall, startVoiceCall, toggleVideoCall, remoteStreams,
 audioRefs, videoRefs, handleFileChange, fileInputRef, handleAudioRecording,
 newMessage, setNewMessage, showEmojiPanel, setShowEmojiPanel, populateEmojiPanel,
@@ -2757,7 +2779,9 @@ pendingTorrentRequests, setPendingTorrentRequests, handleTorrentDirectSeed,
 youtubeChatId, disconnectPeer,
 showWhiteboard, setShowWhiteboard,
 avatars,
-currentQuizQuestionRef
+currentQuizQuestionRef,
+peerGenders,
+peerNames, setPeerNames
 }) => {
 const messagesEndRef = useRef(null);
 const messagesContainerRef = useRef(null);
@@ -3221,7 +3245,7 @@ const hasMine = !!e2ee?.mySecret, hasTheirs = !!e2ee?.contactSecret;
 const isServer = isCentralServer(conn.peer);
 const srvGrpActive = isServer && serverE2EE[conn.peer]?.active;
 return (
-<div key={i} className={`conversation-item${isSelected ? ' selected' : ''}${conn.peer === centralServerId ? ' central-server' : ''}`}
+<div key={i} className={`conversation-item${isSelected ? ' selected' : ''}${conn.peer === centralServerId ? ' central-server' : ''}${peerGenders && peerGenders[conn.peer] === 'M' ? ' gender-male' : ''}${peerGenders && peerGenders[conn.peer] === 'F' ? ' gender-female' : ''}`}
 onClick={() => setSelectedContact(isSelected ? null : conn.peer)}>
 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -3232,7 +3256,7 @@ onClick={() => setSelectedContact(isSelected ? null : conn.peer)}>
 {!isServer && hasMine && !hasTheirs && <span title="Sending encrypted" style={{ marginRight: '4px' }}>📤</span>}
 {!isServer && !hasMine && hasTheirs && <span title="Receiving encrypted" style={{ marginRight: '4px' }}>📥</span>}
 {isServer && srvGrpActive && <span title="Group encryption active" style={{ marginRight: '4px' }}>🛡️</span>}
-{getContactName(conn.peer)}
+{getContactName(conn.peer)} {peerGenders && peerGenders[conn.peer] === 'M' ? '♂' : peerGenders && peerGenders[conn.peer] === 'F' ? '♀' : ''}
 </div>
 <div className="conversation-peer-id">{conn.peer}</div>
 </div>
@@ -3244,6 +3268,11 @@ onClick={() => setSelectedContact(isSelected ? null : conn.peer)}>
 <div className="sidebar-icon-btn" style={{ color: '#ef4444' }} onClick={e => { e.stopPropagation(); if(confirm(t(lang, 'confirmRemoveFriend', { name: getContactName(conn.peer) }))) { disconnectPeer(conn.peer); deleteMessagesByContact(conn.peer); } }} title={t(lang, 'removeFriend')}>
 <i className="fas fa-user-minus"></i>
 </div>
+{!contacts.find(c => c.peerId === conn.peer) && (
+<div className="sidebar-icon-btn" style={{ color: '#22c55e' }} onClick={e => { e.stopPropagation(); const name = peerNames[conn.peer] || conn.peer; const newContact = { name, peerId: conn.peer }; setContacts(prev => { const updated = [...prev, newContact]; localStorage.setItem('p2pContacts', JSON.stringify(updated)); return updated; }); }} title={lang === 'pt' ? 'Adicionar Contato' : 'Add Contact'}>
+<i className="fas fa-user-plus"></i>
+</div>
+)}
 </div>
 </div>
 <div style={{ display: 'flex', gap: '5px', marginTop: '7px', flexWrap: 'wrap' }}>
@@ -4349,6 +4378,9 @@ const [peerId, setPeerId] = usePersistentId();
 const langRef = useRef(lang);
 useEffect(() => { langRef.current = lang; }, [lang]);
 const [userName, setUserName] = useState(() => localStorage.getItem('p2pUserName') || '');
+const [userGender, setUserGender] = useState(() => localStorage.getItem('p2pUserGender') || '');
+const [peerGenders, setPeerGenders] = useState({});
+const [peerNames, setPeerNames] = useState({});
 const [userAvatar, setUserAvatar] = useState(() => localStorage.getItem('p2pUserAvatar') || '');
 const [editingName, setEditingName] = useState(!localStorage.getItem('p2pUserName'));
 const [avatars, setAvatars] = useState({}); // { peerId: base64 }
@@ -4924,7 +4956,7 @@ return () => clearTimeout(timer);
 
 
 const isCentralServer = (id) => id && id.endsWith('-CENTRAL');
-const getContactName = (pId) => contacts.find(c => c.peerId === pId)?.name || pId;
+const getContactName = (pId) => contacts.find(c => c.peerId === pId)?.name || peerNames[pId] || pId;
 const saveUserName = () => { if (userName.trim()) { localStorage.setItem('p2pUserName', userName); setEditingName(false); } };
 
 const handleAvatarChange = (e) => {
@@ -4989,7 +5021,7 @@ else { const first = localStreamsRef.current.values().next().value; if (localVid
 
 const sendHandshake = (conn) => {
 try {
-conn.send({ type: 'handshake', peerId, avatar: userAvatar });
+conn.send({ type: 'handshake', peerId, avatar: userAvatar, gender: localStorage.getItem('p2pUserGender') || '', userName: userName });
 if (youtubeChatIdRef.current) {
 conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
 }
@@ -5082,11 +5114,28 @@ if (data.type === 'handshake') {
   if (data.avatar) {
     setAvatars(prev => ({ ...prev, [pId]: data.avatar }));
   }
+  if (data.gender) {
+    setPeerGenders(prev => ({ ...prev, [pId]: data.gender }));
+  }
+  if (data.userName) {
+    setPeerNames(prev => ({ ...prev, [pId]: data.userName }));
+  }
   return; 
 }
 
 if (data.type === 'avatar-update' && data.avatar) {
-  setAvatars(prev => ({ ...prev, [pId]: data.avatar }));
+  const updatePeerId = data.peerId || pId;
+  setAvatars(prev => ({ ...prev, [updatePeerId]: data.avatar }));
+  return;
+}
+
+if (data.type === 'peer-profile') {
+  const profilePeerId = data.peerId;
+  if (profilePeerId) {
+    if (data.userName) setPeerNames(prev => ({ ...prev, [profilePeerId]: data.userName }));
+    if (data.gender) setPeerGenders(prev => ({ ...prev, [profilePeerId]: data.gender }));
+    if (data.avatar) setAvatars(prev => ({ ...prev, [profilePeerId]: data.avatar }));
+  }
   return;
 }
 
@@ -6606,12 +6655,18 @@ overflow: 'hidden'
     {editingName ? (
       <div className="user-name-form">
         <input type="text" value={userName} onChange={e => setUserName(e.target.value)} placeholder={t(lang, 'typeName')} autoFocus />
+        <select className="gender-select" value={userGender} onChange={e => { setUserGender(e.target.value); localStorage.setItem('p2pUserGender', e.target.value); }}>
+          <option value="">Sexo</option>
+          <option value="M">♂ Masculino</option>
+          <option value="F">♀ Feminino</option>
+        </select>
         <button onClick={saveUserName} disabled={!userName.trim()}>{t(lang, 'save')}</button>
       </div>
     ) : (
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
         <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{t(lang, 'yourName')}:</span>
         <span className="username">{userName}</span>
+        {userGender && <span style={{ fontSize: '14px', marginLeft: '4px' }}>{userGender === 'M' ? '♂' : '♀'}</span>}
         <button className="user-edit-button" onClick={() => setEditingName(true)}>{t(lang, 'edit')}</button>
       </div>
     )}
@@ -6797,7 +6852,7 @@ onSelectContact={(pId) => { connectToPeer(pId); setSelectedContact(pId); setShow
 <ChatManager
 lang={lang}
 connections={connections} messages={messages} setMessages={setMessages}
-contacts={contacts} userName={userName} peerId={peerId}
+contacts={contacts} setContacts={setContacts} userName={userName} peerId={peerId}
 activeCalls={activeCalls} endCall={endCall} startVoiceCall={startVoiceCall}
 toggleVideoCall={toggleVideoCall} remoteStreams={remoteStreams}
 audioRefs={audioRefs} videoRefs={videoRefs} handleFileChange={handleFileChange}
@@ -6823,6 +6878,9 @@ showWhiteboard={showWhiteboard}
 setShowWhiteboard={setShowWhiteboard}
 avatars={avatars}
 currentQuizQuestionRef={currentQuizQuestionRef}
+peerGenders={peerGenders}
+peerNames={peerNames}
+setPeerNames={setPeerNames}
 />
 )}
 
