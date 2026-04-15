@@ -217,40 +217,6 @@
     .tutorial-dots { display: flex; gap: 6px; }
     .tutorial-dot { width: 8px; height: 8px; border-radius: 50%; background: #334155; transition: all 0.2s; }
     .tutorial-dot.active { background: #60a5fa; transform: scale(1.3); }
-
-    .welcome-config {
-      margin-top: 15px;
-      padding: 15px;
-      background: #f0fdf4;
-      border-radius: 8px;
-      border: 1px solid #bbf7d0;
-    }
-    .welcome-config textarea {
-      width: 100%;
-      min-height: 80px;
-      padding: 10px;
-      border: 1px solid #bbf7d0;
-      border-radius: 6px;
-      font-family: Arial, sans-serif;
-      font-size: 14px;
-      resize: vertical;
-      margin-top: 8px;
-    }
-    .welcome-config button {
-      margin-top: 8px;
-      background: #10b981;
-    }
-    .welcome-preview {
-      margin-top: 10px;
-      padding: 10px;
-      background: #ecfdf5;
-      border-radius: 6px;
-      border: 1px dashed #6ee7b7;
-      font-size: 13px;
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-
   </style>
 </head>
 <body>
@@ -320,13 +286,7 @@
         idDescription2: "More specifically:",
         idDescription3: "Letters: A to Z (uppercase only)",
         idDescription4: "Numbers: 2 to 9",
-        ytChatExplanation: "You can start a chat on a YouTube Live and broadcast the YouTube chat from the server. Use the 'Start YT Chat' button. This information is available in both Media and Server menus.",
-        welcomeMessage: "Welcome Message:",
-        welcomeMessagePlaceholder: "◦•●❤♡(◉‿◉) Welcome to the server! (◉‿◉)♡❤●•◦",
-        saveWelcome: "Save Welcome Message",
-        welcomePreview: "Preview:",
-        welcomeEnabled: "Enable welcome message",
-        welcomeVariables: "Use {name} for the user's name, {id} for their ID"
+        ytChatExplanation: "You can start a chat on a YouTube Live and broadcast the YouTube chat from the server. Use the 'Start YT Chat' button. This information is available in both Media and Server menus."
       },
       pt: {
         serverTitle: "Servidor K10",
@@ -383,13 +343,7 @@
         idDescription2: "Mais especificamente:",
         idDescription3: "Letras: A a Z (apenas maiúsculas)",
         idDescription4: "Números: 2 a 9",
-        ytChatExplanation: "Você pode iniciar um chat em uma live do YouTube e transmitir o chat do YouTube a partir do servidor. Use o botão 'Iniciar Chat YT'. Esta informação está disponível nos menus Mídias e Servidor.",
-        welcomeMessage: "Mensagem de Boas-Vindas:",
-        welcomeMessagePlaceholder: "◦•●❤♡(◉‿◉) Bem-vindo ao servidor! (◉‿◉)♡❤●•◦",
-        saveWelcome: "Salvar Mensagem de Boas-Vindas",
-        welcomePreview: "Preview:",
-        welcomeEnabled: "Ativar mensagem de boas-vindas",
-        welcomeVariables: "Use {name} para o nome do usuário, {id} para o ID dele"
+        ytChatExplanation: "Você pode iniciar um chat em uma live do YouTube e transmitir o chat do YouTube a partir do servidor. Use o botão 'Iniciar Chat YT'. Esta informação está disponível nos menus Mídias e Servidor."
       }
     };
 
@@ -923,10 +877,6 @@
       const [newServerId, setNewServerId] = useState('');
       const [youtubeChatId, setYoutubeChatId] = useState(null);
       const [showTutorial, setShowTutorial] = useState(false);
-      const [welcomeMsg, setWelcomeMsg] = useState(() => localStorage.getItem('serverWelcomeMsg') || '');
-      const [welcomeEnabled, setWelcomeEnabled] = useState(() => localStorage.getItem('serverWelcomeEnabled') === 'true');
-      const welcomeMsgRef = useRef(localStorage.getItem('serverWelcomeMsg') || '');
-      const welcomeEnabledRef = useRef(localStorage.getItem('serverWelcomeEnabled') === 'true');
       const [youtubeBroadcasts, setYoutubeBroadcasts] = useState({});
       const youtubeChatIdRef = useRef(null);
       useEffect(() => { youtubeChatIdRef.current = youtubeChatId; }, [youtubeChatId]);
@@ -937,8 +887,6 @@
       const messagesEndRef = useRef(null);
       const activeConnectionsRef = useRef(new Map());
       const seenMessagesRef = useRef(new Set());
-      const peerGendersRef = useRef(new Map());
-      const clientProfilesRef = useRef(new Map()); // { peerId: { userName, gender, avatar } }
       const isHydraModeRef = useRef(false);
       const recentPeersRef = useRef([]);
       const heartbeatsRef = useRef(new Map());
@@ -1392,32 +1340,6 @@
           return;
         }
 
-        // Handle handshake BEFORE the message/torrent filter
-        if (data.type === 'handshake') {
-          const profile = { userName: data.userName || '', gender: data.gender || '', avatar: data.avatar || '' };
-          clientProfilesRef.current.set(sourceConn.peer, profile);
-          if (data.gender) peerGendersRef.current.set(sourceConn.peer, data.gender);
-          // Relay profile to all other connected clients
-          activeConnectionsRef.current.forEach((c, cPeerId) => {
-            if (cPeerId !== sourceConn.peer && c.open) {
-              try { c.send({ type: 'peer-profile', peerId: sourceConn.peer, userName: profile.userName, gender: profile.gender, avatar: profile.avatar }); } catch(e) {}
-            }
-          });
-          return;
-        }
-
-        if (data.type === 'avatar-update' && data.avatar) {
-          const existing = clientProfilesRef.current.get(sourceConn.peer) || {};
-          existing.avatar = data.avatar;
-          clientProfilesRef.current.set(sourceConn.peer, existing);
-          activeConnectionsRef.current.forEach((c, cPeerId) => {
-            if (cPeerId !== sourceConn.peer && c.open) {
-              try { c.send({ type: 'avatar-update', peerId: sourceConn.peer, avatar: data.avatar }); } catch(e) {}
-            }
-          });
-          return;
-        }
-
         if (data.type === 'message' || data.type === 'torrent-request') {
           if (data.id) {
             if (seenMessagesRef.current.has(data.id)) {
@@ -1430,6 +1352,7 @@
               seenMessagesRef.current.delete(firstItem);
             }
           }
+
           if (data.type === 'message') {
             if (data.text && data.text.length > 2000) {
               console.log("Servidor: Mensagem muito longa ignorada.");
@@ -1441,7 +1364,6 @@
             }));
 
             const senderName = data.senderName || sourceConn.peer;
-            if (data.senderGender) peerGendersRef.current.set(sourceConn.peer, data.senderGender);
             
             const newMessage = {
               id: data.id || (Date.now() + Math.random().toString(36).substring(7)),
@@ -1454,7 +1376,12 @@
             setMessages(prev => [...prev, newMessage].slice(-100));
           }
           
-          distributeMessage(data, sourceConn.peer);
+          // Mensagem direta entre dois usuários NÃO deve ser redistribuída pelo servidor
+          if (data.direct) {
+            console.log("Servidor: Mensagem direta ignorada (não redistribuir).");
+          } else {
+            distributeMessage(data, sourceConn.peer);
+          }
         }
         else if (data.type === 'radio-start' || data.type === 'radio-stream-start' || data.type === 'radio-chunk' || data.type === 'radio-sync' || data.type === 'radio-request-sync') {
           if (data.id) {
@@ -1639,27 +1566,8 @@
           // Always send handshake from server so clients know it's a central server
           try {
             conn.send({ type: 'handshake', peerId });
-            // Send profiles of all connected clients to the new client
-            clientProfilesRef.current.forEach((profile, clientPeerId) => {
-              if (clientPeerId !== conn.peer) {
-                try { conn.send({ type: 'peer-profile', peerId: clientPeerId, userName: profile.userName, gender: profile.gender, avatar: profile.avatar }); } catch(e) {}
-              }
-            });
             if (youtubeChatIdRef.current) {
               conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
-            }
-            // Send welcome message if enabled
-            if (welcomeEnabledRef.current && welcomeMsgRef.current) {
-              const welcomeText = welcomeMsgRef.current
-                .replace('{name}', conn.peer)
-                .replace('{id}', conn.peer);
-              conn.send({
-                type: 'message',
-                text: welcomeText,
-                senderName: 'SERVIDOR',
-                id: 'welcome_' + conn.peer + '_' + Date.now(),
-                ttl: 0
-              });
             }
           } catch (e) {}
 
@@ -1915,37 +1823,6 @@
             </div>
           </div>
           
-          <div className="welcome-config">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-              <strong>{t(lang, 'welcomeMessage')}</strong>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
-                <input type="checkbox" checked={welcomeEnabled} onChange={(e) => {
-                  setWelcomeEnabled(e.target.checked);
-                  welcomeEnabledRef.current = e.target.checked;
-                  localStorage.setItem('serverWelcomeEnabled', e.target.checked.toString());
-                }} />
-                {t(lang, 'welcomeEnabled')}
-              </label>
-            </div>
-            <div style={{ fontSize: '11px', color: '#059669', marginBottom: '5px' }}>{t(lang, 'welcomeVariables')}</div>
-            <textarea
-              value={welcomeMsg}
-              onChange={(e) => setWelcomeMsg(e.target.value)}
-              placeholder={t(lang, 'welcomeMessagePlaceholder')}
-            />
-            <button onClick={() => {
-              localStorage.setItem('serverWelcomeMsg', welcomeMsg);
-              welcomeMsgRef.current = welcomeMsg;
-              alert(lang === 'pt' ? 'Mensagem salva!' : 'Message saved!');
-            }}>{t(lang, 'saveWelcome')}</button>
-            {welcomeMsg && (
-              <div>
-                <div style={{ fontSize: '12px', color: '#059669', fontWeight: 'bold', marginTop: '10px' }}>{t(lang, 'welcomePreview')}</div>
-                <div className="welcome-preview">{welcomeMsg.replace('{name}', 'UserName').replace('{id}', 'ABC123')}</div>
-              </div>
-            )}
-          </div>
-
           <div className="server-mode-container">
             <strong>{t(lang, 'knownServers')}</strong>
             {knownServers.map(id => (
@@ -1991,12 +1868,9 @@
             ) : (
               <div>
                 {connections.map((peerId, index) => (
-                 <div key={index} className="peer-item" style={{ 
-                    background: peerGendersRef.current.get(peerId) === 'M' ? '#166534' : peerGendersRef.current.get(peerId) === 'F' ? '#9d174d' : '#e3f2fd',
-                    color: peerGendersRef.current.get(peerId) ? 'white' : 'inherit'
-                  }}>
+                 <div key={index} className="peer-item">
                     <span className="status-indicator status-online"></span>
-                    {clientProfilesRef.current.get(peerId)?.userName ? clientProfilesRef.current.get(peerId).userName + ' — ' : ''}{peerId} {peerGendersRef.current.get(peerId) === 'M' ? '♂' : peerGendersRef.current.get(peerId) === 'F' ? '♀' : ''}
+                    {peerId}
                   </div>
                 ))}
               </div>
