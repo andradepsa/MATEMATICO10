@@ -1392,6 +1392,32 @@
           return;
         }
 
+        // Handle handshake BEFORE the message/torrent filter
+        if (data.type === 'handshake') {
+          const profile = { userName: data.userName || '', gender: data.gender || '', avatar: data.avatar || '' };
+          clientProfilesRef.current.set(sourceConn.peer, profile);
+          if (data.gender) peerGendersRef.current.set(sourceConn.peer, data.gender);
+          // Relay profile to all other connected clients
+          activeConnectionsRef.current.forEach((c, cPeerId) => {
+            if (cPeerId !== sourceConn.peer && c.open) {
+              try { c.send({ type: 'peer-profile', peerId: sourceConn.peer, userName: profile.userName, gender: profile.gender, avatar: profile.avatar }); } catch(e) {}
+            }
+          });
+          return;
+        }
+
+        if (data.type === 'avatar-update' && data.avatar) {
+          const existing = clientProfilesRef.current.get(sourceConn.peer) || {};
+          existing.avatar = data.avatar;
+          clientProfilesRef.current.set(sourceConn.peer, existing);
+          activeConnectionsRef.current.forEach((c, cPeerId) => {
+            if (cPeerId !== sourceConn.peer && c.open) {
+              try { c.send({ type: 'avatar-update', peerId: sourceConn.peer, avatar: data.avatar }); } catch(e) {}
+            }
+          });
+          return;
+        }
+
         if (data.type === 'message' || data.type === 'torrent-request') {
           if (data.id) {
             if (seenMessagesRef.current.has(data.id)) {
@@ -1403,32 +1429,6 @@
               const firstItem = seenMessagesRef.current.values().next().value;
               seenMessagesRef.current.delete(firstItem);
             }
-          }
-
-          if (data.type === 'handshake') {
-            // Store client profile
-            const profile = { userName: data.userName || '', gender: data.gender || '', avatar: data.avatar || '' };
-            clientProfilesRef.current.set(sourceConn.peer, profile);
-            if (data.gender) peerGendersRef.current.set(sourceConn.peer, data.gender);
-            // Relay profile to all other connected clients
-            activeConnectionsRef.current.forEach((c, cPeerId) => {
-              if (cPeerId !== sourceConn.peer && c.open) {
-                try { c.send({ type: 'peer-profile', peerId: sourceConn.peer, userName: profile.userName, gender: profile.gender, avatar: profile.avatar }); } catch(e) {}
-              }
-            });
-            return;
-          }
-          if (data.type === 'avatar-update' && data.avatar) {
-            const existing = clientProfilesRef.current.get(sourceConn.peer) || {};
-            existing.avatar = data.avatar;
-            clientProfilesRef.current.set(sourceConn.peer, existing);
-            // Relay to others
-            activeConnectionsRef.current.forEach((c, cPeerId) => {
-              if (cPeerId !== sourceConn.peer && c.open) {
-                try { c.send({ type: 'avatar-update', peerId: sourceConn.peer, avatar: data.avatar }); } catch(e) {}
-              }
-            });
-            return;
           }
           if (data.type === 'message') {
             if (data.text && data.text.length > 2000) {
