@@ -938,6 +938,7 @@
       const activeConnectionsRef = useRef(new Map());
       const seenMessagesRef = useRef(new Set());
       const peerGendersRef = useRef(new Map());
+      const clientProfilesRef = useRef(new Map()); // { peerId: { userName, gender, avatar } }
       const isHydraModeRef = useRef(false);
       const recentPeersRef = useRef([]);
       const heartbeatsRef = useRef(new Map());
@@ -1404,6 +1405,31 @@
             }
           }
 
+          if (data.type === 'handshake') {
+            // Store client profile
+            const profile = { userName: data.userName || '', gender: data.gender || '', avatar: data.avatar || '' };
+            clientProfilesRef.current.set(sourceConn.peer, profile);
+            if (data.gender) peerGendersRef.current.set(sourceConn.peer, data.gender);
+            // Relay profile to all other connected clients
+            activeConnectionsRef.current.forEach((c, cPeerId) => {
+              if (cPeerId !== sourceConn.peer && c.open) {
+                try { c.send({ type: 'peer-profile', peerId: sourceConn.peer, userName: profile.userName, gender: profile.gender, avatar: profile.avatar }); } catch(e) {}
+              }
+            });
+            return;
+          }
+          if (data.type === 'avatar-update' && data.avatar) {
+            const existing = clientProfilesRef.current.get(sourceConn.peer) || {};
+            existing.avatar = data.avatar;
+            clientProfilesRef.current.set(sourceConn.peer, existing);
+            // Relay to others
+            activeConnectionsRef.current.forEach((c, cPeerId) => {
+              if (cPeerId !== sourceConn.peer && c.open) {
+                try { c.send({ type: 'avatar-update', peerId: sourceConn.peer, avatar: data.avatar }); } catch(e) {}
+              }
+            });
+            return;
+          }
           if (data.type === 'message') {
             if (data.text && data.text.length > 2000) {
               console.log("Servidor: Mensagem muito longa ignorada.");
@@ -1613,6 +1639,12 @@
           // Always send handshake from server so clients know it's a central server
           try {
             conn.send({ type: 'handshake', peerId });
+            // Send profiles of all connected clients to the new client
+            clientProfilesRef.current.forEach((profile, clientPeerId) => {
+              if (clientPeerId !== conn.peer) {
+                try { conn.send({ type: 'peer-profile', peerId: clientPeerId, userName: profile.userName, gender: profile.gender, avatar: profile.avatar }); } catch(e) {}
+              }
+            });
             if (youtubeChatIdRef.current) {
               conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
             }
@@ -1964,7 +1996,7 @@
                     color: peerGendersRef.current.get(peerId) ? 'white' : 'inherit'
                   }}>
                     <span className="status-indicator status-online"></span>
-                    {peerId} {peerGendersRef.current.get(peerId) === 'M' ? '♂' : peerGendersRef.current.get(peerId) === 'F' ? '♀' : ''}
+                    {clientProfilesRef.current.get(peerId)?.userName ? clientProfilesRef.current.get(peerId).userName + ' — ' : ''}{peerId} {peerGendersRef.current.get(peerId) === 'M' ? '♂' : peerGendersRef.current.get(peerId) === 'F' ? '♀' : ''}
                   </div>
                 ))}
               </div>
