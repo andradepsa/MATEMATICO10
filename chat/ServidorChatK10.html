@@ -920,6 +920,8 @@
       const [knownServers, setKnownServers] = useState(() => {
         try { return JSON.parse(localStorage.getItem('knownServers') || '[]'); } catch { return []; }
       });
+      const knownServersRef = useRef([]);
+      useEffect(() => { knownServersRef.current = knownServers; }, [knownServers]);
       const [newServerId, setNewServerId] = useState('');
       const [youtubeChatId, setYoutubeChatId] = useState(null);
       const [showTutorial, setShowTutorial] = useState(false);
@@ -1322,6 +1324,12 @@
         distributeMessage(msg, null);
       };
 
+
+      // Verifica se um peer é um servidor amigo (known server)
+      const isFriendServer = (peerId) => {
+        return knownServersRef.current.includes(peerId);
+      };
+
       const handleIncomingData = (data, sourceConn) => {
         // Handle Heartbeat from any user (even if not directly connected long-term)
         if (data && data.type === 'heartbeat') {
@@ -1346,8 +1354,8 @@
             });
           } catch(e) {}
           
-          // If it's just a heartbeat and we are in Hydra Mode, we can close the connection to save resources
-          if (isHydraModeRef.current) {
+          // If it's just a heartbeat and we are in Hydra Mode, close non-friend connections to save resources
+          if (isHydraModeRef.current && !isFriendServer(sourceConn.peer)) {
             setTimeout(() => {
               try { sourceConn.close(); } catch(e) {}
             }, 1000);
@@ -1355,8 +1363,9 @@
           return;
         }
 
-        // Se estiver no modo Hydra, ignora qualquer mensagem de chat/dados
-        if (isHydraModeRef.current) return;
+        // Se estiver no modo Hydra, ignora mensagens de usuários normais
+        // MAS continua processando mensagens de servidores amigos
+        if (isHydraModeRef.current && !isFriendServer(sourceConn.peer)) return;
 
         console.log(`Recebendo dados de ${sourceConn.peer}:`, data);
         
@@ -1535,9 +1544,12 @@
         }
         
         const relayData = { ...data, ttl: currentTtl - 1 };
+        const friendServerIds = new Set(knownServersRef.current);
         
         activeConnectionsRef.current.forEach((conn, peerId) => {
           if (peerId !== sourceId) {
+            // No modo Hydra, distribui apenas para servidores amigos
+            if (isHydraModeRef.current && !friendServerIds.has(peerId)) return;
             try {
               console.log(`Distribuindo mensagem para ${peerId}`);
               conn.send(relayData);
@@ -1561,32 +1573,38 @@
           console.log(`Conexão estabelecida com ${conn.peer}`);
           
           if (isHydraModeRef.current) {
-            // MODO HYDRA: Apenas envia a lista de peers e desconecta
-            if (!recentPeersRef.current.includes(conn.peer)) {
-              recentPeersRef.current.push(conn.peer);
-              if (recentPeersRef.current.length > 1000) recentPeersRef.current.shift();
+            // MODO HYDRA: Servidores amigos continuam conectados normalmente
+            if (isFriendServer(conn.peer)) {
+              console.log("Hydra: Mantendo servidor amigo conectado:", conn.peer);
+              // NÃO desconecta - deixa cair para o fluxo normal abaixo
+            } else {
+              // Usuários normais: envia lista de peers e desconecta
+              if (!recentPeersRef.current.includes(conn.peer)) {
+                recentPeersRef.current.push(conn.peer);
+                if (recentPeersRef.current.length > 1000) recentPeersRef.current.shift();
+                
+                setStats(prev => ({
+                  ...prev,
+                  hydraNodes: recentPeersRef.current.length
+                }));
+              }
               
-              setStats(prev => ({
-                ...prev,
-                hydraNodes: recentPeersRef.current.length
-              }));
+              const peersToSend = recentPeersRef.current.filter(p => p !== conn.peer).slice(-50);
+              
+              try {
+                conn.send({
+                  type: 'migrate-to-p2p',
+                  peers: peersToSend,
+                  message: t(lang, 'hydraModeMessage')
+                });
+              } catch (err) {}
+              
+              // Desconecta após enviar a lista para não pesar o servidor
+              setTimeout(() => {
+                try { conn.close(); } catch(e) {}
+              }, 2000);
+              return;
             }
-            
-            const peersToSend = recentPeersRef.current.filter(p => p !== conn.peer).slice(-50);
-            
-            try {
-              conn.send({
-                type: 'migrate-to-p2p',
-                peers: peersToSend,
-                message: t(lang, 'hydraModeMessage')
-              });
-            } catch (err) {}
-            
-            // Desconecta após enviar a lista para não pesar o servidor
-            setTimeout(() => {
-              try { conn.close(); } catch(e) {}
-            }, 2000);
-            return;
           }
 
           activeConnectionsRef.current.set(conn.peer, conn);
@@ -1623,16 +1641,17 @@
               } catch (err) {}
             });
             
-            // Opcional: O servidor pode fechar as conexões depois de um tempo, 
-            // mas os próprios clientes vão se conectar entre si.
-            // Para garantir que o servidor fique leve, vamos desconectar todos após 5 segundos.
+            // Desconecta apenas usuários normais - servidores amigos continuam conectados
             setTimeout(() => {
-              activeConnectionsRef.current.forEach(c => {
-                try { c.close(); } catch(e) {}
+              const friendServerIds = new Set(knownServersRef.current);
+              activeConnectionsRef.current.forEach((c, id) => {
+                if (!friendServerIds.has(id)) {
+                  try { c.close(); } catch(e) {}
+                  activeConnectionsRef.current.delete(id);
+                }
               });
-              activeConnectionsRef.current.clear();
-              setConnections([]);
-              setStats(prev => ({ ...prev, activeConnections: 0 }));
+              setConnections(Array.from(activeConnectionsRef.current.keys()));
+              setStats(prev => ({ ...prev, activeConnections: activeConnectionsRef.current.size }));
             }, 5000);
           }
           
