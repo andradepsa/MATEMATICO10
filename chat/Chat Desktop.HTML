@@ -5069,11 +5069,16 @@ return;
 
 if (data.type === 'migrate-to-p2p' && Array.isArray(data.peers)) {
 console.log("Servidor migrou para P2P! Conectando aos peers...");
+// ═══ FIX COMUNICAÇÃO: Salva TODOS os peers recebidos para PEX futuro ═══
+data.peers.forEach(p => {
+  if (p !== peerId) knownUsersRef.current.add(p);
+});
+setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
 if (peerInstance.current) {
 data.peers.forEach(newPId => {
 const activeCount = Object.keys(peerInstance.current.connections).length;
 if (activeCount < maxConnections && newPId !== peerId && !peerInstance.current.connections[newPId] && !bannedPeersRef.current.has(newPId)) {
-setTimeout(() => connectToPeer(newPId), Math.random() * 3000); // Random delay to prevent connection storms
+setTimeout(() => connectToPeer(newPId), Math.random() * 3000);
 }
 });
 }
@@ -5091,7 +5096,49 @@ if (data.type === 'handshake') {
 }
 
 if (data.type === 'avatar-update' && data.avatar) {
-  setAvatars(prev => ({ ...prev, [pId]: data.avatar }));
+  const avatarPeerId = data.peerId || pId;
+  setAvatars(prev => ({ ...prev, [avatarPeerId]: data.avatar }));
+  // Track this peer for P2P mesh building
+  if (data.peerId && !knownUsersRef.current.has(data.peerId)) {
+    knownUsersRef.current.add(data.peerId);
+  }
+  return;
+}
+
+// ═══ FIX COMUNICAÇÃO: Recebe perfis de outros usuários via servidor ═══
+// Isso permite que o cliente conheça outros peers e forme mesh P2P
+if (data.type === 'peer-profile') {
+  const profilePeerId = data.peerId;
+  if (profilePeerId && profilePeerId !== peerId) {
+    // Salva o peer ID para descoberta P2P futura
+    if (!knownUsersRef.current.has(profilePeerId)) {
+      knownUsersRef.current.add(profilePeerId);
+      setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
+    }
+    // Salva avatar se disponível
+    if (data.avatar) {
+      setAvatars(prev => ({ ...prev, [profilePeerId]: data.avatar }));
+    }
+    // Salva nome do contato se não existir
+    if (data.userName) {
+      setContacts(prev => {
+        const exists = prev.find(c => c.peerId === profilePeerId);
+        if (!exists) {
+          // Não adiciona automaticamente aos contatos, mas guarda na memória
+          // para exibir nomes corretos nas mensagens
+        }
+        return prev;
+      });
+    }
+  }
+  return;
+}
+
+// ═══ FIX COMUNICAÇÃO: Trata server-info do modo servidor puro ═══
+if (data.type === 'server-info') {
+  if (data.isServer) {
+    setCentralServerId(pId);
+  }
   return;
 }
 
@@ -5133,12 +5180,18 @@ if (data.type === 'quiz-bot-status') {
 }
 
 if (data.type === 'pex' && Array.isArray(data.peers)) {
+// ═══ FIX COMUNICAÇÃO: Salva peers do PEX no knownUsersRef ═══
+data.peers.forEach(p => {
+  if (p !== peerId) knownUsersRef.current.add(p);
+});
 if (peerInstance.current) {
 const activeCount = Object.keys(peerInstance.current.connections).length;
 if (activeCount < maxConnections) {
+// Prioriza conexão quando não tem contato selecionado (Modo Geral)
+const delay = selectedContact ? 2000 : 500;
 data.peers.forEach(newPId => {
 if (newPId !== peerId && !peerInstance.current.connections[newPId] && !bannedPeersRef.current.has(newPId)) {
-setTimeout(() => connectToPeer(newPId), 2000);
+setTimeout(() => connectToPeer(newPId), delay + Math.random() * 2000);
 }
 });
 }
@@ -5727,8 +5780,24 @@ setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
 }
 });
 conn.on('data', data => handleIncomingData(data, conn.peer));
-conn.on('close', () => { setConnections(prev => prev.filter(c => c.peer !== conn.peer)); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); });
-conn.on('error', () => { setConnections(prev => prev.filter(c => c.peer !== conn.peer)); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); });
+conn.on('close', () => {
+  setConnections(prev => prev.filter(c => c.peer !== conn.peer));
+  endCall(conn.peer, 'video'); endCall(conn.peer, 'voice');
+  // ═══ FIX COMUNICAÇÃO: Se era servidor central, tenta formar mesh P2P ═══
+  if (isCentralServer(conn.peer)) {
+    console.log("Servidor central desconectou! Formando mesh P2P com peers conhecidos...");
+    const knownPeers = Array.from(knownUsersRef.current).filter(p => p !== peerId && !isCentralServer(p));
+    const maxConns = isSuperNode ? 50 : 15;
+    const shuffled = knownPeers.sort(() => 0.5 - Math.random()).slice(0, maxConns);
+    shuffled.forEach((newPId, idx) => {
+      setTimeout(() => connectToPeer(newPId), idx * 500 + Math.random() * 1000);
+    });
+  }
+});
+conn.on('error', () => {
+  setConnections(prev => prev.filter(c => c.peer !== conn.peer));
+  endCall(conn.peer, 'video'); endCall(conn.peer, 'voice');
+});
 });
 
 
@@ -5843,16 +5912,34 @@ clearTimeout(timeout);
 
 
 useEffect(() => {
+// ═══ FIX COMUNICAÇÃO: PEX mais agressivo no Modo Geral ═══
+const pexInterval = selectedContact ? 30000 : 15000; // 15s no modo geral, 30s no modo direto
 const iv = setInterval(() => {
 if (connections.length > 0) {
 const allKnown = Array.from(new Set([...connections.map(c => c.peer), ...Array.from(knownUsersRef.current)]));
+const maxPeers = isSuperNode ? 150 : 80;
+const shuffled = [...allKnown].sort(() => 0.5 - Math.random()).slice(0, maxPeers);
 connections.forEach(conn => {
-if (conn.open) try { conn.send({ type: 'pex', peers: [...allKnown].sort(() => 0.5 - Math.random()).slice(0, isSuperNode ? 100 : 50) }); } catch(e) {}
+if (conn.open) try { conn.send({ type: 'pex', peers: shuffled }); } catch(e) {}
+});
+// No Modo Geral, tenta ativamente manter conexões
+if (!selectedContact && peerInstance.current) {
+const maxConns = isSuperNode ? 50 : 15;
+const currentConns = connections.filter(c => c.open).length;
+if (currentConns < maxConns * 0.7) { // Se abaixo de 70% da capacidade
+const disconnectedPeers = allKnown.filter(p => 
+  p !== peerId && !connections.some(c => c.peer === p && c.open) && !bannedPeersRef.current.has(p)
+);
+const toConnect = disconnectedPeers.sort(() => 0.5 - Math.random()).slice(0, Math.min(5, maxConns - currentConns));
+toConnect.forEach((newPId, idx) => {
+  setTimeout(() => connectToPeer(newPId), idx * 1000 + Math.random() * 2000);
 });
 }
-}, 30000);
+}
+}
+}, pexInterval);
 return () => clearInterval(iv);
-}, [connections]);
+}, [connections, selectedContact, isSuperNode]);
 
 
 useEffect(() => {
