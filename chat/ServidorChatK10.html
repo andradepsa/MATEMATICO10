@@ -222,6 +222,21 @@
 <body>
   <div id="root"></div>
 
+  <!-- FIX BUG-5: Spinner cobre tela branca enquanto Babel compila o JSX -->
+  <div id="k10-loading" style="position:fixed;inset:0;z-index:99999;background:#f5f5f5;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px">
+    <div style="width:48px;height:48px;border:4px solid #c8e6c9;border-top-color:#4CAF50;border-radius:50%;animation:k10spin 0.75s linear infinite"></div>
+    <p style="color:#388e3c;font-weight:700;margin:0">K10 Servidor — Inicializando…</p>
+    <style>@keyframes k10spin{to{transform:rotate(360deg)}}</style>
+  </div>
+  <script>
+    (function(){
+      function hideLoader(){ var el=document.getElementById('k10-loading'); if(el){el.style.opacity='0';el.style.transition='opacity 0.3s';setTimeout(function(){if(el.parentNode)el.parentNode.removeChild(el);},320);} }
+      setTimeout(hideLoader,12000);
+      var obs=new MutationObserver(function(){ var r=document.getElementById('root'); if(r&&r.children.length>0){obs.disconnect();hideLoader();} });
+      document.addEventListener('DOMContentLoaded',function(){ var r=document.getElementById('root'); if(r)obs.observe(r,{childList:true}); });
+    })();
+  </script>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
@@ -1046,6 +1061,10 @@
               { urls: 'stun:stun1.l.google.com:19302' },
               { urls: 'stun:stun2.l.google.com:19302' },
               { urls: 'stun:stun3.l.google.com:19302' },
+              // ⚠️ BUG-4 WARNING: These are public demo TURN credentials with no SLA.
+              // Voice/video calls behind strict NAT may fail in production.
+              // For reliability, replace with your own credentials:
+              // Free tier: https://dashboard.metered.ca/  (sign up → create app → copy credentials)
               { urls: 'turn:openrelay.metered.ca:80',                username: 'openrelayproject', credential: 'openrelayproject' },
               { urls: 'turn:openrelay.metered.ca:443',               username: 'openrelayproject', credential: 'openrelayproject' },
               { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
@@ -1152,14 +1171,15 @@
       }, [peerId]);
 
       useEffect(() => {
-        // Monitora saúde da conexão a cada 15s – funciona em TODOS os estados (inclusive 'erro')
-        if (connectionStatus === 'desconectado' || connectionStatus === 'erro-fatal') return;
+        // Monitora saúde da conexão a cada 15s – funciona em TODOS os estados (inclusive 'error')
+        // FIX BUG-1: guards now use the same English strings that setConnectionStatus() actually writes
+        if (connectionStatus === 'disconnected' || connectionStatus === 'errorFatal') return;
         
         const checkConnectionInterval = setInterval(() => {
           const p = peerInstance.current;
 
-          // Se estiver no estado 'erro' aguarda o scheduleReconnect atuar
-          if (connectionStatus.startsWith('erro')) return;
+          // Se estiver no estado 'error' aguarda o scheduleReconnect atuar
+          if (connectionStatus.startsWith('error')) return;
 
           if (p && p.disconnected && !p.destroyed) {
             console.log("Monitor: peer desconectado, agendando reconexão...");
