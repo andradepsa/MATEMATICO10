@@ -107,6 +107,13 @@ text-shadow: 0 0 8px rgba(74, 222, 128, 0.3);
 .conversation-item:hover { background: #f8fafc; }
 .conversation-item.selected { background: #eff6ff; border-left: 3px solid var(--primary); }
 .conversation-item.central-server { border-left: 3px solid var(--warning) !important; }
+.conversation-item.disconnected { opacity: 0.45; background: #f1f5f9; }
+.conversation-item.disconnected:hover { background: #e8ecf1; }
+.dark-mode .conversation-item.disconnected { background: #151d2e; }
+.dark-mode .conversation-item.disconnected:hover { background: #1a2538; }
+.conversation-status-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.conversation-status-dot.online { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
+.conversation-status-dot.offline { background: #cbd5e1; }
 .conversation-name { font-weight: 600; color: var(--text); font-size: 14px; }
 .conversation-peer-id { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
 
@@ -363,23 +370,6 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 .dark-mode .poll-total-votes { color: #64748b; }
 .dark-mode .poll-creator-btn:disabled { background: #334155; color: #64748b; }
 
-/* Whiteboard em dark mode */
-.dark-mode .whiteboard-body { background: #0f172a; }
-.dark-mode .whiteboard-tools { background: #1e293b; border-top-color: #334155; }
-.dark-mode .wb-tool-btn { background: #293548; border-color: #334155; color: #e2e8f0; }
-.dark-mode .wb-tool-btn:hover { background: #334155; }
-
-/* Markdown Editor em dark mode */
-.dark-mode .md-editor-body { background: #0f172a; }
-.dark-mode .md-editor-input { background: #0f172a; color: #e2e8f0; border-right-color: #334155; }
-.dark-mode .md-editor-preview { background: #0f172a; color: #e2e8f0; }
-.dark-mode .md-editor-preview code { background: #334155; color: #e2e8f0; }
-.dark-mode .md-editor-preview blockquote { color: #94a3b8; border-left-color: #3b82f6; }
-.dark-mode .md-editor-preview h1,
-.dark-mode .md-editor-preview h2,
-.dark-mode .md-editor-preview h3 { color: #93c5fd; }
-.dark-mode .md-editor-preview a { color: #60a5fa; }
-
 
 /* TUTORIAL MODAL */
 .tutorial-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 16px; animation: fadeIn 0.25s ease; }
@@ -439,19 +429,6 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 .media-controls-options { display: flex; flex-direction: column; gap: 12px; }
 .media-controls-btn { background: #1e293b; border: 1px solid #334155; color: #e2e8f0; padding: 14px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 600; text-align: left; transition: all 0.2s; display: flex; align-items: center; gap: 12px; }
 .media-controls-btn:hover { background: #2563eb; color: white; border-color: #2563eb; }
-
-/* WHITEBOARD */
-.whiteboard-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 2500; display: flex; align-items: center; justify-content: center; padding: 16px; }
-.whiteboard-container { background: white; border-radius: 16px; width: 100%; max-width: 900px; height: 80vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
-.whiteboard-header { padding: 12px 20px; background: var(--primary, #2563eb); color: white; display: flex; justify-content: space-between; align-items: center; }
-.whiteboard-body { flex: 1; position: relative; background: #f8fafc; cursor: crosshair; overflow: hidden; }
-.whiteboard-canvas { width: 100%; height: 100%; touch-action: none; }
-.whiteboard-tools { padding: 10px 20px; background: #f1f5f9; border-top: 1px solid #e2e8f0; display: flex; gap: 12px; align-items: center; overflow-x: auto; }
-.wb-tool-btn { padding: 8px 12px; border: 1px solid #cbd5e1; background: white; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; transition: all 0.2s; }
-.wb-tool-btn:hover { background: #e2e8f0; }
-.wb-tool-btn.active { background: #2563eb; color: white; border-color: #2563eb; }
-.wb-color-picker { width: 30px; height: 30px; border-radius: 50%; border: 2px solid white; cursor: pointer; box-shadow: 0 0 0 1px #cbd5e1; }
-.wb-color-picker.active { box-shadow: 0 0 0 2px #2563eb; }
 
 /* AVATARS */
 .avatar-circle { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; background: #e2e8f0; border: 1px solid rgba(0,0,0,0.05); flex-shrink: 0; }
@@ -538,43 +515,6 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 .dark-mode .message-bubble.sent .quiz-subject { color: #a5b4fc; }
 .dark-mode .message-bubble.sent .quiz-status-bar { color: #94a3b8; border-color: #334155; }
 
-/* MARKDOWN EDITOR */
-.md-editor-container { background: white; border-radius: 16px; width: 100%; max-width: 1000px; height: 85vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.5); }
-.md-editor-body { flex: 1; display: flex; overflow: hidden; background: #f8fafc; }
-.md-editor-input { flex: 1; border: none; padding: 20px; font-family: 'JetBrains Mono', monospace; font-size: 14px; resize: none; outline: none; background: #ffffff; border-right: 1px solid #e2e8f0; color: #1e293b; }
-.md-editor-preview { flex: 1; padding: 20px; overflow-y: auto; background: #f8fafc; color: #1e293b; }
-.md-editor-preview h1 { font-size: 24px; margin-bottom: 16px; }
-.md-editor-preview h2 { font-size: 20px; margin-bottom: 14px; }
-.md-editor-preview h3 { font-size: 18px; margin-bottom: 12px; }
-.md-editor-preview p { margin-bottom: 12px; line-height: 1.6; }
-.md-editor-preview code { background: #e2e8f0; padding: 2px 4px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 0.9em; }
-.md-editor-preview pre { background: #1e293b; color: #f8fafc; padding: 16px; border-radius: 8px; overflow-x: auto; margin-bottom: 16px; }
-.md-editor-preview pre code { background: transparent; padding: 0; color: inherit; }
-.md-editor-preview blockquote { border-left: 4px solid #3b82f6; padding-left: 16px; color: #64748b; margin: 16px 0; font-style: italic; }
-.md-editor-preview ul, .md-editor-preview ol { padding-left: 24px; margin-bottom: 16px; }
-.md-editor-preview img { max-width: 100%; border-radius: 8px; }
-
-/* GENDER COLORS */
-.conversation-item.gender-male { background: #166534; }
-.conversation-item.gender-male .conversation-name { color: #ffffff; }
-.conversation-item.gender-male .conversation-peer-id { color: #bbf7d0; }
-.conversation-item.gender-male.selected { background: #15803d; border-left-color: #22c55e; }
-.conversation-item.gender-female { background: #9d174d; }
-.conversation-item.gender-female .conversation-name { color: #ffffff; }
-.conversation-item.gender-female .conversation-peer-id { color: #fbcfe8; }
-.conversation-item.gender-female.selected { background: #be185d; border-left-color: #ec4899; }
-.dark-mode .conversation-item.gender-male { background: #14532d; }
-.dark-mode .conversation-item.gender-male:hover { background: #166534; }
-.dark-mode .conversation-item.gender-male .conversation-name { color: #ffffff; }
-.dark-mode .conversation-item.gender-male .conversation-peer-id { color: #86efac; }
-.dark-mode .conversation-item.gender-female { background: #831843; }
-.dark-mode .conversation-item.gender-female:hover { background: #9d174d; }
-.dark-mode .conversation-item.gender-female .conversation-name { color: #ffffff; }
-.dark-mode .conversation-item.gender-female .conversation-peer-id { color: #f9a8d4; }
-.gender-select { padding: 7px 12px; border: 1.5px solid var(--border); border-radius: 7px; font-family: inherit; font-size: 14px; outline: none; transition: border-color 0.2s; background: var(--surface); color: var(--text); min-width: 130px; }
-.gender-select:focus { border-color: var(--primary); }
-.dark-mode .gender-select { background: #0f172a; color: #e2e8f0; border-color: #334155; }
-
 </style>
 </head>
 <body>
@@ -611,7 +551,6 @@ copy: "Copy",
 copied: "ID copied!",
 superNodeOff: "SuperNode OFF",
 superNodeOn: "SuperNode ON",
-djRadio: "DJ Radio",
 generateInviteLink: "Generate Invite Link",
 inviteLinkCopied: "Invite link copied! Paste it to share.",
 yourName: "Your name",
@@ -741,48 +680,9 @@ accept: "Accept",
 decline: "Decline",
 joinedGroup: "You joined group {id}.",
 declinedGroup: "You declined the invite to group {id}.",
-youtubeRadio: "YouTube Radio",
-enterYoutubeUrl: "Enter YouTube URL",
-selectLink: "Select Link",
-orSelectNumbered: "Or select a numbered link (Right-click to edit):",
-enterUrlFor: "Enter URL for link",
-editUrlFor: "Edit URL for link",
-empty: "Empty",
-invalidYoutubeUrl: "Invalid YouTube URL",
-showVideo: "Show Video",
-hideVideo: "Hide Video",
-videoSize: "Video Size:",
-small: "Small",
-medium: "Medium",
-large: "Large",
-torrentManager: "Torrent Manager",
-generateTorrent: "Generate Torrent Link",
-downloadTorrent: "Download via Torrent",
-seeding: "Seeding",
-downloadingTorrent: "Downloading",
-downloadBtn: "Download",
-magnetPlaceholder: "Paste Magnet link...",
-peers: "Peers",
-speed: "Speed",
-completed: "Completed",
-noTorrents: "No active torrents.",
-torrentStarted: "Torrent started: {name}",
-torrentError: "Torrent error: ",
-copyMagnet: "Copy Magnet Link",
-magnetCopied: "Magnet link copied!",
-stopTorrent: "Stop & Remove",
-torrentLimit: "Max 500MB for seeding.",
-sendTorrent: "Send Torrent File",
-startYoutubeChat: "Start YouTube Chat",
-stopYoutubeChat: "Stop YouTube Chat",
-broadcastYoutubeChat: "Broadcast YouTube Chat Link",
-tools: "Tools",
-collaborativeWhiteboard: "Collaborative Whiteboard",
 createPoll: "Create Poll",
-markdownEditor: "Markdown Editor",
 quizBotActive: "Quiz Bot Active",
 secretCopied: "Secret copied!",
-collaborativeMarkdownEditor: "Collaborative Markdown Editor",
 typeMarkdownHere: "Type your markdown here...",
 msgTooLong: "Message exceeds 2000 characters limit.",
 usersOnlineGeneral: "Users Online in General Web",
@@ -799,7 +699,6 @@ copy: "Copiar",
 copied: "ID copiado!",
 superNodeOff: "SuperNó OFF",
 superNodeOn: "SuperNó ON",
-djRadio: "DJ Rádio",
 generateInviteLink: "Gerar Link de Convite",
 inviteLinkCopied: "Link de convite copiado! Cole para compartilhar.",
 yourName: "Seu nome",
@@ -929,48 +828,9 @@ accept: "Aceitar",
 decline: "Recusar",
 joinedGroup: "Você entrou no grupo {id}.",
 declinedGroup: "Você recusou o convite para o grupo {id}.",
-youtubeRadio: "Rádio YouTube",
-enterYoutubeUrl: "Digite a URL do YouTube",
-selectLink: "Selecionar Link",
-orSelectNumbered: "Ou selecione um link numerado (Botão direito para editar):",
-enterUrlFor: "Digite a URL para o link",
-editUrlFor: "Editar URL para o link",
-empty: "Vazio",
-invalidYoutubeUrl: "URL do YouTube inválida",
-showVideo: "Exibir Vídeo",
-hideVideo: "Ocultar Vídeo",
-videoSize: "Tamanho do Vídeo:",
-small: "Pequeno",
-medium: "Médio",
-large: "Grande",
-torrentManager: "Gerenciador de Torrents",
-generateTorrent: "Gerar Link Torrent",
-downloadTorrent: "Baixar via Torrent",
-seeding: "Semeando",
-downloadingTorrent: "Baixando",
-downloadBtn: "Baixar",
-magnetPlaceholder: "Colar link Magnet...",
-peers: "Peers",
-speed: "Velocidade",
-completed: "Concluído",
-noTorrents: "Nenhum torrent ativo.",
-torrentStarted: "Torrent iniciado: {name}",
-torrentError: "Erro no torrent: ",
-copyMagnet: "Copiar Magnet Link",
-magnetCopied: "Magnet link copiado!",
-stopTorrent: "Parar e Remover",
-torrentLimit: "Máx 500MB para semear.",
-sendTorrent: "Enviar Arquivo Torrent",
-startYoutubeChat: "Iniciar Chat YouTube",
-stopYoutubeChat: "Parar Chat YouTube",
-broadcastYoutubeChat: "Enviar Link Chat YouTube",
-tools: "Ferramentas",
-collaborativeWhiteboard: "Lousa Colaborativa",
 createPoll: "Criar Enquete",
-markdownEditor: "Editor Markdown",
 quizBotActive: "Quiz Bot Ativado",
 secretCopied: "Segredo copiado!",
-collaborativeMarkdownEditor: "Editor Markdown Colaborativo",
 typeMarkdownHere: "Digite seu markdown aqui...",
 msgTooLong: "A mensagem excede o limite de 2000 caracteres.",
 usersOnlineGeneral: "Usuários Online na Teia Geral",
@@ -1410,17 +1270,6 @@ content: (
 <div style={{ background: '#1e293b', padding: '15px', borderRadius: '12px', marginBottom: '20px', border: '1px solid #ef4444' }}>
 <h4 style={{ color: '#f87171', margin: '0 0 10px 0', textAlign: 'center' }}>3. TOOLS MENU (🎛️)</h4>
 <div className="tutorial-step">
-  <div className="tutorial-step-num red">🎨</div>
-  <div className="tutorial-step-text">
-    <strong>Collaborative Whiteboard (P2P Whiteboard)</strong>
-    <span>
-      <strong>What it is:</strong> A virtual whiteboard where room users can draw, make arrows, and write together in real-time.<br/>
-      <strong>Why it's free/scalable:</strong> It's just an &lt;canvas&gt; element in HTML5. When someone draws a stroke, we send the coordinates via P2P text. It's extremely lightweight and zero server.<br/>
-      <strong>Impact:</strong> Excellent for explaining ideas visually during a call.
-    </span>
-  </div>
-</div>
-<div className="tutorial-step">
   <div className="tutorial-step-num red">📊</div>
   <div className="tutorial-step-text">
     <strong>Live Polls (P2P Polls)</strong>
@@ -1428,17 +1277,6 @@ content: (
       <strong>What it is:</strong> Any user can create a poll (e.g., "Which radio should we listen to now?"). Others click to vote and the chart updates in real-time.<br/>
       <strong>Why it's free/scalable:</strong> Votes are sent as invisible P2P messages. Each user's browser does the math and draws the progress bar.<br/>
       <strong>Impact:</strong> Greatly increases engagement in rooms with many people.
-    </span>
-  </div>
-</div>
-<div className="tutorial-step">
-  <div className="tutorial-step-num red">📝</div>
-  <div className="tutorial-step-text">
-    <strong>Collaborative Code Editor (Markdown)</strong>
-    <span>
-      <strong>What it is:</strong> Allows sending formatted text in bold, italics, or code blocks in a collaborative window.<br/>
-      <strong>Why it's free/scalable:</strong> Processing is done 100% in the recipient's browser using free libraries (like marked.js).<br/>
-      <strong>Impact:</strong> Essential for programmers to share code or highlight important information in chat.
     </span>
   </div>
 </div>
@@ -1454,8 +1292,6 @@ content: (
     </span>
   </div>
 </div>
-<div className="tutorial-step"><div className="tutorial-step-num red">🎧</div><div className="tutorial-step-text"><strong>Radios & YouTube</strong><span>Broadcast music, YouTube videos, or world radios synchronized for everyone in the room.</span></div></div>
-<div className="tutorial-step"><div className="tutorial-step-num red">🌍</div><div className="tutorial-step-text"><strong>World Radios</strong><span>Search for online radios worldwide, listen to a preview, and broadcast to the room!</span></div></div>
 </div>
 
 <div style={{ background: '#1e293b', padding: '15px', borderRadius: '12px', border: '1px solid #10b981' }}>
@@ -1621,17 +1457,6 @@ content: (
 <div style={{ background: '#1e293b', padding: '15px', borderRadius: '12px', marginBottom: '20px', border: '1px solid #ef4444' }}>
 <h4 style={{ color: '#f87171', margin: '0 0 10px 0', textAlign: 'center' }}>3. MENU FERRAMENTAS (🎛️)</h4>
 <div className="tutorial-step">
-  <div className="tutorial-step-num red">🎨</div>
-  <div className="tutorial-step-text">
-    <strong>Lousa Colaborativa (P2P Whiteboard)</strong>
-    <span>
-      <strong>O que é:</strong> Um quadro branco virtual onde os usuários da sala podem desenhar, fazer setas e escrever juntos em tempo real.<br/>
-      <strong>Por que é gratuito/escalável:</strong> É apenas um elemento &lt;canvas&gt; no HTML5. Quando alguém desenha um traço, enviamos as coordenadas via texto pelo P2P. É extremamente leve e zero servidor.<br/>
-      <strong>Impacto:</strong> Excelente para explicar ideias visualmente durante uma call.
-    </span>
-  </div>
-</div>
-<div className="tutorial-step">
   <div className="tutorial-step-num red">📊</div>
   <div className="tutorial-step-text">
     <strong>Enquetes ao Vivo (P2P Polls)</strong>
@@ -1639,17 +1464,6 @@ content: (
       <strong>O que é:</strong> Qualquer usuário pode criar uma votação (ex: "Qual rádio vamos ouvir agora?"). Os outros clicam para votar e o gráfico atualiza em tempo real.<br/>
       <strong>Por que é gratuito/escalável:</strong> Os votos são enviados como mensagens P2P invisíveis. O navegador de cada usuário faz a soma matemática e desenha a barra de progresso.<br/>
       <strong>Impacto:</strong> Aumenta absurdamente o engajamento em salas com muitas pessoas.
-    </span>
-  </div>
-</div>
-<div className="tutorial-step">
-  <div className="tutorial-step-num red">📝</div>
-  <div className="tutorial-step-text">
-    <strong>Editor Colaborativo de Código (Markdown)</strong>
-    <span>
-      <strong>O que é:</strong> Permite enviar textos formatados em negrito, itálico ou blocos de código em uma janela colaborativa.<br/>
-      <strong>Por que é gratuito/escalável:</strong> O processamento é feito 100% no navegador de quem recebe a mensagem usando bibliotecas gratuitas (como marked.js).<br/>
-      <strong>Impacto:</strong> Essencial para programadores compartilharem código ou para destacar informações importantes no chat.
     </span>
   </div>
 </div>
@@ -1666,8 +1480,6 @@ content: (
     </span>
   </div>
 </div>
-<div className="tutorial-step"><div className="tutorial-step-num red">🎧</div><div className="tutorial-step-text"><strong>Rádios e YouTube</strong><span>Transmita músicas, vídeos do YouTube ou rádios mundiais sincronizados para todos na sala.</span></div></div>
-<div className="tutorial-step"><div className="tutorial-step-num red">🌍</div><div className="tutorial-step-text"><strong>Rádios do Mundo</strong><span>Busque rádios online do mundo todo, ouça uma prévia e transmita para a sala!</span></div></div>
 </div>
 
 <div style={{ background: '#1e293b', padding: '15px', borderRadius: '12px', border: '1px solid #10b981' }}>
@@ -2005,200 +1817,6 @@ alert(t(lang, 'magnetCopied'));
 // ================================================================
 // SendSecretModal
 // ================================================================
-const Whiteboard = ({ lang, connections, selectedContact, onClose }) => {
-  const canvasRef = useRef(null);
-  const contextRef = useRef(null);
-  const [isDrawing, setIsDrawing] = useState(false);
-  const [color, setColor] = useState('#000000');
-  const [lineWidth, setLineWidth] = useState(3);
-  const [tool, setTool] = useState('pen'); // pen, eraser
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    
-    // Set internal resolution
-    canvas.width = canvas.offsetWidth * 2;
-    canvas.height = canvas.offsetHeight * 2;
-    
-    const context = canvas.getContext("2d");
-    context.scale(2, 2);
-    context.lineCap = "round";
-    context.strokeStyle = color;
-    context.lineWidth = lineWidth;
-    contextRef.current = context;
-
-    const handleDrawingData = (e) => {
-      if (e.detail.action === 'draw') {
-        const { x, y, prevX, prevY, color: remoteColor, width: remoteWidth, tool: remoteTool } = e.detail;
-        drawOnCanvas(prevX, prevY, x, y, remoteColor, remoteWidth, remoteTool, false);
-      } else if (e.detail.action === 'clear') {
-        clearCanvas(false);
-      }
-    };
-
-    window.addEventListener('whiteboard-event', handleDrawingData);
-    return () => window.removeEventListener('whiteboard-event', handleDrawingData);
-  }, []);
-
-  useEffect(() => {
-    if (contextRef.current) {
-      contextRef.current.strokeStyle = tool === 'eraser' ? '#f8fafc' : color;
-      contextRef.current.lineWidth = lineWidth;
-    }
-  }, [color, lineWidth, tool]);
-
-  const drawOnCanvas = (x1, y1, x2, y2, drawColor, drawWidth, drawTool, emit = true) => {
-    const ctx = contextRef.current;
-    if (!ctx) return;
-    
-    ctx.beginPath();
-    ctx.strokeStyle = drawTool === 'eraser' ? '#f8fafc' : drawColor;
-    ctx.lineWidth = drawWidth;
-    ctx.moveTo(x1, y1);
-    ctx.lineTo(x2, y2);
-    ctx.stroke();
-    ctx.closePath();
-
-    if (emit) {
-      const payload = {
-        type: 'whiteboard',
-        action: 'draw',
-        x: x2,
-        y: y2,
-        prevX: x1,
-        prevY: y1,
-        color: drawColor,
-        width: drawWidth,
-        tool: drawTool
-      };
-      if (selectedContact) {
-        const conn = connections.find(c => c.peer === selectedContact);
-        if (conn && conn.open) {
-          conn.send(payload);
-        }
-      } else {
-        connections.forEach(conn => {
-          if (conn.open) {
-            try { conn.send(payload); } catch(e) {}
-          }
-        });
-      }
-    }
-  };
-
-  const clearCanvas = (emit = true) => {
-    const canvas = canvasRef.current;
-    const ctx = contextRef.current;
-    if (!ctx || !canvas) return;
-    
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    if (emit) {
-      const payload = { type: 'whiteboard', action: 'clear' };
-      if (selectedContact) {
-        const conn = connections.find(c => c.peer === selectedContact);
-        if (conn && conn.open) {
-          conn.send(payload);
-        }
-      } else {
-        connections.forEach(conn => {
-          if (conn.open) {
-            try { conn.send(payload); } catch(e) {}
-          }
-        });
-      }
-    }
-  };
-
-  const startDrawing = ({ nativeEvent }) => {
-    const { offsetX, offsetY } = nativeEvent;
-    contextRef.current.lastX = offsetX;
-    contextRef.current.lastY = offsetY;
-    setIsDrawing(true);
-  };
-
-  const finishDrawing = () => {
-    setIsDrawing(false);
-  };
-
-  const draw = ({ nativeEvent }) => {
-    if (!isDrawing) return;
-    const { offsetX, offsetY } = nativeEvent;
-    const prevX = contextRef.current.lastX;
-    const prevY = contextRef.current.lastY;
-    
-    drawOnCanvas(prevX, prevY, offsetX, offsetY, color, lineWidth, tool);
-    
-    contextRef.current.lastX = offsetX;
-    contextRef.current.lastY = offsetY;
-  };
-
-  const handleTouchStart = (e) => {
-    const touch = e.touches[0];
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = touch.clientX - rect.left;
-    const y = touch.clientY - rect.top;
-    contextRef.current.lastX = x;
-    contextRef.current.lastY = y;
-    setIsDrawing(true);
-  };
-
-  const handleTouchMove = (e) => {
-    if (!isDrawing) return;
-    const touch = e.touches[0];
-    const rect = canvasRef.current.getBoundingClientRect();
-    const x = touch.clientX - rect.left;
-    const y = touch.clientY - rect.top;
-    drawOnCanvas(contextRef.current.lastX, contextRef.current.lastY, x, y, color, lineWidth, tool);
-    contextRef.current.lastX = x;
-    contextRef.current.lastY = y;
-  };
-
-  return (
-    <div className="whiteboard-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="whiteboard-container">
-        <div className="whiteboard-header">
-          <h3 style={{ margin: 0, fontSize: '16px' }}><i className="fas fa-chalkboard"></i> Whiteboard</h3>
-          <button className="tutorial-close" onClick={onClose}><i className="fas fa-times"></i></button>
-        </div>
-        <div className="whiteboard-body" 
-             onMouseDown={startDrawing}
-             onMouseUp={finishDrawing}
-             onMouseMove={draw}
-             onMouseLeave={finishDrawing}
-             onTouchStart={handleTouchStart}
-             onTouchMove={handleTouchMove}
-             onTouchEnd={finishDrawing}>
-          <canvas ref={canvasRef} className="whiteboard-canvas" />
-        </div>
-        <div className="whiteboard-tools">
-          <button className={`wb-tool-btn ${tool === 'pen' ? 'active' : ''}`} onClick={() => setTool('pen')}>
-            <i className="fas fa-pen"></i> Pen
-          </button>
-          <button className={`wb-tool-btn ${tool === 'eraser' ? 'active' : ''}`} onClick={() => setTool('eraser')}>
-            <i className="fas fa-eraser"></i> Eraser
-          </button>
-          <div style={{ width: '1px', height: '24px', background: '#cbd5e1', margin: '0 8px' }}></div>
-          {['#000000', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6'].map(c => (
-            <div key={c} className={`wb-color-picker ${color === c && tool === 'pen' ? 'active' : ''}`} 
-                 style={{ background: c }} onClick={() => { setColor(c); setTool('pen'); }}></div>
-          ))}
-          <div style={{ width: '1px', height: '24px', background: '#cbd5e1', margin: '0 8px' }}></div>
-          <select value={lineWidth} onChange={(e) => setLineWidth(parseInt(e.target.value))} className="wb-tool-btn" style={{ outline: 'none' }}>
-            <option value="2">Thin</option>
-            <option value="5">Medium</option>
-            <option value="10">Thick</option>
-          </select>
-          <button className="wb-tool-btn" onClick={() => clearCanvas()} style={{ marginLeft: 'auto', color: '#ef4444' }}>
-            <i className="fas fa-trash"></i> Clear
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-
 const PollCreator = ({ onClose, onCreated }) => {
   const [question, setQuestion] = useState('');
   const [options, setOptions] = useState(['', '']);
@@ -2407,65 +2025,6 @@ const QuizQuestion = ({ msg, peerId, onAnswer }) => {
           </span>
         </div>
       )}
-    </div>
-  );
-};
-
-
-const MarkdownEditor = ({ lang, connections, selectedContact, onClose }) => {
-  const [content, setContent] = useState('');
-  const [html, setHtml] = useState('');
-
-  useEffect(() => {
-    const handleEvent = (e) => {
-      if (e.detail.type === 'md-editor' && e.detail.content !== undefined) {
-        setContent(e.detail.content);
-      }
-    };
-    window.addEventListener('md-editor-event', handleEvent);
-    return () => window.removeEventListener('md-editor-event', handleEvent);
-  }, []);
-
-  useEffect(() => {
-    if (window.marked) {
-      const rawHtml = marked.parse(content || '');
-      const cleanHtml = window.DOMPurify ? DOMPurify.sanitize(rawHtml) : rawHtml;
-      setHtml(cleanHtml);
-    }
-  }, [content]);
-
-  const handleChange = (e) => {
-    const newContent = e.target.value;
-    setContent(newContent);
-    
-    const payload = { type: 'md-editor', content: newContent };
-    if (selectedContact) {
-      const conn = connections.find(c => c.peer === selectedContact);
-      if (conn && conn.open) conn.send(payload);
-    } else {
-      connections.forEach(conn => {
-        if (conn.open) try { conn.send(payload); } catch(err) {}
-      });
-    }
-  };
-
-  return (
-    <div className="whiteboard-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="md-editor-container">
-        <div className="whiteboard-header">
-          <h3 style={{ margin: 0, fontSize: '16px' }}><i className="fas fa-file-code"></i> {t(lang, 'collaborativeMarkdownEditor')}</h3>
-          <button className="tutorial-close" onClick={onClose}><i className="fas fa-times"></i></button>
-        </div>
-        <div className="md-editor-body">
-          <textarea 
-            className="md-editor-input" 
-            value={content} 
-            onChange={handleChange}
-            placeholder={t(lang, 'typeMarkdownHere')}
-          />
-          <div className="md-editor-preview" dangerouslySetInnerHTML={{ __html: html }} />
-        </div>
-      </div>
     </div>
   );
 };
@@ -2767,7 +2326,7 @@ return (
 // ChatManager
 // ================================================================
 const ChatManager = ({
-lang, connections, messages, setMessages, contacts, setContacts, userName, peerId,
+lang, connections, messages, setMessages, contacts, userName, peerId,
 activeCalls, endCall, startVoiceCall, toggleVideoCall, remoteStreams,
 audioRefs, videoRefs, handleFileChange, fileInputRef, handleAudioRecording,
 newMessage, setNewMessage, showEmojiPanel, setShowEmojiPanel, populateEmojiPanel,
@@ -2779,9 +2338,7 @@ pendingTorrentRequests, setPendingTorrentRequests, handleTorrentDirectSeed,
 youtubeChatId, disconnectPeer,
 showWhiteboard, setShowWhiteboard,
 avatars,
-currentQuizQuestionRef,
-peerGenders,
-peerNames, setPeerNames
+currentQuizQuestionRef
 }) => {
 const messagesEndRef = useRef(null);
 const messagesContainerRef = useRef(null);
@@ -3125,14 +2682,14 @@ textToSend = GROUP_E2EE_PREFIX + await encryptMsg(newMessage, serverE2EE[selecte
 textToSend = E2EE_PREFIX + await encryptMsg(newMessage, e2eeState[selectedContact].mySecret);
 }
 const conn = connections.find(c => c.peer === selectedContact);
-conn.send({ type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, senderAvatar: localStorage.getItem('p2pUserAvatar') || '', senderGender: localStorage.getItem('p2pUserGender') || '', direct: true, time: formatTime(timestamp) });
+conn.send({ type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: true, time: formatTime(timestamp) });
 const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
 setMessages(prev => {
 const updated = [...prev, newMsgObj].slice(-500);
 return updated;
 });
 } else {
-const msgData = { type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, senderAvatar: localStorage.getItem('p2pUserAvatar') || '', senderGender: localStorage.getItem('p2pUserGender') || '', direct: false, time: formatTime(timestamp) };
+const msgData = { type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: false, time: formatTime(timestamp) };
 connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
 const newMsgObj = { text: textToSend, sender: 'you', recipient: 'general', senderName: userName, time: formatTime(timestamp), type: 'text', direct: false, timestamp: timestamp.getTime() };
 setMessages(prev => {
@@ -3244,19 +2801,22 @@ const e2ee = e2eeState[conn.peer];
 const hasMine = !!e2ee?.mySecret, hasTheirs = !!e2ee?.contactSecret;
 const isServer = isCentralServer(conn.peer);
 const srvGrpActive = isServer && serverE2EE[conn.peer]?.active;
+const isConnOpen = conn.open;
 return (
-<div key={i} className={`conversation-item${isSelected ? ' selected' : ''}${conn.peer === centralServerId ? ' central-server' : ''}${peerGenders && peerGenders[conn.peer] === 'M' ? ' gender-male' : ''}${peerGenders && peerGenders[conn.peer] === 'F' ? ' gender-female' : ''}`}
+<div key={i} className={`conversation-item${isSelected ? ' selected' : ''}${conn.peer === centralServerId ? ' central-server' : ''}${!isConnOpen ? ' disconnected' : ''}`}
 onClick={() => setSelectedContact(isSelected ? null : conn.peer)}>
 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
 <Avatar peerId={conn.peer} name={getContactName(conn.peer)} avatars={avatars} size="medium" />
 <div>
-<div className="conversation-name">
+<div className="conversation-name" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+<span className={`conversation-status-dot ${isConnOpen ? 'online' : 'offline'}`}></span>
 {!isServer && hasMine && hasTheirs && <span title="Full E2EE active" style={{ marginRight: '4px' }}>🔒</span>}
 {!isServer && hasMine && !hasTheirs && <span title="Sending encrypted" style={{ marginRight: '4px' }}>📤</span>}
 {!isServer && !hasMine && hasTheirs && <span title="Receiving encrypted" style={{ marginRight: '4px' }}>📥</span>}
 {isServer && srvGrpActive && <span title="Group encryption active" style={{ marginRight: '4px' }}>🛡️</span>}
-{getContactName(conn.peer)} {peerGenders && peerGenders[conn.peer] === 'M' ? '♂' : peerGenders && peerGenders[conn.peer] === 'F' ? '♀' : ''}
+{getContactName(conn.peer)}
+{!isConnOpen && <span style={{ fontSize: '10px', color: '#94a3b8', fontWeight: '600', marginLeft: '4px' }}>OFFLINE</span>}
 </div>
 <div className="conversation-peer-id">{conn.peer}</div>
 </div>
@@ -3268,11 +2828,6 @@ onClick={() => setSelectedContact(isSelected ? null : conn.peer)}>
 <div className="sidebar-icon-btn" style={{ color: '#ef4444' }} onClick={e => { e.stopPropagation(); if(confirm(t(lang, 'confirmRemoveFriend', { name: getContactName(conn.peer) }))) { disconnectPeer(conn.peer); deleteMessagesByContact(conn.peer); } }} title={t(lang, 'removeFriend')}>
 <i className="fas fa-user-minus"></i>
 </div>
-{!contacts.find(c => c.peerId === conn.peer) && (
-<div className="sidebar-icon-btn" style={{ color: '#22c55e' }} onClick={e => { e.stopPropagation(); const name = peerNames[conn.peer] || conn.peer; const newContact = { name, peerId: conn.peer }; setContacts(prev => { const updated = [...prev, newContact]; localStorage.setItem('p2pContacts', JSON.stringify(updated)); return updated; }); }} title={lang === 'pt' ? 'Adicionar Contato' : 'Add Contact'}>
-<i className="fas fa-user-plus"></i>
-</div>
-)}
 </div>
 </div>
 <div style={{ display: 'flex', gap: '5px', marginTop: '7px', flexWrap: 'wrap' }}>
@@ -3354,7 +2909,7 @@ style={msg.sender === '__system__' ? { background: '#eff6ff', border: '1px solid
     <Avatar 
       peerId={msg.sender === 'you' ? peerId : msg.sender} 
       name={msg.sender === 'you' ? userName : (msg.senderName || getContactName(msg.sender))} 
-      avatars={msg.sender === 'you' ? { [peerId]: avatars[peerId] || localStorage.getItem('p2pUserAvatar') } : (msg.senderAvatar ? { ...avatars, [msg.sender]: msg.senderAvatar } : avatars)} 
+      avatars={msg.sender === 'you' ? { [peerId]: avatars[peerId] || localStorage.getItem('p2pUserAvatar') } : avatars} 
       size="small" 
     />
   </div>
@@ -3752,102 +3307,6 @@ if (targetId === peerId) {
 return <video className="local-video-player" ref={localVideoRef} autoPlay muted style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
 }
 return <video className="video-player" ref={el => videoRefs.current[targetId] = el} autoPlay style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
-};
-
-
-const WorldRadiosModal = ({ lang, onClose, onBroadcast }) => {
-  const [query, setQuery] = useState('');
-  const [results, setResults] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState(null);
-  const audioRef = useRef(null);
-
-  const searchRadios = async () => {
-    if (!query.trim()) return;
-    setLoading(true);
-    try {
-      const res = await fetch(`https://de1.api.radio-browser.info/json/stations/search?name=${encodeURIComponent(query)}&limit=20`);
-      const data = await res.json();
-      setResults(data);
-    } catch (e) {
-      console.error(e);
-      alert('Error searching radios');
-    }
-    setLoading(false);
-  };
-
-  const togglePreview = (url) => {
-    if (previewUrl === url) {
-      setPreviewUrl(null);
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.src = '';
-      }
-    } else {
-      setPreviewUrl(url);
-      if (audioRef.current) {
-        audioRef.current.src = url;
-        audioRef.current.play().catch(e => console.error("Preview play error:", e));
-      }
-    }
-  };
-
-  return (
-    <div className="media-controls-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="media-controls-modal" style={{ maxWidth: '600px', maxHeight: '80vh', display: 'flex', flexDirection: 'column' }}>
-        <div className="media-controls-header">
-          <h2><i className="fas fa-globe"></i> World Radios</h2>
-          <button className="tutorial-close" onClick={onClose}>×</button>
-        </div>
-        
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', padding: '0 20px' }}>
-          <input 
-            type="text" 
-            value={query} 
-            onChange={e => setQuery(e.target.value)} 
-            placeholder="Search by name or country..." 
-            style={{ flex: 1, padding: '10px', borderRadius: '8px', border: '1px solid #334155', background: '#1e293b', color: 'white' }}
-            onKeyDown={e => e.key === 'Enter' && searchRadios()}
-          />
-          <button onClick={searchRadios} style={{ padding: '10px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
-            {loading ? '...' : 'Search'}
-          </button>
-        </div>
-
-        <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '8px', padding: '0 20px 20px 20px' }}>
-          {results.map((r, i) => (
-            <div key={i} style={{ background: '#1e293b', padding: '12px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ overflow: 'hidden', marginRight: '10px' }}>
-                <div style={{ fontWeight: 'bold', fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</div>
-                <div style={{ fontSize: '12px', color: '#94a3b8' }}>{r.country} • {r.tags.split(',').slice(0,3).join(', ')}</div>
-              </div>
-              <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
-                <button 
-                  onClick={() => togglePreview(r.url_resolved)}
-                  style={{ background: previewUrl === r.url_resolved ? '#ef4444' : '#10b981', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
-                >
-                  <i className={`fas ${previewUrl === r.url_resolved ? 'fa-stop' : 'fa-play'}`}></i> {previewUrl === r.url_resolved ? 'Stop' : 'Preview'}
-                </button>
-                <button 
-                  onClick={() => {
-                    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ''; }
-                    onBroadcast(r);
-                  }}
-                  style={{ background: '#8b5cf6', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold' }}
-                >
-                  <i className="fas fa-broadcast-tower"></i> Broadcast
-                </button>
-              </div>
-            </div>
-          ))}
-          {results.length === 0 && !loading && (
-            <div style={{ textAlign: 'center', color: '#64748b', padding: '20px' }}>No radios found.</div>
-          )}
-        </div>
-        <audio ref={audioRef} style={{ display: 'none' }} />
-      </div>
-    </div>
-  );
 };
 
 
@@ -4378,9 +3837,6 @@ const [peerId, setPeerId] = usePersistentId();
 const langRef = useRef(lang);
 useEffect(() => { langRef.current = lang; }, [lang]);
 const [userName, setUserName] = useState(() => localStorage.getItem('p2pUserName') || '');
-const [userGender, setUserGender] = useState(() => localStorage.getItem('p2pUserGender') || '');
-const [peerGenders, setPeerGenders] = useState({});
-const [peerNames, setPeerNames] = useState({});
 const [userAvatar, setUserAvatar] = useState(() => localStorage.getItem('p2pUserAvatar') || '');
 const [editingName, setEditingName] = useState(!localStorage.getItem('p2pUserName'));
 const [avatars, setAvatars] = useState({}); // { peerId: base64 }
@@ -4404,18 +3860,6 @@ const [cooldownRemaining, setCooldownRemaining] = useState(0);
 const [networkSize, setNetworkSize] = useState(1);
 const [isSuperNode, setIsSuperNode] = useState(false);
 const [pendingTorrentRequests, setPendingTorrentRequests] = useState({});
-const [radioState, setRadioState] = useState({
-status: 'idle',
-type: 'file',
-startTime: 0,
-duration: 0,
-audioUrl: null,
-youtubeId: null,
-fileName: '',
-sender: '',
-showVideo: false,
-videoSize: 'medium'
-});
 const [e2eeState, setE2eeState] = useState({});
 const [serverE2EE, setServerE2EE] = useState({});
 const [torrents, setTorrents] = useState([]);
@@ -4428,7 +3872,6 @@ useEffect(() => { userYoutubeStreamsRef.current = userYoutubeStreams; }, [userYo
 const [showYoutubeGrid, setShowYoutubeGrid] = useState(false);
 const [showMediaControls, setShowMediaControls] = useState(false);
 const [showPollCreator, setShowPollCreator] = useState(false);
-const [showMarkdownEditor, setShowMarkdownEditor] = useState(false);
 const [showQuizBot, setShowQuizBot] = useState(false);
 const [quizBotActive, setQuizBotActive] = useState(false);
 const [quizInterval, setQuizInterval] = useState(MIN_QUIZ_INTERVAL);
@@ -4904,8 +4347,6 @@ useEffect(() => {
     currentQuizQuestionRef.current = null;
   }
 }, [quizBotActive]); // FIX: mantém o ref sincronizado e limpa timers
-const [showWhiteboard, setShowWhiteboard] = useState(false);
-const [showWorldRadios, setShowWorldRadios] = useState(false);
 const [youtubeLinks, setYoutubeLinks] = useState(YOUTUBE_LINKS_LIST);
 const [gridInput, setGridInput] = useState('');
 
@@ -4919,23 +4360,22 @@ const pendingFiles = useRef({});
 const audioRefs = useRef({});
 const videoRefs = useRef({});
 const localVideoRef = useRef(null);
-const localStreamsRef = useRef(new Map());
-const seenMessagesRef = useRef(new Set());
-const radioStateRef = useRef(radioState);
-const radioAudioRef = useRef(null);
-const youtubePlayerRef = useRef(null);
-const youtubeContainerRef = useRef(null);
-const torrentClientRef = useRef(null);
-const pendingRadioFiles = useRef({});
-const radioIntervalRef = useRef(null);
 const knownUsersRef = useRef(new Set());
 const lastMessageTimeRef = useRef(new Map());
 const bannedPeersRef = useRef(new Set());
 const spamViolationsRef = useRef(new Map());
+const [radioState, setRadioState] = useState({ status: 'idle', type: 'file', startTime: 0, duration: 0, audioUrl: null, youtubeId: null, fileName: '', sender: '', showVideo: false, videoSize: 'medium' });
+const radioStateRef = useRef(radioState);
+radioStateRef.current = radioState;
+const radioAudioRef = useRef(new Audio());
+const radioIntervalRef = useRef(null);
+const localStreamsRef = useRef(new Map());
+const seenMessagesRef = useRef(new Set());
+const torrentClientRef = useRef(null);
+const youtubeContainerRef = useRef(null);
+const youtubePlayerRef = useRef(null);
+const [showWorldRadios, setShowWorldRadios] = useState(false);
 const CHUNK_SIZE = 16 * 1024;
-
-
-useEffect(() => { radioStateRef.current = radioState; }, [radioState]);
 
 
 useEffect(() => {
@@ -4956,7 +4396,7 @@ return () => clearTimeout(timer);
 
 
 const isCentralServer = (id) => id && id.endsWith('-CENTRAL');
-const getContactName = (pId) => contacts.find(c => c.peerId === pId)?.name || peerNames[pId] || pId;
+const getContactName = (pId) => contacts.find(c => c.peerId === pId)?.name || pId;
 const saveUserName = () => { if (userName.trim()) { localStorage.setItem('p2pUserName', userName); setEditingName(false); } };
 
 const handleAvatarChange = (e) => {
@@ -5021,7 +4461,7 @@ else { const first = localStreamsRef.current.values().next().value; if (localVid
 
 const sendHandshake = (conn) => {
 try {
-conn.send({ type: 'handshake', peerId, avatar: userAvatar, gender: localStorage.getItem('p2pUserGender') || '', userName: userName });
+conn.send({ type: 'handshake', peerId, avatar: userAvatar });
 if (youtubeChatIdRef.current) {
 conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
 }
@@ -5114,28 +4554,11 @@ if (data.type === 'handshake') {
   if (data.avatar) {
     setAvatars(prev => ({ ...prev, [pId]: data.avatar }));
   }
-  if (data.gender) {
-    setPeerGenders(prev => ({ ...prev, [pId]: data.gender }));
-  }
-  if (data.userName) {
-    setPeerNames(prev => ({ ...prev, [pId]: data.userName }));
-  }
   return; 
 }
 
 if (data.type === 'avatar-update' && data.avatar) {
-  const updatePeerId = data.peerId || pId;
-  setAvatars(prev => ({ ...prev, [updatePeerId]: data.avatar }));
-  return;
-}
-
-if (data.type === 'peer-profile') {
-  const profilePeerId = data.peerId;
-  if (profilePeerId) {
-    if (data.userName) setPeerNames(prev => ({ ...prev, [profilePeerId]: data.userName }));
-    if (data.gender) setPeerGenders(prev => ({ ...prev, [profilePeerId]: data.gender }));
-    if (data.avatar) setAvatars(prev => ({ ...prev, [profilePeerId]: data.avatar }));
-  }
+  setAvatars(prev => ({ ...prev, [pId]: data.avatar }));
   return;
 }
 
@@ -5178,144 +4601,6 @@ setTimeout(() => connectToPeer(newPId), 2000);
 });
 }
 }
-return;
-}
-
-
-if (data.type === 'radio-request-sync') {
-setConnections(cc => {
-const c = cc.find(x => x.peer === pId);
-if (c) sendRadioSync(c);
-return cc;
-});
-return;
-}
-
-
-if (data.type === 'radio-sync') {
-const now = Date.now();
-if (data.radioType === 'stream') {
-  setRadioState(prev => {
-    if (prev.status === 'idle') {
-      return { status: now >= data.startTime ? 'playing' : 'buffering', type: 'stream', startTime: data.startTime, audioUrl: data.streamUrl, fileName: data.fileName, sender: data.senderName, showVideo: false, videoSize: 'medium' };
-    }
-    return prev;
-  });
-} else if (data.radioType === 'youtube') {
-  setRadioState(prev => {
-    if (prev.status === 'idle') {
-      return { status: now >= data.startTime ? 'playing' : 'buffering', type: 'youtube', startTime: data.startTime, duration: data.duration || 300, audioUrl: null, youtubeId: data.youtubeId, fileName: data.fileName, sender: data.senderName, showVideo: false, videoSize: 'medium' };
-    }
-    return prev;
-  });
-} else {
-  const endTime = data.startTime + data.duration * 1000;
-  if (now < endTime) {
-    setRadioState(prev => {
-      if (prev.status === 'idle') {
-        return { status: now >= data.startTime ? 'playing' : 'buffering', type: 'file', startTime: data.startTime, duration: data.duration, audioUrl: null, fileName: data.fileName, sender: data.senderName, showVideo: false, videoSize: 'medium' };
-      }
-      return prev;
-    });
-  }
-}
-return;
-}
-
-
-if (data.type === 'radio-youtube-start') {
-if (seenMessagesRef.current.has(data.id)) return;
-seenMessagesRef.current.add(data.id);
-pruneSeenMessages();
-let ttl = data.ttl !== undefined ? data.ttl : 8;
-if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
-
-
-setUserYoutubeStreams(prev => {
-const next = { ...prev, [data.sender]: data.youtubeId };
-// Limit to 10 streams
-const keys = Object.keys(next);
-if (keys.length > 10) {
-delete next[keys[0]];
-}
-return next;
-});
-return;
-}
-
-
-if (data.type === 'whiteboard') {
-  window.dispatchEvent(new CustomEvent('whiteboard-event', { detail: data }));
-  return;
-}
-
-
-if (data.type === 'md-editor') {
-  window.dispatchEvent(new CustomEvent('md-editor-event', { detail: data }));
-  return;
-}
-
-
-if (data.type === 'radio-youtube-stop') {
-if (seenMessagesRef.current.has(data.id)) return;
-seenMessagesRef.current.add(data.id);
-pruneSeenMessages();
-let ttl = data.ttl !== undefined ? data.ttl : 8;
-if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
-
-
-setUserYoutubeStreams(prev => {
-const next = { ...prev };
-delete next[data.sender];
-return next;
-});
-return;
-}
-
-
-if (data.type === 'radio-start' || data.type === 'radio-chunk' || data.type === 'radio-stream-start') {
-if (seenMessagesRef.current.has(data.id)) return;
-if (data.type === 'radio-start' && radioStateRef.current.status !== 'idle') return;
-if (data.type === 'radio-stream-start' && radioStateRef.current.status !== 'idle') return;
-if (data.type === 'radio-chunk' && radioStateRef.current.status === 'idle' && !pendingRadioFiles.current[data.radioId]) return;
-seenMessagesRef.current.add(data.id);
-pruneSeenMessages();
-let ttl = data.ttl !== undefined ? data.ttl : 8;
-if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
-if (data.type === 'radio-start') {
-pendingRadioFiles.current[data.radioId] = { chunks: new Uint8Array(data.fileSize), receivedBytes: 0, totalSize: data.fileSize };
-setRadioState({ status: 'buffering', type: 'file', startTime: data.startTime, duration: data.duration, audioUrl: null, youtubeId: null, fileName: data.fileName, sender: data.senderName, showVideo: false, videoSize: 'medium' });
-} else if (data.type === 'radio-stream-start') {
-setRadioState({ status: 'buffering', type: 'stream', startTime: data.startTime, audioUrl: data.streamUrl, fileName: data.fileName, sender: data.senderName, showVideo: false, videoSize: 'medium', radioId: data.radioId });
-} else {
-const fd = pendingRadioFiles.current[data.radioId];
-if (fd) {
-const chunk = data.chunk instanceof ArrayBuffer ? new Uint8Array(data.chunk) : new Uint8Array(Object.values(data.chunk));
-fd.chunks.set(chunk, data.offset); fd.receivedBytes += chunk.length;
-if (fd.receivedBytes === fd.totalSize) { const url = URL.createObjectURL(new Blob([fd.chunks], { type: 'audio/mpeg' })); setRadioState(prev => ({ ...prev, audioUrl: url })); delete pendingRadioFiles.current[data.radioId]; }
-}
-}
-return;
-}
-
-
-if (data.type === 'youtube-chat-start') {
-if (seenMessagesRef.current.has(data.id)) return;
-seenMessagesRef.current.add(data.id);
-pruneSeenMessages();
-if (youtubeChatIdRef.current) return;
-let ttl = data.ttl !== undefined ? data.ttl : 8;
-if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
-setYoutubeChatId(data.youtubeId);
-return;
-}
-
-
-if (data.type === 'youtube-chat-stop') {
-if (seenMessagesRef.current.has(data.id)) return;
-seenMessagesRef.current.add(data.id);
-pruneSeenMessages();
-setYoutubeChatId(null);
 return;
 }
 
@@ -5428,7 +4713,6 @@ const isFromSrv = isCentralServer(pId);
 const baseMessage = {
 sender: pId,
 senderName: data.senderName || getContactName(pId),
-senderAvatar: data.senderAvatar || '',
 time: messageTime,
 direct: data.direct || false,
 timestamp,
@@ -5436,22 +4720,9 @@ recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general')
 };
 let messageToAdd = null;
 
-// Cache sender avatar from relayed messages
-if (data.senderAvatar && data.senderName) {
-  setAvatars(prev => {
-    // Use senderName-based key if we don't have the original peerId
-    const key = pId;
-    if (!prev[key]) return { ...prev, [key]: data.senderAvatar };
-    return prev;
-  });
-}
 
 if (data.type === 'message') {
 if (data.text && data.text.length > 2000) { console.log("Mensagem muito longa ignorada no cliente."); return; }
-if (data.text === '#$%') {
-if (radioStateRef.current.status === 'idle') setRadioState({ status: 'playing', startTime: Date.now(), duration: 300, audioUrl: null, fileName: t(lang, 'radioGlobal'), sender: data.senderName || 'Server' });
-return;
-}
 
 // ── Quiz via relay do servidor ────────────────────────────────────
 if (data.text === '__QUIZ__' && data.quizPayload) {
@@ -5599,35 +4870,6 @@ return updated;
 };
 
 
-const sendRadioSync = (conn) => {
-if (radioStateRef.current.status !== 'idle') {
-const syncMsg = { 
-  type: 'radio-sync', 
-  radioType: radioStateRef.current.type,
-  startTime: radioStateRef.current.startTime, 
-  duration: radioStateRef.current.duration, 
-  fileName: radioStateRef.current.fileName, 
-  senderName: radioStateRef.current.sender,
-  streamUrl: radioStateRef.current.type === 'stream' ? radioStateRef.current.audioUrl : undefined,
-  youtubeId: radioStateRef.current.type === 'youtube' ? radioStateRef.current.youtubeId : undefined
-};
-const send = () => { try { conn.send(syncMsg); } catch(e) {} };
-send(); setTimeout(send, 1000); setTimeout(send, 2000);
-}
-if (userYoutubeStreamsRef.current[peerId]) {
-const ytSyncMsg = {
-type: 'radio-youtube-start',
-id: peerId + '_yt_sync_' + Date.now(),
-youtubeId: userYoutubeStreamsRef.current[peerId],
-sender: peerId,
-senderName: userName,
-ttl: 1
-};
-const sendYt = () => { try { conn.send(ytSyncMsg); } catch(e) {} };
-sendYt(); setTimeout(sendYt, 1000);
-}
-};
-
 const disconnectPeer = (pId) => {
 if (!pId) return;
 const conn = connections.find(c => c.peer === pId);
@@ -5667,8 +4909,6 @@ conn.on('open', () => {
 clearTimeout(timeoutId);
 setConnections(prev => [...prev.filter(c => c.peer !== peerIdToConnect), conn]);
 sendHandshake(conn);
-sendRadioSync(conn);
-try { conn.send({ type: 'radio-request-sync' }); } catch(e){}
 if (!knownUsersRef.current.has(peerIdToConnect)) {
 knownUsersRef.current.add(peerIdToConnect);
 setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
@@ -5719,7 +4959,13 @@ portas.forEach(porta => {
 if (porta && porta !== id) {
 const conn = peer.connect(porta, { reliable: true });
 if (conn) {
-conn.on('open', () => { setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]); sendHandshake(conn); sendRadioSync(conn); try { conn.send({ type: 'radio-request-sync' }); } catch(e){} });
+conn.on('open', () => {
+setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]);
+if (!knownUsersRef.current.has(conn.peer)) {
+knownUsersRef.current.add(conn.peer);
+setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
+}
+});
 conn.on('data', data => handleIncomingData(data, porta));
 conn.on('close', () => { worldQuizSubscribersRef.current.delete(porta); setConnections(prev => prev.filter(c => c.peer !== porta)); });
 conn.on('error', () => { worldQuizSubscribersRef.current.delete(porta); setConnections(prev => prev.filter(c => c.peer !== porta)); });
@@ -5776,8 +5022,6 @@ if (connections.length >= maxConns) { setTimeout(() => conn.close(), 500); retur
 conn.on('open', () => {
 setConnections(prev => [...prev.filter(c => c.peer !== conn.peer), conn]);
 sendHandshake(conn);
-sendRadioSync(conn);
-try { conn.send({ type: 'radio-request-sync' }); } catch(e){}
 if (!knownUsersRef.current.has(conn.peer)) {
 knownUsersRef.current.add(conn.peer);
 setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
@@ -6467,38 +5711,8 @@ return (
         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '10px', marginBottom: '15px', fontSize: '11px', color: '#166534', gridColumn: '1 / -1' }}>
           <strong>🚀 Quiz Bot P2P:</strong> Sistema colaborativo de capacidade ilimitada. Usuários conectados transmitem dados para novos usuários, criando uma rede global de conhecimento.
         </div>
-        <button 
-          className="media-controls-btn" 
-          onClick={() => { 
-            setShowMediaControls(false); 
-            document.getElementById('radioInput').click(); 
-          }}
-          disabled={radioState.status !== 'idle' || !selectedContact || isCentralServer(selectedContact)}
-          title={(!selectedContact || isCentralServer(selectedContact)) ? "DJ Radio is disabled in General/Server chat to prevent network overload." : ""}
-          style={{ opacity: (radioState.status !== 'idle' || !selectedContact || isCentralServer(selectedContact)) ? 0.5 : 1, cursor: (radioState.status !== 'idle' || !selectedContact || isCentralServer(selectedContact)) ? 'not-allowed' : 'pointer' }}
-        >
-          <i className="fas fa-headphones"></i> {t(lang, 'djRadio')}
-        </button>
-        <button 
-          className="media-controls-btn" 
-          onClick={() => { 
-            setShowMediaControls(false); 
-            handleYoutubeRadio(); 
-          }}
-        >
-          <i className="fab fa-youtube"></i> {t(lang, 'youtubeRadio')}
-        </button>
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowWorldRadios(true); }}>
-          <i className="fas fa-globe"></i> World Radios
-        </button>
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowWhiteboard(true); }}>
-          <i className="fas fa-chalkboard"></i> {t(lang, 'collaborativeWhiteboard')}
-        </button>
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowPollCreator(true); }}>
           <i className="fas fa-poll"></i> {t(lang, 'createPoll')}
-        </button>
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowMarkdownEditor(true); }}>
-          <i className="fas fa-file-code"></i> {t(lang, 'markdownEditor')}
         </button>
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowQuizBot(true); }}>
           <i className="fas fa-robot"></i> {lang === 'pt' ? 'Quiz Bot' : 'Quiz Bot'}
@@ -6508,7 +5722,6 @@ return (
   </div>
 )}
 {showPollCreator && <PollCreator onClose={() => setShowPollCreator(false)} onCreated={handlePollCreated} />}
-{showMarkdownEditor && <MarkdownEditor lang={lang} connections={connections} selectedContact={selectedContact} onClose={() => setShowMarkdownEditor(false)} />}
 {showGeneralModeInfo && <GeneralModeInfoModal lang={lang} selectedContact={selectedContact} onClose={() => setShowGeneralModeInfo(false)} />}
 {showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} />}
 {showTorrentManager && (
@@ -6524,10 +5737,6 @@ onDownload={handleTorrentDownload}
 
 
 <input type="file" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFileChange} />
-<input type="file" id="radioInput" accept="audio/mp3,audio/mpeg" style={{ display: 'none' }} onChange={handleRadioUpload} />
-<audio ref={radioAudioRef} style={{ display: 'none' }} />
-
-
 <div className="app-header">
 <h1 className="app-title">
 Chat K10
@@ -6580,79 +5789,6 @@ Chat K10
 </div>
 
 
-{radioState.status !== 'idle' && (
-<div className="radio-bar">
-<div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-<div style={{ textAlign: 'left' }}>
-<div style={{ fontSize: '14px', fontWeight: '700' }}>🎵 {t(lang, 'radioGlobal')}: {radioState.fileName}</div>
-<div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '2px' }}>{t(lang, 'djLabel')}{radioState.sender}</div>
-</div>
-<button onClick={stopRadio} style={{ background: '#ef4444', color: 'white', border: 'none', padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}>
-<i className="fas fa-stop"></i> STOP
-</button>
-</div>
-
-
-{radioState.type === 'youtube' && (
-<div style={{ marginBottom: '10px' }}>
-<div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginBottom: '8px' }}>
-<button
-onClick={() => setRadioState(prev => ({ ...prev, showVideo: !prev.showVideo }))}
-style={{ background: '#3b82f6', color: 'white', border: 'none', padding: '4px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 600, cursor: 'pointer' }}
->
-{radioState.showVideo ? t(lang, 'hideVideo') : t(lang, 'showVideo')}
-</button>
-{radioState.showVideo && (
-<div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-<span style={{ fontSize: '11px', color: '#94a3b8' }}>{t(lang, 'videoSize')}</span>
-<select
-value={radioState.videoSize}
-onChange={e => setRadioState(prev => ({ ...prev, videoSize: e.target.value }))}
-style={{ background: '#1e293b', color: 'white', border: '1px solid #334155', borderRadius: '4px', fontSize: '11px', padding: '2px' }}
->
-<option value="small">{t(lang, 'small')}</option>
-<option value="medium">{t(lang, 'medium')}</option>
-<option value="large">{t(lang, 'large')}</option>
-</select>
-</div>
-)}
-</div>
-
-
-<div style={{
-display: radioState.showVideo ? 'block' : 'none',
-margin: '0 auto',
-width: radioState.videoSize === 'small' ? '320px' : radioState.videoSize === 'medium' ? '560px' : '854px',
-height: radioState.videoSize === 'small' ? '180px' : radioState.videoSize === 'medium' ? '315px' : '480px',
-maxWidth: '100%',
-aspectRatio: '16/9',
-background: '#000',
-borderRadius: '8px',
-overflow: 'hidden'
-}}>
-<div ref={youtubeContainerRef} id="youtube-player"></div>
-</div>
-</div>
-)}
-
-
-{radioState.status === 'buffering'
-? <div style={{ color: '#f59e0b', marginTop: '4px', fontSize: '13px', fontWeight: '600' }}>
-{t(lang, 'radioStartsIn', { s: Math.max(0, Math.ceil((radioState.startTime - Date.now()) / 1000)) })}{!radioState.audioUrl && radioState.type === 'file' && t(lang, 'downloading')}
-</div>
-: <div style={{ color: '#10b981', marginTop: '4px', fontSize: '13px', fontWeight: '600' }}>{t(lang, 'nowPlaying')}</div>}
-
-
-{(radioState.type === 'file' || radioState.type === 'stream') && (
-<div style={{ marginTop: '8px' }}>
-<label style={{ fontSize: '12px', color: '#94a3b8' }}>{t(lang, 'volume')} </label>
-<input type="range" min="0" max="1" step="0.1" defaultValue="0.5" onChange={e => { if (radioAudioRef.current) radioAudioRef.current.volume = parseFloat(e.target.value); }} />
-</div>
-)}
-</div>
-)}
-
-
 <div className="user-info-container" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
   <div className="user-avatar-upload" onClick={() => document.getElementById('avatarInput').click()}>
     <Avatar peerId={peerId} name={userName} avatars={{ [peerId]: userAvatar }} size="large" />
@@ -6665,18 +5801,12 @@ overflow: 'hidden'
     {editingName ? (
       <div className="user-name-form">
         <input type="text" value={userName} onChange={e => setUserName(e.target.value)} placeholder={t(lang, 'typeName')} autoFocus />
-        <select className="gender-select" value={userGender} onChange={e => { setUserGender(e.target.value); localStorage.setItem('p2pUserGender', e.target.value); }}>
-          <option value="">Sexo</option>
-          <option value="M">♂ Masculino</option>
-          <option value="F">♀ Feminino</option>
-        </select>
         <button onClick={saveUserName} disabled={!userName.trim()}>{t(lang, 'save')}</button>
       </div>
     ) : (
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
         <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{t(lang, 'yourName')}:</span>
         <span className="username">{userName}</span>
-        {userGender && <span style={{ fontSize: '14px', marginLeft: '4px' }}>{userGender === 'M' ? '♂' : '♀'}</span>}
         <button className="user-edit-button" onClick={() => setEditingName(true)}>{t(lang, 'edit')}</button>
       </div>
     )}
@@ -6862,7 +5992,7 @@ onSelectContact={(pId) => { connectToPeer(pId); setSelectedContact(pId); setShow
 <ChatManager
 lang={lang}
 connections={connections} messages={messages} setMessages={setMessages}
-contacts={contacts} setContacts={setContacts} userName={userName} peerId={peerId}
+contacts={contacts} userName={userName} peerId={peerId}
 activeCalls={activeCalls} endCall={endCall} startVoiceCall={startVoiceCall}
 toggleVideoCall={toggleVideoCall} remoteStreams={remoteStreams}
 audioRefs={audioRefs} videoRefs={videoRefs} handleFileChange={handleFileChange}
@@ -6884,24 +6014,11 @@ setPendingTorrentRequests={setPendingTorrentRequests}
 handleTorrentDirectSeed={handleTorrentDirectSeed}
 youtubeChatId={youtubeChatId}
 disconnectPeer={disconnectPeer}
-showWhiteboard={showWhiteboard}
-setShowWhiteboard={setShowWhiteboard}
 avatars={avatars}
 currentQuizQuestionRef={currentQuizQuestionRef}
-peerGenders={peerGenders}
-peerNames={peerNames}
-setPeerNames={setPeerNames}
 />
 )}
 
-{showWhiteboard && (
-  <Whiteboard 
-    lang={lang} 
-    connections={connections} 
-    selectedContact={selectedContact} 
-    onClose={() => setShowWhiteboard(false)} 
-  />
-)}
 </div>
 );
 };
