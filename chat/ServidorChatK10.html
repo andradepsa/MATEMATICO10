@@ -1354,11 +1354,19 @@
             });
           } catch(e) {}
           
-          // If it's just a heartbeat and we are in Hydra Mode, close non-friend connections to save resources
-          if (isHydraModeRef.current && !isFriendServer(sourceConn.peer)) {
-            setTimeout(() => {
-              try { sourceConn.close(); } catch(e) {}
-            }, 1000);
+          // ═══ FIX COMUNICAÇÃO: Registra peer no cache do Hydra antes de desconectar ═══
+          if (isHydraModeRef.current) {
+            // Sempre adiciona ao cache de peers recentes (para futuras migrações)
+            if (!recentPeersRef.current.includes(sourceConn.peer)) {
+              recentPeersRef.current.push(sourceConn.peer);
+              // Limita o cache a 2000 peers
+              if (recentPeersRef.current.length > 2000) recentPeersRef.current.shift();
+            }
+            if (!isFriendServer(sourceConn.peer)) {
+              setTimeout(() => {
+                try { sourceConn.close(); } catch(e) {}
+              }, 1000);
+            }
           }
           return;
         }
@@ -1581,7 +1589,7 @@
               // Usuários normais: envia lista de peers e desconecta
               if (!recentPeersRef.current.includes(conn.peer)) {
                 recentPeersRef.current.push(conn.peer);
-                if (recentPeersRef.current.length > 1000) recentPeersRef.current.shift();
+                if (recentPeersRef.current.length > 2000) recentPeersRef.current.shift();
                 
                 setStats(prev => ({
                   ...prev,
@@ -1589,12 +1597,16 @@
                 }));
               }
               
-              const peersToSend = recentPeersRef.current.filter(p => p !== conn.peer).slice(-50);
+              // ═══ FIX COMUNICAÇÃO: Envia lista mais completa de peers ═══
+              // Combina peers recentes + peers conectados a servidores amigos
+              const allRecentPeers = [...new Set(recentPeersRef.current)].filter(p => p !== conn.peer);
+              // Embaralha e envia até 100 peers para melhor descoberta
+              const shuffled = allRecentPeers.sort(() => 0.5 - Math.random()).slice(0, 100);
               
               try {
                 conn.send({
                   type: 'migrate-to-p2p',
-                  peers: peersToSend,
+                  peers: shuffled,
                   message: t(lang, 'hydraModeMessage')
                 });
               } catch (err) {}
@@ -1628,14 +1640,19 @@
             isHydraModeRef.current = true;
             
             const allPeers = Array.from(activeConnectionsRef.current.keys());
-            recentPeersRef.current = [...allPeers]; // Salva os peers atuais no cache do Hydra
+            // ═══ FIX COMUNICAÇÃO: Preserva peers existentes + novos ═══
+            const existingPeers = new Set(recentPeersRef.current);
+            allPeers.forEach(p => existingPeers.add(p));
+            recentPeersRef.current = Array.from(existingPeers);
             
-            // Avisa todos os conectados para formarem a rede P2P
+            // ═══ FIX COMUNICAÇÃO: Envia lista completa de peers na migração ═══
+            // Inclui todos os peers conhecidos para melhor formação da mesh
+            const fullPeerList = Array.from(new Set([...allPeers, ...recentPeersRef.current]));
             activeConnectionsRef.current.forEach(c => {
               try {
                 c.send({
                   type: 'migrate-to-p2p',
-                  peers: allPeers,
+                  peers: fullPeerList.filter(p => p !== c.peer).sort(() => 0.5 - Math.random()).slice(0, 150),
                   message: t(lang, 'serverFullMigration')
                 });
               } catch (err) {}
