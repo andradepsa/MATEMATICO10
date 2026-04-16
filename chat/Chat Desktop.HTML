@@ -559,6 +559,53 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 <div id="root"></div>
 
 
+<!-- FIX BUG-5: Loading spinner shown immediately while Babel compiles 363 KB of JSX.
+     Hides the 3–7s white screen on slower hardware. -->
+<div id="k10-loading" style="
+  position:fixed;inset:0;z-index:99999;
+  background:linear-gradient(135deg,#0f172a 0%,#1e1b4b 100%);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
+">
+  <div style="font-size:40px;animation:k10pulse 1.4s ease-in-out infinite">🛰️</div>
+  <div style="
+    width:56px;height:56px;
+    border:4px solid #1e3a5f;
+    border-top-color:#60a5fa;
+    border-radius:50%;
+    animation:k10spin 0.75s linear infinite;
+  "></div>
+  <p style="color:#93c5fd;font-size:14px;font-weight:700;letter-spacing:1px;margin:0">
+    K10 Chat — Inicializando…
+  </p>
+  <p style="color:#475569;font-size:11px;margin:0">Compilando interface segura</p>
+  <style>
+    @keyframes k10spin  { to { transform: rotate(360deg); } }
+    @keyframes k10pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.18); } }
+  </style>
+</div>
+<script>
+  // Remove loading screen as soon as React finishes rendering
+  (function() {
+    var _raf = window.requestAnimationFrame;
+    var _origRender = null;
+    function hideLoader() {
+      var el = document.getElementById('k10-loading');
+      if (el) { el.style.opacity = '0'; el.style.transition = 'opacity 0.35s'; setTimeout(function(){ if(el.parentNode) el.parentNode.removeChild(el); }, 380); }
+    }
+    // Fallback: hide after 12s no matter what
+    setTimeout(hideLoader, 12000);
+    // Primary: hide once #root has children (React rendered)
+    var obs = new MutationObserver(function(mutations) {
+      var root = document.getElementById('root');
+      if (root && root.children.length > 0) { obs.disconnect(); hideLoader(); }
+    });
+    document.addEventListener('DOMContentLoaded', function() {
+      var root = document.getElementById('root');
+      if (root) obs.observe(root, { childList: true });
+    });
+  })();
+</script>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
@@ -4353,6 +4400,10 @@ const [userAvatar, setUserAvatar] = useState(() => localStorage.getItem('p2pUser
 const [editingName, setEditingName] = useState(!localStorage.getItem('p2pUserName'));
 const [avatars, setAvatars] = useState({}); // { peerId: base64 }
 const [connections, setConnections] = useState([]);
+// FIX BUG-2 & BUG-6: connectionsRef always holds latest connections array
+// — safe to read inside effects and event handlers without stale-closure risk
+const connectionsRef = useRef([]);
+useEffect(() => { connectionsRef.current = connections; }, [connections]);
 const [messages, setMessages] = useState([]);
 const [newMessage, setNewMessage] = useState('');
 const [showContacts, setShowContacts] = useState(false);
@@ -4371,6 +4422,9 @@ const [centralServerId, setCentralServerId] = useState(null);
 const [cooldownRemaining, setCooldownRemaining] = useState(0);
 const [networkSize, setNetworkSize] = useState(1);
 const [isSuperNode, setIsSuperNode] = useState(false);
+// FIX BUG-2: refs always hold the latest value, solving stale-closure inside useEffect([peerId])
+const isSuperNodeRef = useRef(false);
+useEffect(() => { isSuperNodeRef.current = isSuperNode; }, [isSuperNode]);
 const [pendingTorrentRequests, setPendingTorrentRequests] = useState({});
 const [radioState, setRadioState] = useState({
 status: 'idle',
@@ -5179,7 +5233,7 @@ if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
 pruneSeenMessages();
 let ttl = data.ttl !== undefined ? data.ttl : 8;
-if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
 
 
 setUserYoutubeStreams(prev => {
@@ -5212,7 +5266,7 @@ if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
 pruneSeenMessages();
 let ttl = data.ttl !== undefined ? data.ttl : 8;
-if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
 
 
 setUserYoutubeStreams(prev => {
@@ -5232,7 +5286,7 @@ if (data.type === 'radio-chunk' && radioStateRef.current.status === 'idle' && !p
 seenMessagesRef.current.add(data.id);
 pruneSeenMessages();
 let ttl = data.ttl !== undefined ? data.ttl : 8;
-if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
 if (data.type === 'radio-start') {
 pendingRadioFiles.current[data.radioId] = { chunks: new Uint8Array(data.fileSize), receivedBytes: 0, totalSize: data.fileSize };
 setRadioState({ status: 'buffering', type: 'file', startTime: data.startTime, duration: data.duration, audioUrl: null, youtubeId: null, fileName: data.fileName, sender: data.senderName, showVideo: false, videoSize: 'medium' });
@@ -5256,7 +5310,7 @@ seenMessagesRef.current.add(data.id);
 pruneSeenMessages();
 if (youtubeChatIdRef.current) return;
 let ttl = data.ttl !== undefined ? data.ttl : 8;
-if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
 setYoutubeChatId(data.youtubeId);
 return;
 }
@@ -5276,7 +5330,7 @@ if (data.type === 'poll-create') {
   seenMessagesRef.current.add(data.id);
   pruneSeenMessages();
   let ttl = data.ttl !== undefined ? data.ttl : 15;
-  if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+  if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
   
   const timestamp = data.timestamp || Date.now();
   const messageTime = data.time || formatTime(new Date(timestamp));
@@ -5299,7 +5353,7 @@ if (data.type === 'poll-vote') {
   seenMessagesRef.current.add(data.id);
   pruneSeenMessages();
   let ttl = data.ttl !== undefined ? data.ttl : 15;
-  if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+  if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
   
   setMessages(prev => prev.map(m => {
     if (m.pollId === data.pollId) {
@@ -5323,7 +5377,7 @@ if (data.type === 'message' && data.id && data.text === '__QUIZ_ANSWER__' && dat
     seenMessagesRef.current.add(data.id);
     pruneSeenMessages();
     let ttl = data.ttl !== undefined ? data.ttl : 15;
-    if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+    if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
     const { quizId, optionIndex, voterId } = data.quizAnswerPayload;
     setMessages(prev => prev.map(m => {
       if (m.quizId === quizId && !m.quizRevealed) {
@@ -5369,7 +5423,7 @@ if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
 pruneSeenMessages();
 let ttl = data.ttl !== undefined ? data.ttl : 15;
-if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; setConnections(cc => { cc.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); return cc; }); }
+if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
 }
 
 
@@ -5637,6 +5691,9 @@ iceServers: [
 { urls: 'stun:stun1.l.google.com:19302' },
 { urls: 'stun:stun.ekiga.net:3478' },
 { urls: 'stun:stun.stunprotocol.org:3478' },
+// ⚠️ BUG-4 WARNING: Public demo TURN credentials — no SLA, may be rate-limited.
+// Voice/video behind strict NAT can fail. For production reliability replace with
+// your own free credentials from: https://dashboard.metered.ca/
 { urls: 'turn:openrelay.metered.ca:80',                username: 'openrelayproject', credential: 'openrelayproject' },
 { urls: 'turn:openrelay.metered.ca:443',               username: 'openrelayproject', credential: 'openrelayproject' },
 { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' },
@@ -5679,6 +5736,8 @@ conn.on('error', () => { worldQuizSubscribersRef.current.delete(porta); setConne
 peer.on('error', err => {
 console.error("PeerJS Error:", err.type, err);
 if (err.type === 'unavailable-id') {
+// FIX BUG-3: never silently discard the user's identity — always warn first
+alert('⚠️ ID já está em uso\n\nEste ID já está sendo usado por outro dispositivo ou aba.\n\nUm novo ID será gerado automaticamente. A página será recarregada — você precisará recompartilhar seu novo ID com seus contatos.');
 const newId = generateId();
 localStorage.setItem(PEER_ID_STORAGE_KEY, newId);
 window.location.reload();
@@ -5716,8 +5775,9 @@ peerInstance.current.reconnect();
 
 peer.on('connection', conn => {
 if (bannedPeersRef.current.has(conn.peer)) { setTimeout(() => conn.close(), 500); return; }
-const maxConns = isSuperNode ? 50 : 15;
-if (connections.length >= maxConns) { setTimeout(() => conn.close(), 500); return; }
+// FIX BUG-2: use refs — isSuperNode and connections captured from closure would be stale here
+const maxConns = isSuperNodeRef.current ? 50 : 15;
+if (connectionsRef.current.length >= maxConns) { setTimeout(() => conn.close(), 500); return; }
 conn.on('open', () => {
 setConnections(prev => [...prev.filter(c => c.peer !== conn.peer), conn]);
 sendHandshake(conn);
@@ -6007,14 +6067,14 @@ const radioId = peerId + '_radio_' + Date.now();
 const startMsg = { type: 'radio-start', id: radioId + '_start', radioId, fileName: file.name, fileSize: file.size, duration, startTime, sender: peerId, senderName: userName, ttl: 15 };
 const fallbackMsg = { type: 'message', text: '#$%', id: radioId + '_fallback', sender: peerId, senderName: userName, ttl: 15 };
 seenMessagesRef.current.add(startMsg.id); seenMessagesRef.current.add(fallbackMsg.id);
-setConnections(cc => { cc.forEach(c => { if (c.open && c.peer === selectedContact) try { c.send(startMsg); c.send(fallbackMsg); } catch(e){} }); return cc; });
+/* FIX BUG-6 */ connectionsRef.current.forEach(c => { if (c.open && c.peer === selectedContact) try { c.send(startMsg); c.send(fallbackMsg); } catch(e){} });
 setRadioState({ status: 'buffering', type: 'file', startTime, duration, audioUrl: null, youtubeId: null, fileName: file.name, sender: userName, showVideo: false, videoSize: 'medium' });
 const reader = new FileReader(); let offset = 0;
 reader.onload = ev => {
 const buffer = ev.target.result;
 const chunkMsg = { type: 'radio-chunk', id: radioId + '_chunk_' + offset, radioId, offset, chunk: buffer, ttl: 15 };
 seenMessagesRef.current.add(chunkMsg.id);
-setConnections(cc => { cc.forEach(c => { if (c.open && c.peer === selectedContact) try { c.send(chunkMsg); } catch(e){} }); return cc; });
+/* FIX BUG-6 */ connectionsRef.current.forEach(c => { if (c.open && c.peer === selectedContact) try { c.send(chunkMsg); } catch(e){} });
 offset += buffer.byteLength;
 if (offset < file.size) reader.readAsArrayBuffer(file.slice(offset, offset + 64 * 1024));
 else setRadioState(prev => ({ ...prev, audioUrl: url }));
@@ -6043,7 +6103,7 @@ const startWorldRadioBroadcast = (station) => {
   };
   
   seenMessagesRef.current.add(startMsg.id);
-  setConnections(cc => { cc.forEach(c => { if (c.open && c.peer === selectedContact) try { c.send(startMsg); } catch(e){} }); return cc; });
+  /* FIX BUG-6 */ connectionsRef.current.forEach(c => { if (c.open && c.peer === selectedContact) try { c.send(startMsg); } catch(e){} });
   
   setRadioState({ 
     status: 'buffering', 
@@ -6071,7 +6131,7 @@ senderName: userName,
 ttl: 15
 };
 seenMessagesRef.current.add(stopMsg.id);
-setConnections(cc => { cc.forEach(c => { if (c.open) try { c.send(stopMsg); } catch(e){} }); return cc; });
+/* FIX BUG-6 */ connectionsRef.current.forEach(c => { if (c.open) try { c.send(stopMsg); } catch(e){} });
 setUserYoutubeStreams(prev => {
 const next = { ...prev };
 delete next[peerId];
@@ -6141,7 +6201,7 @@ ttl: 15
 
 
 seenMessagesRef.current.add(startMsg.id);
-setConnections(cc => { cc.forEach(c => { if (c.open) try { c.send(startMsg); } catch(e){} }); return cc; });
+/* FIX BUG-6 */ connectionsRef.current.forEach(c => { if (c.open) try { c.send(startMsg); } catch(e){} });
 setUserYoutubeStreams(prev => ({
 ...prev,
 [peerId]: finalYoutubeId
