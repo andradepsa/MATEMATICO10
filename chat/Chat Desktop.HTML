@@ -11,7 +11,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Chat K10">
-<meta name="referrer" content="no-referrer">
+<meta name="referrer" content="strict-origin-when-cross-origin">
 
 <!-- Open Graph / social sharing -->
 <meta property="og:type" content="website">
@@ -6148,75 +6148,110 @@ if (current.status === 'buffering') {
   }
   return { ...current, _tick: now };
 }
+
+
+
+
+
+
+
+
+
+
 } else if (current.type === 'youtube') {
-const endTime = current.startTime + (current.duration || 300) * 1000;
-if (now >= endTime) {
-if (youtubePlayerRef.current) {
-try { youtubePlayerRef.current.destroy(); } catch(e) {}
-youtubePlayerRef.current = null;
+  const endTime = current.startTime + (current.duration || 300) * 1000;
+  
+  if (now >= endTime) {
+    if (youtubePlayerRef.current) {
+      try { youtubePlayerRef.current.destroy(); } catch(e) {}
+      youtubePlayerRef.current = null;
+    }
+    return { status: 'idle', type: 'file', startTime: 0, duration: 0, audioUrl: null, youtubeId: null, fileName: '', sender: '', showVideo: false, videoSize: 'medium' };
+  }
+
+  if (now >= current.startTime && current.status === 'playing') {
+    if (window.YT && window.YT.Player && !youtubePlayerRef.current && youtubeContainerRef.current) {
+      
+      const isPlaylist = current.youtubeId && current.youtubeId.startsWith('playlist:');
+      const actualId = isPlaylist ? current.youtubeId.split(':')[1] : current.youtubeId;
+
+      const playerOptions = {
+        height: '100%',
+        width: '100%',
+        playerVars: {
+          autoplay: 1,
+          controls: 1,
+          start: Math.floor((now - current.startTime) / 1000),
+          
+          // === CORREÇÕES PARA RESOLVER ERRO 153 ===
+          origin: window.location.origin,
+          host: 'https://www.youtube-nocookie.com',
+          widget_referrer: window.location.origin,
+          // ========================================
+        },
+        events: {
+          onReady: (event) => {
+            event.target.playVideo();
+          },
+          onError: (event) => {
+            console.error("YouTube Player Error Code:", event.data);
+            setMessages(prev => [...prev, {
+              sender: '__system__',
+              senderName: 'YouTube',
+              text: `⚠️ Erro no player YouTube (código ${event.data}). Tente outro link.`,
+              time: new Date().toLocaleTimeString(),
+              timestamp: Date.now(),
+              type: 'text'
+            }]);
+          }
+        }
+      };
+
+      // Configuração de playlist ou vídeo normal
+      if (isPlaylist) {
+        playerOptions.playerVars.listType = 'playlist';
+        playerOptions.playerVars.list = actualId;
+      } else {
+        playerOptions.videoId = actualId;
+      }
+
+      // Cria o player
+      youtubePlayerRef.current = new window.YT.Player(
+        youtubeContainerRef.current, 
+        playerOptions
+      );
+    }
+  }
+} 
+else if (current.type === 'stream') {
+  if (current.status === 'buffering') {
+    if (now >= current.startTime) {
+      if (current.audioUrl && radioAudioRef.current) {
+        radioAudioRef.current.src = current.audioUrl;
+        radioAudioRef.current.crossOrigin = 'anonymous';
+        radioAudioRef.current.play().catch(err => {
+          console.warn('[Radio] stream play() falhou:', err);
+        });
+      }
+    }
+  }
+  // retry se parou de tocar
+  if (current.status === 'playing' && radioAudioRef.current && radioAudioRef.current.paused && current.audioUrl) {
+    radioAudioRef.current.play().catch(() => {});
+  }
 }
-return { status: 'idle', type: 'file', startTime: 0, duration: 0, audioUrl: null, youtubeId: null, fileName: '', sender: '', showVideo: false, videoSize: 'medium' };
-}
-if (now >= current.startTime && current.status === 'playing') {
-if (window.YT && window.YT.Player && !youtubePlayerRef.current && youtubeContainerRef.current) {
-const isPlaylist = current.youtubeId && current.youtubeId.startsWith('playlist:');
-const actualId = isPlaylist ? current.youtubeId.split(':')[1] : current.youtubeId;
 
 
-const playerOptions = {
-height: '100%',
-width: '100%',
-playerVars: {
-autoplay: 1,
-controls: 1,
-start: Math.floor((now - current.startTime) / 1000)
-},
-events: {
-onReady: (event) => {
-event.target.playVideo();
-}
-}
-};
-
-
-if (isPlaylist) {
-playerOptions.playerVars.listType = 'playlist';
-playerOptions.playerVars.list = actualId;
-} else {
-playerOptions.videoId = actualId;
-}
-
-
-youtubePlayerRef.current = new window.YT.Player(youtubeContainerRef.current, playerOptions);
-}
-}
-} else if (current.type === 'stream') {
-if (current.status === 'buffering') {
-if (now >= current.startTime) {
-if (current.audioUrl && radioAudioRef.current) {
-radioAudioRef.current.src = current.audioUrl;
-radioAudioRef.current.crossOrigin = 'anonymous';
-radioAudioRef.current.play().catch(err => {
-console.warn('[Radio] stream play() falhou:', err);
-});
-}
-return { ...current, status: 'playing' };
-}
-return { ...current, _tick: now };
-}
-// retry se parou de tocar
-if (current.status === 'playing' && radioAudioRef.current && radioAudioRef.current.paused && current.audioUrl) {
-radioAudioRef.current.play().catch(() => {});
-}
-}
 
 
 
-return current;
-});
-};
-radioIntervalRef.current = setInterval(check, 500);
-return () => clearInterval(radioIntervalRef.current);
+
+      return current;
+    });
+  };
+
+  radioIntervalRef.current = setInterval(check, 500);
+  return () => clearInterval(radioIntervalRef.current);
 }, []);
 
 useEffect(() => {
@@ -6242,68 +6277,146 @@ useEffect(() => {
 }, [radioState.status, radioState.audioUrl]);
 
 const stopRadio = () => {
-if (radioAudioRef.current) { radioAudioRef.current.pause(); radioAudioRef.current.src = ''; }
-if (youtubePlayerRef.current) {
-try { youtubePlayerRef.current.destroy(); } catch(e) {}
-youtubePlayerRef.current = null;
-}
-setRadioState({ status: 'idle', type: 'file', startTime: 0, duration: 0, audioUrl: null, youtubeId: null, fileName: '', sender: '', showVideo: false, videoSize: 'medium' });
+  if (radioAudioRef.current) { 
+    radioAudioRef.current.pause(); 
+    radioAudioRef.current.src = ''; 
+  }
+  if (youtubePlayerRef.current) {
+    try { youtubePlayerRef.current.destroy(); } catch(e) {}
+    youtubePlayerRef.current = null;
+  }
+  setRadioState({ 
+    status: 'idle', 
+    type: 'file', 
+    startTime: 0, 
+    duration: 0, 
+    audioUrl: null, 
+    youtubeId: null, 
+    fileName: '', 
+    sender: '', 
+    showVideo: false, 
+    videoSize: 'medium' 
+  });
 };
-
 
 const handleRadioUpload = (e) => {
-if (radioStateRef.current.status !== 'idle') { alert(t(lang, 'radioAlreadyPlaying')); e.target.value = ''; return; }
-const file = e.target.files[0]; if (!file) return;
-if (file.size > 5 * 1024 * 1024) { alert(t(lang, 'maxFileSizeErr')); e.target.value = ''; return; }
-const url = URL.createObjectURL(file);
-const audio = new Audio(url);
-audio.onloadedmetadata = () => {
-let duration = audio.duration;
-if (!duration || duration === Infinity) duration = 300;
-const startTime = Date.now() + 60000;
-const radioId = peerId + '_radio_' + Date.now();
-const startMsg = { type: 'radio-start', id: radioId + '_start', radioId, fileName: file.name, fileSize: file.size, duration, startTime, sender: peerId, senderName: userName, ttl: 15 };
-const fallbackMsg = { type: 'message', text: '#$%', id: radioId + '_fallback', sender: peerId, senderName: userName, ttl: 15 };
-seenMessagesRef.current.add(startMsg.id); seenMessagesRef.current.add(fallbackMsg.id);
-/* FIX BUG-6 */ connectionsRef.current.forEach(c => { if (c.open && c.peer === selectedContact) try { c.send(startMsg); c.send(fallbackMsg); } catch(e){} });
-setRadioState({ status: 'buffering', type: 'file', startTime, duration, audioUrl: null, youtubeId: null, fileName: file.name, sender: userName, showVideo: false, videoSize: 'medium' });
-const reader = new FileReader(); let offset = 0;
-reader.onload = ev => {
-const buffer = ev.target.result;
-const chunkMsg = { type: 'radio-chunk', id: radioId + '_chunk_' + offset, radioId, offset, chunk: buffer, ttl: 15 };
-seenMessagesRef.current.add(chunkMsg.id);
-/* FIX BUG-6 */ connectionsRef.current.forEach(c => { if (c.open && c.peer === selectedContact) try { c.send(chunkMsg); } catch(e){} });
-offset += buffer.byteLength;
-if (offset < file.size) reader.readAsArrayBuffer(file.slice(offset, offset + 64 * 1024));
-else setRadioState(prev => ({ ...prev, audioUrl: url }));
-};
-reader.readAsArrayBuffer(file.slice(0, 64 * 1024));
-};
-};
+  if (radioStateRef.current.status !== 'idle') { 
+    alert(t(lang, 'radioAlreadyPlaying')); 
+    e.target.value = ''; 
+    return; 
+  }
+  const file = e.target.files[0]; 
+  if (!file) return;
+  if (file.size > 5 * 1024 * 1024) { 
+    alert(t(lang, 'maxFileSizeErr')); 
+    e.target.value = ''; 
+    return; 
+  }
 
+  const url = URL.createObjectURL(file);
+  const audio = new Audio(url);
+  audio.onloadedmetadata = () => {
+    let duration = audio.duration;
+    if (!duration || duration === Infinity) duration = 300;
+
+    const startTime = Date.now() + 60000;
+    const radioId = peerId + '_radio_' + Date.now();
+
+    const startMsg = { 
+      type: 'radio-start', 
+      id: radioId + '_start', 
+      radioId, 
+      fileName: file.name, 
+      fileSize: file.size, 
+      duration, 
+      startTime, 
+      sender: peerId, 
+      senderName: userName, 
+      ttl: 15 
+    };
+    const fallbackMsg = { 
+      type: 'message', 
+      text: '#$%', 
+      id: radioId + '_fallback', 
+      sender: peerId, 
+      senderName: userName, 
+      ttl: 15 
+    };
+
+    seenMessagesRef.current.add(startMsg.id); 
+    seenMessagesRef.current.add(fallbackMsg.id);
+
+    connectionsRef.current.forEach(c => { 
+      if (c.open && c.peer === selectedContact) 
+        try { c.send(startMsg); c.send(fallbackMsg); } catch(e){} 
+    });
+
+    setRadioState({ 
+      status: 'buffering', 
+      type: 'file', 
+      startTime, 
+      duration, 
+      audioUrl: null, 
+      youtubeId: null, 
+      fileName: file.name, 
+      sender: userName, 
+      showVideo: false, 
+      videoSize: 'medium' 
+    });
+
+    const reader = new FileReader(); 
+    let offset = 0;
+    reader.onload = ev => {
+      const buffer = ev.target.result;
+      const chunkMsg = { 
+        type: 'radio-chunk', 
+        id: radioId + '_chunk_' + offset, 
+        radioId, 
+        offset, 
+        chunk: buffer, 
+        ttl: 15 
+      };
+      seenMessagesRef.current.add(chunkMsg.id);
+
+      connectionsRef.current.forEach(c => { 
+        if (c.open && c.peer === selectedContact) 
+          try { c.send(chunkMsg); } catch(e){} 
+      });
+
+      offset += buffer.byteLength;
+      if (offset < file.size) {
+        reader.readAsArrayBuffer(file.slice(offset, offset + 64 * 1024));
+      } else {
+        setRadioState(prev => ({ ...prev, audioUrl: url }));
+      }
+    };
+    reader.readAsArrayBuffer(file.slice(0, 64 * 1024));
+  };
+};
 
 const startWorldRadioBroadcast = (station) => {
   const radioId = peerId + '_radio_' + Date.now();
-
-  const startMsg = { 
-    type: 'radio-world-start', 
-    id: radioId + '_start', 
-    radioId, 
-    fileName: station.name, 
-    streamUrl: station.url_resolved, 
-    sender: peerId, 
-    senderName: userName, 
-    ttl: 15 
+  const startMsg = {
+    type: 'radio-world-start',
+    id: radioId + '_start',
+    radioId,
+    fileName: station.name,
+    streamUrl: station.url_resolved,
+    sender: peerId,
+    senderName: userName,
+    ttl: 15
   };
-  
+
   seenMessagesRef.current.add(startMsg.id);
-  /* FIX BUG-6: Broadcast to all peers */ connectionsRef.current.forEach(c => { if (c.open) try { c.send(startMsg); } catch(e){} });
-  
-  setUserRadios(prev => ({ 
-    ...prev, 
-    [peerId]: { url: station.url_resolved, name: station.name, radioId } 
+  connectionsRef.current.forEach(c => { 
+    if (c.open) try { c.send(startMsg); } catch(e){} 
+  });
+
+  setUserRadios(prev => ({
+    ...prev,
+    [peerId]: { url: station.url_resolved, name: station.name, radioId }
   }));
-  
+
   setShowWorldRadios(false);
 };
 
@@ -6317,71 +6430,111 @@ const handleStopWorldRadio = () => {
       ttl: 15
     };
     seenMessagesRef.current.add(stopMsg.id);
-    /* FIX BUG-6: Broadcast to all peers */ connectionsRef.current.forEach(c => { if (c.open) try { c.send(stopMsg); } catch(e){} });
-    setUserRadios(prev => { const next = { ...prev }; delete next[peerId]; return next; });
+    connectionsRef.current.forEach(c => { 
+      if (c.open) try { c.send(stopMsg); } catch(e){} 
+    });
+    setUserRadios(prev => { 
+      const next = { ...prev }; 
+      delete next[peerId]; 
+      return next; 
+    });
   }
 };
 
-
 const handleYoutubeRadio = () => {
-if (userYoutubeStreams[peerId]) {
-const stopMsg = {
-type: 'radio-youtube-stop',
-id: peerId + '_yt_stop_' + Date.now(),
-sender: peerId,
-senderName: userName,
-ttl: 15
+  if (userYoutubeStreams[peerId]) {
+    const stopMsg = {
+      type: 'radio-youtube-stop',
+      id: peerId + '_yt_stop_' + Date.now(),
+      sender: peerId,
+      senderName: userName,
+      ttl: 15
+    };
+    seenMessagesRef.current.add(stopMsg.id);
+    connectionsRef.current.forEach(c => { 
+      if (c.open) try { c.send(stopMsg); } catch(e){} 
+    });
+    setUserYoutubeStreams(prev => {
+      const next = { ...prev };
+      delete next[peerId];
+      return next;
+    });
+    return;
+  }
+  setShowYoutubeGrid(true);
 };
-seenMessagesRef.current.add(stopMsg.id);
-/* FIX BUG-6 */ connectionsRef.current.forEach(c => { if (c.open) try { c.send(stopMsg); } catch(e){} });
-setUserYoutubeStreams(prev => {
-const next = { ...prev };
-delete next[peerId];
-return next;
-});
-return;
-}
-
-
-setShowYoutubeGrid(true);
-};
-
 
 const startYoutubeBroadcast = (url) => {
-if (!url) return;
+  if (!url) return;
+
+  let finalYoutubeId = '';
+  try {
+    const parsedUrl = new URL(url);
+    if (parsedUrl.hostname === 'youtu.be') {
+      finalYoutubeId = parsedUrl.pathname.slice(1);
+    } else if (parsedUrl.hostname.includes('youtube.com')) {
+      if (parsedUrl.pathname === '/playlist') {
+        const list = parsedUrl.searchParams.get('list');
+        if (list) finalYoutubeId = `playlist:${list}`;
+      } else if (parsedUrl.pathname === '/watch') {
+        const v = parsedUrl.searchParams.get('v');
+        const list = parsedUrl.searchParams.get('list');
+        if (list) {
+          finalYoutubeId = `playlist:${list}`;
+        } else if (v) {
+          finalYoutubeId = v;
+        }
+      } else if (parsedUrl.pathname.startsWith('/embed/')) {
+        finalYoutubeId = parsedUrl.pathname.split('/')[2];
+      }
+    }
+  } catch (e) {}
+
+  if (!finalYoutubeId) {
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = url.match(regExp);
+    if (match && match[2].length === 11) {
+      finalYoutubeId = match[2];
+    }
+  }
+
+  if (!finalYoutubeId) {
+    alert(t(lang, 'invalidYoutubeUrl'));
+    return;
+  }
+
+  const radioId = peerId + '_yt_' + Date.now();
+  const startMsg = {
+    type: 'radio-youtube-start',
+    id: radioId + '_start',
+    radioId,
+    youtubeId: finalYoutubeId,
+    sender: peerId,
+    senderName: userName,
+    ttl: 15
+  };
+
+  seenMessagesRef.current.add(startMsg.id);
+  connectionsRef.current.forEach(c => { 
+    if (c.open) try { c.send(startMsg); } catch(e){} 
+  });
+
+  setUserYoutubeStreams(prev => ({
+    ...prev,
+    [peerId]: finalYoutubeId
+  }));
+
+  setShowYoutubeGrid(false);
+};
 
 
-let finalYoutubeId = '';
-try {
-const parsedUrl = new URL(url);
-if (parsedUrl.hostname === 'youtu.be') {
-finalYoutubeId = parsedUrl.pathname.slice(1);
-} else if (parsedUrl.hostname.includes('youtube.com')) {
-if (parsedUrl.pathname === '/playlist') {
-const list = parsedUrl.searchParams.get('list');
-if (list) finalYoutubeId = `playlist:${list}`;
-} else if (parsedUrl.pathname === '/watch') {
-const v = parsedUrl.searchParams.get('v');
-const list = parsedUrl.searchParams.get('list');
-if (list) {
-finalYoutubeId = `playlist:${list}`;
-} else if (v) {
-finalYoutubeId = v;
-}
-} else if (parsedUrl.pathname.startsWith('/embed/')) {
-finalYoutubeId = parsedUrl.pathname.split('/')[2];
-}
-}
-} catch (e) {}
 
 
-if (!finalYoutubeId) {
-const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-const match = url.match(regExp);
-if (match && match[2].length === 11) {
-finalYoutubeId = match[2];
-}
-}
+
+
+
+
+
 
 
 if (!finalYoutubeId) {
