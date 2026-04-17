@@ -29,7 +29,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — FBI-CENTER</title>
+<title>Chat K10 — FBI</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -4091,23 +4091,54 @@ const getPixabayKey = () => {
 // Cache de rodada: guarda SÓ a URL escolhida para etapa 2 reusar a mesma foto
 // Limpo a cada nova rodada — nunca acumula no computador do usuário
 const _worldImgCache = {};
+const _worldImgLocks = {};
 
-async function fetchWorldImage(query) {
-  // Etapa 2 reutiliza a URL já escolhida na etapa 1 — zero chamada extra
-  if (_worldImgCache[query]) return _worldImgCache[query];
+async function fetchWorldImage(query, usedImagesSet, syncCallback) {
+  if (!Array.isArray(_worldImgCache[query])) {
+    _worldImgCache[query] = [];
+  }
 
-  const key = getPixabayKey();
-  try {
-    const url = `https://pixabay.com/api/?key=${key}&q=${encodeURIComponent(query)}&image_type=photo&safesearch=true&per_page=200&orientation=horizontal`;
-    const res = await fetch(url);
-    const data = await res.json();
-    if (data.hits && data.hits.length > 0) {
-      // Escolhe 1 foto aleatória entre as 10 — só a URL é guardada, nada mais
-      const pick = data.hits[Math.floor(Math.random() * data.hits.length)];
-      _worldImgCache[query] = pick.webformatURL;
-      return pick.webformatURL;
+  if (_worldImgCache[query].length === 0) {
+    if (!_worldImgLocks[query]) {
+      _worldImgLocks[query] = (async () => {
+        const key = getPixabayKey();
+        try {
+          const url = `https://pixabay.com/api/?key=${key}&q=${encodeURIComponent(query)}&image_type=photo&safesearch=true&per_page=200&orientation=horizontal`;
+          const res = await fetch(url);
+          const data = await res.json();
+          if (data.hits && data.hits.length > 0) {
+            let hitsArr = [...data.hits];
+            // Fisher-Yates shuffle
+            for (let i = hitsArr.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [hitsArr[i], hitsArr[j]] = [hitsArr[j], hitsArr[i]];
+            }
+            _worldImgCache[query] = hitsArr;
+            
+            // ── SOLUÇÃO 2: Limpeza LRU Simples (Prevenção Memory Leak) ──
+            const keys = Object.keys(_worldImgCache);
+            if (keys.length > 20) {
+              const oldKey = keys.find(k => k !== query);
+              if (oldKey) delete _worldImgCache[oldKey];
+            }
+            
+            if (syncCallback) syncCallback(hitsArr);
+          }
+        } catch(e) { console.warn('Pixabay fetch error', e); } finally {
+          _worldImgLocks[query] = null;
+        }
+      })();
     }
-  } catch(e) { console.warn('Pixabay fetch error', e); }
+    await _worldImgLocks[query];
+  }
+
+  while (_worldImgCache[query].length > 0) {
+    const pick = _worldImgCache[query].shift();
+    if (usedImagesSet && !usedImagesSet.has(pick.id)) {
+       usedImagesSet.add(pick.id);
+       return pick; // Retorna todo o objeto 'hit' (incluindo .id e .webformatURL/.largeImageURL)
+    }
+  }
   return null;
 }
 
@@ -4419,7 +4450,7 @@ function buildAlternatives(pool, correct) {
 
 const MIN_QUIZ_INTERVAL = 120; // TRAVA: mínimo absoluto de 2 minutos — não remova
 
-const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizIntervalInput, setQuizIntervalInput, quizDiscipline, setQuizDiscipline, serverQuizBotActive, notifyServer, quizJitterTimerRef }) => {
+const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizIntervalInput, setQuizIntervalInput, quizDiscipline, setQuizDiscipline, serverQuizBotActive, notifyServer, quizJitterTimerRef, broadcastToggle }) => {
   const langName = getLangName(lang);
   return (
     <FloatingWindow
@@ -4488,12 +4519,16 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
               const newActive = !quizBotActive;
               setQuizBotActive(newActive);
               notifyServer(newActive ? 'quiz-bot-start' : 'quiz-bot-stop');
+              
+              // Dispara ativação global via P2P (Self-Healing)
+              if (broadcastToggle) broadcastToggle(newActive);
+
               if (newActive) {
-                // Jitter: atraso aleatório entre 1s e o intervalo configurado
-                // Dessincroniza os ciclos de centenas de servidores simultâneos
-                const jitterMs = 1000 + Math.floor(Math.random() * Math.max(MIN_QUIZ_INTERVAL, quizInterval) * 1000);
+                // Ao ligar o bot MANUALMENTE, vamos assumir com latência baixa inicial
+                // para o utilizador não achar que está "quebrado" esperando 2 minutos
+                const initialJitterMs = 1000 + Math.floor(Math.random() * 2000);
                 if (quizJitterTimerRef.current) clearTimeout(quizJitterTimerRef.current);
-                quizJitterTimerRef.current = setTimeout(askNextQuestion, jitterMs);
+                quizJitterTimerRef.current = setTimeout(askNextQuestion, initialJitterMs);
               } else {
                 if (quizJitterTimerRef.current) clearTimeout(quizJitterTimerRef.current);
               }
@@ -4638,10 +4673,13 @@ const worldQuizQueueRef    = useRef([]);   // fila embaralhada — garante que t
 const worldQuizNodesRef = useRef([]); // Lista de distribuidores do World Quiz recebida do servidor
 const worldQuizSubscribersRef = useRef(new Set()); // Lista de ouvintes que pediram minhas perguntas
 const worldQuizSubscribedToRef = useRef(null); // ID do distribuidor ao qual estamos inscritos
+const worldQuizUsedImagesRef = useRef(new Set()); // Diário de bordo: IDs do Pixabay já enviados
+const quizMasterIdRef = useRef(null); // Nó responsável por gerenciar a fila e tempo
 const selectedContactRef = useRef(null); // Ref para evitar stale closure em timers
 useEffect(() => { selectedContactRef.current = selectedContact; }, [selectedContact]);
 // ── VIGILÂNCIA P2P: rastreia último quiz recebido por peer ──────────────────
 const quizLastSeenRef = useRef({}); // { peerId: timestampMs }
+const quizSeenNoncesRef = useRef(new Set()); // Para impedir ataques de Repetição de Mensagem (Replay Avoidance)
 const QUIZ_VIGILANCE_MIN_MS = MIN_QUIZ_INTERVAL * 1000; // 60 000 ms — trava absoluta
 
 // Embaralha array in-place (Fisher-Yates)
@@ -4703,9 +4741,10 @@ const handlePollCreated = (question, options) => {
 
 // Quiz Bot Logic
 const notifyServer = (type) => {
-  const target = selectedContactRef.current;
-  if (target) {
-    const conn = connections.find(c => c.peer === target && c.open);
+  // AVISO: O Quiz Bot Lock DEVE ser notificado sempre e estritamente ao Servidor Central (server.html)
+  // Se usarmos selectedContactRef, o comando vai pro chat atual em vez do servidor.
+  if (centralServerId) {
+    const conn = connectionsRef.current.find(c => c.peer === centralServerId && c.open);
     if (conn) try { conn.send({ type }); } catch(e) {}
   }
 };
@@ -4854,13 +4893,18 @@ const askWorldQuestion = async () => {
 
   // Pega próximo lugar da fila embaralhada (nunca repete antes de ver todos os 35)
   const place = nextWorldPlace();
-  // Limpa o cache desta query para garantir foto diferente na próxima vez que este lugar aparecer
-  delete _worldImgCache[place.query];
   worldQuizPlaceRef.current = place;
   worldQuizImageRef.current = null;
 
-  // Busca imagem na Pixabay (com rotação de chaves)
-  const imgUrl = await fetchWorldImage(place.query);
+  // Busca imagem na Pixabay com suporte a buffer
+  const hit = await fetchWorldImage(place.query, worldQuizUsedImagesRef.current, (hits) => {
+    // Replica o buffer para toda a conexões (Takeover Support)
+    const syncMsg = { type: 'quiz-buffer-sync', query: place.query, hits };
+    connections.forEach(c => { if(c.open) try{c.send(syncMsg);}catch(e){} });
+  });
+
+  const imgUrl = hit ? hit.largeImageURL || hit.webformatURL : null;
+  const imgId = hit ? hit.id : null;
   worldQuizImageRef.current = imgUrl;
 
   // ── ETAPA 1: Qual o PAÍS? ──
@@ -4876,7 +4920,9 @@ const askWorldQuestion = async () => {
     quizCorrect: countryCorrectIdx,
     quizSubject: '📸 Lugares do Mundo',
     quizStage:   1,
-    quizImage:   imgUrl || undefined
+    quizImage:   imgUrl || undefined,
+    quizImageId: imgId || undefined,
+    nonce: Math.random().toString(36).substring(2, 10),
   };
 
   currentQuizQuestionRef.current = { ...quizData1, quizId: quizId1, votes: {} };
@@ -4906,7 +4952,8 @@ const askWorldQuestion = async () => {
         quizCorrect: stateCorrectIdx,
         quizSubject: '📸 Lugares do Mundo',
         quizStage:   2,
-        quizImage:   worldQuizImageRef.current || undefined  // mesma imagem — zero chamadas extras
+        quizImage:   worldQuizImageRef.current || undefined,  // mesma imagem — zero chamadas extras
+        nonce: Math.random().toString(36).substring(2, 10),
       };
 
       currentQuizQuestionRef.current = { ...quizData2, quizId: quizId2, votes: {} };
@@ -4953,56 +5000,72 @@ const broadcastQuizViolation = (violatorId, violatorName, elapsedSec) => {
   setMessages(prev => [...prev, alertMsg].slice(-500));
 };
 
+// ── Eleição de Mestre P2P (Self-Healing e Consistência) ──
+const checkAndAssumeQuizMaster = () => {
+  if (!quizBotActiveRef.current) return false;
+  // Pega todos os peers conectados + nós mesmos
+  const peers = [peerId, ...connectionsRef.current.filter(c => c.open).map(c => c.peer)];
+  peers.sort(); // Eleição alfanumérica
+  const isMaster = peers[0] === peerId;
+  const wasMaster = quizMasterIdRef.current === peerId;
+  quizMasterIdRef.current = peers[0];
+
+  if (isMaster && !wasMaster) {
+     console.log("👑 Assumi a coroa de Mestre do Quiz via P2P (Alfanumérico)!");
+     if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
+     if (quizJitterTimerRef.current) clearTimeout(quizJitterTimerRef.current);
+     // Jitter aleatório p/ dar segurança que todos enxergaram a queda unânime
+     const takeoverDelayMs = 2000 + Math.floor(Math.random() * 2000); 
+     quizJitterTimerRef.current = setTimeout(() => {
+        // ── SOLUÇÃO 5: Master Claim pra Resolução de Conflito ──
+        connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'master-claim', senderId: peerId});}catch(e){} });
+        askNextQuestion();
+     }, takeoverDelayMs);
+     
+     // RETORNO FALSO TEMPORÁRIO: Bloqueia a execução imediata para evitar disparo duplo de perguntas, delegando para o setTimeout acima.
+     return false;
+  }
+  return isMaster;
+};
+
 const askNextQuestion = async () => {
   if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
 
-  // ── World Quiz: rota direta, sem tocar no pool normal ──
-  if (quizDiscipline === 'world') {
-    const otherNodes = worldQuizNodesRef.current.filter(id => id !== peerId);
-    if (otherNodes.length > 0) {
-      // Somos ouvintes! Escolhe um distribuidor e se inscreve
-      const distributorId = otherNodes[Math.floor(Math.random() * otherNodes.length)];
-      worldQuizSubscribedToRef.current = distributorId;
-      console.log("World Quiz: Inscrito no distribuidor", distributorId);
+  const isMaster = checkAndAssumeQuizMaster();
+
+  if (!isMaster) {
+      // Somos ouvintes/escravos (Vice-Mestres ou Recebedores).
+      // Apenas aguardamos. O tempo e os dados virão pelo relay.
+      const masterId = quizMasterIdRef.current;
       
-      // Envia mensagem de inscrição
-      const subMsg = { type: 'subscribe-world-quiz', myId: peerId, distributorId };
-      if (selectedContact) {
-        const conn = connections.find(c => c.peer === selectedContact && c.open);
-        if (conn) try { conn.send(subMsg); } catch(e) {}
-      } else {
-        const conn = connections.find(c => c.peer === distributorId && c.open);
-        if (conn) {
-          try { conn.send(subMsg); } catch(e) {}
-        } else {
-          // Se não estiver conectado, tenta conectar e enviar
-          if (peerInstance.current) {
-            const tempConn = peerInstance.current.connect(distributorId, { reliable: true });
-            if (tempConn) {
-              tempConn.on('open', () => {
-                try { tempConn.send(subMsg); } catch(e) {}
-                setConnections(prev => [...prev, tempConn]);
-              });
-            }
-          }
+      // Enviamos inscrição (Fallback pra garantir rotas diretas, vital pro World Sync)
+      if (masterId !== worldQuizSubscribedToRef.current) {
+        worldQuizSubscribedToRef.current = masterId;
+        const subMsg = { type: 'subscribe-world-quiz', myId: peerId, distributorId: masterId };
+        const masterConn = connections.find(c => c.peer === masterId && c.open);
+        if (masterConn) {
+          try { masterConn.send(subMsg); } catch(e) {}
         }
       }
       
-      // Agenda uma verificação: se não recebermos quiz em 2 minutos, tentamos outro ou viramos distribuidor
+      // Vigilância P2P pra Failover rápido: se o master demorar muito, re-elege
       quizTimerRef.current = setTimeout(() => {
-        if (quizBotActiveRef.current && quizDisciplineRef.current === 'world') {
-          console.log("World Quiz: Timeout esperando quiz do distribuidor. Tentando novamente...");
+        if (quizBotActiveRef.current) {
+          console.log("Quiz: Timeout esperando mestre. Removendo inscrição e triggando auto-cura...");
           worldQuizSubscribedToRef.current = null;
-          askNextQuestion();
+          askNextQuestion(); // Retorna ao ciclo para auto-cura local ser triggada
         }
-      }, 120000);
+      }, safeQuizInterval() * 1000 + 15000); // Fôlego pro master network
       
-      return; // Não chama askWorldQuestion
-    } else {
-      // Somos o distribuidor!
-      worldQuizSubscribedToRef.current = null;
+      return;
+  }
+
+  // ── SE CHEGAMOS AQUI: SOMOS O MESTRE DA REDE! ──
+  worldQuizSubscribedToRef.current = null;
+
+  // ── World Quiz: rota direta Fetch ──
+  if (quizDiscipline === 'world') {
       return askWorldQuestion();
-    }
   }
 
   const ALL_POOL_NO_WORLD = QUIZ_SUBJECTS.filter(s => s.id !== 'world');
@@ -5067,7 +5130,9 @@ const askNextQuestion = async () => {
     quizQuestion: questionText,
     quizOptions: cleanOpts,
     quizCorrect: q.correta,
-    quizSubject: `${selectedSubject.emoji} ${selectedSubject.name}`
+    quizSubject: `${selectedSubject.emoji} ${selectedSubject.name}`,
+    quizStage: 0,
+    nonce: Math.random().toString(36).substring(2, 10),
   });
 
   quizTimerRef.current = setTimeout(() => {
@@ -5243,8 +5308,65 @@ if (data.type === 'quiz-violation') {
   return;
 }
 
+if (data.type === 'master-claim') {
+  // ── SOLUÇÃO 5: Resolução de Conflito de Split Brain ──
+  // Se outro peer clama ser mestre e tem um ID menor que o meu (prioridade), eu recuo.
+  if (data.senderId < peerId && quizMasterIdRef.current === peerId) {
+     console.log("🏳️ Cedi a coroa P2P para um nó prioritário pós-conflito:", data.senderId);
+     quizMasterIdRef.current = data.senderId;
+     if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
+     if (quizJitterTimerRef.current) clearTimeout(quizJitterTimerRef.current);
+  }
+  return;
+}
+
 if (data.type === 'subscribe-world-quiz') {
   worldQuizSubscribersRef.current.add(data.myId);
+  // ── LATE JOINER SYNC (Sincroniza novato com o estado atual) ──
+  // SOLUÇÃO VULNERABILIDADE 7 (RETRANSMISSÃO SYNC): enviamos o cache e os ids sempre 
+  // se o master re-confirmar ou via fallbacks de broadcast periódico pra esse peer
+  if (quizMasterIdRef.current === peerId) {
+     // 1. Sincroniza o Buffer de Imagens Em Cache
+     Object.keys(_worldImgCache).forEach(query => {
+        const hits = _worldImgCache[query];
+        if (hits && hits.length > 0) {
+           const syncMsg = { type: 'quiz-buffer-sync', query, hits };
+           const conn = connections.find(c => c.peer === data.myId && c.open);
+           if (conn) try { conn.send(syncMsg); } catch(e){}
+        }
+     });
+     // 2. Sincroniza o Diário de Bordo (IDs de fotos do Pixabay proibidas pra não repetir)
+     const usedIds = Array.from(worldQuizUsedImagesRef.current);
+     if (usedIds.length > 0) {
+        const usedMsg = { type: 'quiz-used-sync', usedIds };
+        const conn = connections.find(c => c.peer === data.myId && c.open);
+        if (conn) try { conn.send(usedMsg); } catch(e){}
+     }
+  }
+  return;
+}
+
+if (data.type === 'quiz-used-sync' && Array.isArray(data.usedIds)) {
+  data.usedIds.forEach(id => worldQuizUsedImagesRef.current.add(id));
+  return;
+}
+
+if (data.type === 'quiz-buffer-sync' && data.hits) {
+  if (!Array.isArray(_worldImgCache[data.query])) {
+    _worldImgCache[data.query] = [];
+  }
+  const existingIds = new Set(_worldImgCache[data.query].map(h => h.id));
+  const newHits = data.hits.filter(h => !existingIds.has(h.id));
+  _worldImgCache[data.query] = [..._worldImgCache[data.query], ...newHits];
+  return;
+}
+
+if (data.type === 'quiz-bot-global-toggle') {
+  setQuizBotActive(data.active);
+  quizBotActiveRef.current = data.active;
+  if (data.active) {
+    setTimeout(checkAndAssumeQuizMaster, 2000); // Wait a bit then check master
+  }
   return;
 }
 
@@ -5646,16 +5768,29 @@ return;
 
 // ── Quiz via relay do servidor ────────────────────────────────────
 if (data.text === '__QUIZ__' && data.quizPayload) {
+  if (data.quizPayload.quizImageId) {
+     worldQuizUsedImagesRef.current.add(data.quizPayload.quizImageId);
+  }
   // Se somos ouvinte de um distribuidor, resetamos o timer de vigilância
   if (worldQuizSubscribedToRef.current !== null) {
     if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
-    // Renova: se não recebermos mais nada em 150s, aí sim tentamos outro distribuidor
+    // Renova: se não recebermos mais nada no tempo do quiz + tolerância, assumimos a coroa (Heartbeat Dinâmico)
+    const heartbeatLimitMs = safeQuizInterval() * 1000 + 15000;
     quizTimerRef.current = setTimeout(() => {
       if (quizBotActiveRef.current && quizDisciplineRef.current === 'world') {
+        setMessages(prev => [...prev, {
+          type: 'text',
+          sender: 'system',
+          senderName: '👑 Sistema P2P',
+          time: new Date().toLocaleTimeString('en-US'),
+          timestamp: Date.now(),
+          recipient: 'general',
+          text: `Silêncio do Mestre detectado (timeout de ${Math.round(heartbeatLimitMs/1000)}s). Reorganizando a partida...`
+        }].slice(-500));
         worldQuizSubscribedToRef.current = null;
         askNextQuestion();
       }
-    }, 150000);
+    }, heartbeatLimitMs);
   }
 
   // ── VIGILÂNCIA: verifica intervalo mínimo de 60s por peer ──────
@@ -5665,6 +5800,13 @@ if (data.text === '__QUIZ__' && data.quizPayload) {
   if (lastSeen) {
     const elapsed = (now - lastSeen) / 1000;
     if (elapsed < MIN_QUIZ_INTERVAL) {
+      // VIOLAÇÃO DE REPLAY: mensagem velha enviada novamente — dropa imediato
+      if (data.quizPayload && data.quizPayload.nonce && quizSeenNoncesRef.current.has(data.quizPayload.nonce)) {
+         return; // Drop ignorando silenciosamente (previne ataque)
+      }
+      quizSeenNoncesRef.current.add(data.quizPayload?.nonce);
+      if (quizSeenNoncesRef.current.size > 200) { Array.from(quizSeenNoncesRef.current).slice(0, 100).forEach(n => quizSeenNoncesRef.current.delete(n)); } // Mantem limpo o set
+
       // VIOLAÇÃO: rejeita mensagem e alerta toda a rede
       broadcastQuizViolation(senderId, data.senderName, elapsed);
       return; // bloqueia o quiz
@@ -5673,6 +5815,27 @@ if (data.text === '__QUIZ__' && data.quizPayload) {
   quizLastSeenRef.current[senderId] = now; // atualiza timestamp
   const currentLang = langRef.current;
   const qd = data.quizPayload;
+  
+  // SOLUÇÃO VULNERABILIDADE 2: TIMEOUT DE REVEAL PÓS-MORTE DO MESTRE //
+  // Em vez de aguardar o mestre ditar o "Reveal", todo nó cliente agora agenda o seu próprio
+  // revelador fantasma pra mesma pergunta (Tempo Quiz + 5s extras para cobrir latência rede). 
+  // Se o mestre cair no meio de uma pergunta na tela e não enviar o sinal oficial "__QUIZ_REVEAL__",
+  // o timer deste cliente fecha a rodada e chama checkAndAssumeQuizMaster.
+  const localRevealOrphanFallbackMs = safeQuizInterval() * 1000 + 5000;
+  if (worldQuizSubscribedToRef.current !== null && qd && qd.quizId) {
+     if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
+     quizTimerRef.current = setTimeout(() => {
+        if (quizBotActiveRef.current && currentQuizQuestionRef.current?.quizId === qd.quizId) {
+            setMessages(prev => prev.map(m =>
+              m.quizId === qd.quizId ? { ...m, quizRevealed: true, quizVotes: { ...m.quizVotes } } : m
+            ));
+            currentQuizQuestionRef.current = null;
+            // E chama a próxima já triggando eleição / auto-cura local!
+            askNextQuestion();
+        }
+     }, localRevealOrphanFallbackMs);
+  }
+
   const baseQuizMsg = {
     type: 'quiz-question',
     sender: pId,
@@ -5866,7 +6029,7 @@ setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
 }
 });
 conn.on('error', err => { clearTimeout(timeoutId); setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)); alert(t(lang, 'connectFailed') + (err.message || 'Contact offline')); });
-conn.on('close', () => { clearTimeout(timeoutId); worldQuizSubscribersRef.current.delete(peerIdToConnect); setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)); });
+conn.on('close', () => { clearTimeout(timeoutId); worldQuizSubscribersRef.current.delete(peerIdToConnect); setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)); setTimeout(checkAndAssumeQuizMaster, 1000); });
 conn.on('data', data => handleIncomingData(data, peerIdToConnect));
 } catch (err) { alert(t(lang, 'connectError') + err.message); }
 };
@@ -5919,7 +6082,7 @@ const conn = peer.connect(porta, { reliable: true });
 if (conn) {
 conn.on('open', () => { setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]); sendRadioSync(conn); try { conn.send({ type: 'radio-request-sync' }); } catch(e){} });
 conn.on('data', data => handleIncomingData(data, porta));
-conn.on('close', () => { worldQuizSubscribersRef.current.delete(porta); setConnections(prev => prev.filter(c => c.peer !== porta)); });
+conn.on('close', () => { worldQuizSubscribersRef.current.delete(porta); setConnections(prev => prev.filter(c => c.peer !== porta)); setTimeout(checkAndAssumeQuizMaster, 1000); });
 conn.on('error', () => { worldQuizSubscribersRef.current.delete(porta); setConnections(prev => prev.filter(c => c.peer !== porta)); });
 }
 }
@@ -5985,7 +6148,7 @@ setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
 }
 });
 conn.on('data', data => handleIncomingData(data, conn.peer));
-conn.on('close', () => { worldQuizSubscribersRef.current.delete(conn.peer); setConnections(prev => prev.filter(c => c.peer !== conn.peer)); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); });
+conn.on('close', () => { worldQuizSubscribersRef.current.delete(conn.peer); setConnections(prev => prev.filter(c => c.peer !== conn.peer)); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); setTimeout(checkAndAssumeQuizMaster, 1000); });
 conn.on('error', () => { worldQuizSubscribersRef.current.delete(conn.peer); setConnections(prev => prev.filter(c => c.peer !== conn.peer)); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); });
 });
 
@@ -6816,7 +6979,7 @@ return (
 {showPollCreator && <PollCreator onClose={() => setShowPollCreator(false)} onCreated={handlePollCreated} />}
 {showMarkdownEditor && <MarkdownEditor lang={lang} connections={connections} selectedContact={selectedContact} onClose={() => setShowMarkdownEditor(false)} />}
 {showGeneralModeInfo && <GeneralModeInfoModal lang={lang} selectedContact={selectedContact} onClose={() => setShowGeneralModeInfo(false)} />}
-{showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} />}
+{showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => connections.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act});}catch(e){} })} />}
 {showTorrentManager && (
 <TorrentManagerModal
 lang={lang}
