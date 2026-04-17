@@ -5570,7 +5570,7 @@ let ttl = data.ttl !== undefined ? data.ttl : 8;
 if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
 
 setUserRadios(prev => {
-const next = { ...prev, [data.sender]: { url: data.streamUrl, name: data.fileName, radioId: data.radioId } };
+const next = { ...prev, [data.sender]: { url: data.streamUrl, name: data.fileName, radioId: data.radioId, senderName: data.senderName } };
 console.log('Updated userRadios:', next);
 if (Object.keys(next).length > 10) delete next[Object.keys(next)[0]];
 return next;
@@ -5980,6 +5980,21 @@ ttl: 1
 const sendYt = () => { try { conn.send(ytSyncMsg); } catch(e) {} };
 sendYt(); setTimeout(sendYt, 1000);
 }
+// Sync all known world radio stations to the new peer
+Object.keys(userRadiosRef.current).forEach(senderPId => {
+const station = userRadiosRef.current[senderPId];
+const worldMsg = {
+type: 'radio-world-start',
+id: senderPId + '_sync_' + Date.now(),
+radioId: station.radioId,
+fileName: station.name,
+streamUrl: station.url,
+sender: senderPId,
+senderName: station.senderName || senderPId,
+ttl: 1
+};
+try { conn.send(worldMsg); } catch(e) {}
+});
 };
 
 const disconnectPeer = (pId) => {
@@ -6523,7 +6538,7 @@ const startWorldRadioBroadcast = (station) => {
   // 3. Atualiza o estado local para exibir o rádio tocando
   setUserRadios(prev => ({ 
     ...prev, 
-    [peerId]: { url: station.url_resolved, name: station.name, radioId } 
+    [peerId]: { url: station.url_resolved, name: station.name, radioId, senderName: userName } 
   }));
   
   // 4. Fecha o modal de seleção
