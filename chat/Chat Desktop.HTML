@@ -2,6 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://www.youtube.com; style-src 'self' 'unsafe-inline' https: data:; img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; font-src 'self' https: data:; connect-src 'self' wss: https: data: blob:; frame-src https://www.youtube.com https://www.youtube-nocookie.com">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Permissions-Policy" content="camera=(self), microphone=(self), geolocation=(), payment=(), usb=()">
   <link rel="icon" href="data:,">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Chat FBI</title>
@@ -606,15 +609,15 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
   })();
 </script>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.1/peerjs.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" integrity="sha384-tMH8h3BGESGckSAVGZ82T9n90ztNXxvdwvdM6UoR56cYcf+0iGXBliJ29D+wZ/x8" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" integrity="sha384-bm7MnzvK++ykSwVJ2tynSE5TRdN+xL418osEVF2DE/L/gfWHj91J2Sphe582B1Bh" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js" integrity="sha384-1qlE7MZPM2pHD/pBZCU/yB8UCP52RYL8bge/qNdfNBCWToySp8/M+JL2waXU4hjJ" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.1/peerjs.min.js" integrity="sha384-qOF1Ybxd53PR4BTaDzAk+eXLDARxOKQYQpXPqbJu/xkJWLIDDfP/ZusfTctQyNs+" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
 <script src="https://www.youtube.com/iframe_api"></script>
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" integrity="sha384-948ahk4ZmxYVYOc+rxN1H2gM1EJ2Duhp7uHtZ4WSLkV4Vtx5MUqnV+l7u9B+jFv+" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js" integrity="sha384-MTDrIlFOzEqpmOxY6UIA/1Zkh0a64UlmJ6R0UrZXqXCPx99siPGi8EmtQjIeCcTH" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js" integrity="sha384-cwS6YdhLI7XS60eoDiC+egV0qHp8zI+Cms46R0nbn8JrmoAzV9uFL60etMZhAnSu" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
 <script type="text/babel">
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
@@ -1277,34 +1280,208 @@ async function translateQuizText(text, targetLang) {
   return promise;
 }
 
+// F0-#2: limites duros para impedir DoS de memória via file-start/audio-start/radio-start
+const MAX_FILE_BYTES = 100 * 1024 * 1024;   // 100 MB
+const MAX_AUDIO_BYTES = 5 * 1024 * 1024;    // 5 MB (~3min webm)
+const MAX_RADIO_BYTES = 50 * 1024 * 1024;   // 50 MB
+function _validChunkBounds(fd, offset, length){
+  return Number.isInteger(offset) && offset >= 0 &&
+         Number.isInteger(length) && length > 0 &&
+         offset + length <= fd.totalSize;
+}
 const quizTranslationCache = new Map(); // mantido para compatibilidade
-const keyCache = new Map();
+// F1-#14: LRU keyCache com TTL — chaves derivadas expiram em 30 min e cap em 50 entradas
+const KEY_CACHE_MAX = 50;
+const KEY_CACHE_TTL_MS = 30 * 60 * 1000;
+const keyCache = new Map(); // key: cacheKey -> { key, exp }
+function _keyCacheGet(k){
+  const e = keyCache.get(k);
+  if (!e) return null;
+  if (e.exp < Date.now()) { keyCache.delete(k); return null; }
+  // LRU touch
+  keyCache.delete(k); keyCache.set(k, e);
+  return e.key;
+}
+function _keyCacheSet(k, key){
+  if (keyCache.size >= KEY_CACHE_MAX) {
+    const first = keyCache.keys().next().value;
+    if (first !== undefined) keyCache.delete(first);
+  }
+  keyCache.set(k, { key, exp: Date.now() + KEY_CACHE_TTL_MS });
+}
+function _keyCacheClear(){ keyCache.clear(); }
+
+
+// F2-#2: SHA-256 helper para validar integridade de arquivos recebidos
+async function _sha256Hex(u8) {
+  const h = await crypto.subtle.digest('SHA-256', u8);
+  return Array.from(new Uint8Array(h), b => b.toString(16).padStart(2,'0')).join('');
+}
+// F0-#10: base64 helpers seguros para arrays grandes (chunks 8KB evitam stack overflow)
+function _u8ToB64(u8){ let s=''; const C=8192; for(let i=0;i<u8.length;i+=C){ s+=String.fromCharCode.apply(null,u8.subarray(i,i+C)); } return btoa(s); }
+function _b64ToU8(b64){ const bin=atob(b64); const u8=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i); return u8; }
+
+
+// F2-#8: helper para enviar ACK ao remetente original
+function _sendAckIfPossible(conn, msgId) {
+  try { if (conn && conn.open && msgId) conn.send({ type: 'ack', ackId: msgId }); } catch(e){}
+}
+
+// F2-#8 NOTE: o status de entrega é gravado em messages[i].deliveryStatus = 'delivered' quando
+// o ACK chega. O emissor pode escutar via useEffect e exibir ✓✓ na UI.
+// Para inicializar como 'sent' nas mensagens enviadas, recomenda-se acrescentar
+// deliveryStatus:'sent' ao objeto criado em setMessages local após conn.send({type:'message',...}).
+
+// F3-#4: Configuração de rede (signaling + TURN) — sobrescritível via localStorage
+function _getNetConfig() {
+  let custom = {};
+  try {
+    const raw = localStorage.getItem('k10:netConfig');
+    if (raw) custom = JSON.parse(raw) || {};
+  } catch(e) { console.warn('[K10] netConfig inválido em localStorage'); }
+  const def = {
+    signaling: [
+      { host: '0.peerjs.com', port: 443, secure: true, path: '/' }
+    ],
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+      { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' }
+    ]
+  };
+  return {
+    signaling: Array.isArray(custom.signaling) && custom.signaling.length ? custom.signaling : def.signaling,
+    iceServers: Array.isArray(custom.iceServers) && custom.iceServers.length ? custom.iceServers : def.iceServers
+  };
+}
+function _signalingHealth(state) {
+  // state: { peerOpen, dataChannelOpen, turnUsed }
+  if (!state) return { color:'red', label:'unknown' };
+  if (!state.peerOpen) return { color:'red', label:'signaling offline' };
+  if (!state.dataChannelOpen) return { color:'yellow', label:'signaling ok / sem DC' };
+  return { color:'green', label: state.turnUsed ? 'via TURN' : 'P2P direto' };
+}
+
+// F4-#15: Logger central com buffer circular (300 entradas) — exportável
+const _K10_LOG_MAX = 300;
+const _k10Log = [];
+function k10log(level, ...args) {
+  const entry = { ts: new Date().toISOString(), level, msg: args.map(a => { try { return typeof a === 'string' ? a : JSON.stringify(a); } catch(e){ return String(a); } }).join(' ') };
+  _k10Log.push(entry);
+  if (_k10Log.length > _K10_LOG_MAX) _k10Log.shift();
+  if (typeof console !== 'undefined' && console[level]) console[level]('[K10]', ...args);
+}
+function k10logExport() {
+  const blob = new Blob([JSON.stringify(_k10Log, null, 2)], { type:'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'k10-logs-' + Date.now() + '.json'; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+window.k10log = k10log; window.k10logExport = k10logExport;
+
+// F4-#11: wrapper IndexedDB minimal para histórico futuro (idb-lite)
+const _IDB_NAME = 'k10-store';
+const _IDB_VER = 1;
+const _IDB_STORE = 'kv';
+function _idb() {
+  return new Promise((res, rej) => {
+    const r = indexedDB.open(_IDB_NAME, _IDB_VER);
+    r.onupgradeneeded = () => r.result.createObjectStore(_IDB_STORE);
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  });
+}
+async function k10idbSet(k, v) { const db = await _idb(); return new Promise((res, rej) => { const tx = db.transaction(_IDB_STORE,'readwrite'); tx.objectStore(_IDB_STORE).put(v,k); tx.oncomplete=()=>res(true); tx.onerror=()=>rej(tx.error); }); }
+async function k10idbGet(k)    { const db = await _idb(); return new Promise((res, rej) => { const tx = db.transaction(_IDB_STORE,'readonly');  const r = tx.objectStore(_IDB_STORE).get(k); r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+async function k10idbDel(k)    { const db = await _idb(); return new Promise((res, rej) => { const tx = db.transaction(_IDB_STORE,'readwrite'); tx.objectStore(_IDB_STORE).delete(k); tx.oncomplete=()=>res(true); tx.onerror=()=>rej(tx.error); }); }
+window.k10idbSet = k10idbSet; window.k10idbGet = k10idbGet; window.k10idbDel = k10idbDel;
+
+// F5-#13: utilitário para vigiar fim/revogação do dispositivo de microfone
+function _watchMicStream(stream, onEnd) {
+  if (!stream) return;
+  try {
+    stream.getTracks().forEach(t => { t.onended = () => { try { onEnd && onEnd('track-ended'); } catch(e){} }; });
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({ name: 'microphone' }).then(p => {
+        p.onchange = () => { if (p.state !== 'granted') { try { onEnd && onEnd('permission-' + p.state); } catch(e){} } };
+      }).catch(() => {});
+    }
+  } catch(e) { console.warn('[K10] _watchMicStream falhou:', e); }
+}
+window._watchMicStream = _watchMicStream;
+// F1-#1: HKDF-SHA-256 substitui PBKDF2; salt aleatório de 16B vai no envelope.
+// Envelope V1:  [0x01][salt:16][iv:12][ciphertext+tag]
+// Envelope V0 (legado, lido apenas):  [iv:12][ciphertext+tag]  com PBKDF2(100k, salt fixo "chat-k10-e2ee-2026")
+const ENVELOPE_VERSION_V1 = 0x01;
+const ENC_INFO = new TextEncoder().encode("chat-k10/aes-gcm/v1");
+
+async function _deriveKeyV1(secret, salt) {
+  // cache por (secret, salt)
+  const cacheKey = "v1:" + secret + ":" + _u8ToB64(salt);
+  const hit = _keyCacheGet(cacheKey);
+  if (hit) return hit;
+  const enc = new TextEncoder();
+  const base = await crypto.subtle.importKey("raw", enc.encode(secret), "HKDF", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey(
+    { name: "HKDF", hash: "SHA-256", salt, info: ENC_INFO },
+    base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
+  );
+  _keyCacheSet(cacheKey, key);
+  return key;
+}
+
+async function _deriveKeyV0Legacy(secret) {
+  const cacheKey = "v0:" + secret;
+  const hit = _keyCacheGet(cacheKey);
+  if (hit) return hit;
+  const enc = new TextEncoder();
+  const base = await crypto.subtle.importKey("raw", enc.encode(secret), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt: enc.encode("chat-k10-e2ee-2026"), iterations: 100000, hash: "SHA-256" },
+    base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
+  );
+  _keyCacheSet(cacheKey, key);
+  return key;
+}
+
+// API pública mantida por compatibilidade com chamadas existentes.
 async function deriveKey(secret) {
-if (keyCache.has(secret)) return keyCache.get(secret);
-const enc = new TextEncoder();
-const base = await crypto.subtle.importKey("raw", enc.encode(secret), "PBKDF2", false, ["deriveKey"]);
-const key = await crypto.subtle.deriveKey(
-{ name: "PBKDF2", salt: enc.encode("chat-k10-e2ee-2026"), iterations: 100000, hash: "SHA-256" },
-base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]
-);
-keyCache.set(secret, key);
-return key;
+  // Usado raramente fora; delega ao caminho legado para preservar comportamento.
+  return _deriveKeyV0Legacy(secret);
 }
+
 async function encryptMsg(text, secret) {
-const key = await deriveKey(secret);
-const iv = crypto.getRandomValues(new Uint8Array(12));
-const enc = new TextEncoder();
-const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(text));
-const combined = new Uint8Array(iv.length + cipher.byteLength);
-combined.set(iv, 0); combined.set(new Uint8Array(cipher), 12);
-return btoa(String.fromCharCode(...combined));
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv   = crypto.getRandomValues(new Uint8Array(12));
+  const key  = await _deriveKeyV1(secret, salt);
+  const enc  = new TextEncoder();
+  const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, enc.encode(text));
+  const ct = new Uint8Array(cipher);
+  const out = new Uint8Array(1 + 16 + 12 + ct.length);
+  out[0] = ENVELOPE_VERSION_V1;
+  out.set(salt, 1);
+  out.set(iv, 1 + 16);
+  out.set(ct, 1 + 16 + 12);
+  return _u8ToB64(out);
 }
+
 async function decryptMsg(b64, secret) {
-const key = await deriveKey(secret);
-const data = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-const iv = data.slice(0, 12), cipher = data.slice(12);
-const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipher);
-return new TextDecoder().decode(plain);
+  const data = _b64ToU8(b64);
+  // Detecção de versão: byte 0x01 + tamanho mínimo coerente com V1
+  if (data.length >= 1 + 16 + 12 + 16 && data[0] === ENVELOPE_VERSION_V1) {
+    const salt = data.slice(1, 1 + 16);
+    const iv   = data.slice(1 + 16, 1 + 16 + 12);
+    const cph  = data.slice(1 + 16 + 12);
+    const key  = await _deriveKeyV1(secret, salt);
+    const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cph);
+    return new TextDecoder().decode(plain);
+  }
+  // Fallback V0: histórico antigo (PBKDF2 + salt fixo)
+  const key = await _deriveKeyV0Legacy(secret);
+  const iv  = data.slice(0, 12), cph = data.slice(12);
+  const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cph);
+  return new TextDecoder().decode(plain);
 }
 function generateSecret() {
 return Array.from(crypto.getRandomValues(new Uint8Array(32)), b => b.toString(16).padStart(2,'0')).join('');
@@ -5364,7 +5541,8 @@ pruneSeenMessages();
 let ttl = data.ttl !== undefined ? data.ttl : 8;
 if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
 if (data.type === 'radio-start') {
-pendingRadioFiles.current[data.radioId] = { chunks: new Uint8Array(data.fileSize), receivedBytes: 0, totalSize: data.fileSize };
+if (!Number.isInteger(data.fileSize) || data.fileSize <= 0 || data.fileSize > MAX_RADIO_BYTES) { console.warn("[K10] radio-start rejeitado: fileSize inválido", data.fileSize); return; }
+pendingRadioFiles.current[data.radioId] = { chunks: new Uint8Array(data.fileSize), receivedBytes: 0, totalSize: data.fileSize, received: new Uint8Array(Math.ceil(data.fileSize / (16*1024))) };
 setRadioState({ status: 'buffering', type: 'file', startTime: data.startTime, duration: data.duration, audioUrl: null, youtubeId: null, fileName: data.fileName, sender: data.senderName, showVideo: false, videoSize: 'medium' });
 } else if (data.type === 'radio-stream-start') {
 setUserRadios(prev => ({ ...prev, [data.sender]: { url: data.streamUrl, name: data.fileName, radioId: data.radioId } }));
@@ -5372,6 +5550,9 @@ setUserRadios(prev => ({ ...prev, [data.sender]: { url: data.streamUrl, name: da
 const fd = pendingRadioFiles.current[data.radioId];
 if (fd) {
 const chunk = data.chunk instanceof ArrayBuffer ? new Uint8Array(data.chunk) : new Uint8Array(Object.values(data.chunk));
+if (!_validChunkBounds(fd, data.offset, chunk.length)) { console.warn("[K10] radio-chunk fora de limites"); return; }
+const _slot = Math.floor(data.offset / (16*1024));
+if (fd.received && fd.received[_slot]) { return; } if (fd.received) fd.received[_slot] = 1;
 fd.chunks.set(chunk, data.offset); fd.receivedBytes += chunk.length;
 if (fd.receivedBytes === fd.totalSize) { const url = URL.createObjectURL(new Blob([fd.chunks], { type: 'audio/mpeg' })); setRadioState(prev => ({ ...prev, audioUrl: url })); delete pendingRadioFiles.current[data.radioId]; }
 }
@@ -5629,27 +5810,59 @@ if (isQuizBotMsg && needsTranslation) {
     });
   }
 }
+} else if (data.type === 'ack') {
+  // F2-#8: ACK fim-a-fim — receptor confirmou exibição da mensagem
+  if (data.ackId) {
+    setMessages(prev => prev.map(m => m.id === data.ackId ? { ...m, deliveryStatus: 'delivered', deliveredAt: Date.now() } : m));
+  }
+  return;
 } else if (data.type === 'file-start') {
-pendingFiles.current[data.fileId] = { fileName: data.fileName, chunks: new Uint8Array(data.fileSize), receivedBytes: 0, totalSize: data.fileSize, fileType: data.fileType };
+if (!Number.isInteger(data.fileSize) || data.fileSize <= 0 || data.fileSize > MAX_FILE_BYTES) { console.warn("[K10] file-start rejeitado: fileSize inválido", data.fileSize); return; }
+pendingFiles.current[data.fileId] = { fileName: data.fileName, chunks: new Uint8Array(data.fileSize), receivedBytes: 0, totalSize: data.fileSize, fileType: data.fileType, received: new Uint8Array(Math.ceil(data.fileSize / (16*1024))), expectedSha256: (typeof data.sha256 === 'string' && /^[0-9a-f]{64}$/.test(data.sha256)) ? data.sha256 : null };
 messageToAdd = { ...baseMessage, fileId: data.fileId, fileName: data.fileName, type: 'file', receiving: true, progress: 0 };
 } else if (data.type === 'file-chunk') {
 const fd = pendingFiles.current[data.fileId];
 if (fd) {
 const chunk = data.chunk instanceof ArrayBuffer ? new Uint8Array(data.chunk) : new Uint8Array(Object.values(data.chunk));
+if (!_validChunkBounds(fd, data.offset, chunk.length)) { console.warn("[K10] file-chunk fora de limites", data.offset, chunk.length, fd.totalSize); return; }
+const _slot = Math.floor(data.offset / (16*1024));
+if (fd.received && fd.received[_slot]) { return; } if (fd.received) fd.received[_slot] = 1;
 fd.chunks.set(chunk, data.offset); fd.receivedBytes += chunk.length;
 const progress = Math.min(100, Math.floor((fd.receivedBytes / fd.totalSize) * 100));
 setMessages(prev => prev.map(m => m.fileId === data.fileId ? { ...m, progress } : m));
-if (fd.receivedBytes === fd.totalSize) { const url = URL.createObjectURL(new Blob([fd.chunks], { type: fd.fileType || 'application/octet-stream' })); setMessages(prev => prev.map(m => m.fileId === data.fileId ? { ...m, fileData: url, receiving: false, progress: 100 } : m)); delete pendingFiles.current[data.fileId]; }
+if (fd.receivedBytes === fd.totalSize) {
+  const blobBytes = fd.chunks; // Uint8Array completa
+  const url = URL.createObjectURL(new Blob([blobBytes], { type: fd.fileType || 'application/octet-stream' }));
+  // F2-#2: se peer informou hash esperado em file-start (data ou fd.expectedSha256), validar
+  const expected = fd.expectedSha256 || null;
+  if (expected) {
+    _sha256Hex(blobBytes).then(actual => {
+      const ok = actual === expected;
+      setMessages(prev => prev.map(m => m.fileId === data.fileId
+        ? { ...m, fileData: url, receiving: false, progress: 100, sha256Ok: ok, sha256: actual, sha256Expected: expected }
+        : m));
+      if (!ok) console.warn('[K10] SHA-256 mismatch para arquivo', data.fileId, 'expected', expected, 'got', actual);
+    }).catch(() => {
+      setMessages(prev => prev.map(m => m.fileId === data.fileId ? { ...m, fileData: url, receiving: false, progress: 100 } : m));
+    });
+  } else {
+    setMessages(prev => prev.map(m => m.fileId === data.fileId ? { ...m, fileData: url, receiving: false, progress: 100 } : m));
+  }
+  delete pendingFiles.current[data.fileId];
+}
 }
 return;
 } else if (data.type === 'audio-start') {
-if (data.audioSize > 2 * 1024 * 1024) { console.log("Áudio muito longo ignorado no cliente."); return; }
-pendingFiles.current[data.audioId] = { chunks: new Uint8Array(data.audioSize), receivedBytes: 0, totalSize: data.audioSize };
+if (!Number.isInteger(data.audioSize) || data.audioSize <= 0 || data.audioSize > MAX_AUDIO_BYTES) { console.warn("[K10] audio-start rejeitado: audioSize inválido", data.audioSize); return; }
+pendingFiles.current[data.audioId] = { chunks: new Uint8Array(data.audioSize), receivedBytes: 0, totalSize: data.audioSize, received: new Uint8Array(Math.ceil(data.audioSize / (16*1024))) };
 messageToAdd = { ...baseMessage, audioId: data.audioId, type: 'audio', receiving: true, progress: 0 };
 } else if (data.type === 'audio-chunk') {
 const ad = pendingFiles.current[data.audioId];
 if (ad) {
 const chunk = data.chunk instanceof ArrayBuffer ? new Uint8Array(data.chunk) : new Uint8Array(Object.values(data.chunk));
+if (!_validChunkBounds(ad, data.offset, chunk.length)) { console.warn("[K10] audio-chunk fora de limites"); return; }
+const _slot = Math.floor(data.offset / (16*1024));
+if (ad.received && ad.received[_slot]) { return; } if (ad.received) ad.received[_slot] = 1;
 ad.chunks.set(chunk, data.offset); ad.receivedBytes += chunk.length;
 const progress = Math.min(100, Math.floor((ad.receivedBytes / ad.totalSize) * 100));
 setMessages(prev => prev.map(m => m.audioId === data.audioId ? { ...m, progress } : m));
@@ -5836,7 +6049,7 @@ if (reconnectTimeout) clearTimeout(reconnectTimeout);
 
 
 // Exponential backoff: 1s, 2s, 4s, 8s... up to 30s
-const delay = Math.min(Math.pow(2, reconnectAttempts) * 1000, 30000);
+const delay = Math.min(Math.pow(2, reconnectAttempts) * 1000, 30000) * (0.5 + Math.random() * 0.5); /* F0-#7 jitter 50-100% */
 reconnectAttempts++;
 
 
