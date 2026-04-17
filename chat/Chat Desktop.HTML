@@ -5121,8 +5121,6 @@ const spamViolationsRef = useRef(new Map());
 const CHUNK_SIZE = 16 * 1024;
 
 
-useEffect(() => { radioStateRef.current = radioState; }, [radioState]);
-
 
 useEffect(() => {
 if (!centralServerId) {
@@ -6319,6 +6317,13 @@ reader.readAsArrayBuffer(file.slice(0, 64 * 1024));
 };
 
 
+
+
+
+
+
+
+
 const startWorldRadioBroadcast = (station) => {
   const radioId = peerId + '_radio_' + Date.now();
 
@@ -6332,15 +6337,31 @@ const startWorldRadioBroadcast = (station) => {
     senderName: userName, 
     ttl: 15 
   };
-  
+
+  // 1. Registra no próprio set de mensagens vistas para evitar processar o próprio sinal
   seenMessagesRef.current.add(startMsg.id);
-  /* FIX BUG-6: Broadcast to all peers */ connectionsRef.current.forEach(c => { if (c.open) try { c.send(startMsg); } catch(e){} });
+
+  // 2. Transmissão P2P Segura (Broadcast)
+  if (connectionsRef.current) {
+    connectionsRef.current.forEach(c => {
+      // Verifica se o canal está aberto antes de tentar enviar
+      if (c && c.open) {
+        try {
+          c.send(startMsg);
+        } catch (e) {
+          console.error("Falha ao enviar transmissão de rádio:", e);
+        }
+      }
+    });
+  }
   
+  // 3. Atualiza o estado local para exibir o rádio tocando
   setUserRadios(prev => ({ 
     ...prev, 
     [peerId]: { url: station.url_resolved, name: station.name, radioId } 
   }));
   
+  // 4. Fecha o modal de seleção
   setShowWorldRadios(false);
 };
 
@@ -6353,12 +6374,31 @@ const handleStopWorldRadio = () => {
       senderName: userName,
       ttl: 15
     };
+
+    // Registra a parada localmente
     seenMessagesRef.current.add(stopMsg.id);
-    /* FIX BUG-6: Broadcast to all peers */ connectionsRef.current.forEach(c => { if (c.open) try { c.send(stopMsg); } catch(e){} });
-    setUserRadios(prev => { const next = { ...prev }; delete next[peerId]; return next; });
+
+    // Transmite a ordem de parada para todos os amigos conectados
+    if (connectionsRef.current) {
+      connectionsRef.current.forEach(c => {
+        if (c && c.open) {
+          try {
+            c.send(stopMsg);
+          } catch (e) {
+            console.error("Falha ao enviar sinal de parada:", e);
+          }
+        }
+      });
+    }
+
+    // Remove o rádio do estado local
+    setUserRadios(prev => { 
+      const next = { ...prev }; 
+      delete next[peerId]; 
+      return next; 
+    });
   }
 };
-
 
 
 
@@ -6696,6 +6736,10 @@ prompt(t(lang, 'inviteLinkCopied'), finalUrl);
 };
 
 
+
+
+
+
 return (
 <div>
 {quizBotActive && (
@@ -6703,6 +6747,10 @@ return (
     <i className="fas fa-robot"></i> {t(lang, 'quizBotActive')}
   </div>
 )}
+
+
+
+
 {showTutorial && <TutorialModal lang={lang} onClose={() => setShowTutorial(false)} />}
 {showWorldRadios && <WorldRadiosModal lang={lang} onClose={() => setShowWorldRadios(false)} onBroadcast={startWorldRadioBroadcast} />}
 {showMediaControls && (
@@ -6716,6 +6764,8 @@ return (
         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '10px', marginBottom: '15px', fontSize: '11px', color: '#166534', gridColumn: '1 / -1' }}>
           <strong>🚀 Quiz Bot P2P:</strong> Sistema colaborativo de capacidade ilimitada. Usuários conectados transmitem dados para novos usuários, criando uma rede global de conhecimento.
         </div>
+
+
         <button 
           className="media-controls-btn" 
           onClick={() => { 
