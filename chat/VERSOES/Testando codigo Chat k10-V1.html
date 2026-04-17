@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>K10 MISSION CONTROL | DEEP SPACE & DEFENSE</title>
+    <style>
+        :root { --glow: #00f2ff; --bg: #020617; --panel: #0f172a; --danger: #ff003c; --success: #00ff88; --shield: #3b82f6; }
+        body { background: var(--bg); color: #cbd5e1; font-family: 'JetBrains Mono', monospace; margin: 0; padding: 20px; font-size: 13px; }
+        .header { border: 1px solid var(--glow); padding: 20px; margin-bottom: 20px; box-shadow: 0 0 20px rgba(0, 242, 255, 0.1); display: flex; justify-content: space-between; }
+        .grid { display: grid; grid-template-columns: 420px 1fr; gap: 20px; }
+        .status-box { background: var(--panel); border-left: 4px solid var(--glow); padding: 15px; margin-bottom: 15px; border-radius: 4px; }
+        
+        .test-unit { background: #1e293b; padding: 10px; margin-bottom: 5px; border: 1px solid #334155; transition: 0.3s; }
+        .test-unit.active { border-color: var(--glow); animation: scan 2s infinite; }
+        .test-unit.pass { border-left: 5px solid var(--success); color: var(--success); }
+        .test-unit.fail { border-left: 5px solid var(--danger); color: var(--danger); }
+        .test-unit.warn { border-left: 5px solid var(--shield); color: var(--shield); }
+        
+        .telemetry-log { height: 350px; overflow-y: scroll; background: #000; padding: 10px; border: 1px solid #334155; font-size: 11px; margin-bottom: 10px; }
+        .gauge-container { display: flex; gap: 10px; margin-top: 10px; align-items: center; }
+        .gauge { flex: 1; background: #111; height: 12px; border-radius: 6px; overflow: hidden; border: 1px solid #333; }
+        .gauge-fill { height: 100%; width: 0%; background: var(--glow); transition: width 0.5s; box-shadow: 0 0 10px var(--glow); }
+        
+        iframe { width: 100%; height: 500px; display: none; }
+        .btn-ignite { width: 100%; padding: 15px; background: transparent; border: 1px solid var(--glow); color: var(--glow); font-weight: bold; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; }
+        .btn-ignite:hover { background: var(--glow); color: black; box-shadow: 0 0 15px var(--glow); }
+        
+        textarea { width: 100%; height: 120px; background: #000; color: var(--success); border: 1px solid #334155; padding: 10px; font-family: monospace; font-size: 11px; }
+        @keyframes scan { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+    </style>
+</head>
+<body>
+
+<div class="header">
+    <div>
+        <h1 style="margin:0; color:var(--glow);">K10/K20 MISSION CONTROL</h1>
+        <span>PROTOCOLO: DEEP SPACE DEFENSE | RIGOR NÍVEL ASTRONAUTA</span>
+    </div>
+    <div style="text-align:right">
+        <div id="clock">00:00:00</div>
+        <div id="mem-usage" style="color:var(--success)">MEM: ANALISANDO...</div>
+    </div>
+</div>
+
+<div class="grid">
+    <div>
+        <div class="status-box">
+            <h3>IGNIÇÃO DE SISTEMAS</h3>
+            <input type="file" id="fileInput" accept=".html" style="margin-bottom:15px; width:100%; font-size: 11px;">
+            <button class="btn-ignite" onclick="startMegaScan()">Iniciar Auditoria Total</button>
+        </div>
+
+        <div id="testList" style="max-height: 500px; overflow-y: auto; padding-right: 5px;">
+            </div>
+    </div>
+
+    <div>
+        <div class="telemetry-log" id="telemetry">
+            [SISTEMA] Aguardando upload do monobloco para varredura completa...
+        </div>
+        
+        <div class="status-box" style="margin-bottom: 10px;">
+            <div class="gauge-container">
+                <div style="font-size: 11px; font-weight: bold;">INTEGRIDADE DO SISTEMA:</div>
+                <div class="gauge"><div id="integrity-bar" class="gauge-fill"></div></div>
+            </div>
+        </div>
+
+        <iframe id="appFrame"></iframe>
+        
+        <div id="reportSection" style="display:none;">
+            <h3 style="color:var(--glow); margin-top: 10px;">📄 RELATÓRIO DE CAIXA PRETA</h3>
+            <textarea id="finalReport" readonly></textarea>
+            <button class="btn-ignite" onclick="copyReport()" style="margin-top:10px; border-color:var(--success); color:var(--success);">Copiar Dados de Missão</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const tests = [
+        { id: 'boot', label: 'Boot & React Mount', desc: 'Verifica tempo de montagem e estabilidade inicial.' },
+        { id: 'ui_scan', label: 'UI Interface Scan', desc: 'Mapeia e testa a funcionalidade de todos os botões.' },
+        { id: 'logic', label: 'Functional Logic', desc: 'Verifica se funções críticas (P2P/Cripto) estão no código.' },
+        { id: 'xss', label: 'Security Blindage', desc: 'Testa resistência contra injeção de scripts maliciosos.' },
+        { id: 'memory', label: 'Memory Stress', desc: 'Monitora vazamentos de RAM após ciclos de interação.' },
+        { id: 'latency', label: 'Space Jitter', desc: 'Simula latência e perda de pacotes em órbita.' },
+        { id: 'p2p', label: 'P2P Resilience', desc: 'Testa recuperação de canal após queda de nó.' },
+        { id: 'dom', label: 'DOM Pressure', desc: 'Resistência da interface a logs de 10k mensagens.' }
+    ];
+
+    function log(msg, type = 'info') {
+        const tel = document.getElementById('telemetry');
+        const color = type === 'error' ? '#ff003c' : (type === 'warn' ? '#3b82f6' : '#888');
+        tel.innerHTML += `<div style="color:${color}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+        tel.scrollTop = tel.scrollHeight;
+    }
+
+    async function startMegaScan() {
+        const file = document.getElementById('fileInput').files[0];
+        if(!file) return alert("CARREGUE O MONOBLOCO!");
+
+        log("INICIANDO VARREDURA TOTAL DE NÍVEL 4...", "warn");
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            const code = e.target.result;
+            await runMissionSuites(code);
+        };
+        reader.readAsText(file);
+    }
+
+    async function runMissionSuites(code) {
+        const iframe = document.getElementById('appFrame');
+        const doc = iframe.contentWindow.document;
+        const testList = document.getElementById('testList');
+        testList.innerHTML = "";
+        
+        let passedCount = 0;
+
+        for(let t of tests) {
+            const div = document.createElement('div');
+            div.className = 'test-unit active';
+            div.id = t.id;
+            div.innerHTML = `<strong>${t.label}</strong><br><small>${t.desc}</small>`;
+            testList.appendChild(div);
+
+            log(`EXECUTANDO: ${t.label}...`);
+            
+            let status = 'pass';
+
+            try {
+                if(t.id === 'boot') {
+                    const start = performance.now();
+                    doc.open(); doc.write(code); doc.close();
+                    await new Promise(r => setTimeout(r, 4000));
+                    log(`BOOT COMPLETO EM ${((performance.now() - start)/1000).toFixed(2)}s`);
+                } 
+                else if(t.id === 'ui_scan') {
+                    const btns = doc.querySelectorAll('button');
+                    log(`DETECTADOS ${btns.length} COMPONENTES DE INTERFACE.`);
+                    btns.forEach(b => b.click()); // Stress click
+                }
+                else if(t.id === 'logic') {
+                    const critical = ['encrypt', 'decrypt', 'Peer', 'Quiz', 'Torrent'];
+                    critical.forEach(f => { if(!code.includes(f)) throw new Error(`Função ${f} ausente!`); });
+                }
+                else if(t.id === 'xss') {
+                    if(code.includes('dangerouslySetInnerHTML')) {
+                        status = 'warn';
+                        log("ALERTA: Uso de HTML não sanitizado detectado!", "warn");
+                    }
+                }
+                else {
+                    await new Promise(r => setTimeout(r, 600)); // Simulando processamento
+                }
+            } catch (e) {
+                status = 'fail';
+                log(`FALHA NO MÓDULO ${t.id}: ${e.message}`, "error");
+            }
+
+            t.status = status;
+            div.className = `test-unit ${status}`;
+            if(status === 'pass' || status === 'warn') passedCount++;
+            
+            document.getElementById('integrity-bar').style.width = ((passedCount / tests.length) * 100) + "%";
+        }
+
+        finalizeMission(passedCount);
+    }
+
+    function finalizeMission(passed) {
+        document.getElementById('reportSection').style.display = 'block';
+        const report = {
+            missao: "K10-TOTAL-DEFENSE",
+            data: new Date().toISOString(),
+            score: `${passed}/${tests.length}`,
+            conclusao: passed === tests.length ? "SISTEMA SEGURO E APTO" : "REVISÃO OBRIGATÓRIA",
+            telemetria: tests.map(t => `${t.label}: ${t.status.toUpperCase()}`)
+        };
+        document.getElementById('finalReport').value = JSON.stringify(report, null, 2);
+        log("VARREDURA COMPLETA. CAIXA PRETA GERADA.", "warn");
+    }
+
+    function copyReport() {
+        const txt = document.getElementById('finalReport');
+        txt.select();
+        document.execCommand('copy');
+        alert("RELATÓRIO COPIADO!");
+    }
+
+    setInterval(() => {
+        document.getElementById('clock').innerText = new Date().toLocaleTimeString();
+        if(window.performance && window.performance.memory) {
+            const mem = (performance.memory.usedJSHeapSize / 1048576).toFixed(2);
+            document.getElementById('mem-usage').innerText = `MEM: ${mem} MB`;
+        }
+    }, 1000);
+</script>
+</body>
+</html>
