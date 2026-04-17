@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
   <link rel="icon" href="data:,">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Chat FBI</title>
+<title>Chat K20</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -3776,12 +3776,21 @@ const YOUTUBE_LINKS_LIST = {
 // ================================================================
 const StreamRenderer = ({ targetId, peerId, streamType, userYoutubeStreams, userRadios, localVideoRef, videoRefs }) => {
 if ((!streamType || streamType === 'radio') && userRadios && userRadios[targetId]) {
-  const wrUrl = userRadios[targetId].url;
+  // FIX HTTP/HTTPS: força HTTPS no playback para evitar mixed-content em páginas HTTPS
+  const rawUrl = userRadios[targetId].url || '';
+  const wrUrl = (window.location.protocol === 'https:') ? rawUrl.replace(/^http:\/\//i, 'https://') : rawUrl;
+  console.log('StreamRenderer: Attempting to play World Radio:', userRadios[targetId].name, wrUrl);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', alignItems: 'center', justifyContent: 'center', background: '#0f172a' }}>
       <img src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" style={{ width: '80px', height: '80px', borderRadius: '50%', marginBottom: '20px', objectFit: 'cover' }} alt="radio" />
       <h3 style={{ margin: '0 0 10px 0', color: '#38bdf8', fontSize: '14px', textAlign: 'center', padding: '0 10px' }}>{userRadios[targetId].name}</h3>
-      <audio controls autoPlay src={wrUrl} crossOrigin="anonymous" style={{ width: '80%' }}></audio>
+      <audio 
+        controls 
+        autoPlay 
+        src={wrUrl} 
+        onPlay={() => console.log('StreamRenderer: Audio play started')}
+        onError={(e) => console.error('StreamRenderer: Audio error', e)}
+        style={{ width: '80%' }}></audio>
     </div>
   );
 }
@@ -5313,6 +5322,7 @@ return;
 }
 
 if (data.type === 'radio-world-start') {
+console.log('Received World Radio Start:', data);
 if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
 pruneSeenMessages();
@@ -5321,6 +5331,7 @@ if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via 
 
 setUserRadios(prev => {
 const next = { ...prev, [data.sender]: { url: data.streamUrl, name: data.fileName, radioId: data.radioId } };
+console.log('Updated userRadios:', next);
 if (Object.keys(next).length > 10) delete next[Object.keys(next)[0]];
 return next;
 });
@@ -5328,6 +5339,7 @@ return;
 }
 
 if (data.type === 'radio-world-stop') {
+console.log('Received World Radio Stop:', data.sender);
 if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
 pruneSeenMessages();
@@ -5337,6 +5349,7 @@ if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via 
 setUserRadios(prev => {
 const next = { ...prev };
 delete next[data.sender];
+console.log('Updated userRadios after stop:', next);
 return next;
 });
 return;
@@ -6152,12 +6165,15 @@ reader.readAsArrayBuffer(file.slice(0, 64 * 1024));
 const startWorldRadioBroadcast = (station) => {
   const radioId = peerId + '_radio_' + Date.now();
 
+  // FIX HTTP/HTTPS: força HTTPS para evitar bloqueio de mixed-content nos peers servidos via HTTPS
+  const safeUrl = (station.url_resolved || station.url || '').replace(/^http:\/\//i, 'https://');
+
   const startMsg = { 
     type: 'radio-world-start', 
     id: radioId + '_start', 
     radioId, 
     fileName: station.name, 
-    streamUrl: station.url_resolved, 
+    streamUrl: safeUrl, 
     sender: peerId, 
     senderName: userName, 
     ttl: 15 
@@ -6168,7 +6184,7 @@ const startWorldRadioBroadcast = (station) => {
   
   setUserRadios(prev => ({ 
     ...prev, 
-    [peerId]: { url: station.url_resolved, name: station.name, radioId } 
+    [peerId]: { url: safeUrl, name: station.name, radioId } 
   }));
   
   setShowWorldRadios(false);
@@ -6184,7 +6200,7 @@ const handleStopWorldRadio = () => {
       ttl: 15
     };
     seenMessagesRef.current.add(stopMsg.id);
-    /* FIX BUG-6 */ connectionsRef.current.forEach(c => { if (c.open && c.peer === selectedContact) try { c.send(stopMsg); } catch(e){} });
+    /* FIX BUG-6: Broadcast to all peers */ connectionsRef.current.forEach(c => { if (c.open) try { c.send(stopMsg); } catch(e){} });
     setUserRadios(prev => { const next = { ...prev }; delete next[peerId]; return next; });
   }
 };
