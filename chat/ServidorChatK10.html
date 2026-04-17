@@ -1,7 +1,7 @@
 <html lang="pt-br"><head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Servidor K20 - Distribuidor-V11</title>
+  <title>Servidor K20 - Distribuidor</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <style>
     body {
@@ -181,6 +181,46 @@
       align-items: center;
       gap: 10px;
     }
+
+    /* ── DARK MODE ── */
+    body.dark-mode { background-color: #0f172a; color: #e2e8f0; }
+    body.dark-mode #root { background: #1e293b; box-shadow: 0 2px 4px rgba(0,0,0,0.4); }
+    body.dark-mode .peer-id-container { background: #0f172a; }
+    body.dark-mode .id-backup-container { background-color: #1a2332; border-color: #334155; }
+    body.dark-mode .id-input { background: #0f172a; color: #e2e8f0; border-color: #334155; }
+    body.dark-mode .message.other { background-color: #1e293b; color: #e2e8f0; }
+    body.dark-mode .message.you { background-color: #1e3a5f; color: #e2e8f0; }
+    body.dark-mode .connected-peers { background: #0f172a; }
+    body.dark-mode .peer-item { background: #1e3a5f; color: #e2e8f0; }
+    body.dark-mode .distribution-stats { background-color: #1e3a5f; }
+    body.dark-mode .distribution-stats > div > div { background: #0f172a !important; border-color: #334155 !important; }
+    body.dark-mode .debug-container { background-color: #0a2a1a; border-color: #166534; }
+    body.dark-mode .server-mode-container { background-color: #0a2a1a; }
+    body.dark-mode input[type="text"] { background: #0f172a; color: #e2e8f0; border-color: #334155; }
+    body.dark-mode input[type="checkbox"] { accent-color: #4CAF50; }
+    body.dark-mode h1,body.dark-mode h3 { color: #e2e8f0; }
+    body.dark-mode p,body.dark-mode small { color: #94a3b8; }
+    body.dark-mode .message-source { color: #64748b; }
+
+    /* ── AUDIT LOG PANEL ── */
+    .audit-log { margin-top: 15px; padding: 10px; background: #f0f9ff; border: 1px solid #bae6fd; border-radius: 5px; max-height: 180px; overflow-y: auto; font-family: monospace; font-size: 11px; }
+    body.dark-mode .audit-log { background: #0a1a33; border-color: #1e4d8c; color: #93c5fd; }
+    .audit-entry { padding: 2px 0; border-bottom: 1px solid rgba(0,0,0,0.05); display: flex; gap: 8px; }
+    .audit-ts { color: #64748b; white-space: nowrap; }
+    .audit-msg.ok { color: #10b981; }
+    .audit-msg.warn { color: #f59e0b; }
+    .audit-msg.err { color: #ef4444; }
+    .audit-msg.info { color: #3b82f6; }
+    body.dark-mode .audit-entry { border-bottom-color: rgba(255,255,255,0.05); }
+
+    /* ── STATUS BADGE ── */
+    .connection-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+    .connection-badge.connected { background: #d1fae5; color: #065f46; }
+    .connection-badge.disconnected { background: #fee2e2; color: #991b1b; }
+    .connection-badge.connecting,.connection-badge.reconnecting { background: #fef3c7; color: #92400e; }
+    body.dark-mode .connection-badge.connected { background: #052e16; color: #34d399; }
+    body.dark-mode .connection-badge.disconnected { background: #2a0a0a; color: #f87171; }
+    body.dark-mode .connection-badge.connecting,.dark-mode .connection-badge.reconnecting { background: #1c1200; color: #fcd34d; }
 
     /* TUTORIAL MODAL */
     .tutorial-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 16px; animation: fadeIn 0.25s ease; }
@@ -889,6 +929,22 @@
       const [knownServers, setKnownServers] = useState(() => {
         try { return JSON.parse(localStorage.getItem('knownServers') || '[]'); } catch { return []; }
       });
+      // FIX: ref mirrors knownServers so peer.on('open') never reads stale closure
+      const knownServersRef = useRef([]);
+      useEffect(() => { knownServersRef.current = knownServers; }, [knownServers]);
+      const [darkMode, setDarkMode] = useState(() => localStorage.getItem('serverDarkMode') === 'true');
+      const [auditLog, setAuditLog] = useState([]);
+      const auditLogRef = useRef([]);
+      const addAudit = (msg, type = 'info') => {
+        const entry = { ts: new Date().toLocaleTimeString(), msg, type };
+        auditLogRef.current = [entry, ...auditLogRef.current].slice(0, 60);
+        setAuditLog([...auditLogRef.current]);
+      };
+      useEffect(() => {
+        if (darkMode) { document.body.classList.add('dark-mode'); }
+        else { document.body.classList.remove('dark-mode'); }
+        localStorage.setItem('serverDarkMode', darkMode);
+      }, [darkMode]);
       const [newServerId, setNewServerId] = useState('');
       const [youtubeChatId, setYoutubeChatId] = useState(null);
       const [showTutorial, setShowTutorial] = useState(false);
@@ -1078,11 +1134,14 @@
           console.log("Distribuidor conectado com ID:", id);
           reconnectAttemptsRef.current = 0; // reset do circuit-breaker ao conectar
           setConnectionStatus('connected');
+          addAudit(`✅ Servidor online: ${id}`, 'ok');
           startKeepalive();
           
-          knownServers.forEach(serverId => {
+          // FIX: usa ref para evitar stale closure – knownServers pode estar desatualizado
+          knownServersRef.current.forEach(serverId => {
             if (serverId !== id) {
               console.log(`Auto-conectando ao servidor: ${serverId}`);
+              addAudit(`🔗 Auto-conectando a: ${serverId}`, 'info');
               const conn = peer.connect(serverId);
               setupConnection(conn);
             }
@@ -1110,11 +1169,13 @@
         // ── Tratamento robusto de erros ──────────────────────────────────
         peer.on('error', (err) => {
           console.error("Erro no peer:", err.type, err);
+          addAudit(`❌ Erro PeerJS: ${err.type}`, 'err');
 
           // Erros FATAIS: não adianta reconectar com o mesmo ID
           if (err.type === 'unavailable-id' || err.type === 'invalid-id') {
             setConnectionStatus('errorIdUnavailable');
             console.error("ID já em uso ou inválido. Altere o ID e tente novamente.");
+            addAudit('⛔ ID indisponível ou inválido — altere o ID', 'err');
             stopKeepalive();
             return;
           }
@@ -1122,6 +1183,7 @@
           // Erros de peer remoto não afetam o servidor em si
           if (err.type === 'peer-unavailable') {
             console.warn("Peer remoto indisponível:", err.message);
+            addAudit(`⚠️ Peer remoto indisponível: ${err.message}`, 'warn');
             return; // não reconecta – o servidor continua de pé
           }
 
@@ -1136,6 +1198,7 @@
         peer.on('disconnected', () => {
           if (isManualDisconnectRef.current) return;
           console.log("Peer desconectado do servidor de sinalização. Reconectando...");
+          addAudit('⚠️ Sinalização perdida — reconectando…', 'warn');
           setConnectionStatus('reconnecting');
           scheduleReconnect();
         });
@@ -1144,6 +1207,7 @@
         peer.on('close', () => {
           if (isManualDisconnectRef.current) return;
           console.warn("Peer fechou completamente. Recriando...");
+          addAudit('🔄 Peer fechou — recriando…', 'warn');
           stopKeepalive();
           peerInstance.current = null;
           scheduleReconnect();
@@ -1505,6 +1569,7 @@
       const setupConnection = (conn) => {
         conn.on('open', () => {
           console.log(`Conexão estabelecida com ${conn.peer}`);
+          addAudit(`🔗 Conexão aberta: ${conn.peer}`, 'ok');
           
           if (isHydraModeRef.current) {
             // MODO HYDRA: Apenas envia a lista de peers e desconecta
@@ -1659,6 +1724,7 @@
 
         conn.on('close', () => {
           console.log(`Conexão fechada com ${conn.peer}`);
+          addAudit(`🔌 Conexão encerrada: ${conn.peer}`, 'warn');
           
           // Libera slot do Quiz Bot se era o dono
           if (quizBotPeerRef.current === conn.peer) {
@@ -1714,6 +1780,21 @@
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
             <h1 style={{ margin: 0 }}>{t(lang, 'serverTitle')}</h1>
             <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={() => setDarkMode(d => !d)}
+                title={t(lang, 'darkMode')}
+                style={{
+                  padding: '5px 10px',
+                  fontSize: '14px',
+                  borderRadius: '4px',
+                  border: '1px solid #334155',
+                  background: darkMode ? '#1e293b' : '#f1f5f9',
+                  color: darkMode ? '#e2e8f0' : '#1e293b',
+                  cursor: 'pointer'
+                }}
+              >
+                {darkMode ? '☀️' : '🌙'}
+              </button>
               <button 
                 onClick={() => setShowTutorial(true)}
                 style={{
@@ -1755,15 +1836,19 @@
             <i className="fas fa-info-circle"></i> {t(lang, 'ytChatExplanation')}
           </div>
           <div className="peer-id-container">
-            <div>
-              <span 
-                className={`status-indicator status-${
-                  connectionStatus === 'connected' ? 'online' : 
-                  connectionStatus === 'connecting' || connectionStatus.startsWith('reconnecting') ? 'connecting' : 'offline'
-                }`}
-              ></span>
-              {t(lang, 'status')} {t(lang, connectionStatus.split(' ')[0])} {connectionStatus.includes('(') ? connectionStatus.substring(connectionStatus.indexOf('(')) : ''}
-              <button onClick={toggleConnection}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+              <span className={`connection-badge ${
+                connectionStatus === 'connected' ? 'connected' :
+                (connectionStatus === 'connecting' || connectionStatus.startsWith('reconnecting')) ? 'connecting' :
+                'disconnected'
+              }`}>
+                <span className={`status-indicator status-${
+                  connectionStatus === 'connected' ? 'online' :
+                  (connectionStatus === 'connecting' || connectionStatus.startsWith('reconnecting')) ? 'connecting' : 'offline'
+                }`}></span>
+                {t(lang, 'status')} {t(lang, connectionStatus.split(' ')[0])} {connectionStatus.includes('(') ? connectionStatus.substring(connectionStatus.indexOf('(')) : ''}
+              </span>
+              <button onClick={toggleConnection} style={{ background: (connectionStatus === 'connected' || connectionStatus.startsWith('reconnecting')) ? '#ef4444' : '#4CAF50' }}>
                 {connectionStatus === 'connected' || connectionStatus === 'connecting' || connectionStatus.startsWith('reconnecting') ? t(lang, 'disconnect') : t(lang, 'connect')}
               </button>
               {connectionStatus === 'errorFatal' && (
@@ -1914,6 +1999,27 @@
                   <div ref={messagesEndRef} />
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* ── AUDIT LOG ── */}
+          <div style={{ marginTop: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+              <h3 style={{ margin: 0, fontSize: '13px' }}>📋 Audit Log</h3>
+              <button onClick={() => { auditLogRef.current = []; setAuditLog([]); }} style={{ fontSize: '11px', padding: '3px 8px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+                Limpar
+              </button>
+            </div>
+            <div className="audit-log">
+              {auditLog.length === 0
+                ? <span style={{ color: '#94a3b8', fontSize: '11px' }}>Nenhum evento registrado.</span>
+                : auditLog.map((e, i) => (
+                  <div key={i} className="audit-entry">
+                    <span className="audit-ts">{e.ts}</span>
+                    <span className={`audit-msg ${e.type}`}>{e.msg}</span>
+                  </div>
+                ))
+              }
             </div>
           </div>
         </div>
