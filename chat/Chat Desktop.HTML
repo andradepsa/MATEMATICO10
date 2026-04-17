@@ -730,7 +730,7 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/esbuild-wasm@0.20.1/lib/browser.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.1/peerjs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
 <script src="https://www.youtube.com/iframe_api"></script>
@@ -738,7 +738,7 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
 
-<script type="text/babel">
+<script type="text/tsx" id="esbuild-main">
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
 // ====================== FUNÇÃO ANTI-XSS ======================
@@ -7391,6 +7391,21 @@ currentQuizQuestionRef={currentQuizQuestionRef}
 
 
 ReactDOM.render(<ErrorBoundary><App /></ErrorBoundary>, document.getElementById('root'));
+</script>
+<script>
+  (async () => {
+    try {
+      await esbuild.initialize({ wasmURL: 'https://cdn.jsdelivr.net/npm/esbuild-wasm@0.20.1/esbuild.wasm' });
+      const script = document.getElementById('esbuild-main').textContent;
+      const { code } = await esbuild.transform(script, { loader: 'tsx', target: 'esnext' });
+      const s = document.createElement('script');
+      s.textContent = code;
+      document.body.appendChild(s);
+    } catch (e) {
+      console.error('Esbuild error:', e);
+      document.getElementById('k10-loading').innerHTML = '<p style="color:red;text-align:center;margin-top:20px">Erro ao carregar o chat. Por favor, recarregue a página.</p>';
+    }
+  })();
 </script>
 </body>
 </html>
