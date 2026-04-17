@@ -579,6 +579,60 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 .md-editor-preview ul, .md-editor-preview ol { padding-left: 24px; margin-bottom: 16px; }
 .md-editor-preview img { max-width: 100%; border-radius: 8px; }
 
+/* UTILS */
+.m-0 { margin: 0 !important; }
+.mb-0 { margin-bottom: 0 !important; }
+.mb-12 { margin-bottom: 12px !important; }
+.mb-16 { margin-bottom: 16px !important; }
+.mt-0 { margin-top: 0 !important; }
+.mt-10 { margin-top: 10px !important; }
+.mt-20 { margin-top: 20px !important; }
+.ml-auto { margin-left: auto !important; }
+.p-0 { padding: 0 !important; }
+.p-20 { padding: 20px !important; }
+.flex { display: flex !important; }
+.flex-col { flex-direction: column !important; }
+.flex-1 { flex: 1 !important; }
+.flex-wrap { flex-wrap: wrap !important; }
+.gap-8 { gap: 8px !important; }
+.gap-10 { gap: 10px !important; }
+.items-center { align-items: center !important; }
+.justify-center { justify-content: center !important; }
+.justify-between { justify-content: space-between !important; }
+.w-full { width: 100% !important; }
+.h-full { height: 100% !important; }
+.max-h-200 { max-height: 200px !important; }
+.max-h-180 { max-height: 180px !important; }
+.overflow-y-auto { overflow-y: auto !important; }
+.text-center { text-align: center !important; }
+.outline-none { outline: none !important; }
+.cursor-pointer { cursor: pointer !important; }
+.bg-red-500 { background: #ef4444 !important; }
+.text-red-500 { color: #ef4444 !important; }
+.text-muted { color: var(--text-muted) !important; }
+.separator { width: 1px !important; height: 24px !important; background: #cbd5e1 !important; margin: 0 8px !important; }
+.font-13 { font-size: 13px !important; }
+.font-14 { font-size: 14px !important; }
+.font-16 { font-size: 16px !important; }
+.font-700 { font-weight: 700 !important; }
+.bg-quiz-green { background: #f0fdf4 !important; }
+.border-quiz-green { border: 1px solid #bbf7d0 !important; color: #166534 !important; }
+.bg-quiz-blue { background: #eff6ff !important; }
+.border-quiz-blue { border: 1px solid #bfdbfe !important; color: #1d4ed8 !important; }
+.rounded-8 { border-radius: 8px !important; }
+.font-bold { font-weight: bold !important; }
+.p-10 { padding: 10px !important; }
+.p-8 { padding: 8px !important; }
+.mt-4 { margin-top: 4px !important; }
+.mt-5 { margin-top: 5px !important; }
+.mb-8 { margin-bottom: 8px !important; }
+.mb-10 { margin-bottom: 10px !important; }
+.quiz-input { padding: 8px; border-radius: 4px; background: var(--bg); border: 1px solid var(--border); color: var(--text); }
+.quiz-badge { display: inline-block; padding: 8px 16px; border-radius: 20px; font-weight: bold; }
+.quiz-badge.active { background: #10b98120; color: #10b981; }
+.quiz-badge.inactive { background: #ef444420; color: #ef4444; }
+.hidden { display: none !important; }
+
 /* ============= NON-INVASIVE QUALITY ENHANCEMENTS =============
    Added by quality pass — purely additive: improves accessibility,
    responsiveness and motion preferences WITHOUT touching any
@@ -1401,6 +1455,10 @@ async function translateQuizText(text, targetLang) {
 
 const quizTranslationCache = new Map(); // mantido para compatibilidade
 const keyCache = new Map();
+// =============================================================================
+// [WASM CANDIDATE] - Operações criptográficas (AES-GCM / PBKDF2)
+// O processamento pesado de criptografia pode ser movido para WASM futuramente.
+// =============================================================================
 async function deriveKey(secret) {
 if (keyCache.has(secret)) return keyCache.get(secret);
 const enc = new TextEncoder();
@@ -2106,29 +2164,30 @@ return (
 <h3><i className="fas fa-magnet"></i> {t(lang, 'torrentManager')}</h3>
 <button className="tutorial-close" onClick={onClose}>✕</button>
 </div>
-<div style={{ padding: '16px', borderBottom: '1px solid #334155' }}>
-<div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-<input
-type="text"
-value={magnetInput}
-onChange={(e) => setMagnetInput(e.target.value)}
-placeholder={t(lang, 'magnetPlaceholder')}
-style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid #334155', background: '#0f172a', color: 'white' }}
-/>
-<button className="torrent-btn download" style={{ width: 'auto', padding: '8px 16px' }} onClick={() => {
-if (magnetInput.trim()) {
-onDownload(magnetInput.trim());
-setMagnetInput('');
-}
-}}>
-<i className="fas fa-download"></i> {t(lang, 'downloadBtn')}
-</button>
-</div>
-<button className="torrent-btn download" onClick={() => document.getElementById('torrentInputModal').click()}>
-<i className="fas fa-plus"></i> {t(lang, 'generateTorrent')}
-</button>
-<input type="file" id="torrentInputModal" style={{ display: 'none' }} onChange={(e) => { onSeed(e); onClose(); }} />
-</div>
+      <div style={{ padding: '16px', borderBottom: '1px solid #334155' }}>
+        <div className="flex gap-8 mb-12">
+          <input
+            type="text"
+            value={magnetInput}
+            onChange={(e) => setMagnetInput(e.target.value)}
+            placeholder={t(lang, 'magnetPlaceholder')}
+            className="flex-1"
+            style={{ padding: '8px', borderRadius: '4px', border: '1px solid #334155', background: '#0f172a', color: 'white' }}
+          />
+          <button className="torrent-btn download" style={{ width: 'auto', padding: '8px 16px' }} onClick={() => {
+            if (magnetInput.trim()) {
+              onDownload(magnetInput.trim());
+              setMagnetInput('');
+            }
+          }}>
+            <i className="fas fa-download"></i> {t(lang, 'downloadBtn')}
+          </button>
+        </div>
+        <button className="torrent-btn download" onClick={() => document.getElementById('torrentInputModal').click()}>
+          <i className="fas fa-plus"></i> {t(lang, 'generateTorrent')}
+        </button>
+        <input type="file" id="torrentInputModal" className="hidden" onChange={(e) => { onSeed(e); onClose(); }} />
+      </div>
 <div className="torrent-modal-content">
 {torrents.length === 0 ? (
 <div className="torrent-empty">{t(lang, 'noTorrents')}</div>
@@ -2324,7 +2383,7 @@ const Whiteboard = ({ lang, connections, selectedContact, onClose }) => {
     <div className="whiteboard-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="whiteboard-container">
         <div className="whiteboard-header">
-          <h3 style={{ margin: 0, fontSize: '16px' }}><i className="fas fa-chalkboard"></i> Whiteboard</h3>
+          <h3 className="m-0 font-16"><i className="fas fa-chalkboard"></i> Whiteboard</h3>
           <button className="tutorial-close" onClick={onClose}><i className="fas fa-times"></i></button>
         </div>
         <div className="whiteboard-body" 
@@ -2344,18 +2403,18 @@ const Whiteboard = ({ lang, connections, selectedContact, onClose }) => {
           <button className={`wb-tool-btn ${tool === 'eraser' ? 'active' : ''}`} onClick={() => setTool('eraser')}>
             <i className="fas fa-eraser"></i> Eraser
           </button>
-          <div style={{ width: '1px', height: '24px', background: '#cbd5e1', margin: '0 8px' }}></div>
+          <div className="separator"></div>
           {['#000000', '#ef4444', '#22c55e', '#3b82f6', '#f59e0b', '#8b5cf6'].map(c => (
             <div key={c} className={`wb-color-picker ${color === c && tool === 'pen' ? 'active' : ''}`} 
                  style={{ background: c }} onClick={() => { setColor(c); setTool('pen'); }}></div>
           ))}
-          <div style={{ width: '1px', height: '24px', background: '#cbd5e1', margin: '0 8px' }}></div>
-          <select value={lineWidth} onChange={(e) => setLineWidth(parseInt(e.target.value))} className="wb-tool-btn" style={{ outline: 'none' }}>
+          <div className="separator"></div>
+          <select value={lineWidth} onChange={(e) => setLineWidth(parseInt(e.target.value))} className="wb-tool-btn outline-none">
             <option value="2">Thin</option>
             <option value="5">Medium</option>
             <option value="10">Thick</option>
           </select>
-          <button className="wb-tool-btn" onClick={() => clearCanvas()} style={{ marginLeft: 'auto', color: '#ef4444' }}>
+          <button className="wb-tool-btn ml-auto text-red-500" onClick={() => clearCanvas()}>
             <i className="fas fa-trash"></i> Clear
           </button>
         </div>
@@ -2387,39 +2446,37 @@ const PollCreator = ({ onClose, onCreated }) => {
   return (
     <div className="poll-creator-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="poll-creator-modal">
-        <h3 style={{ margin: '0 0 16px 0' }}>Create Poll</h3>
+        <h3 className="mb-16 m-0">Create Poll</h3>
         <input 
           className="poll-creator-input" 
           placeholder="Question (e.g. What's your favorite color?)" 
           value={question} 
           onChange={e => setQuestion(e.target.value)}
         />
-        <div style={{ maxHeight: '200px', overflowY: 'auto', marginBottom: '12px' }}>
+        <div className="max-h-200 overflow-y-auto mb-12">
           {options.map((opt, i) => (
             <div key={i} className="poll-option-input-row">
               <input 
-                className="poll-creator-input" 
-                style={{ marginBottom: 0 }}
+                className="poll-creator-input mb-0" 
                 placeholder={`Option ${i + 1}`} 
                 value={opt} 
                 onChange={e => updateOption(i, e.target.value)}
               />
               {options.length > 2 && (
-                <button className="wb-tool-btn" onClick={() => removeOption(i)} style={{ color: '#ef4444' }}>
+                <button className="wb-tool-btn text-red-500" onClick={() => removeOption(i)}>
                   <i className="fas fa-times"></i>
                 </button>
               )}
             </div>
           ))}
         </div>
-        <button className="wb-tool-btn" onClick={addOption} style={{ width: '100%', justifyContent: 'center', marginBottom: '12px' }}>
+        <button className="wb-tool-btn w-full justify-center mb-12" onClick={addOption}>
           <i className="fas fa-plus"></i> Add Option
         </button>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <button className="wb-tool-btn" onClick={onClose} style={{ flex: 1, justifyContent: 'center' }}>Cancel</button>
+        <div className="flex gap-10">
+          <button className="wb-tool-btn flex-1 justify-center" onClick={onClose}>Cancel</button>
           <button 
-            className="poll-creator-btn" 
-            style={{ flex: 1, marginTop: 0 }}
+            className="poll-creator-btn flex-1 mt-0" 
             onClick={handleCreate}
             disabled={!question.trim() || options.filter(o => o.trim() !== '').length < 2}
           >
@@ -4459,38 +4516,38 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
       initialPosition={{ x: Math.max(20, window.innerWidth / 2 - 175), y: Math.max(20, window.innerHeight / 2 - 260) }}
       initialSize={{ width: 350, height: 520 }}
     >
-      <div style={{ padding: '20px', textAlign: 'center', height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' }}>
-        <p style={{ marginBottom: '8px', color: 'var(--text-muted)', fontSize: '13px' }}>
+      <div className="p-20 text-center h-full overflow-y-auto flex flex-col justify-start">
+        <p className="mb-8 text-muted" style={{ fontSize: '13px' }}>
           The bot sends questions in <strong>Portuguese</strong>. Each user's K10 chat auto-translates to their own selected language.
         </p>
-        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '10px', marginBottom: '14px', fontSize: '11px', color: '#166534', textAlign: 'left' }}>
+        <div className="text-left mb-12 p-10 bg-quiz-green border-quiz-green rounded-8" style={{ fontSize: '11px' }}>
           <strong>🚀 Rede P2P Inteligente:</strong> Este sistema é colaborativo. Ao ativar o bot, você se torna parte de uma rede onde usuários já conectados transmitem as perguntas para os novos.
-          <div style={{ marginTop: '5px', fontWeight: 'bold' }}>
+          <div className="mt-5 font-bold">
             ✅ Capacidade Ilimitada: Quanto mais pessoas usam, mais forte a rede fica!
           </div>
         </div>
 
-        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '8px 12px', marginBottom: '14px', fontSize: '12px', color: '#1d4ed8' }}>
+        <div className="mb-12 p-8 bg-quiz-blue border-quiz-blue rounded-8" style={{ fontSize: '12px' }}>
           🌐 Your language: <strong>{langName}</strong>
           {lang === 'pt'
             ? ' — questions arrive in Portuguese (original).'
             : ' — questions will be auto-translated to your language.'}
-          <div style={{ marginTop: '4px', color: '#64748b', fontSize: '11px' }}>
+          <div className="mt-5 text-muted" style={{ fontSize: '11px' }}>
             💡 Auto-detected from your browser. Change it with the 🌐 dropdown in the header.
           </div>
         </div>
         
-        <div style={{ marginBottom: '10px', textAlign: 'left' }}>
-          <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Discipline</label>
-          <select value={quizDiscipline} onChange={e => setQuizDiscipline(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', marginTop: '4px' }} disabled={quizBotActive}>
+        <div className="mb-10 text-left">
+          <label className="text-muted" style={{ fontSize: '12px' }}>Discipline</label>
+          <select value={quizDiscipline} onChange={e => setQuizDiscipline(e.target.value)} className="w-full mt-4 quiz-input" disabled={quizBotActive}>
             <option value="all">📚 All Disciplines</option>
             {QUIZ_SUBJECTS.map(sub => (
               <option key={sub.id} value={sub.id}>{sub.emoji} {sub.name}</option>
             ))}
           </select>
         </div>
-        <div style={{ marginBottom: '20px', textAlign: 'left' }}>
-          <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Time per question (seconds)</label>
+        <div className="mb-20 text-left">
+          <label className="text-muted" style={{ fontSize: '12px' }}>Time per question (seconds)</label>
           <input 
             type="number" 
             value={quizIntervalInput} 
@@ -4501,20 +4558,20 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
               setQuizInterval(val);
             }}
             min="120" 
-            style={{ width: '100%', padding: '8px', borderRadius: '4px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', marginTop: '4px' }} 
+            className="w-full mt-4 quiz-input" 
             disabled={quizBotActive} 
           />
         </div>
 
-        <div style={{ marginBottom: '20px' }}>
-          <span style={{ display: 'inline-block', padding: '8px 16px', borderRadius: '20px', background: quizBotActive ? '#10b98120' : '#ef444420', color: quizBotActive ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
+        <div className="mb-20">
+          <span className={`quiz-badge ${quizBotActive ? 'active' : 'inactive'}`}>
             {quizBotActive ? '🟢 Active' : '🔴 Inactive'}
           </span>
         </div>
 
-        <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: 'auto' }}>
+        <div className="flex gap-10 justify-center mt-auto">
           <button 
-            className="primary-btn" 
+            className="primary-btn flex-1" 
             onClick={() => {
               const newActive = !quizBotActive;
               setQuizBotActive(newActive);
@@ -4542,6 +4599,100 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
       </div>
     </FloatingWindow>
   );
+};
+
+// ====================== CUSTOM HOOKS (QUIZ LOGIC) ======================
+
+/**
+ * Encapsulates the Quiz Bot logic within the React lifecycle.
+ * This prevents "Ghost State" by ensuring state updaters and refs are always in context.
+ */
+const useQuizBot = (centralServerId, connectionsRef, connections, setMessages, selectedContactRef, worldQuizSubscribersRef, currentQuizQuestionRef) => {
+  const notifyServer = (type) => {
+    if (centralServerId) {
+      const conn = connectionsRef.current.find(c => c.peer === centralServerId && c.open);
+      if (conn) try { conn.send({ type }); } catch(e) {}
+    }
+  };
+
+  const sendBotMsg = (text) => {
+    const timestamp = new Date();
+    const timeStr = timestamp.toLocaleTimeString('en-US');
+    const msgId = Date.now() + Math.random().toString(36).substring(7);
+    const target = selectedContactRef.current;
+
+    const wireMsg = { type: 'message', id: msgId, ttl: 15, text, senderName: '🤖 Quiz Bot', direct: false, time: timeStr };
+    const localMsg = { type: 'text', text, sender: 'you', senderName: '🤖 Quiz Bot', time: timeStr, timestamp: timestamp.getTime() };
+
+    if (target) {
+      const conn = connections.find(c => c.peer === target && c.open);
+      if (conn) try { conn.send(wireMsg); } catch(e) {}
+      setMessages(prev => [...prev, { ...localMsg, recipient: target }]);
+    } else {
+      connections.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
+      setMessages(prev => [...prev, { ...localMsg, recipient: 'general' }]);
+    }
+  };
+
+  const sendQuizQ = (quizData) => {
+    const timestamp = new Date();
+    const timeStr = timestamp.toLocaleTimeString('en-US');
+    const msgId = Date.now() + Math.random().toString(36).substring(7);
+    const target = selectedContactRef.current;
+
+    const wireMsg = { type: 'message', id: msgId, ttl: 15, senderName: '🤖 Quiz Bot', direct: false, time: timeStr, timestamp: timestamp.getTime(), text: '__QUIZ__', quizPayload: quizData };
+    const localMsg = { type: 'quiz-question', sender: 'you', senderName: '🤖 Quiz Bot', time: timeStr, timestamp: timestamp.getTime(), recipient: target || 'general', quizVotes: {}, quizRevealed: false, ...quizData };
+
+    if (target) {
+      const conn = connections.find(c => c.peer === target && c.open);
+      if (conn) try { conn.send(wireMsg); } catch(e) {}
+      setMessages(prev => [...prev, localMsg]);
+    } else {
+      connections.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
+      setMessages(prev => [...prev, localMsg]);
+    }
+    
+    if (quizData.quizStage) {
+      worldQuizSubscribersRef.current.forEach(subId => {
+        const subConn = connections.find(c => c.peer === subId && c.open);
+        if (subConn) try { subConn.send(wireMsg); } catch(e) {}
+      });
+    }
+  };
+
+  const sendQuizR = (quizId) => {
+    const timestamp = new Date();
+    const timeStr = timestamp.toLocaleTimeString('en-US');
+    const msgId = Date.now() + Math.random().toString(36).substring(7);
+    const target = selectedContactRef.current;
+
+    const q = currentQuizQuestionRef.current;
+    const refVotes = q ? (q.votes || {}) : {};
+
+    setMessages(prev => {
+      const quizMsg = prev.find(m => m.quizId === quizId);
+      const stateVotes = quizMsg ? (quizMsg.quizVotes || {}) : {};
+      const mergedVotes = { ...stateVotes, ...refVotes };
+      const wireMsg = { type: 'message', id: msgId, ttl: 15, senderName: '🤖 Quiz Bot', direct: false, time: timeStr, text: '__QUIZ_REVEAL__', quizRevealPayload: { quizId, votes: mergedVotes } };
+
+      if (target) {
+        const conn = connections.find(c => c.peer === target && c.open);
+        if (conn) try { conn.send(wireMsg); } catch(e) {}
+      } else {
+        connections.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
+      }
+      
+      if (q && q.quizStage) {
+        worldQuizSubscribersRef.current.forEach(subId => {
+          const subConn = connections.find(c => c.peer === subId && c.open);
+          if (subConn) try { subConn.send(wireMsg); } catch(e) {}
+        });
+      }
+      return prev.map(m => m.quizId === quizId ? { ...m, quizRevealed: true, quizVotes: mergedVotes } : m);
+    });
+  };
+
+  return { notifyServer, sendBotMessage: sendBotMsg, sendQuizQuestion: sendQuizQ, sendQuizReveal: sendQuizR };
 };
 
 const App = () => {
@@ -4739,150 +4890,10 @@ const handlePollCreated = (question, options) => {
   setShowPollCreator(false);
 };
 
-// Quiz Bot Logic
-const notifyServer = (type) => {
-  // AVISO: O Quiz Bot Lock DEVE ser notificado sempre e estritamente ao Servidor Central (server.html)
-  // Se usarmos selectedContactRef, o comando vai pro chat atual em vez do servidor.
-  if (centralServerId) {
-    const conn = connectionsRef.current.find(c => c.peer === centralServerId && c.open);
-    if (conn) try { conn.send({ type }); } catch(e) {}
-  }
-};
+  const { notifyServer, sendBotMessage, sendQuizQuestion, sendQuizReveal } = useQuizBot(
+    centralServerId, connectionsRef, connections, setMessages, selectedContactRef, worldQuizSubscribersRef, currentQuizQuestionRef
+  );
 
-const sendBotMessage = (text) => {
-  const timestamp = new Date();
-  const timeStr = timestamp.toLocaleTimeString('en-US');
-  const msgId = Date.now() + Math.random().toString(36).substring(7);
-  const target = selectedContactRef.current;
-
-  // Wire format must match normal messages: type:'message', id, ttl
-  const wireMsg = {
-    type: 'message',
-    id: msgId,
-    ttl: 15,
-    text: text,
-    senderName: '🤖 Quiz Bot',
-    direct: false,
-    time: timeStr
-  };
-
-  // Local display object
-  const localMsg = {
-    type: 'text',
-    text: text,
-    sender: 'you',
-    senderName: '🤖 Quiz Bot',
-    time: timeStr,
-    timestamp: timestamp.getTime()
-  };
-
-  if (target) {
-    // Conectado a um servidor: envia SÓ para o servidor, ele faz o relay para todos
-    const conn = connections.find(c => c.peer === target && c.open);
-    if (conn) try { conn.send(wireMsg); } catch(e) { console.error('Quiz bot send error', e); }
-    setMessages(prev => [...prev, { ...localMsg, recipient: target }]);
-  } else {
-    // Modo geral (sem servidor): broadcast direto para todos os peers
-    connections.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
-    setMessages(prev => [...prev, { ...localMsg, recipient: 'general' }]);
-  }
-};
-
-const sendQuizQuestion = (quizData) => {
-  const timestamp = new Date();
-  const timeStr = timestamp.toLocaleTimeString('en-US');
-  const msgId = Date.now() + Math.random().toString(36).substring(7);
-  const target = selectedContactRef.current;
-
-  // IMPORTANTE: usa type:'message' para que o servidor faça relay automaticamente
-  // O campo quizPayload embute os dados estruturados do quiz
-  const wireMsg = {
-    type: 'message',
-    id: msgId,
-    ttl: 15,
-    senderName: '🤖 Quiz Bot',
-    direct: false,
-    time: timeStr,
-    timestamp: timestamp.getTime(),
-    text: '__QUIZ__',          // texto sentinela — clientes antigos ignoram, clientes novos detectam
-    quizPayload: quizData      // dados completos do quiz
-  };
-
-  const localMsg = {
-    type: 'quiz-question',
-    sender: 'you',
-    senderName: '🤖 Quiz Bot',
-    time: timeStr,
-    timestamp: timestamp.getTime(),
-    recipient: target || 'general',
-    quizVotes: {},
-    quizRevealed: false,
-    ...quizData
-  };
-
-  if (target) {
-    const conn = connections.find(c => c.peer === target && c.open);
-    if (conn) try { conn.send(wireMsg); } catch(e) { console.error('Quiz send error', e); }
-    setMessages(prev => [...prev, localMsg]);
-  } else {
-    connections.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
-    setMessages(prev => [...prev, localMsg]);
-  }
-  
-  // Envia para os inscritos do World Quiz, independentemente de estar em um servidor ou não
-  if (quizData.quizStage) {
-    worldQuizSubscribersRef.current.forEach(subId => {
-      const subConn = connections.find(c => c.peer === subId && c.open);
-      if (subConn) try { subConn.send(wireMsg); } catch(e) {}
-    });
-  }
-};
-
-const sendQuizReveal = (quizId) => {
-  const timestamp = new Date();
-  const timeStr = timestamp.toLocaleTimeString('en-US');
-  const msgId = Date.now() + Math.random().toString(36).substring(7);
-  const target = selectedContactRef.current;
-
-  const q = currentQuizQuestionRef.current;
-  const refVotes = q ? (q.votes || {}) : {};
-
-  setMessages(prev => {
-    const quizMsg = prev.find(m => m.quizId === quizId);
-    const stateVotes = quizMsg ? (quizMsg.quizVotes || {}) : {};
-    const mergedVotes = { ...stateVotes, ...refVotes };
-
-    // IMPORTANTE: usa type:'message' para relay pelo servidor
-    const wireMsg = {
-      type: 'message',
-      id: msgId,
-      ttl: 15,
-      senderName: '🤖 Quiz Bot',
-      direct: false,
-      time: timeStr,
-      text: '__QUIZ_REVEAL__',
-      quizRevealPayload: { quizId, votes: mergedVotes }
-    };
-
-    if (target) {
-      const conn = connections.find(c => c.peer === target && c.open);
-      if (conn) try { conn.send(wireMsg); } catch(e) {}
-    } else {
-      connections.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
-    }
-    
-    if (q && q.quizStage) {
-      worldQuizSubscribersRef.current.forEach(subId => {
-        const subConn = connections.find(c => c.peer === subId && c.open);
-        if (subConn) try { subConn.send(wireMsg); } catch(e) {}
-      });
-    }
-
-    return prev.map(m =>
-      m.quizId === quizId ? { ...m, quizRevealed: true, quizVotes: mergedVotes } : m
-    );
-  });
-};
 
 // ══════════════════════════════════════════════
 // WORLD QUIZ — lógica de 2 etapas com Pixabay
@@ -7395,7 +7406,14 @@ ReactDOM.render(<ErrorBoundary><App /></ErrorBoundary>, document.getElementById(
 <script>
   (async () => {
     try {
-      await esbuild.initialize({ wasmURL: 'https://cdn.jsdelivr.net/npm/esbuild-wasm@0.20.1/esbuild.wasm' });
+      // Para ser 100% standalone/offline, você pode embutir o esbuild.wasm em Base64 na variável abaixo:
+      window.ESBUILD_WASM_BINARY = null; 
+
+      const wasmURL = window.ESBUILD_WASM_BINARY 
+        ? URL.createObjectURL(new Blob([Uint8Array.from(atob(window.ESBUILD_WASM_BINARY), c => c.charCodeAt(0))], {type: 'application/wasm'}))
+        : 'https://cdn.jsdelivr.net/npm/esbuild-wasm@0.20.1/esbuild.wasm';
+
+      await esbuild.initialize({ wasmURL });
       const script = document.getElementById('esbuild-main').textContent;
       const { code } = await esbuild.transform(script, { loader: 'tsx', target: 'esnext' });
       const s = document.createElement('script');
@@ -7403,7 +7421,9 @@ ReactDOM.render(<ErrorBoundary><App /></ErrorBoundary>, document.getElementById(
       document.body.appendChild(s);
     } catch (e) {
       console.error('Esbuild error:', e);
-      document.getElementById('k10-loading').innerHTML = '<p style="color:red;text-align:center;margin-top:20px">Erro ao carregar o chat. Por favor, recarregue a página.</p>';
+      // Fallback amigável em caso de falha de carregamento do compilador
+      const loader = document.getElementById('k10-loading') || document.getElementById('k10-loader');
+      if (loader) loader.innerHTML = '<p style="color:red;text-align:center;margin-top:20px">Erro Crítico: Motor de Execução não iniciado.<br/><small>Verifique sua conexão ou se scripts externos estão bloqueados.</small></p>';
     }
   })();
 </script>
