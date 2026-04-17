@@ -1,5 +1,8 @@
 <html lang="pt-br"><head>
   <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' https: data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdnjs.cloudflare.com https://cdn.jsdelivr.net https://www.youtube.com; style-src 'self' 'unsafe-inline' https: data:; img-src 'self' https: data: blob:; media-src 'self' https: data: blob:; font-src 'self' https: data:; connect-src 'self' wss: https: data: blob:; frame-src https://www.youtube.com https://www.youtube-nocookie.com">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Permissions-Policy" content="camera=(self), microphone=(self), geolocation=(), payment=(), usb=()">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Servidor K20 - FBI</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
@@ -277,10 +280,10 @@
     })();
   </script>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.1/peerjs.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" integrity="sha384-tMH8h3BGESGckSAVGZ82T9n90ztNXxvdwvdM6UoR56cYcf+0iGXBliJ29D+wZ/x8" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" integrity="sha384-bm7MnzvK++ykSwVJ2tynSE5TRdN+xL418osEVF2DE/L/gfWHj91J2Sphe582B1Bh" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js" integrity="sha384-1qlE7MZPM2pHD/pBZCU/yB8UCP52RYL8bge/qNdfNBCWToySp8/M+JL2waXU4hjJ" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.1/peerjs.min.js" integrity="sha384-qOF1Ybxd53PR4BTaDzAk+eXLDARxOKQYQpXPqbJu/xkJWLIDDfP/ZusfTctQyNs+" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
   <script type="text/babel">
     const { useState, useEffect, useRef } = React;
@@ -958,6 +961,15 @@
       const messagesEndRef = useRef(null);
       const activeConnectionsRef = useRef(new Map());
       const seenMessagesRef = useRef(new Set());
+      // F0-#19: LRU cap robusto para seenMessages — chamar após cada add
+      const SEEN_MAX = 5000;
+      const _pruneSeenMessages = () => {
+        const s = seenMessagesRef.current;
+        if (s.size <= SEEN_MAX) return;
+        const drop = s.size - SEEN_MAX;
+        const it = s.values();
+        for (let i = 0; i < drop; i++) s.delete(it.next().value);
+      };
       const isHydraModeRef = useRef(false);
       const recentPeersRef = useRef([]);
       const heartbeatsRef = useRef(new Map());
@@ -1359,6 +1371,11 @@
       };
 
       const handleIncomingData = (data, sourceConn) => {
+        // F4-#3 parte 2: rate-limit por peer (silenciosamente descarta)
+        const _isChunk = data && (data.type === 'file-chunk' || data.type === 'audio-chunk' || data.type === 'radio-chunk');
+        const _bytes = _isChunk ? (data.chunk && data.chunk.byteLength) || 16 * 1024 : 0;
+        if (sourceConn && sourceConn.peer && !_checkRate(sourceConn.peer, _isChunk, _bytes)) return;
+
         // Handle Heartbeat from any user (even if not directly connected long-term)
         if (data && data.type === 'heartbeat') {
           heartbeatsRef.current.set(sourceConn.peer, Date.now());
@@ -1435,10 +1452,7 @@
               return;
             }
             seenMessagesRef.current.add(data.id);
-            if (seenMessagesRef.current.size > 10000) {
-              const firstItem = seenMessagesRef.current.values().next().value;
-              seenMessagesRef.current.delete(firstItem);
-            }
+            _pruneSeenMessages();
           }
 
           if (data.type === 'message') {
@@ -1469,7 +1483,7 @@
         else if (data.type === 'radio-start' || data.type === 'radio-stream-start' || data.type === 'radio-chunk' || data.type === 'radio-sync' || data.type === 'radio-request-sync') {
           if (data.id) {
             if (seenMessagesRef.current.has(data.id)) return;
-            seenMessagesRef.current.add(data.id);
+            seenMessagesRef.current.add(data.id); _pruneSeenMessages();
           }
           
           if (data.type === 'radio-start' || data.type === 'radio-stream-start' || data.type === 'radio-sync') {
@@ -1495,7 +1509,7 @@
           // Servidor agora aceita mensagens de áudio gravado
           if (data.id) {
             if (seenMessagesRef.current.has(data.id)) return;
-            seenMessagesRef.current.add(data.id);
+            seenMessagesRef.current.add(data.id); _pruneSeenMessages();
           }
           distributeMessage(data, sourceConn.peer);
         }
@@ -1506,7 +1520,7 @@
            // Relay para segredos E2EE, YouTube Cam, YouTube Chat e Radio YouTube
            if (data.id) {
              if (seenMessagesRef.current.has(data.id)) return;
-             seenMessagesRef.current.add(data.id);
+             seenMessagesRef.current.add(data.id); _pruneSeenMessages();
            }
            if (data.type === 'youtube-chat-start') {
              if (youtubeChatIdRef.current) return;
@@ -1529,10 +1543,44 @@
            // Não repassamos para outros servidores para evitar ataques
            if (data.id) {
              if (seenMessagesRef.current.has(data.id)) return;
-             seenMessagesRef.current.add(data.id);
+             seenMessagesRef.current.add(data.id); _pruneSeenMessages();
            }
            setYoutubeChatId(null);
         }
+      };
+
+      // F4-#3 parte 2: rate-limit por peer (token bucket: 30 msgs/10s + 1MB/s de chunks)
+      const _rateBuckets = new Map(); // peerId -> { msgTokens, byteTokens, lastRefill }
+      const _RATE_MSG_MAX = 30;
+      const _RATE_MSG_REFILL_PER_SEC = 3;     // 30 msg / 10s
+      const _RATE_BYTE_MAX = 5 * 1024 * 1024; // 5 MB burst
+      const _RATE_BYTE_REFILL_PER_SEC = 1024 * 1024; // 1 MB/s
+      const _checkRate = (peerId, isChunk, payloadBytes) => {
+        const now = Date.now();
+        let b = _rateBuckets.get(peerId);
+        if (!b) { b = { msgTokens: _RATE_MSG_MAX, byteTokens: _RATE_BYTE_MAX, lastRefill: now }; _rateBuckets.set(peerId, b); }
+        const dt = (now - b.lastRefill) / 1000;
+        b.msgTokens = Math.min(_RATE_MSG_MAX, b.msgTokens + dt * _RATE_MSG_REFILL_PER_SEC);
+        b.byteTokens = Math.min(_RATE_BYTE_MAX, b.byteTokens + dt * _RATE_BYTE_REFILL_PER_SEC);
+        b.lastRefill = now;
+        if (isChunk) {
+          if (b.byteTokens < payloadBytes) { console.warn('[K10] rate-limit byte exceeded for', peerId); return false; }
+          b.byteTokens -= payloadBytes;
+        } else {
+          if (b.msgTokens < 1) { console.warn('[K10] rate-limit msg exceeded for', peerId); return false; }
+          b.msgTokens -= 1;
+        }
+        return true;
+      };
+
+      // F3-#4: Configuração de rede sobrescritível via localStorage
+      const _getNetConfigSV = () => {
+        let c = {};
+        try { const r = localStorage.getItem('k10:netConfig'); if (r) c = JSON.parse(r) || {}; } catch(e){}
+        return {
+          signaling: Array.isArray(c.signaling) && c.signaling.length ? c.signaling : [{host:'0.peerjs.com',port:443,secure:true,path:'/'}],
+          iceServers: Array.isArray(c.iceServers) && c.iceServers.length ? c.iceServers : null
+        };
       };
 
       const distributeMessage = (data, sourceId) => {
@@ -1544,7 +1592,9 @@
           return;
         }
         
-        const relayData = { ...data, ttl: currentTtl - 1 };
+        // F2-#3: força sender autenticado pelo id PeerJS da origem (anti-impersonação).
+        // senderName fica apenas como hint de UI; sender é a verdade.
+        const relayData = { ...data, ttl: currentTtl - 1, sender: sourceId || data.sender, authSender: sourceId || null };
         
         activeConnectionsRef.current.forEach((conn, peerId) => {
           if (peerId !== sourceId) {
