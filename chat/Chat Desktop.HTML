@@ -3349,7 +3349,7 @@ const conn = connections.find(c => c.peer === selectedContact);
 conn.send({ type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: true, time: formatTime(timestamp) });
 const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
 setMessages(prev => {
-const updated = [...prev, newMsgObj].slice(-500);
+const updated = [...prev, newMsgObj].slice(-MAX_MESSAGE_HISTORY);
 return updated;
 });
 } else {
@@ -3357,7 +3357,7 @@ const msgData = { type: 'message', id: msgId, ttl: 15, text: textToSend, senderN
 connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
 const newMsgObj = { text: textToSend, sender: 'you', recipient: 'general', senderName: userName, time: formatTime(timestamp), type: 'text', direct: false, timestamp: timestamp.getTime() };
 setMessages(prev => {
-const updated = [...prev, newMsgObj].slice(-500);
+const updated = [...prev, newMsgObj].slice(-MAX_MESSAGE_HISTORY);
 return updated;
 });
 }
@@ -4506,6 +4506,7 @@ function buildAlternatives(pool, correct) {
 }
 
 const MIN_QUIZ_INTERVAL = 120; // TRAVA: mínimo absoluto de 2 minutos — não remova
+const MAX_MESSAGE_HISTORY = 50; // Limite de mensagens em cada conversa
 
 const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizIntervalInput, setQuizIntervalInput, quizDiscipline, setQuizDiscipline, serverQuizBotActive, notifyServer, quizJitterTimerRef, broadcastToggle }) => {
   const langName = getLangName(lang);
@@ -5008,7 +5009,7 @@ const broadcastQuizViolation = (violatorId, violatorName, elapsedSec) => {
     recipient: 'general',
     text: `⚠️ VIOLAÇÃO DETECTADA: "${violatorName || violatorId}" enviou quiz com apenas ${Math.round(elapsedSec)}s de intervalo (mínimo: 60s). Mensagem BLOQUEADA pela rede.`
   };
-  setMessages(prev => [...prev, alertMsg].slice(-500));
+  setMessages(prev => [...prev, alertMsg].slice(-MAX_MESSAGE_HISTORY));
 };
 
 // ── Eleição de Mestre P2P (Self-Healing e Consistência) ──
@@ -5315,7 +5316,7 @@ if (data.type === 'quiz-violation') {
     timestamp: data.timestamp,
     recipient: 'general',
     text: `⚠️ VIOLAÇÃO DETECTADA por ${data.detectedByName || data.detectedBy}: "${data.violatorName}" enviou quiz com apenas ${data.elapsedSec}s de intervalo (mínimo: 60s). Mensagem BLOQUEADA.`
-  }].slice(-500));
+  }].slice(-MAX_MESSAGE_HISTORY));
   return;
 }
 
@@ -5673,7 +5674,7 @@ if (data.type === 'poll-create') {
     timestamp,
     recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general')
   };
-  setMessages(prev => [...prev, pollMsg].slice(-500));
+  setMessages(prev => [...prev, pollMsg].slice(-MAX_MESSAGE_HISTORY));
   return;
 }
 
@@ -5797,7 +5798,7 @@ if (data.text === '__QUIZ__' && data.quizPayload) {
           timestamp: Date.now(),
           recipient: 'general',
           text: `Silêncio do Mestre detectado (timeout de ${Math.round(heartbeatLimitMs/1000)}s). Reorganizando a partida...`
-        }].slice(-500));
+        }].slice(-MAX_MESSAGE_HISTORY));
         worldQuizSubscribedToRef.current = null;
         askNextQuestion();
       }
@@ -5868,10 +5869,10 @@ if (data.text === '__QUIZ__' && data.quizPayload) {
   if (currentLang !== 'pt') {
     const texts = [qd.quizQuestion, ...(qd.quizOptions || [])];
     Promise.all(texts.map(tx => translateQuizText(tx, currentLang))).then(results => {
-      setMessages(prev => [...prev, { ...baseQuizMsg, translatedText: results[0], translatedOpts: results.slice(1) }].slice(-500));
-    }).catch(() => setMessages(prev => [...prev, baseQuizMsg].slice(-500)));
+      setMessages(prev => [...prev, { ...baseQuizMsg, translatedText: results[0], translatedOpts: results.slice(1) }].slice(-MAX_MESSAGE_HISTORY));
+    }).catch(() => setMessages(prev => [...prev, baseQuizMsg].slice(-MAX_MESSAGE_HISTORY)));
   } else {
-    setMessages(prev => [...prev, baseQuizMsg].slice(-500));
+    setMessages(prev => [...prev, baseQuizMsg].slice(-MAX_MESSAGE_HISTORY));
   }
   return;
 }
@@ -5902,7 +5903,7 @@ if (isQuizBotMsg && needsTranslation) {
       translatedText: translated, // texto já traduzido (exibido pelo MessageText)
       type: 'text'
     };
-    setMessages(prev => [...prev, msgObj].slice(-500));
+    setMessages(prev => [...prev, msgObj].slice(-MAX_MESSAGE_HISTORY));
   });
   // Não define messageToAdd — o setMessages é feito dentro do .then()
 } else {
@@ -5957,7 +5958,7 @@ return;
 
 if (messageToAdd) {
 setMessages(prev => {
-const updated = [...prev, messageToAdd].slice(-500);
+const updated = [...prev, messageToAdd].slice(-MAX_MESSAGE_HISTORY);
 return updated;
 });
 }
