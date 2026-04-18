@@ -4792,11 +4792,26 @@ const sendQuizHandoff = () => {
   try { conn.send(handoff); console.log('🎯 Quiz handoff enviado ao servidor', handoff); } catch(e) {}
 };
 
+const getQuizBroadcastTarget = () => {
+  const serverConn = centralServerId
+    ? connectionsRef.current.find(c => c.peer === centralServerId && c.open)
+    : null;
+  if (serverConn) return { conn: serverConn, recipient: centralServerId };
+
+  const selected = selectedContactRef.current;
+  const selectedConn = selected
+    ? connectionsRef.current.find(c => c.peer === selected && c.open)
+    : null;
+  if (selectedConn) return { conn: selectedConn, recipient: selected };
+
+  return null;
+};
+
 const sendBotMessage = (text) => {
   const timestamp = new Date();
   const timeStr = timestamp.toLocaleTimeString('en-US');
   const msgId = Date.now() + Math.random().toString(36).substring(7);
-  const target = selectedContactRef.current;
+  const targetInfo = getQuizBroadcastTarget();
 
   // Wire format must match normal messages: type:'message', id, ttl
   const wireMsg = {
@@ -4819,11 +4834,10 @@ const sendBotMessage = (text) => {
     timestamp: timestamp.getTime()
   };
 
-  if (target) {
-    // Conectado a um servidor: envia SÓ para o servidor, ele faz o relay para todos
-    const conn = connections.find(c => c.peer === target && c.open);
-    if (conn) try { conn.send(wireMsg); } catch(e) { console.error('Quiz bot send error', e); }
-    setMessages(prev => [...prev, { ...localMsg, recipient: target }]);
+  if (targetInfo?.conn) {
+    // Quando conectado a um servidor central, o quiz deve subir por ele.
+    try { targetInfo.conn.send(wireMsg); } catch(e) { console.error('Quiz bot send error', e); }
+    setMessages(prev => [...prev, { ...localMsg, recipient: targetInfo.recipient }]);
   } else {
     // Modo geral (sem servidor): broadcast direto para todos os peers
     connections.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
@@ -4835,7 +4849,7 @@ const sendQuizQuestion = (quizData) => {
   const timestamp = new Date();
   const timeStr = timestamp.toLocaleTimeString('en-US');
   const msgId = Date.now() + Math.random().toString(36).substring(7);
-  const target = selectedContactRef.current;
+  const targetInfo = getQuizBroadcastTarget();
 
   // IMPORTANTE: usa type:'message' para que o servidor faça relay automaticamente
   // O campo quizPayload embute os dados estruturados do quiz
@@ -4857,15 +4871,14 @@ const sendQuizQuestion = (quizData) => {
     senderName: '🤖 Quiz Bot',
     time: timeStr,
     timestamp: timestamp.getTime(),
-    recipient: target || 'general',
+    recipient: targetInfo?.recipient || 'general',
     quizVotes: {},
     quizRevealed: false,
     ...quizData
   };
 
-  if (target) {
-    const conn = connections.find(c => c.peer === target && c.open);
-    if (conn) try { conn.send(wireMsg); } catch(e) { console.error('Quiz send error', e); }
+  if (targetInfo?.conn) {
+    try { targetInfo.conn.send(wireMsg); } catch(e) { console.error('Quiz send error', e); }
     setMessages(prev => [...prev, localMsg]);
   } else {
     connections.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
@@ -4885,7 +4898,7 @@ const sendQuizReveal = (quizId) => {
   const timestamp = new Date();
   const timeStr = timestamp.toLocaleTimeString('en-US');
   const msgId = Date.now() + Math.random().toString(36).substring(7);
-  const target = selectedContactRef.current;
+  const targetInfo = getQuizBroadcastTarget();
 
   const q = currentQuizQuestionRef.current;
   const refVotes = q ? (q.votes || {}) : {};
@@ -4907,9 +4920,8 @@ const sendQuizReveal = (quizId) => {
       quizRevealPayload: { quizId, votes: mergedVotes }
     };
 
-    if (target) {
-      const conn = connections.find(c => c.peer === target && c.open);
-      if (conn) try { conn.send(wireMsg); } catch(e) {}
+    if (targetInfo?.conn) {
+      try { targetInfo.conn.send(wireMsg); } catch(e) {}
     } else {
       connections.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
     }
