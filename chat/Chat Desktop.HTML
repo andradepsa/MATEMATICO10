@@ -29,7 +29,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — FBI</title>
+<title>Chat K10 — V16</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -746,8 +746,13 @@ const sanitizeHTML = (dirtyHtml) => {
     if (!dirtyHtml) return '';
     
     if (typeof window.DOMPurify === 'undefined') {
-        console.warn('⚠️ DOMPurify não carregado - usando fallback (menos seguro)');
-        return dirtyHtml;
+        console.warn('⚠️ DOMPurify não carregado - usando fallback de escape HTML seguro');
+        return dirtyHtml
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
     }
 
     return window.DOMPurify.sanitize(dirtyHtml, {
@@ -948,6 +953,7 @@ createPoll: "Create Poll",
 markdownEditor: "Markdown Editor",
 quizBotActive: "Quiz Bot Active",
 secretCopied: "Secret copied!",
+botAlreadyActiveServer: "Another user activated the Quiz Bot on the server. Your bot has been deactivated.",
 collaborativeMarkdownEditor: "Collaborative Markdown Editor",
 typeMarkdownHere: "Type your markdown here...",
 msgTooLong: "Message exceeds 2000 characters limit.",
@@ -1136,6 +1142,7 @@ createPoll: "Criar Enquete",
 markdownEditor: "Editor Markdown",
 quizBotActive: "Quiz Bot Ativado",
 secretCopied: "Segredo copiado!",
+botAlreadyActiveServer: "Outro usuário ativou o Quiz Bot no servidor. Seu bot foi desativado.",
 collaborativeMarkdownEditor: "Editor Markdown Colaborativo",
 typeMarkdownHere: "Digite seu markdown aqui...",
 msgTooLong: "A mensagem excede o limite de 2000 caracteres.",
@@ -2930,6 +2937,17 @@ return (
 
 
 // ================================================================
+// formatTime — módulo-level (acessível em ChatManager e App)
+// ================================================================
+const formatTime = (date) => {
+const h = date.getHours().toString().padStart(2,'0');
+const m = date.getMinutes().toString().padStart(2,'0');
+const s = date.getSeconds().toString().padStart(2,'0');
+return `${h}:${m}:${s}`;
+};
+
+
+// ================================================================
 // ChatManager
 // ================================================================
 const ChatManager = ({
@@ -3012,7 +3030,7 @@ const handleQuizAnswer = (quizId, optionIndex) => {
   // IMPORTANTE: usa type:'message' para relay pelo servidor
   const answerData = {
     type: 'message',
-    id: 'qans-' + Date.now() + '-' + Math.random().toString(36).substring(7),
+    id: 'qans-' + Date.now() + '-' + Math.random().toString(36).substring(2),
     text: '__QUIZ_ANSWER__',
     quizAnswerPayload: { quizId, optionIndex, voterId: peerId },
     senderName: userName || peerId,
@@ -3038,13 +3056,7 @@ const [isSending, setIsSending] = useState(false);
 const decryptionCache = useRef(new Map());
 
 
-const formatTime = (date) => {
-const h = date.getHours().toString().padStart(2,'0');
-const m = date.getMinutes().toString().padStart(2,'0');
-const s = date.getSeconds().toString().padStart(2,'0');
-return `${h}:${m}:${s}`;
-};
-
+// formatTime definida em módulo-level (acima de ChatManager)
 
 const canSendPrivate = selectedContact && !!e2eeState[selectedContact]?.mySecret;
 const hasAnyE2EE = selectedContact && (!!e2eeState[selectedContact]?.mySecret || !!e2eeState[selectedContact]?.contactSecret);
@@ -3277,7 +3289,7 @@ setCooldownRemaining(currentCooldown);
 
 try {
 const timestamp = new Date();
-const msgId = Date.now() + Math.random().toString(36).substring(7);
+const msgId = Date.now() + Math.random().toString(36).substring(2);
 if (registerSentMessage) registerSentMessage(msgId);
 let textToSend = newMessage;
 
@@ -3289,6 +3301,7 @@ textToSend = GROUP_E2EE_PREFIX + await encryptMsg(newMessage, serverE2EE[selecte
 textToSend = E2EE_PREFIX + await encryptMsg(newMessage, e2eeState[selectedContact].mySecret);
 }
 const conn = connections.find(c => c.peer === selectedContact);
+if (!conn || !conn.open) throw new Error('Connection lost during encryption. Please try again.');
 conn.send({ type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: true, time: formatTime(timestamp) });
 const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
 setMessages(prev => {
@@ -4574,13 +4587,18 @@ useEffect(() => {
 }, [lang]);
 
 useEffect(() => {
-document.body.classList.add('dark-mode');
+const savedDark = localStorage.getItem('chatDarkMode');
+if (savedDark === 'false') {
+  document.body.classList.remove('dark-mode');
+} else {
+  document.body.classList.add('dark-mode'); // default: dark
+}
 }, []);
 
 
 const toggleDarkMode = () => {
-document.body.classList.toggle('dark-mode');
-// No longer saving theme to localStorage
+const isDark = document.body.classList.toggle('dark-mode');
+localStorage.setItem('chatDarkMode', isDark ? 'true' : 'false');
 };
 
 
@@ -4596,6 +4614,10 @@ const langRef = useRef(lang);
 useEffect(() => { langRef.current = lang; }, [lang]);
 const [userName, setUserName] = useState(() => localStorage.getItem('p2pUserName') || '');
 const [userAvatar, setUserAvatar] = useState(() => localStorage.getItem('p2pUserAvatar') || '');
+const userAvatarRef = useRef(localStorage.getItem('p2pUserAvatar') || ''); // FIX BUG-D: evita stale closure em sendHandshake
+useEffect(() => { userAvatarRef.current = userAvatar; }, [userAvatar]);
+const userNameRef = useRef(localStorage.getItem('p2pUserName') || ''); // FIX BUG-3: evita stale closure em sendRadioSync/sendQuizHandoff
+useEffect(() => { userNameRef.current = userName; }, [userName]);
 const [editingName, setEditingName] = useState(!localStorage.getItem('p2pUserName'));
 const [avatars, setAvatars] = useState({}); // { peerId: base64 }
 const [connections, setConnections] = useState([]);
@@ -4659,7 +4681,9 @@ const [showQuizBot, setShowQuizBot] = useState(false);
 const [quizBotActive, setQuizBotActive] = useState(false);
 const [quizInterval, setQuizInterval] = useState(MIN_QUIZ_INTERVAL);
 const [quizIntervalInput, setQuizIntervalInput] = useState(MIN_QUIZ_INTERVAL); // Local state for UI
-const safeQuizInterval = () => Math.max(MIN_QUIZ_INTERVAL, quizInterval); // sempre >= 60s
+const quizIntervalRef = useRef(MIN_QUIZ_INTERVAL); // Ref to avoid stale closures in timers
+useEffect(() => { quizIntervalRef.current = Math.max(MIN_QUIZ_INTERVAL, quizInterval); }, [quizInterval]);
+const safeQuizInterval = () => quizIntervalRef.current; // sempre >= 60s, lê sempre valor atual
 const [quizDiscipline, setQuizDiscipline] = useState('mat');
 const quizDisciplineRef = useRef('mat');
 useEffect(() => { quizDisciplineRef.current = quizDiscipline; }, [quizDiscipline]);
@@ -4717,7 +4741,7 @@ function nextWorldPlace() {
 
 
 const handlePollCreated = (question, options) => {
-  const pollId = 'poll-' + Date.now() + '-' + Math.random().toString(36).substring(7);
+  const pollId = 'poll-' + Date.now() + '-' + Math.random().toString(36).substring(2);
   const timestamp = new Date();
   const timeStr = timestamp.toLocaleTimeString('en-US');
   const msgData = {
@@ -4787,7 +4811,7 @@ const sendQuizHandoff = () => {
     usedImageIds: Array.from(worldQuizUsedImagesRef.current || []),
     bufferedHits,                                  // hits Pixabay (URL+ID, sem binário)
     lastPlaceQuery: worldQuizPlaceRef.current ? worldQuizPlaceRef.current.query : null,
-    senderName: userName || 'Quiz Master',
+    senderName: userNameRef.current || 'Quiz Master', // FIX BUG-3: ref evita stale closure
   };
   try { conn.send(handoff); console.log('🎯 Quiz handoff enviado ao servidor', handoff); } catch(e) {}
 };
@@ -4795,7 +4819,7 @@ const sendQuizHandoff = () => {
 const sendBotMessage = (text) => {
   const timestamp = new Date();
   const timeStr = timestamp.toLocaleTimeString('en-US');
-  const msgId = Date.now() + Math.random().toString(36).substring(7);
+  const msgId = Date.now() + Math.random().toString(36).substring(2);
   const target = selectedContactRef.current;
 
   // Wire format must match normal messages: type:'message', id, ttl
@@ -4821,12 +4845,12 @@ const sendBotMessage = (text) => {
 
   if (target) {
     // Conectado a um servidor: envia SÓ para o servidor, ele faz o relay para todos
-    const conn = connections.find(c => c.peer === target && c.open);
+    const conn = connectionsRef.current.find(c => c.peer === target && c.open);
     if (conn) try { conn.send(wireMsg); } catch(e) { console.error('Quiz bot send error', e); }
     setMessages(prev => [...prev, { ...localMsg, recipient: target }]);
   } else {
     // Modo geral (sem servidor): broadcast direto para todos os peers
-    connections.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
+    connectionsRef.current.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
     setMessages(prev => [...prev, { ...localMsg, recipient: 'general' }]);
   }
 };
@@ -4834,7 +4858,7 @@ const sendBotMessage = (text) => {
 const sendQuizQuestion = (quizData) => {
   const timestamp = new Date();
   const timeStr = timestamp.toLocaleTimeString('en-US');
-  const msgId = Date.now() + Math.random().toString(36).substring(7);
+  const msgId = Date.now() + Math.random().toString(36).substring(2);
   const target = selectedContactRef.current;
 
   // IMPORTANTE: usa type:'message' para que o servidor faça relay automaticamente
@@ -4864,18 +4888,18 @@ const sendQuizQuestion = (quizData) => {
   };
 
   if (target) {
-    const conn = connections.find(c => c.peer === target && c.open);
+    const conn = connectionsRef.current.find(c => c.peer === target && c.open);
     if (conn) try { conn.send(wireMsg); } catch(e) { console.error('Quiz send error', e); }
     setMessages(prev => [...prev, localMsg]);
   } else {
-    connections.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
+    connectionsRef.current.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
     setMessages(prev => [...prev, localMsg]);
   }
   
   // Envia para os inscritos do World Quiz, independentemente de estar em um servidor ou não
   if (quizData.quizStage) {
     worldQuizSubscribersRef.current.forEach(subId => {
-      const subConn = connections.find(c => c.peer === subId && c.open);
+      const subConn = connectionsRef.current.find(c => c.peer === subId && c.open);
       if (subConn) try { subConn.send(wireMsg); } catch(e) {}
     });
   }
@@ -4884,7 +4908,7 @@ const sendQuizQuestion = (quizData) => {
 const sendQuizReveal = (quizId) => {
   const timestamp = new Date();
   const timeStr = timestamp.toLocaleTimeString('en-US');
-  const msgId = Date.now() + Math.random().toString(36).substring(7);
+  const msgId = Date.now() + Math.random().toString(36).substring(2);
   const target = selectedContactRef.current;
 
   const q = currentQuizQuestionRef.current;
@@ -4908,15 +4932,15 @@ const sendQuizReveal = (quizId) => {
     };
 
     if (target) {
-      const conn = connections.find(c => c.peer === target && c.open);
+      const conn = connectionsRef.current.find(c => c.peer === target && c.open);
       if (conn) try { conn.send(wireMsg); } catch(e) {}
     } else {
-      connections.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
+      connectionsRef.current.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
     }
     
     if (q && q.quizStage) {
       worldQuizSubscribersRef.current.forEach(subId => {
-        const subConn = connections.find(c => c.peer === subId && c.open);
+        const subConn = connectionsRef.current.find(c => c.peer === subId && c.open);
         if (subConn) try { subConn.send(wireMsg); } catch(e) {}
       });
     }
@@ -4943,7 +4967,7 @@ const askWorldQuestion = async () => {
   const hit = await fetchWorldImage(place.query, worldQuizUsedImagesRef.current, (hits) => {
     // Replica o buffer para toda a conexões (Takeover Support)
     const syncMsg = { type: 'quiz-buffer-sync', query: place.query, hits };
-    connections.forEach(c => { if(c.open) try{c.send(syncMsg);}catch(e){} });
+    connectionsRef.current.forEach(c => { if(c.open) try{c.send(syncMsg);}catch(e){} });
   });
 
   const imgUrl = hit ? hit.largeImageURL || hit.webformatURL : null;
@@ -4952,7 +4976,7 @@ const askWorldQuestion = async () => {
 
   // ── ETAPA 1: Qual o PAÍS? ──
   const [countryOpts, countryCorrectIdx] = buildAlternatives(ALL_COUNTRIES, place.country);
-  const quizId1 = 'quiz-world1-' + Date.now() + '-' + Math.random().toString(36).substring(7);
+  const quizId1 = 'quiz-world1-' + Date.now() + '-' + Math.random().toString(36).substring(2);
   worldQuizId1Ref.current = quizId1;
   worldQuizStageRef.current = 1;
 
@@ -4984,7 +5008,7 @@ const askWorldQuestion = async () => {
       // ── ETAPA 2: Qual o ESTADO/CIDADE? ── (mesma imagem, sem nova chamada API)
       const statePool = place.statePool || ALL_COUNTRIES; // fallback seguro
       const [stateOpts, stateCorrectIdx] = buildAlternatives(statePool, place.state);
-      const quizId2 = 'quiz-world2-' + Date.now() + '-' + Math.random().toString(36).substring(7);
+      const quizId2 = 'quiz-world2-' + Date.now() + '-' + Math.random().toString(36).substring(2);
       worldQuizId2Ref.current = quizId2;
       worldQuizStageRef.current = 2;
 
@@ -5029,7 +5053,7 @@ const broadcastQuizViolation = (violatorId, violatorName, elapsedSec) => {
     detectedByName: userName,
     timestamp: Date.now()
   };
-  connections.forEach(c => { if (c.open) try { c.send(msg); } catch(e) {} });
+  connectionsRef.current.forEach(c => { if (c.open) try { c.send(msg); } catch(e) {} });
   // Exibe alerta local também
   const alertMsg = {
     type: 'text',
@@ -5156,7 +5180,7 @@ const askNextQuestion = async () => {
   const stripPrefix = (str) => str.replace(/^[A-Fa-f]\)\s*/, '').trim();
   const cleanOpts = q.opcoes.map(stripPrefix);
 
-  const quizId = 'quiz-' + Date.now() + '-' + Math.random().toString(36).substring(7);
+  const quizId = 'quiz-' + Date.now() + '-' + Math.random().toString(36).substring(2);
 
   currentQuizQuestionRef.current = {
     ...q,
@@ -5287,7 +5311,7 @@ const handleAvatarChange = (e) => {
       localStorage.setItem('p2pUserAvatar', base64);
       
       // Notify all connected peers about the new avatar
-      connections.forEach(conn => {
+      connectionsRef.current.forEach(conn => {
         if (conn.open) {
           try { conn.send({ type: 'avatar-update', peerId, avatar: base64 }); } catch(err) {}
         }
@@ -5297,7 +5321,7 @@ const handleAvatarChange = (e) => {
   };
   reader.readAsDataURL(file);
 };
-const formatTime = (date) => date.toLocaleTimeString('en-US');
+// FIX BUG-B: formatTime duplicada removida — usa a definição acima (HH:MM:SS zero-padded)
 
 
 const stopAndRemoveLocalStream = (pId) => {
@@ -5313,7 +5337,7 @@ else { const first = localStreamsRef.current.values().next().value; if (localVid
 
 const sendHandshake = (conn) => {
 try {
-conn.send({ type: 'handshake', peerId, avatar: userAvatar });
+conn.send({ type: 'handshake', peerId, avatar: userAvatarRef.current }); // FIX BUG-D: ref evita avatar stale
 if (youtubeChatIdRef.current) {
 conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
 }
@@ -5322,9 +5346,10 @@ conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(
 
 
 const pruneSeenMessages = () => {
-if (seenMessagesRef.current.size > 5000) {
-const first = seenMessagesRef.current.values().next().value;
-seenMessagesRef.current.delete(first);
+const s = seenMessagesRef.current;
+if (s.size > 5000) {
+const toDelete = [...s].slice(0, 1000);
+toDelete.forEach(k => s.delete(k));
 }
 };
 
@@ -5334,7 +5359,7 @@ const maxConnections = isSuperNode ? 50 : 15;
 // ── VIGILÂNCIA P2P: alerta de violação vindo de outro peer ──────────────────
 if (data.type === 'quiz-violation') {
   // Relay para os demais peers (propaga pelo grafo)
-  connections.forEach(c => { if (c.peer !== pId && c.open) try { c.send(data); } catch(e) {} });
+  connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(data); } catch(e) {} });
   // Exibe alerta na conversa local (deduplicado por timestamp+violatorId)
   const dedupKey = `viol-${data.violatorId}-${data.timestamp}`;
   if (seenMessagesRef.current.has(dedupKey)) return;
@@ -5374,7 +5399,7 @@ if (data.type === 'subscribe-world-quiz') {
         const hits = _worldImgCache[query];
         if (hits && hits.length > 0) {
            const syncMsg = { type: 'quiz-buffer-sync', query, hits };
-           const conn = connections.find(c => c.peer === data.myId && c.open);
+           const conn = connectionsRef.current.find(c => c.peer === data.myId && c.open);
            if (conn) try { conn.send(syncMsg); } catch(e){}
         }
      });
@@ -5382,7 +5407,7 @@ if (data.type === 'subscribe-world-quiz') {
      const usedIds = Array.from(worldQuizUsedImagesRef.current);
      if (usedIds.length > 0) {
         const usedMsg = { type: 'quiz-used-sync', usedIds };
-        const conn = connections.find(c => c.peer === data.myId && c.open);
+        const conn = connectionsRef.current.find(c => c.peer === data.myId && c.open);
         if (conn) try { conn.send(usedMsg); } catch(e){}
      }
   }
@@ -5432,11 +5457,9 @@ setNetworkSize(prev => Math.max(data.totalOnline, connections.length + 1));
 let ttl = data.ttl !== undefined ? data.ttl : 5;
 if (ttl > 0) {
 const relay = { ...data, ttl: ttl - 1 };
-setConnections(cc => {
-cc.forEach(c => {
+// FIX BUG-C: relay via ref — sem efeito colateral dentro do state updater
+connectionsRef.current.forEach(c => {
 if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){}
-});
-return cc;
 });
 }
 return;
@@ -5515,11 +5538,9 @@ return;
 
 
 if (data.type === 'radio-request-sync') {
-setConnections(cc => {
-const c = cc.find(x => x.peer === pId);
+// FIX: side-effect fora do state updater — usa ref
+const c = connectionsRef.current.find(x => x.peer === pId);
 if (c) sendRadioSync(c);
-return cc;
-});
 return;
 }
 
@@ -5766,14 +5787,16 @@ knownUsersRef.current.add(data.sender);
 setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
 }
 const now = Date.now(), lastTime = lastMessageTimeRef.current.get(data.sender) || 0;
-const requiredMs = Math.max(500, Math.floor(knownUsersRef.current.size / 1000)) * 1000;
+const requiredMs = Math.max(500, Math.floor(knownUsersRef.current.size / 1000) * 1000);
 if (now - lastTime < requiredMs) {
 const violations = (spamViolationsRef.current.get(data.sender) || 0) + 1;
 spamViolationsRef.current.set(data.sender, violations);
 if (violations >= 3) {
 bannedPeersRef.current.add(data.sender);
 spamViolationsRef.current.delete(data.sender);
-setConnections(cc => { const c = cc.find(x => x.peer === data.sender); if (c) c.close(); return cc.filter(x => x.peer !== data.sender); });
+const connToClose = connectionsRef.current.find(x => x.peer === data.sender);
+if (connToClose) connToClose.close();
+setConnections(cc => cc.filter(x => x.peer !== data.sender));
 }
 return;
 }
@@ -6017,13 +6040,12 @@ type: 'radio-youtube-start',
 id: peerId + '_yt_sync_' + Date.now(),
 youtubeId: userYoutubeStreamsRef.current[peerId],
 sender: peerId,
-senderName: userName,
+senderName: userNameRef.current, // FIX BUG-3: ref evita stale closure
 ttl: 1
 };
 const sendYt = () => { try { conn.send(ytSyncMsg); } catch(e) {} };
 sendYt(); setTimeout(sendYt, 1000);
 }
-// Sync all known world radio stations to the new peer
 Object.keys(userRadiosRef.current).forEach(senderPId => {
 const station = userRadiosRef.current[senderPId];
 const worldMsg = {
@@ -6737,7 +6759,13 @@ if (torrentClientRef.current) {
 torrentClientRef.current.seed(file, { announce: announceList }, (torrent) => {
 const magnet = torrent.magnetURI;
 const text = `🧲 TORRENT: ${file.name}\n${magnet}`;
-sendMessage(text);
+// FIX BUG-A: sendMessage não existe — usar broadcast direto idêntico ao sendDirectMessage (modo geral)
+const _ts = new Date();
+const _msgId = Date.now() + Math.random().toString(36).substring(2);
+seenMessagesRef.current.add(_msgId);
+const _msgData = { type: 'message', id: _msgId, ttl: 15, text, senderName: userName, direct: false, time: formatTime(_ts) };
+connectionsRef.current.forEach(c => { if (c.open) try { c.send(_msgData); } catch(e){} });
+setMessages(prev => [...prev, { text, sender: 'you', recipient: 'general', senderName: userName, time: formatTime(_ts), type: 'text', direct: false, timestamp: _ts.getTime() }].slice(-500));
 setMessages(prev => [...prev, { text: t(lang, 'torrentStarted', { name: file.name }), sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
 });
 }
@@ -6911,7 +6939,7 @@ if (!yId) { alert(t(lang, 'invalidYoutubeUrl') || 'Invalid YouTube URL'); return
 
 
 setYoutubeChatId(yId);
-const msgId = Date.now() + Math.random().toString(36).substring(7);
+const msgId = Date.now() + Math.random().toString(36).substring(2);
 const msgData = { type: 'youtube-chat-start', id: msgId, youtubeId: yId, ttl: 15 };
 connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
 };
@@ -7433,7 +7461,7 @@ currentQuizQuestionRef={currentQuizQuestionRef}
 
 
 
-ReactDOM.render(<ErrorBoundary><App /></ErrorBoundary>, document.getElementById('root'));
+ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App /></ErrorBoundary>);
 </script>
 <script>
   (async () => {
