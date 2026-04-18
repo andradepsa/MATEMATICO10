@@ -269,6 +269,35 @@
     <style>@keyframes k10spin{to{transform:rotate(360deg)}}</style>
   </div>
   <script>
+
+  /* === QUIZ TEST MODE (added) ============================================
+   * Ativar:  no console -> quizTestMode(true)   ou abrir URL com ?quizTest=1
+   * Desativar: quizTestMode(false)
+   * Estado persiste em localStorage. Quando ATIVO:
+   *  - sua maquina nao dispara broadcast de "VIOLACAO" de quiz
+   *  - sua maquina ignora broadcasts "quiz-violation" recebidos
+   *  - a checagem de intervalo minimo entre quizzes e' pulada
+   *  - (servidor) o intervalo minimo do master cai para 5s
+   * Quando INATIVO o comportamento original e' 100% preservado.
+   * ====================================================================== */
+  (function(){
+    try {
+      var KEY = '__quizTestMode__';
+      var qs  = new URLSearchParams(location.search);
+      if (qs.has('quizTest')) {
+        localStorage.setItem(KEY, qs.get('quizTest') === '0' ? '0' : '1');
+      }
+      window.__quizTestMode = function(v){
+        if (arguments.length){ localStorage.setItem(KEY, v ? '1' : '0'); console.log('[QuizTestMode]', v ? 'ATIVADO' : 'desativado'); }
+        return localStorage.getItem(KEY) === '1';
+      };
+      window.quizTestMode = window.__quizTestMode; // alias amigavel
+      if (window.__quizTestMode()) {
+        console.log('%c[QuizTestMode] ATIVO - vigilancia/anti-flood do quiz desativados nesta sessao.', 'background:#f59e0b;color:#000;padding:2px 6px;border-radius:4px;font-weight:bold');
+      }
+    } catch(e) { /* localStorage indisponivel */ }
+  })();
+
     (function(){
 
 
@@ -376,7 +405,7 @@
         return [all, idx];
       }
 
-      const SRV_MIN_QUIZ_INTERVAL = 120;
+      const SRV_MIN_QUIZ_INTERVAL = ((typeof window!=='undefined' && window.__quizTestMode && window.__quizTestMode()) ? 5 : 120);
 
 
     const TRANSLATIONS = {
