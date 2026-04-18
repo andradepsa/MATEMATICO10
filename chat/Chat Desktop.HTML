@@ -706,35 +706,6 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
   </style>
 </div>
 <script>
-
-  /* === QUIZ TEST MODE (added) ============================================
-   * Ativar:  no console -> quizTestMode(true)   ou abrir URL com ?quizTest=1
-   * Desativar: quizTestMode(false)
-   * Estado persiste em localStorage. Quando ATIVO:
-   *  - sua maquina nao dispara broadcast de "VIOLACAO" de quiz
-   *  - sua maquina ignora broadcasts "quiz-violation" recebidos
-   *  - a checagem de intervalo minimo entre quizzes e' pulada
-   *  - (servidor) o intervalo minimo do master cai para 5s
-   * Quando INATIVO o comportamento original e' 100% preservado.
-   * ====================================================================== */
-  (function(){
-    try {
-      var KEY = '__quizTestMode__';
-      var qs  = new URLSearchParams(location.search);
-      if (qs.has('quizTest')) {
-        localStorage.setItem(KEY, qs.get('quizTest') === '0' ? '0' : '1');
-      }
-      window.__quizTestMode = function(v){
-        if (arguments.length){ localStorage.setItem(KEY, v ? '1' : '0'); console.log('[QuizTestMode]', v ? 'ATIVADO' : 'desativado'); }
-        return localStorage.getItem(KEY) === '1';
-      };
-      window.quizTestMode = window.__quizTestMode; // alias amigavel
-      if (window.__quizTestMode()) {
-        console.log('%c[QuizTestMode] ATIVO - vigilancia/anti-flood do quiz desativados nesta sessao.', 'background:#f59e0b;color:#000;padding:2px 6px;border-radius:4px;font-weight:bold');
-      }
-    } catch(e) { /* localStorage indisponivel */ }
-  })();
-
   // Remove loading screen as soon as React finishes rendering
   (function() {
     var _raf = window.requestAnimationFrame;
@@ -5006,7 +4977,6 @@ const askWorldQuestion = async () => {
 
 // ── VIGILÂNCIA P2P: denuncia violação de intervalo para toda a rede ─────────
 const broadcastQuizViolation = (violatorId, violatorName, elapsedSec) => {
-  if (typeof window!=='undefined' && window.__quizTestMode && window.__quizTestMode()) { console.log('[QuizTestMode] broadcastQuizViolation suprimido'); return; }
   const msg = {
     type: 'quiz-violation',
     violatorId,
@@ -5320,7 +5290,6 @@ const handleIncomingData = (data, pId) => {
 const maxConnections = isSuperNode ? 50 : 15;
 // ── VIGILÂNCIA P2P: alerta de violação vindo de outro peer ──────────────────
 if (data.type === 'quiz-violation') {
-  if (typeof window!=='undefined' && window.__quizTestMode && window.__quizTestMode()) { return; }
   // Relay para os demais peers (propaga pelo grafo)
   connections.forEach(c => { if (c.peer !== pId && c.open) try { c.send(data); } catch(e) {} });
   // Exibe alerta na conversa local (deduplicado por timestamp+violatorId)
@@ -5828,8 +5797,7 @@ if (data.text === '__QUIZ__' && data.quizPayload) {
   const senderId = pId || data.senderId || 'unknown';
   const now = Date.now();
   const lastSeen = quizLastSeenRef.current[senderId];
-  const __qtm = (typeof window!=='undefined' && window.__quizTestMode && window.__quizTestMode());
-  if (!__qtm && lastSeen) {
+  if (lastSeen) {
     const elapsed = (now - lastSeen) / 1000;
     if (elapsed < MIN_QUIZ_INTERVAL) {
       // VIOLAÇÃO DE REPLAY: mensagem velha enviada novamente — dropa imediato
