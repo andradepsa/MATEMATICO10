@@ -1,7 +1,9 @@
-<html lang="pt-br"><head>
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Servidor K20 - FBI</title>
+  <title>Servidor K10 - FBI</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <style>
     body {
@@ -241,6 +243,7 @@
     .tutorial-step-num { background: linear-gradient(135deg, #1e40af, #7c3aed); color: white; border-radius: 50%; width: 28px; height: 28px; min-width: 28px; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; margin-top: 2px; }
     .tutorial-step-num.server { background: linear-gradient(135deg, #f59e0b, #d97706); }
     .tutorial-step-num.shield { background: linear-gradient(135deg, #10b981, #059669); }
+    .tutorial-step-num.red { background: linear-gradient(135deg, #ef4444, #dc2626); }
     .tutorial-step-text { flex: 1; }
     .tutorial-step-text strong { color: #ffffff; font-size: 14px; display: block; margin-bottom: 3px; }
     .tutorial-step-text span { font-size: 13px; color: #cbd5e1; line-height: 1.6; }
@@ -437,7 +440,9 @@
         idDescription2: "More specifically:",
         idDescription3: "Letters: A to Z (uppercase only)",
         idDescription4: "Numbers: 2 to 9",
-        ytChatExplanation: "You can start a chat on a YouTube Live and broadcast the YouTube chat from the server. Use the 'Start YT Chat' button. This information is available in both Media and Server menus."
+        ytChatExplanation: "You can start a chat on a YouTube Live and broadcast the YouTube chat from the server. Use the 'Start YT Chat' button. This information is available in both Media and Server menus.",
+        clearAuditLog: "Clear",
+        noAuditEvents: "No events recorded."
       },
       pt: {
         serverTitle: "Servidor K10",
@@ -496,7 +501,9 @@
         idDescription2: "Mais especificamente:",
         idDescription3: "Letras: A a Z (apenas maiúsculas)",
         idDescription4: "Números: 2 a 9",
-        ytChatExplanation: "Você pode iniciar um chat em uma live do YouTube e transmitir o chat do YouTube a partir do servidor. Use o botão 'Iniciar Chat YT'. Esta informação está disponível nos menus Mídias e Servidor."
+        ytChatExplanation: "Você pode iniciar um chat em uma live do YouTube e transmitir o chat do YouTube a partir do servidor. Use o botão 'Iniciar Chat YT'. Esta informação está disponível nos menus Mídias e Servidor.",
+        clearAuditLog: "Limpar",
+        noAuditEvents: "Nenhum evento registrado."
       }
     };
 
@@ -1008,6 +1015,8 @@
 
     const DistributorApp = () => {
       const [lang, setLang] = useState(() => localStorage.getItem('serverLang') || 'en');
+      const langRef = useRef(localStorage.getItem('serverLang') || 'en'); // FIX S1: evita stale closure em setupConnection/conn.on
+      useEffect(() => { langRef.current = lang; }, [lang]);
       const [peerId, setPeerId] = usePersistentId();
       const [connections, setConnections] = useState([]);
       const [messages, setMessages] = useState([]);
@@ -1022,8 +1031,13 @@
       useEffect(() => {
         localStorage.setItem('serverLang', lang);
       }, [lang]);
-      // New state to control the mode
-      const [pureServerMode, setPureServerMode] = useState(true);
+      // New state to control the mode — persisted in localStorage
+      const [pureServerMode, setPureServerMode] = useState(() => {
+        const saved = localStorage.getItem('pureServerMode');
+        return saved === null ? true : saved === 'true';
+      });
+      const pureServerModeRef = useRef(true);
+      useEffect(() => { pureServerModeRef.current = pureServerMode; localStorage.setItem('pureServerMode', pureServerMode); }, [pureServerMode]);
       const [knownServers, setKnownServers] = useState(() => {
         try { return JSON.parse(localStorage.getItem('knownServers') || '[]'); } catch { return []; }
       });
@@ -1129,6 +1143,10 @@
         }, 25000);
       };
 
+      // Ref para sempre ter o peerId mais recente dentro dos closures dos timers
+      const peerIdRef = useRef(peerId);
+      useEffect(() => { peerIdRef.current = peerId; }, [peerId]);
+
       // Agenda reconexão com backoff – único ponto de entrada para retentativas
       const scheduleReconnect = () => {
         if (isManualDisconnectRef.current) return;
@@ -1192,7 +1210,7 @@
             peerInstance.current.destroy();
             peerInstance.current = null;
             setConnectionStatus('disconnected');
-            setStats({ messagesReceived: 0, messagesDistributed: 0, activeConnections: 0 });
+            setStats({ messagesReceived: 0, messagesDistributed: 0, activeConnections: 0, hydraNodes: 0 });
             console.log("Peer desconectado com sucesso");
           } catch (err) {
             console.error("Erro ao desconectar peer:", err);
@@ -1386,6 +1404,12 @@
 
       const handleIdChange = (newId) => {
         disconnectPeer();
+        // Após limpar, reconecta automaticamente com o novo ID
+        setTimeout(() => {
+          isManualDisconnectRef.current = false;
+          reconnectAttemptsRef.current = 0;
+          setupPeer();
+        }, 600);
       };
 
       const broadcastMyYoutubeVideo = () => {
@@ -1558,8 +1582,9 @@
             }
             seenMessagesRef.current.add(data.id);
             if (seenMessagesRef.current.size > 10000) {
-              const firstItem = seenMessagesRef.current.values().next().value;
-              seenMessagesRef.current.delete(firstItem);
+              // FIX BUG-F: deletar 1 item de cada vez é ineficaz — purga 1000 de uma vez
+              const toDelete = Array.from(seenMessagesRef.current).slice(0, 1000);
+              toDelete.forEach(k => seenMessagesRef.current.delete(k));
             }
           }
 
@@ -1576,7 +1601,7 @@
             const senderName = data.senderName || sourceConn.peer;
             
             const newMessage = {
-              id: data.id || (Date.now() + Math.random().toString(36).substring(7)),
+              id: data.id || (Date.now() + Math.random().toString(36).substring(2)),
               text: data.text,
               sender: senderName,
               timestamp: new Date().toISOString(),
@@ -1589,10 +1614,9 @@
           distributeMessage(data, sourceConn.peer);
         }
         else if (data.type === 'radio-start' || data.type === 'radio-stream-start' || data.type === 'radio-chunk' || data.type === 'radio-sync' || data.type === 'radio-request-sync') {
-          if (data.id) {
-            if (seenMessagesRef.current.has(data.id)) return;
-            seenMessagesRef.current.add(data.id);
-          }
+          if (!data.id) data = { ...data, id: Date.now() + Math.random().toString(36).substring(2) };
+          if (seenMessagesRef.current.has(data.id)) return;
+          seenMessagesRef.current.add(data.id);
           
           if (data.type === 'radio-start' || data.type === 'radio-stream-start' || data.type === 'radio-sync') {
             radioStateRef.current = {
@@ -1614,11 +1638,10 @@
             console.log("Servidor: Áudio muito longo ignorado (limite de 1 minuto).");
             return;
           }
-          // Servidor agora aceita mensagens de áudio gravado
-          if (data.id) {
-            if (seenMessagesRef.current.has(data.id)) return;
-            seenMessagesRef.current.add(data.id);
-          }
+          // FIX BUG-E: garante ID para dedup sempre funcionar, mesmo em chunks sem ID
+          if (!data.id) data = { ...data, id: sourceConn.peer + '_' + data.type + '_' + (data.audioId || '') + '_' + (data.offset || 0) };
+          if (seenMessagesRef.current.has(data.id)) return;
+          seenMessagesRef.current.add(data.id);
           distributeMessage(data, sourceConn.peer);
         }
         else if (data.type === 'file-start' || data.type === 'file-chunk') {
@@ -1626,10 +1649,10 @@
         }
         else if (data.type === 'e2ee-secret' || data.type === 'server-e2ee-invite' || data.type === 'youtube-cam-start' || data.type === 'youtube-cam-stop' || data.type === 'youtube-chat-start' || data.type === 'radio-youtube-start' || data.type === 'radio-youtube-stop' || data.type === 'radio-world-start' || data.type === 'radio-world-stop') {
            // Relay para segredos E2EE, YouTube Cam, YouTube Chat e Radio YouTube
-           if (data.id) {
-             if (seenMessagesRef.current.has(data.id)) return;
-             seenMessagesRef.current.add(data.id);
-           }
+           // FIX BUG-G: garante ID para dedup sempre funcionar
+           if (!data.id) data = { ...data, id: sourceConn.peer + '_' + data.type + '_' + Date.now() };
+           if (seenMessagesRef.current.has(data.id)) return;
+           seenMessagesRef.current.add(data.id);
            if (data.type === 'youtube-chat-start') {
              if (youtubeChatIdRef.current) return;
              setYoutubeChatId(data.youtubeId);
@@ -1648,11 +1671,10 @@
         }
         else if (data.type === 'youtube-chat-stop') {
            // O comando de parar o chat agora é estritamente local
-           // Não repassamos para outros servidores para evitar ataques
-           if (data.id) {
-             if (seenMessagesRef.current.has(data.id)) return;
-             seenMessagesRef.current.add(data.id);
-           }
+           // FIX BUG-G: garante ID para dedup
+           if (!data.id) data = { ...data, id: sourceConn.peer + '_yt_stop_' + Date.now() };
+           if (seenMessagesRef.current.has(data.id)) return;
+           seenMessagesRef.current.add(data.id);
            setYoutubeChatId(null);
         }
       };
@@ -1668,14 +1690,14 @@
         
         const relayData = { ...data, ttl: currentTtl - 1 };
         
-        activeConnectionsRef.current.forEach((conn, peerId) => {
-          if (peerId !== sourceId) {
+        activeConnectionsRef.current.forEach((conn, connPeerId) => {
+          if (connPeerId !== sourceId) {
             try {
-              console.log(`Distribuindo mensagem para ${peerId}`);
+              console.log(`Distribuindo mensagem para ${connPeerId}`);
               conn.send(relayData);
               distributionCount++;
             } catch (err) {
-              console.error(`Erro ao enviar para ${peerId}:`, err);
+              console.error(`Erro ao enviar para ${connPeerId}:`, err);
             }
           }
         });
@@ -1711,7 +1733,7 @@
               conn.send({
                 type: 'migrate-to-p2p',
                 peers: peersToSend,
-                message: t(lang, 'hydraModeMessage')
+                message: t(langRef.current, 'hydraModeMessage') // FIX S1
               });
             } catch (err) {}
             
@@ -1751,7 +1773,7 @@
                 c.send({
                   type: 'migrate-to-p2p',
                   peers: allPeers,
-                  message: t(lang, 'serverFullMigration')
+                  message: t(langRef.current, 'serverFullMigration') // FIX S1
                 });
               } catch (err) {}
             });
@@ -1780,12 +1802,12 @@
           // Here is the critical change to ensure we operate in pure server mode:
           // We'll send a special message to mark this as a server connection
           // when pure server mode is enabled
-          if (pureServerMode) {
+          if (pureServerModeRef.current) {
             try {
               conn.send({
                 type: 'server-info',
                 isServer: true,
-                message: t(lang, 'pureServerModeConnected')
+                message: t(langRef.current, 'pureServerModeConnected') // FIX S1
               });
             } catch (err) {
               console.error(`Erro ao enviar informação de servidor para ${conn.peer}:`, err);
@@ -1802,13 +1824,13 @@
                   radioType: 'stream',
                   startTime: radioStateRef.current.startTime,
                   streamUrl: radioStateRef.current.streamUrl,
-                  fileName: radioStateRef.current.fileName || t(lang, 'globalRadio'),
-                  senderName: radioStateRef.current.senderName || t(lang, 'k10Server')
+                  fileName: radioStateRef.current.fileName || t(langRef.current, 'globalRadio'), // FIX S1
+                  senderName: radioStateRef.current.senderName || t(langRef.current, 'k10Server') // FIX S1
                 });
                 conn.send({
                   type: 'message',
                   text: '#$%',
-                  senderName: t(lang, 'k10Server'),
+                  senderName: t(langRef.current, 'k10Server'), // FIX S1
                   id: 'radio_block_' + Date.now()
                 });
               } catch (e) {}
@@ -1822,14 +1844,14 @@
                     radioType: 'file',
                     startTime: radioStateRef.current.startTime,
                     duration: radioStateRef.current.duration,
-                    fileName: radioStateRef.current.fileName || t(lang, 'globalRadio'),
-                    senderName: radioStateRef.current.senderName || t(lang, 'k10Server')
+                    fileName: radioStateRef.current.fileName || t(langRef.current, 'globalRadio'), // FIX S1
+                    senderName: radioStateRef.current.senderName || t(langRef.current, 'k10Server') // FIX S1
                   });
                   // Envia a string #$% solicitada pelo usuário como fallback de bloqueio
                   conn.send({
                     type: 'message',
                     text: '#$%',
-                    senderName: t(lang, 'k10Server'),
+                    senderName: t(langRef.current, 'k10Server'), // FIX S1
                     id: 'radio_block_' + Date.now()
                   });
                 } catch (e) {}
@@ -1880,7 +1902,7 @@
         const ts = new Date();
         const wireMsg = {
           type: 'message',
-          id: Date.now() + Math.random().toString(36).substring(7),
+          id: Date.now() + Math.random().toString(36).substring(2),
           ttl: 15,
           senderName: '🤖 Quiz Bot',
           direct: false,
@@ -1895,7 +1917,7 @@
         const ts = new Date();
         const wireMsg = {
           type: 'message',
-          id: Date.now() + Math.random().toString(36).substring(7),
+          id: Date.now() + Math.random().toString(36).substring(2),
           ttl: 15,
           senderName: '🤖 Quiz Bot',
           direct: false,
@@ -1922,7 +1944,7 @@
         const imgId = hit ? hit.id : null;
 
         const [countryOpts, countryCorrectIdx] = srvBuildAlternatives(ALL_COUNTRIES, place.country);
-        const quizId1 = 'quiz-srv-w1-' + Date.now() + '-' + Math.random().toString(36).substring(7);
+        const quizId1 = 'quiz-srv-w1-' + Date.now() + '-' + Math.random().toString(36).substring(2);
         const quizData1 = {
           quizId: quizId1,
           quizQuestion: '🌍 Em qual PAÍS fica este lugar famoso?',
@@ -1946,7 +1968,7 @@
             if (!serverQuizActiveRef.current) return;
             const statePool = place.statePool || ALL_COUNTRIES;
             const [stateOpts, stateCorrectIdx] = srvBuildAlternatives(statePool, place.state);
-            const quizId2 = 'quiz-srv-w2-' + Date.now() + '-' + Math.random().toString(36).substring(7);
+            const quizId2 = 'quiz-srv-w2-' + Date.now() + '-' + Math.random().toString(36).substring(2);
             const quizData2 = {
               quizId: quizId2,
               quizQuestion: '🗺️ Em qual ESTADO ou CIDADE fica este lugar?',
@@ -1998,7 +2020,7 @@
         }
         const q = questions[Math.floor(Math.random() * questions.length)];
         const cleanOpts = q.opcoes.map(s => s.replace(/^[A-Fa-f]\)\s*/, '').trim());
-        const quizId = 'quiz-srv-' + Date.now() + '-' + Math.random().toString(36).substring(7);
+        const quizId = 'quiz-srv-' + Date.now() + '-' + Math.random().toString(36).substring(2);
         const quizData = {
           quizId,
           quizQuestion: q.pergunta,
@@ -2086,9 +2108,9 @@
         if (!yId) { alert(t(lang, 'invalidYoutubeUrl')); return; }
         
         setYoutubeChatId(yId);
-        const msgId = Date.now() + Math.random().toString(36).substring(7);
+        const msgId = Date.now() + Math.random().toString(36).substring(2);
         const msgData = { type: 'youtube-chat-start', id: msgId, youtubeId: yId, ttl: 15 };
-        activeConnectionsRef.current.forEach(c => { try { c.send(msgData); } catch(e){} });
+        activeConnectionsRef.current.forEach((c) => { try { c.send(msgData); } catch(e){} });
       };
 
       const stopYoutubeChat = () => {
@@ -2161,6 +2183,7 @@
               <span className={`connection-badge ${
                 connectionStatus === 'connected' ? 'connected' :
                 (connectionStatus === 'connecting' || connectionStatus.startsWith('reconnecting')) ? 'connecting' :
+                (connectionStatus.startsWith('error') && connectionStatus !== 'errorFatal') ? 'connecting' :
                 'disconnected'
               }`}>
                 <span className={`status-indicator status-${
@@ -2297,10 +2320,10 @@
               <p>{t(lang, 'noActiveConnections')}</p>
             ) : (
               <div>
-                {connections.map((peerId, index) => (
+                {connections.map((connPeerId, index) => (
                  <div key={index} className="peer-item">
                     <span className="status-indicator status-online"></span>
-                    {peerId}
+                    {connPeerId}
                   </div>
                 ))}
               </div>
@@ -2333,12 +2356,12 @@
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
               <h3 style={{ margin: 0, fontSize: '13px' }}>📋 Audit Log</h3>
               <button onClick={() => { auditLogRef.current = []; setAuditLog([]); }} style={{ fontSize: '11px', padding: '3px 8px', background: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-                Limpar
+                {t(lang, 'clearAuditLog')}
               </button>
             </div>
             <div className="audit-log">
               {auditLog.length === 0
-                ? <span style={{ color: '#94a3b8', fontSize: '11px' }}>Nenhum evento registrado.</span>
+                ? <span style={{ color: '#94a3b8', fontSize: '11px' }}>{t(lang, 'noAuditEvents')}</span>
                 : auditLog.map((e, i) => (
                   <div key={i} className="audit-entry">
                     <span className="audit-ts">{e.ts}</span>
@@ -2352,7 +2375,7 @@
       );
     };
 
-    ReactDOM.render(<DistributorApp />, document.getElementById('root'));
+    ReactDOM.createRoot(document.getElementById('root')).render(<DistributorApp />);
   </script>
   <script>
     (async () => {
