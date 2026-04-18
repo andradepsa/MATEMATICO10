@@ -10,7 +10,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="Chat K10">
+<meta name="apple-mobile-web-ACapp-title" content="Chat K10">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 
 <!-- Open Graph / social sharing -->
@@ -4450,7 +4450,7 @@ function buildAlternatives(pool, correct) {
 
 const MIN_QUIZ_INTERVAL = 120; // TRAVA: mínimo absoluto de 2 minutos — não remova
 
-const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizIntervalInput, setQuizIntervalInput, quizDiscipline, setQuizDiscipline, serverQuizBotActive, notifyServer, quizJitterTimerRef, broadcastToggle }) => {
+const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizIntervalInput, setQuizIntervalInput, quizDiscipline, setQuizDiscipline, serverQuizBotActive, notifyServer, quizJitterTimerRef, broadcastToggle, sendQuizHandoff }) => {
   const langName = getLangName(lang);
   return (
     <FloatingWindow
@@ -4517,6 +4517,11 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
             className="primary-btn" 
             onClick={() => {
               const newActive = !quizBotActive;
+              // ── HANDOFF: ao DESLIGAR, transferimos o estado do quiz para o servidor
+              // assumir a transmissão (mesmo padrão URL+ID, sem binários).
+              if (!newActive && sendQuizHandoff) {
+                try { sendQuizHandoff(); } catch(e) { console.warn('Quiz handoff failed', e); }
+              }
               setQuizBotActive(newActive);
               notifyServer(newActive ? 'quiz-bot-start' : 'quiz-bot-stop');
               
@@ -4747,6 +4752,44 @@ const notifyServer = (type) => {
     const conn = connectionsRef.current.find(c => c.peer === centralServerId && c.open);
     if (conn) try { conn.send({ type }); } catch(e) {}
   }
+};
+
+// ─────────────────────────────────────────────────────────────────────
+// QUIZ HANDOFF: quando o usuário desliga o bot, transfere o estado
+// (disciplina, intervalo, IDs já usados, hits em buffer) para o servidor
+// continuar a transmissão exatamente de onde parou.
+// IMPORTANTE: segue o mesmo padrão do programa — só URL + ID das imagens
+// (nada de binário). O servidor reusa fetchWorldImage com os mesmos IDs
+// no Set de já-usados pra não repetir.
+// ─────────────────────────────────────────────────────────────────────
+const sendQuizHandoff = () => {
+  if (!centralServerId) return;
+  const conn = connectionsRef.current.find(c => c.peer === centralServerId && c.open);
+  if (!conn) return;
+
+  // Snapshot dos hits do Pixabay já buscados mas ainda não usados (por query)
+  // _worldImgCache é módulo-level, então acessamos por window
+  const bufferedHits = {};
+  try {
+    if (typeof _worldImgCache === 'object' && _worldImgCache) {
+      for (const q in _worldImgCache) {
+        if (Array.isArray(_worldImgCache[q]) && _worldImgCache[q].length > 0) {
+          bufferedHits[q] = _worldImgCache[q].slice(0); // shallow copy
+        }
+      }
+    }
+  } catch(e) {}
+
+  const handoff = {
+    type: 'quiz-handoff',
+    quizDiscipline: quizDisciplineRef.current,
+    quizInterval: safeQuizInterval(),
+    usedImageIds: Array.from(worldQuizUsedImagesRef.current || []),
+    bufferedHits,                                  // hits Pixabay (URL+ID, sem binário)
+    lastPlaceQuery: worldQuizPlaceRef.current ? worldQuizPlaceRef.current.query : null,
+    senderName: userName || 'Quiz Master',
+  };
+  try { conn.send(handoff); console.log('🎯 Quiz handoff enviado ao servidor', handoff); } catch(e) {}
 };
 
 const sendBotMessage = (text) => {
@@ -6996,7 +7039,7 @@ return (
 {showPollCreator && <PollCreator onClose={() => setShowPollCreator(false)} onCreated={handlePollCreated} />}
 {showMarkdownEditor && <MarkdownEditor lang={lang} connections={connections} selectedContact={selectedContact} onClose={() => setShowMarkdownEditor(false)} />}
 {showGeneralModeInfo && <GeneralModeInfoModal lang={lang} selectedContact={selectedContact} onClose={() => setShowGeneralModeInfo(false)} />}
-{showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => connections.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act});}catch(e){} })} />}
+{showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => connections.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act});}catch(e){} })} sendQuizHandoff={sendQuizHandoff} />}
 {showTorrentManager && (
 <TorrentManagerModal
 lang={lang}
