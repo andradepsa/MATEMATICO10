@@ -269,38 +269,7 @@
     <style>@keyframes k10spin{to{transform:rotate(360deg)}}</style>
   </div>
   <script>
-
-  /* === QUIZ TEST MODE (added) ============================================
-   * Ativar:  no console -> quizTestMode(true)   ou abrir URL com ?quizTest=1
-   * Desativar: quizTestMode(false)
-   * Estado persiste em localStorage. Quando ATIVO:
-   *  - sua maquina nao dispara broadcast de "VIOLACAO" de quiz
-   *  - sua maquina ignora broadcasts "quiz-violation" recebidos
-   *  - a checagem de intervalo minimo entre quizzes e' pulada
-   *  - (servidor) o intervalo minimo do master cai para 5s
-   * Quando INATIVO o comportamento original e' 100% preservado.
-   * ====================================================================== */
-  (function(){
-    try {
-      var KEY = '__quizTestMode__';
-      var qs  = new URLSearchParams(location.search);
-      if (qs.has('quizTest')) {
-        localStorage.setItem(KEY, qs.get('quizTest') === '0' ? '0' : '1');
-      }
-      window.__quizTestMode = function(v){
-        if (arguments.length){ localStorage.setItem(KEY, v ? '1' : '0'); console.log('[QuizTestMode]', v ? 'ATIVADO' : 'desativado'); }
-        return localStorage.getItem(KEY) === '1';
-      };
-      window.quizTestMode = window.__quizTestMode; // alias amigavel
-      if (window.__quizTestMode()) {
-        console.log('%c[QuizTestMode] ATIVO - vigilancia/anti-flood do quiz desativados nesta sessao.', 'background:#f59e0b;color:#000;padding:2px 6px;border-radius:4px;font-weight:bold');
-      }
-    } catch(e) { /* localStorage indisponivel */ }
-  })();
-
     (function(){
-
-
       function hideLoader(){ var el=document.getElementById('k10-loading'); if(el){el.style.opacity='0';el.style.transition='opacity 0.3s';setTimeout(function(){if(el.parentNode)el.parentNode.removeChild(el);},320);} }
       setTimeout(hideLoader,12000);
       var obs=new MutationObserver(function(){ var r=document.getElementById('root'); if(r&&r.children.length>0){obs.disconnect();hideLoader();} });
@@ -315,98 +284,6 @@
 
   <script type="text/tsx" id="esbuild-main">
     const { useState, useEffect, useRef } = React;
-
-      // ════════════════════════════════════════════════════════════════════
-      // QUIZ MODULE — portado do Chat_Desktop pra o Servidor assumir após
-      // o handoff. SEGUE EXATAMENTE o mesmo wire-format do cliente:
-      //   • type:'message' + text:'__QUIZ__'        + quizPayload
-      //   • type:'message' + text:'__QUIZ_REVEAL__' + quizRevealPayload
-      // Isso garante que clientes existentes recebem do servidor sem nenhuma
-      // mudança no Chat_Desktop.
-      // ════════════════════════════════════════════════════════════════════
-      const QUIZ_SUBJECTS = [
-        { id:'mat', name:'Matemática', emoji:'📐', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/matematica.json' },
-        { id:'fis', name:'Física',     emoji:'⚡', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/fisica.json'     },
-        { id:'bio', name:'Biologia',   emoji:'🧬', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/biologia.json'   },
-        { id:'his', name:'História',   emoji:'📜', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/historia.json'   },
-        { id:'geo', name:'Geografia',  emoji:'🌍', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/geografia.json'  },
-        { id:'ger', name:'Conhecimentos Gerais', emoji:'🧠', url:'https://andradepsa.github.io/MATEMATICO10/chat/QuizBot/gerais.json' },
-        { id:'world', name:'Lugares do Mundo 🌍', emoji:'📸', url: null }
-      ];
-      const PIXABAY_KEYS = [
-        '55432112-4ff85572d2ddb1603d2c7c5c4','55432140-1856231bf5468f5af7b691a86','55432148-234a48c7b984585064aade170',
-        '55432161-ff1841689e09db89ef2fd6d7f','55432169-b8c497c53f9188c1fa4bd0a4c','55432176-243ee3339ef5979afa573d77c',
-        '55432183-ff41b44ad26dd56e5a0a10120','55434585-1f45fab6e0f62be2d54cb12bd','55434613-3c2e2bd501e5f1a5f204ceece',
-        '55434627-5996e4b3c4a08ba9ed91a5646','55434641-65e1978df07d3aa5c5be3d2f0','55434655-89ae41b0976a93b5bc5c6036d',
-        '55434671-f6cddfcc74591c01d66a7ff18','55434681-4437946d973be5211da5447ee','55434697-5842274a69a83edbae6ec914d',
-        '55434738-c5fef1c5c12906b9243fe306b','55434756-6131f2df55c3e8d28ec5b5fd1','55434766-66ba5ff749cea752a19570bbd',
-        '55434774-343de34f6280ce716fe14916e','55439581-9ac1845d80166675ec0f778f5','55439590-4ba8a21a31cda8d1b04ae4194',
-        '55439601-44ebb3b0f6ae06e58574e7e7e','55439616-f9e3ad2818bbce71ae54f1570','55439631-9325f3c2712ae70b75688aa0d',
-        '55439656-3b3b5752f73c7cfa9c18476bc','55439666-8e465d451f5e63c73dc72f49d','55439678-d64fcd0f01e1279e4354e65be',
-        '55439693-eb6838ccbeea2190f00a83f06','55439706-411b795d17e1fa63ef3536f3e','55439710-3752e92aba25b01235646c2e4',
-        '55439724-0fad1a2d813853ca5b2c91ce3'
-      ];
-      let _srvPixIdx = 0;
-      const _srvPixKey = () => { const k = PIXABAY_KEYS[_srvPixIdx % PIXABAY_KEYS.length]; _srvPixIdx++; return k; };
-      const _srvImgCache = {};
-      const _srvImgLocks = {};
-
-      async function srvFetchWorldImage(query, usedImagesSet) {
-        if (!Array.isArray(_srvImgCache[query])) _srvImgCache[query] = [];
-        if (_srvImgCache[query].length === 0) {
-          if (!_srvImgLocks[query]) {
-            _srvImgLocks[query] = (async () => {
-              try {
-                const url = `https://pixabay.com/api/?key=${_srvPixKey()}&q=${encodeURIComponent(query)}&image_type=photo&safesearch=true&per_page=200&orientation=horizontal`;
-                const res = await fetch(url);
-                const data = await res.json();
-                if (data.hits && data.hits.length > 0) {
-                  const arr = [...data.hits];
-                  for (let i = arr.length - 1; i > 0; i--) {
-                    const j = Math.floor(Math.random() * (i + 1));
-                    [arr[i], arr[j]] = [arr[j], arr[i]];
-                  }
-                  _srvImgCache[query] = arr;
-                  const keys = Object.keys(_srvImgCache);
-                  if (keys.length > 20) { const k = keys.find(k => k !== query); if (k) delete _srvImgCache[k]; }
-                }
-              } catch(e) { console.warn('Server Pixabay fetch error', e); }
-              finally { _srvImgLocks[query] = null; }
-            })();
-          }
-          await _srvImgLocks[query];
-        }
-        while (_srvImgCache[query].length > 0) {
-          const pick = _srvImgCache[query].shift();
-          if (usedImagesSet && !usedImagesSet.has(pick.id)) { usedImagesSet.add(pick.id); return pick; }
-        }
-        return null;
-      }
-
-      // Lista resumida de WORLD_PLACES (mesma usada no cliente). Para reduzir
-      // peso, copiamos apenas as queries; o servidor só precisa transmitir
-      // (não monta UI nova).
-      const WORLD_PLACES = [
-        { query:'Cristo Redentor Rio de Janeiro Brazil', country:'Brasil', state:'Rio de Janeiro', place:'Cristo Redentor', statePool:['São Paulo','Minas Gerais','Bahia','Paraná','Rio Grande do Sul','Pernambuco','Ceará','Goiás','Santa Catarina','Espírito Santo'] },
-        { query:'Cataratas Iguazu Brazil Parana', country:'Brasil', state:'Paraná', place:'Cataratas do Iguaçu', statePool:['São Paulo','Rio de Janeiro','Minas Gerais','Bahia','Santa Catarina','Mato Grosso','Goiás','Pernambuco','Ceará','Amazonas'] },
-        { query:'Machu Picchu Peru mountains', country:'Peru', state:'Cusco', place:'Machu Picchu', statePool:['Lima','Arequipa','Puno','Junín','Ayacucho','Cajamarca','Trujillo','Ica','Piura','Loreto'] },
-        { query:'Eiffel Tower Paris France', country:'França', state:'Paris', place:'Torre Eiffel', statePool:['Lyon','Marseille','Nice','Toulouse','Bordeaux','Nantes','Strasbourg','Lille','Rennes','Montpellier'] },
-        { query:'Colosseum Rome Italy ancient', country:'Itália', state:'Roma', place:'Coliseu', statePool:['Milão','Veneza','Florença','Nápoles','Turim','Bolonha','Palermo','Gênova','Verona','Pisa'] },
-        { query:'Taj Mahal Agra India', country:'Índia', state:'Uttar Pradesh', place:'Taj Mahal', statePool:['Maharashtra','Karnataka','Tamil Nadu','Rajastão','Kerala','Bengala Ocidental','Gujarat','Punjab','Haryana','Goa'] },
-        { query:'Great Wall China mountains', country:'China', state:'Pequim', place:'Grande Muralha', statePool:['Xangai','Cantão','Sichuan','Hubei','Yunnan','Henan','Hunan','Anhui','Fujian','Jiangsu'] },
-        { query:'Pyramids Giza Egypt desert', country:'Egito', state:'Giza', place:'Pirâmides', statePool:['Cairo','Alexandria','Luxor','Aswan','Hurghada','Sharm el-Sheikh','Suez','Port Said','Faiyum','Mansoura'] }
-      ];
-      const ALL_COUNTRIES = ['Brasil','França','Itália','Índia','China','Peru','Egito','Grécia','Camboja','Reino Unido','Espanha','Estados Unidos','Austrália','Japão','Emirados Árabes','Canadá','Turquia','México','Jordânia','Indonésia','Alemanha','Portugal','Argentina','Chile','Colômbia','Venezuela','Bolívia','Equador','Paraguai','Uruguai','Cuba','Costa Rica','Panamá','Guatemala','Rússia','Polônia','Hungria','Áustria','Suíça','Holanda','Bélgica','Suécia','Noruega','Finlândia','Dinamarca','Irlanda','Israel','Líbano','Tailândia','Vietnã','Coreia do Sul','Filipinas','Malásia','Singapura','África do Sul','Quênia','Marrocos','Nigéria','Nova Zelândia','Croácia','Malta'];
-      function srvBuildAlternatives(pool, correct) {
-        const filtered = pool.filter(v => v.toLowerCase() !== correct.toLowerCase());
-        const fakes = filtered.sort(() => Math.random() - 0.5).slice(0, 3);
-        const all = [...fakes, correct].sort(() => Math.random() - 0.5);
-        const idx = all.findIndex(v => v.toLowerCase() === correct.toLowerCase());
-        return [all, idx];
-      }
-
-      const SRV_MIN_QUIZ_INTERVAL = ((typeof window!=='undefined' && window.__quizTestMode && window.__quizTestMode()) ? 5 : 120);
-
 
     const TRANSLATIONS = {
       en: {
@@ -425,8 +302,6 @@
         activatePureServer: "Activate pure server mode",
         startYoutubeChat: "Start YT Chat",
         stopYoutubeChat: "Stop YT Chat",
-        stopQuiz: "Stop Quiz",
-        quizActiveOnServer: "Server is broadcasting Quiz",
         connectToOtherServer: "Connect to another Server:",
         serverIdPlaceholder: "Server ID",
         knownServers: "Known Servers:",
@@ -484,8 +359,6 @@
         activatePureServer: "Ativar modo servidor puro",
         startYoutubeChat: "Iniciar Chat YT",
         stopYoutubeChat: "Parar Chat YT",
-        stopQuiz: "Parar Quiz",
-        quizActiveOnServer: "Servidor transmitindo Quiz",
         connectToOtherServer: "Conectar a outro Servidor:",
         serverIdPlaceholder: "ID do Servidor",
         knownServers: "Servidores Conhecidos:",
@@ -1090,16 +963,6 @@
       const heartbeatsRef = useRef(new Map());
       const worldQuizNodesRef = useRef(new Set()); // Rastreia quem é distribuidor do World Quiz
       const quizBotPeerRef = useRef(null); // peer do usuário com Quiz Bot ativo
-      // ── Estado do Quiz quando o SERVIDOR assume a transmissão ──
-      const [serverQuizActive, setServerQuizActive] = useState(false);
-      const serverQuizActiveRef = useRef(false);
-      const srvQuizDisciplineRef = useRef('world');
-      const srvQuizIntervalRef = useRef(SRV_MIN_QUIZ_INTERVAL);
-      const srvQuizUsedImagesRef = useRef(new Set());
-      const srvQuizTimerRef = useRef(null);
-      const srvCurrentQuizRef = useRef(null);
-      const srvWorldPlaceIdxRef = useRef(0);
-      const srvQuizAllIdxRef = useRef(0);
       const HYDRA_THRESHOLD = 150;
       const CHUNK_SIZE = 16 * 1024;
 
@@ -1548,15 +1411,6 @@
         }
 
         if (data.type === 'quiz-bot-start') {
-          // Se o SERVIDOR estava transmitindo: cede o controle ao usuário
-          // (para timer, limpa estado, mas NÃO anuncia status:false — o owner muda direto)
-          if (serverQuizActiveRef.current) {
-            console.log('🔄 Usuário', sourceConn.peer, 'assumiu o Quiz — servidor cede transmissão');
-            serverQuizActiveRef.current = false;
-            setServerQuizActive(false);
-            if (srvQuizTimerRef.current) { clearTimeout(srvQuizTimerRef.current); srvQuizTimerRef.current = null; }
-            srvCurrentQuizRef.current = null;
-          }
           quizBotPeerRef.current = sourceConn.peer;
           // Notifica TODOS os conectados que o bot está ativo
           activeConnectionsRef.current.forEach((c, id) => {
@@ -1571,11 +1425,6 @@
               try { c.send({ type: 'quiz-bot-status', active: false }); } catch(e) {}
             });
           }
-          return;
-        }
-        // ── HANDOFF: usuário desligou bot e nos passa o estado pra continuar ──
-        if (data.type === 'quiz-handoff') {
-          handleQuizHandoff(data, sourceConn.peer);
           return;
         }
 
@@ -1901,205 +1750,6 @@
         });
       };
 
-      
-      // ════════════════════════════════════════════════════════════════════
-      // SERVIDOR — transmissão do Quiz após handoff (mesmo wire-format)
-      // ════════════════════════════════════════════════════════════════════
-      const srvSendQuizQuestion = (quizData) => {
-        const ts = new Date();
-        const wireMsg = {
-          type: 'message',
-          id: Date.now() + Math.random().toString(36).substring(7),
-          ttl: 15,
-          senderName: '🤖 Quiz Bot',
-          direct: false,
-          time: ts.toLocaleTimeString('en-US'),
-          timestamp: ts.getTime(),
-          text: '__QUIZ__',
-          quizPayload: quizData
-        };
-        activeConnectionsRef.current.forEach(c => { try { c.send(wireMsg); } catch(e) {} });
-      };
-      const srvSendQuizReveal = (quizId, votes) => {
-        const ts = new Date();
-        const wireMsg = {
-          type: 'message',
-          id: Date.now() + Math.random().toString(36).substring(7),
-          ttl: 15,
-          senderName: '🤖 Quiz Bot',
-          direct: false,
-          time: ts.toLocaleTimeString('en-US'),
-          text: '__QUIZ_REVEAL__',
-          quizRevealPayload: { quizId, votes: votes || {} }
-        };
-        activeConnectionsRef.current.forEach(c => { try { c.send(wireMsg); } catch(e) {} });
-      };
-
-      const srvNextWorldPlace = () => {
-        const i = srvWorldPlaceIdxRef.current % WORLD_PLACES.length;
-        srvWorldPlaceIdxRef.current = (srvWorldPlaceIdxRef.current + 1) % WORLD_PLACES.length;
-        return WORLD_PLACES[i];
-      };
-
-      const srvAskWorldQuestion = async () => {
-        if (!serverQuizActiveRef.current) return;
-        if (srvQuizTimerRef.current) clearTimeout(srvQuizTimerRef.current);
-
-        const place = srvNextWorldPlace();
-        const hit = await srvFetchWorldImage(place.query, srvQuizUsedImagesRef.current);
-        const imgUrl = hit ? (hit.largeImageURL || hit.webformatURL) : null;
-        const imgId = hit ? hit.id : null;
-
-        const [countryOpts, countryCorrectIdx] = srvBuildAlternatives(ALL_COUNTRIES, place.country);
-        const quizId1 = 'quiz-srv-w1-' + Date.now() + '-' + Math.random().toString(36).substring(7);
-        const quizData1 = {
-          quizId: quizId1,
-          quizQuestion: '🌍 Em qual PAÍS fica este lugar famoso?',
-          quizOptions: countryOpts,
-          quizCorrect: countryCorrectIdx,
-          quizSubject: '📸 Lugares do Mundo',
-          quizStage: 1,
-          quizImage: imgUrl || undefined,
-          quizImageId: imgId || undefined,
-          nonce: Math.random().toString(36).substring(2, 10)
-        };
-        srvCurrentQuizRef.current = { ...quizData1, votes: {} };
-        srvSendQuizQuestion(quizData1);
-
-        srvQuizTimerRef.current = setTimeout(() => {
-          if (!serverQuizActiveRef.current) return;
-          srvSendQuizReveal(quizId1, {});
-          srvCurrentQuizRef.current = null;
-
-          setTimeout(() => {
-            if (!serverQuizActiveRef.current) return;
-            const statePool = place.statePool || ALL_COUNTRIES;
-            const [stateOpts, stateCorrectIdx] = srvBuildAlternatives(statePool, place.state);
-            const quizId2 = 'quiz-srv-w2-' + Date.now() + '-' + Math.random().toString(36).substring(7);
-            const quizData2 = {
-              quizId: quizId2,
-              quizQuestion: '🗺️ Em qual ESTADO ou CIDADE fica este lugar?',
-              quizOptions: stateOpts,
-              quizCorrect: stateCorrectIdx,
-              quizSubject: '📸 Lugares do Mundo',
-              quizStage: 2,
-              quizImage: imgUrl || undefined,
-              nonce: Math.random().toString(36).substring(2, 10)
-            };
-            srvCurrentQuizRef.current = { ...quizData2, votes: {} };
-            srvSendQuizQuestion(quizData2);
-
-            srvQuizTimerRef.current = setTimeout(() => {
-              if (!serverQuizActiveRef.current) return;
-              srvSendQuizReveal(quizId2, {});
-              srvCurrentQuizRef.current = null;
-              setTimeout(() => { if (serverQuizActiveRef.current) srvAskNextQuestion(); }, 10000);
-            }, srvQuizIntervalRef.current * 1000);
-          }, 5000);
-        }, srvQuizIntervalRef.current * 1000);
-      };
-
-      const srvAskDisciplineQuestion = async () => {
-        if (!serverQuizActiveRef.current) return;
-        if (srvQuizTimerRef.current) clearTimeout(srvQuizTimerRef.current);
-
-        const ALL_POOL = QUIZ_SUBJECTS.filter(s => s.id !== 'world');
-        let subj;
-        if (srvQuizDisciplineRef.current === 'all') {
-          subj = ALL_POOL[srvQuizAllIdxRef.current % ALL_POOL.length];
-          srvQuizAllIdxRef.current = (srvQuizAllIdxRef.current + 1) % ALL_POOL.length;
-        } else {
-          subj = QUIZ_SUBJECTS.find(s => s.id === srvQuizDisciplineRef.current) || ALL_POOL[0];
-        }
-        if (!subj || !subj.url) subj = ALL_POOL[0];
-
-        let questions = [];
-        try {
-          const res = await fetch(subj.url);
-          const data = await res.json();
-          const arr = Array.isArray(data) ? data : (Object.values(data).find(v => Array.isArray(v)) || []);
-          questions = arr.filter(p => p.pergunta && Array.isArray(p.opcoes) && typeof p.correta === 'number');
-        } catch(e) { console.warn('Server quiz fetch err', e); }
-        if (!questions.length) {
-          questions = [
-            { pergunta:'Qual a capital do Brasil?', opcoes:['São Paulo','Rio de Janeiro','Brasília','Salvador'], correta:2 }
-          ];
-        }
-        const q = questions[Math.floor(Math.random() * questions.length)];
-        const cleanOpts = q.opcoes.map(s => s.replace(/^[A-Fa-f]\)\s*/, '').trim());
-        const quizId = 'quiz-srv-' + Date.now() + '-' + Math.random().toString(36).substring(7);
-        const quizData = {
-          quizId,
-          quizQuestion: q.pergunta,
-          quizOptions: cleanOpts,
-          quizCorrect: q.correta,
-          quizSubject: `${subj.emoji} ${subj.name}`,
-          quizStage: 0,
-          nonce: Math.random().toString(36).substring(2, 10)
-        };
-        srvCurrentQuizRef.current = { ...quizData, votes: {} };
-        srvSendQuizQuestion(quizData);
-
-        srvQuizTimerRef.current = setTimeout(() => {
-          if (!serverQuizActiveRef.current) return;
-          srvSendQuizReveal(quizId, {});
-          srvCurrentQuizRef.current = null;
-          setTimeout(() => { if (serverQuizActiveRef.current) srvAskNextQuestion(); }, 15000);
-        }, srvQuizIntervalRef.current * 1000);
-      };
-
-      const srvAskNextQuestion = async () => {
-        if (!serverQuizActiveRef.current) return;
-        if (srvQuizDisciplineRef.current === 'world') return srvAskWorldQuestion();
-        return srvAskDisciplineQuestion();
-      };
-
-      // ── Receber HANDOFF: o usuário desligou e entregou o controle ──
-      const handleQuizHandoff = (data, fromPeer) => {
-        if (serverQuizActiveRef.current) {
-          console.log('🛑 Servidor já está transmitindo — handoff ignorado');
-          return;
-        }
-        // Hidrata estado a partir do handoff (URL+ID, sem binário)
-        srvQuizDisciplineRef.current = data.quizDiscipline || 'world';
-        srvQuizIntervalRef.current = Math.max(SRV_MIN_QUIZ_INTERVAL, data.quizInterval || SRV_MIN_QUIZ_INTERVAL);
-        srvQuizUsedImagesRef.current = new Set(data.usedImageIds || []);
-        // Hidrata cache de hits Pixabay (já buscados pelo cliente — evita refetch)
-        if (data.bufferedHits && typeof data.bufferedHits === 'object') {
-          for (const q in data.bufferedHits) {
-            if (Array.isArray(data.bufferedHits[q])) {
-              _srvImgCache[q] = data.bufferedHits[q].slice(0);
-            }
-          }
-        }
-        // Toma posse do slot único (igual quiz-bot-start)
-        quizBotPeerRef.current = 'server-self';
-        activeConnectionsRef.current.forEach(c => {
-          try { c.send({ type: 'quiz-bot-status', active: true, owner: 'server-self' }); } catch(e) {}
-        });
-        serverQuizActiveRef.current = true;
-        setServerQuizActive(true);
-        console.log('🎯 Servidor assumiu o Quiz Bot via handoff de', fromPeer, data);
-        // Pequeno jitter pra evitar race com mensagens em trânsito
-        setTimeout(() => { if (serverQuizActiveRef.current) srvAskNextQuestion(); }, 1500);
-      };
-
-      // ── Botão "Parar Quiz" — só funciona se o servidor está transmitindo ──
-      const stopServerQuiz = () => {
-        if (!serverQuizActiveRef.current) return;
-        serverQuizActiveRef.current = false;
-        setServerQuizActive(false);
-        if (srvQuizTimerRef.current) { clearTimeout(srvQuizTimerRef.current); srvQuizTimerRef.current = null; }
-        srvCurrentQuizRef.current = null;
-        if (quizBotPeerRef.current === 'server-self') {
-          quizBotPeerRef.current = null;
-          activeConnectionsRef.current.forEach(c => {
-            try { c.send({ type: 'quiz-bot-status', active: false }); } catch(e) {}
-          });
-        }
-        console.log('🛑 Quiz parado pelo servidor (manual)');
-      };
-
       const broadcastYoutubeChat = () => {
         if (youtubeChatId) { alert(t(lang, 'chatAlreadyActive')); return; }
         const url = prompt(t(lang, 'enterYoutubeUrl'));
@@ -2244,11 +1894,6 @@
               {youtubeChatId && (
                 <button onClick={stopYoutubeChat} style={{ backgroundColor: '#ef4444' }}>
                   <i className="fas fa-times"></i> {t(lang, 'stopYoutubeChat')}
-                </button>
-              )}
-              {serverQuizActive && (
-                <button onClick={stopServerQuiz} style={{ backgroundColor: '#dc2626', color: 'white', fontWeight: 'bold' }} title={t(lang, 'quizActiveOnServer')}>
-                  <i className="fas fa-robot"></i> {t(lang, 'stopQuiz')}
                 </button>
               )}
             </div>
