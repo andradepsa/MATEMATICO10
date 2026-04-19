@@ -5871,6 +5871,7 @@ setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
 conn.on('error', err => {
   clearTimeout(timeoutId);
   setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect));
+  setSelectedContact(curr => curr === peerIdToConnect ? null : curr);
   console.warn('[V8-BUG#9] conn error', peerIdToConnect, err && err.message);
   // V8-BUG#9: reconexão automática com backoff exponencial
   if (!bannedPeersRef.current.has(peerIdToConnect)) {
@@ -5889,6 +5890,7 @@ conn.on('close', () => {
   clearTimeout(timeoutId);
   worldQuizSubscribersRef.current.delete(peerIdToConnect);
   setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect));
+  setSelectedContact(curr => curr === peerIdToConnect ? null : curr);
   setTimeout(checkAndAssumeQuizMaster, 1000);
   // V8-BUG#9: reset contador em close limpo
   if (window.__v8ReconAttempts) window.__v8ReconAttempts.delete(peerIdToConnect);
@@ -5945,8 +5947,8 @@ const conn = peer.connect(porta, { reliable: true });
 if (conn) {
 conn.on('open', () => { setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]); sendRadioSync(conn); try { conn.send({ type: 'radio-request-sync' }); } catch(e){} });
 conn.on('data', data => handleIncomingData(data, porta));
-conn.on('close', () => { worldQuizSubscribersRef.current.delete(porta); setConnections(prev => prev.filter(c => c.peer !== porta)); setTimeout(checkAndAssumeQuizMaster, 1000); });
-conn.on('error', () => { worldQuizSubscribersRef.current.delete(porta); setConnections(prev => prev.filter(c => c.peer !== porta)); });
+conn.on('close', () => { worldQuizSubscribersRef.current.delete(porta); setConnections(prev => prev.filter(c => c.peer !== porta)); setSelectedContact(curr => curr === porta ? null : curr); setTimeout(checkAndAssumeQuizMaster, 1000); });
+conn.on('error', () => { worldQuizSubscribersRef.current.delete(porta); setConnections(prev => prev.filter(c => c.peer !== porta)); setSelectedContact(curr => curr === porta ? null : curr); });
 }
 }
 });
@@ -6012,8 +6014,8 @@ setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
 }
 });
 conn.on('data', data => handleIncomingData(data, conn.peer));
-conn.on('close', () => { worldQuizSubscribersRef.current.delete(conn.peer); setConnections(prev => prev.filter(c => c.peer !== conn.peer)); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); setTimeout(checkAndAssumeQuizMaster, 1000); });
-conn.on('error', () => { worldQuizSubscribersRef.current.delete(conn.peer); setConnections(prev => prev.filter(c => c.peer !== conn.peer)); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); });
+conn.on('close', () => { worldQuizSubscribersRef.current.delete(conn.peer); setConnections(prev => prev.filter(c => c.peer !== conn.peer)); setSelectedContact(curr => curr === conn.peer ? null : curr); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); setTimeout(checkAndAssumeQuizMaster, 1000); });
+conn.on('error', () => { worldQuizSubscribersRef.current.delete(conn.peer); setConnections(prev => prev.filter(c => c.peer !== conn.peer)); setSelectedContact(curr => curr === conn.peer ? null : curr); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); });
 });
 
 
@@ -6036,6 +6038,40 @@ peerInstance.current = peer;
 initPeer();
 
 
+// V9: Garbage Collector para conexões WebRTC fantasmas (onde o evento on('close') não dispara)
+const ghostGcIv = setInterval(() => {
+  setConnections(prev => {
+    let changed = false;
+    const evictIds = [];
+    const valid = prev.filter(c => {
+      if (!c.peerConnection) return true;
+      const state = c.peerConnection.connectionState;
+      if (state === 'failed' || state === 'closed' || state === 'disconnected') {
+        changed = true;
+        evictIds.push(c.peer);
+        try { c.close(); } catch(e){}
+        
+        // Também removemos referências se for o servidor
+        worldQuizSubscribersRef.current.delete(c.peer);
+        setTimeout(() => {
+           try { endCall(c.peer, 'video'); endCall(c.peer, 'voice'); } catch(e){}
+        }, 0);
+        
+        return false;
+      }
+      return true;
+    });
+    if (changed) {
+      setTimeout(() => {
+        setSelectedContact(curr => evictIds.includes(curr) ? null : curr);
+        checkAndAssumeQuizMaster();
+      }, 0);
+    }
+    return changed ? valid : prev;
+  });
+}, 3000);
+
+
 const handleOnline = () => {
 console.log("Network back online. Forcing reconnect...");
 reconnectAttempts = 0;
@@ -6049,6 +6085,7 @@ window.addEventListener('online', handleOnline);
 
 
 return () => {
+clearInterval(ghostGcIv);
 window.removeEventListener('online', handleOnline);
 if (reconnectTimeout) clearTimeout(reconnectTimeout);
 if (peerInstance.current) { peerInstance.current.destroy(); peerInstance.current = null; }
