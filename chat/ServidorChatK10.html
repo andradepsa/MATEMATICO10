@@ -1,4 +1,4 @@
-<!-- ═══ ServidorChatK10 V9 — Auditoria Completa V23 (19/abr/2026) ═══
+<!-- ═══ ServidorChatK10 V9 — Auditoria Completa V24 (19/abr/2026) ═══
      Correções aplicadas:
      S-1  peerId stale no closure → peerIdRef.current
      S-2  distributeMessage: guard conn.open antes de send
@@ -15,6 +15,12 @@
           - generateGid: 62 chars case-sensitive (A-Z a-z 0-9)
           - assignUserSuffix: auto-busca sufixo livre na lista do grupo
           - peer-list envia {gid, users} ao invés de peers com IDs completos
+     S-11 K10 V24: GID Hierárquico + Lista Delta + Dominância Dinâmica ← NOVO V24
+          - generateChildGid: novo grupo deriva GID do pai (prefixo 3 chars herdado)
+          - findGroupFamily: localiza todos os GIDs irmãos (mesmo prefixo)
+          - buildFamilyPex: comprime listas de grupos irmãos em pex-family com base+deltas
+          - checkAndPromote: troca GIDs quando filho supera pai em >20% de usuários
+          - Relay de gid-promote e pex-family adicionados ao handleIncomingData
 ═══ -->
 <!DOCTYPE html>
 <html lang="pt-br">
@@ -733,6 +739,52 @@
         return null; // grupo cheio (3844 usuários)
       };
 
+      // ═══════════════════════════════════════════════════════════════
+      // K10 V24: GID Hierárquico + Lista Delta + Dominância Dinâmica
+      // ═══════════════════════════════════════════════════════════════
+
+      // Gera GID filho derivado do pai (herança do prefixo de 3 chars)
+      // Pai "AbCd" → filho "AbCe", "AbCf" ... até esgotar → fallback sequencial
+      const generateChildGid = (parentGid) => {
+        if (!parentGid || parentGid.length < K10_GID_LEN) return nextSequentialGid();
+        const prefix = parentGid.slice(0, K10_GID_LEN - 1);
+        const siblings = new Set(
+          Object.keys(activeGroupsRef.current)
+            .filter(g => g.startsWith(prefix) && g.length === K10_GID_LEN)
+            .map(g => g[K10_GID_LEN - 1])
+        );
+        for (const c of K10_CHARS) {
+          if (!siblings.has(c)) return prefix + c;
+        }
+        return nextSequentialGid(); // todos 62 slots do prefixo ocupados
+      };
+
+      // Retorna todos os GIDs da mesma família (prefixo dos 3 primeiros chars)
+      const findGroupFamily = (gid) => {
+        const prefix = gid.slice(0, K10_GID_LEN - 1);
+        return Object.keys(activeGroupsRef.current)
+          .filter(g => g.startsWith(prefix) && g.length === K10_GID_LEN);
+      };
+
+      // Monta pex-family comprimido: base = sufixos em TODOS, branches = deltas por grupo
+      // Retorna null se a família tiver só 1 membro (sem ganho de compressão)
+      const buildFamilyPex = (referenceGid) => {
+        const family = findGroupFamily(referenceGid);
+        if (family.length < 2) return null;
+        const memberSets = family.map(gid =>
+          new Set(
+            Array.from(activeGroupsRef.current[gid]?.members || new Set())
+              .map(pid => extractSuffix(pid)).filter(Boolean)
+          )
+        );
+        const base = [...memberSets[0]].filter(s => memberSets.every(set => set.has(s)));
+        const branches = family.map((gid, i) => ({
+          ext: gid[K10_GID_LEN - 1],
+          delta: [...memberSets[i]].filter(s => !base.includes(s))
+        }));
+        return { type: 'pex-family', prefix: referenceGid.slice(0, K10_GID_LEN - 1), base, branches, ttl: 6 };
+      };
+
       // FASE-2: diretório global de grupos no servidor
       // { [gid]: { size: number, reservados: string[], members: Set<peerId> } }
       // V23: GID inicial gerado dinamicamente (4 chars, 62-charset)
@@ -740,6 +792,42 @@
       const activeGroupsRef = useRef({ [_initialGid]: { size: 0, reservados: [], members: new Set() } });
       // FASE-2: mapeia peerId → groupId para decrementar ao desconectar
       const peerGroupMapRef = useRef(new Map());
+
+      // V24: Verifica e executa troca de GID quando filho domina o pai em tamanho
+      // Chamado após cada split e periodicamente pelo GC
+      const checkAndPromote = (gidA, gidB) => {
+        const ga = activeGroupsRef.current[gidA];
+        const gb = activeGroupsRef.current[gidB];
+        if (!ga || !gb) return;
+        const sA = ga.members.size, sB = gb.members.size;
+        if (sA === sB || Math.min(sA, sB) === 0) return;
+        // Só troca se diferença for >20% para evitar flip-flop contínuo
+        if (Math.abs(sA - sB) / Math.min(sA, sB) < 0.2) return;
+        // Só troca entre grupos da mesma família (prefixo de 3 chars igual)
+        if (gidA.slice(0, K10_GID_LEN - 1) !== gidB.slice(0, K10_GID_LEN - 1)) return;
+        const [dominant, recessive] = sA > sB ? [gidA, gidB] : [gidB, gidA];
+        // Swap no diretório
+        const tmp = activeGroupsRef.current[dominant];
+        activeGroupsRef.current[dominant] = activeGroupsRef.current[recessive];
+        activeGroupsRef.current[recessive] = tmp;
+        // Atualiza peerGroupMap
+        peerGroupMapRef.current.forEach((gid, peer) => {
+          if (gid === dominant) peerGroupMapRef.current.set(peer, recessive);
+          else if (gid === recessive) peerGroupMapRef.current.set(peer, dominant);
+        });
+        // Notifica todos os peers para atualizarem seus IDs
+        const promoteMsg = {
+          type: 'gid-promote',
+          msgId: Date.now().toString(36) + Math.random().toString(36).slice(2),
+          formerDominantGid: dominant,
+          formerRecessiveGid: recessive,
+          ttl: 8
+        };
+        activeConnectionsRef.current.forEach((conn) => {
+          if (conn.open) try { conn.send(promoteMsg); } catch(e) {}
+        });
+        addAudit(`[K10-V24] Promoção GID: ${dominant} ↔ ${recessive} (${Math.max(sA,sB)} vs ${Math.min(sA,sB)} users)`, 'info');
+      };
 
       // FIX BUG-I: seenMessagesRef crescia sem limite → memory leak grave no servidor
       // Mantém no máximo 2 000 entradas; ao ultrapassar, descarta a metade mais antiga (FIFO)
@@ -1353,6 +1441,10 @@
               if (pid !== sourceConn.peer && c.open) try { c.send(relay); } catch(e) {}
             });
           }
+          // V24: verifica dominância entre o grupo original e o novo após split
+          if (data.oldGroupId && data.newGroupId) {
+            setTimeout(() => checkAndPromote(data.oldGroupId, data.newGroupId), 5000);
+          }
           return;
         }
         if (data.type === 'group-merge') {
@@ -1378,6 +1470,39 @@
             const relay = { ...data, ttl };
             activeConnectionsRef.current.forEach((c, pid) => {
               if (pid !== sourceConn.peer && c.open) try { c.send(relay); } catch(e) {}
+            });
+          }
+          return;
+        }
+
+        // V24: gid-promote — relay do servidor para todos os peers
+        if (data.type === 'gid-promote') {
+          if (data.msgId && seenMessagesRef.current.has(data.msgId)) return;
+          if (data.msgId) { seenMessagesRef.current.add(data.msgId); pruneSeenSrv(); }
+          addAudit(`[K10-V24] Relay gid-promote: ${data.formerDominantGid} ↔ ${data.formerRecessiveGid}`, 'info');
+          const ttlP = (data.ttl || 0) - 1;
+          if (ttlP > 0) {
+            const relay = { ...data, ttl: ttlP };
+            activeConnectionsRef.current.forEach((c, pid) => {
+              if (pid !== sourceConn.peer && c.open) try { c.send(relay); } catch(e) {}
+            });
+          }
+          return;
+        }
+
+        // V24: pex-family — relay do servidor para peers da família
+        if (data.type === 'pex-family') {
+          if (!data.prefix || typeof data.prefix !== 'string') return;
+          const ttlF = (data.ttl || 0) - 1;
+          if (ttlF > 0) {
+            const relay = { ...data, ttl: ttlF };
+            activeConnectionsRef.current.forEach((c, pid) => {
+              if (pid !== sourceConn.peer && c.open) {
+                const peerGid = peerGroupMapRef.current.get(pid);
+                if (peerGid && peerGid.startsWith(data.prefix)) {
+                  try { c.send(relay); } catch(e) {}
+                }
+              }
             });
           }
           return;
@@ -1663,33 +1788,36 @@
             try { conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 }); } catch(e) {}
           }
 
-          // ── S-10 V23: Atribuição de GID + sufixo (sistema K10 ID) ──────────
-          // Seleciona o grupo com mais vagas livres (size < 3844)
-          // Se todos cheios, cria novo GID automaticamente
+          // ── S-10 V24: Atribuição de GID + sufixo (sistema K10 ID Hierárquico) ──
+          // Seleciona o grupo com mais vagas; se todos cheios, cria filho derivado
           const MAX_GROUP_SIZE = K10_CHARS.length * K10_CHARS.length; // 3844
           const groups = Object.entries(activeGroupsRef.current);
           let assignedGid = null;
 
-          // Procura grupo com menor tamanho que ainda tem vagas
+          // Procura grupo com vagas; prefere o mais populoso (agrupa em vez de fragmentar)
           const available = groups.filter(([, g]) => (g.size || 0) < MAX_GROUP_SIZE);
           if (available.length > 0) {
-            // Escolhe o grupo com mais membros (agrupa usuários em vez de fragmentar)
             assignedGid = available.reduce((a, b) => a[1].size > b[1].size ? a : b)[0];
           } else {
-            // Todos cheios: cria novo grupo com próximo GID sequencial
-            assignedGid = nextSequentialGid();
+            // V24: todos cheios — deriva novo GID do grupo mais populoso (herança hierárquica)
+            const allGids = Object.keys(activeGroupsRef.current);
+            const largestGid = allGids.reduce((best, g) =>
+              (activeGroupsRef.current[g]?.size || 0) > (activeGroupsRef.current[best]?.size || 0) ? g : best
+            , allGids[0]);
+            assignedGid = generateChildGid(largestGid);
             activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set() };
-            addAudit(`[K10] Novo grupo criado: ${assignedGid}`, 'info');
+            addAudit(`[K10-V24] Novo grupo filho ${assignedGid} derivado de ${largestGid}`, 'info');
           }
 
           // Encontra sufixo livre para o novo peer neste grupo
-          const assignedSuffix = findFreeSuffix(assignedGid);
+          let assignedSuffix = findFreeSuffix(assignedGid);
           if (!assignedSuffix) {
-            // Grupo cheio (improvável mas seguro): tenta criar novo grupo
-            const fallbackGid = nextSequentialGid();
+            // Grupo cheio (improvável): deriva novo grupo filho e tenta de novo
+            const fallbackGid = generateChildGid(assignedGid);
             activeGroupsRef.current[fallbackGid] = { size: 0, reservados: [], members: new Set() };
             assignedGid = fallbackGid;
-            addAudit(`[K10] Fallback: novo grupo ${fallbackGid} criado`, 'warn');
+            assignedSuffix = findFreeSuffix(assignedGid);
+            addAudit(`[K10-V24] Fallback hierárquico: novo grupo ${fallbackGid}`, 'warn');
           }
 
           // Registra o peer no grupo
@@ -1707,7 +1835,7 @@
             .map(pid => extractSuffix(pid))
             .filter(Boolean);
 
-          // Envia peer-list V23: {gid, users:[sufixo2chars], suffix: sufixoAtribuido}
+          // Envia peer-list V24: {gid, users:[sufixo2chars], suffix: sufixoAtribuido}
           // O cliente reconstrói: K10 + gid + suffix = peerId completo de 9 chars
           try {
             conn.send({
@@ -1717,6 +1845,31 @@
               users: suffixList,          // lista comprimida: só 2 chars por usuário
             });
           } catch(e) { console.warn('[K10] Erro ao enviar peer-list:', e); }
+
+          // V24: se o grupo faz parte de uma família, envia pex-family comprimido
+          // para todos os peers da família (informam novos membros uns aos outros)
+          try {
+            const familyPex = buildFamilyPex(assignedGid);
+            if (familyPex) {
+              const familyGids = new Set(findGroupFamily(assignedGid));
+              activeConnectionsRef.current.forEach((c, pid) => {
+                const peerGid = peerGroupMapRef.current.get(pid);
+                if (peerGid && familyGids.has(peerGid) && c.open && pid !== conn.peer) {
+                  try { c.send(familyPex); } catch(e) {}
+                }
+              });
+              // Envia também para o novo peer (ele precisa conhecer a família)
+              try { conn.send(familyPex); } catch(e) {}
+            }
+          } catch(e) { console.warn('[K10-V24] Erro ao enviar pex-family:', e); }
+
+          // V24: verifica dominância entre grupos irmãos após nova entrada
+          try {
+            const siblings = findGroupFamily(assignedGid).filter(g => g !== assignedGid);
+            siblings.forEach(sibGid => {
+              setTimeout(() => checkAndPromote(assignedGid, sibGid), 4000);
+            });
+          } catch(e) {}
 
           // Here is the critical change to ensure we operate in pure server mode:
           // We'll send a special message to mark this as a server connection
