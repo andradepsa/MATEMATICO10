@@ -4189,6 +4189,7 @@ const selectedContactRef = useRef(null); // Ref para evitar stale closure em tim
 useEffect(() => { selectedContactRef.current = selectedContact; }, [selectedContact]);
 // ── VIGILÂNCIA P2P: rastreia último quiz recebido por peer ──────────────────
 const quizLastSeenRef = useRef({}); // { peerId: timestampMs }
+const lastQuizTimeRef = useRef(0); // Rastreia o ÚLTIMO quiz enviado/recebido na REDE (Global Role Tracking)
 const quizSeenNoncesRef = useRef(new Set()); // Para impedir ataques de Repetição de Mensagem (Replay Avoidance)
 const QUIZ_VIGILANCE_MIN_MS = MIN_QUIZ_INTERVAL * 1000; // 60 000 ms — trava absoluta
 
@@ -4292,6 +4293,7 @@ const sendQuizHandoff = () => {
     usedImageIds: Array.from(worldQuizUsedImagesRef.current || []),
     bufferedHits,                                  // hits Pixabay (URL+ID, sem binário)
     lastPlaceQuery: worldQuizPlaceRef.current ? worldQuizPlaceRef.current.query : null,
+    lastQuizTime: lastQuizTimeRef.current,        // Sincroniza cooldown global
     senderName: userNameRef.current || 'Quiz Master', // FIX BUG-3: ref evita stale closure
   };
   try { conn.send(handoff); console.log('🎯 Quiz handoff enviado ao servidor', handoff); } catch(e) {}
@@ -4338,6 +4340,8 @@ const sendBotMessage = (text) => {
 
 const sendQuizQuestion = (quizData) => {
   const timestamp = new Date();
+  const now = timestamp.getTime();
+  lastQuizTimeRef.current = now; // Atualiza cooldown local
   const timeStr = timestamp.toLocaleTimeString('en-US');
   const msgId = Date.now() + Math.random().toString(36).substring(2);
   const target = selectedContactRef.current;
@@ -4610,6 +4614,18 @@ const askNextQuestion = async () => {
 
   // ── SE CHEGAMOS AQUI: SOMOS O MESTRE DA REDE! ──
   worldQuizSubscribedToRef.current = null;
+
+  // FIX: Respeita o intervalo global mesmo após virar mestre (handoff sync)
+  const now = Date.now();
+  const elapsed = now - lastQuizTimeRef.current;
+  const minIntervalMs = MIN_QUIZ_INTERVAL * 1000;
+  
+  if (elapsed < minIntervalMs) {
+    const wait = minIntervalMs - elapsed + 1000;
+    console.log(`Quiz: Cooldown global ativo. Aguardando ${Math.round(wait/1000)}s...`);
+    quizTimerRef.current = setTimeout(askNextQuestion, wait);
+    return;
+  }
 
   // ── World Quiz: rota direta Fetch ──
   if (quizDiscipline === 'world') {
@@ -5680,6 +5696,10 @@ if (data.text === '__QUIZ__' && data.quizPayload) {
   // ── VIGILÂNCIA: verifica intervalo mínimo de 60s por peer ──────
   const senderId = pId || data.senderId || 'unknown';
   const now = Date.now();
+  
+  // Atualiza cooldown global independente do sender (Role Tracking)
+  lastQuizTimeRef.current = now;
+
   const lastSeen = quizLastSeenRef.current[senderId];
   if (lastSeen) {
     const elapsed = (now - lastSeen) / 1000;
