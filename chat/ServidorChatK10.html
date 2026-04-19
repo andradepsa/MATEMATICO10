@@ -1,4 +1,15 @@
-<!-- ═══ ServidorChatK10 V8 — Hydra Hardened (Auditoria 19/abr/2026) ═══ -->
+<!-- ═══ ServidorChatK10 V9 — Auditoria Completa V19 (19/abr/2026) ═══
+     Correções aplicadas:
+     S-1  peerId stale no closure → peerIdRef.current
+     S-2  distributeMessage: guard conn.open antes de send
+     S-3  stopYoutubeChat: broadcast youtube-chat-stop adicionado
+     S-4  broadcastYoutubeChat: msgId adicionado ao seenMessages
+     S-5  broadcastYoutubeChat: guard conn.open
+     S-6  pureServerModeRef: inicializado com valor real do localStorage (IIFE)
+     S-7  youtube-chat-stop de cliente agora é relay para todos os peers ← NOVO V19
+     S-8  setupConnection: cada send em try-catch individual
+     S-9  startKeepalive: linha p.socket._socket removida (API privada inexistente PeerJS 1.5+) ← NOVO V19
+═══ -->
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -777,7 +788,8 @@
         keepaliveTimerRef.current = setInterval(() => {
           const p = peerInstance.current;
           if (p && !p.destroyed && !p.disconnected) {
-            try { p.socket._socket && p.socket._socket.send('{}'); } catch(e) {}
+            // FIX S-9: p.socket._socket era API privada inexistente no PeerJS 1.5+ → código morto + erro silencioso.
+            // PeerJS 1.5+ já faz keep-alive automático via pingInterval:5000 configurado no new Peer(). Linha removida.
             // Também detecta conexões mortas e remove
             activeConnectionsRef.current.forEach((conn, id) => {
               try {
@@ -1421,12 +1433,14 @@
            distributeMessage(data, sourceConn.peer);
         }
         else if (data.type === 'youtube-chat-stop') {
-           // O comando de parar o chat agora é estritamente local
            // FIX BUG-G: garante ID para dedup
            if (!data.id) data = { ...data, id: sourceConn.peer + '_yt_stop_' + Date.now() };
            if (seenMessagesRef.current.has(data.id)) return;
            seenMessagesRef.current.add(data.id); pruneSeenSrv(); // FIX BUG-I
            setYoutubeChatId(null);
+           // FIX S-7: relay para todos os outros peers — sem isso, clientes ficavam com aba YT presa
+           // porque apenas o servidor limpava o estado, mas nenhum cliente recebia o stop.
+           distributeMessage(data, sourceConn.peer);
         }
       };
 
