@@ -344,7 +344,10 @@
         return [all, idx];
       }
 
-      const SRV_MIN_QUIZ_INTERVAL = 60;
+      // FIX BUG-1: Alinhado com MIN_QUIZ_INTERVAL do Chat_Desktop (120s).
+      // Com 60s o servidor despachava perguntas antes do cooldown do cliente
+      // expirar → filtro de vigilância rejeitava como SPAM.
+      const SRV_MIN_QUIZ_INTERVAL = 120;
 
 
     const TRANSLATIONS = {
@@ -642,6 +645,16 @@
       const activeGroupsRef = useRef({ 'G0001': { size: 0, reservados: [], members: new Set() } });
       // FASE-2: mapeia peerId → groupId para decrementar ao desconectar
       const peerGroupMapRef = useRef(new Map());
+
+      // FIX BUG-I: seenMessagesRef crescia sem limite → memory leak grave no servidor
+      // Mantém no máximo 2 000 entradas; ao ultrapassar, descarta a metade mais antiga (FIFO)
+      const pruneSeenSrv = () => {
+        const s = seenMessagesRef.current;
+        if (s.size > 2000) {
+          const keep = [...s].slice(-1000);
+          seenMessagesRef.current = new Set(keep);
+        }
+      };
 
       
       // ── Estado do Quiz quando o SERVIDOR assume a transmissão ──
@@ -1188,7 +1201,7 @@
         if (data.type === 'directory-announce') {
           if (!data.groupId || typeof data.groupId !== 'string' || data.groupId.length > 50) return;
           if (data.msgId && seenMessagesRef.current.has(data.msgId)) return;
-          if (data.msgId) seenMessagesRef.current.add(data.msgId);
+          if (data.msgId) { seenMessagesRef.current.add(data.msgId); pruneSeenSrv(); } // FIX BUG-I
           if (!activeGroupsRef.current[data.groupId]) {
             activeGroupsRef.current[data.groupId] = { size: 0, reservados: [], members: new Set() };
           }
@@ -1215,7 +1228,7 @@
         if (data.type === 'group-split') {
           addAudit(`[Hydra] Split: ${data.oldGroupId} gerou ${data.newGroupId}`, 'info');
           if (data.msgId && seenMessagesRef.current.has(data.msgId)) return;
-          if (data.msgId) seenMessagesRef.current.add(data.msgId);
+          if (data.msgId) { seenMessagesRef.current.add(data.msgId); pruneSeenSrv(); } // FIX BUG-I
           if (data.newGroupId && !activeGroupsRef.current[data.newGroupId]) {
             activeGroupsRef.current[data.newGroupId] = { size: 0, reservados: Array.isArray(data.migratedReservados) ? data.migratedReservados.slice(0,10) : [], members: new Set() };
           }
@@ -1231,7 +1244,7 @@
         if (data.type === 'group-merge') {
           addAudit(`[Hydra] Merge: ${data.absorbedGroupId} absorvido por ${data.survivingGroupId}`, 'info');
           if (data.msgId && seenMessagesRef.current.has(data.msgId)) return;
-          if (data.msgId) seenMessagesRef.current.add(data.msgId);
+          if (data.msgId) { seenMessagesRef.current.add(data.msgId); pruneSeenSrv(); } // FIX BUG-I
           const { survivingGroupId, absorbedGroupId } = data;
           if (survivingGroupId && absorbedGroupId && activeGroupsRef.current[absorbedGroupId]) {
             const surv = activeGroupsRef.current[survivingGroupId] || (activeGroupsRef.current[survivingGroupId] = { size: 0, reservados: [], members: new Set() });
@@ -1276,6 +1289,9 @@
             setServerQuizActive(false);
             if (srvQuizTimerRef.current) { clearTimeout(srvQuizTimerRef.current); srvQuizTimerRef.current = null; }
             srvCurrentQuizRef.current = null;
+            // FIX BUG-2: marca timestamp agora para cooldown ficar correto
+            // quando/se o servidor retomar depois
+            srvLastQuizTimeRef.current = Date.now();
           }
           quizBotPeerRef.current = sourceConn.peer;
           // Notifica TODOS os conectados que o bot está ativo
@@ -1306,11 +1322,7 @@
               return;
             }
             seenMessagesRef.current.add(data.id);
-            if (seenMessagesRef.current.size > 10000) {
-              // FIX BUG-F: deletar 1 item de cada vez é ineficaz — purga 1000 de uma vez
-              const toDelete = Array.from(seenMessagesRef.current).slice(0, 1000);
-              toDelete.forEach(k => seenMessagesRef.current.delete(k));
-            }
+            pruneSeenSrv(); // FIX BUG-I: substitui purga manual por pruneSeenSrv() consistente
           }
 
           if (data.type === 'message') {
@@ -1346,7 +1358,7 @@
         else if (data.type === 'radio-start' || data.type === 'radio-stream-start' || data.type === 'radio-chunk' || data.type === 'radio-sync' || data.type === 'radio-request-sync') {
           if (!data.id) data = { ...data, id: Date.now() + Math.random().toString(36).substring(2) };
           if (seenMessagesRef.current.has(data.id)) return;
-          seenMessagesRef.current.add(data.id);
+          seenMessagesRef.current.add(data.id); pruneSeenSrv(); // FIX BUG-I
           
           if (data.type === 'radio-start' || data.type === 'radio-stream-start' || data.type === 'radio-sync') {
             radioStateRef.current = {
@@ -1371,7 +1383,7 @@
           // FIX BUG-E: garante ID para dedup sempre funcionar, mesmo em chunks sem ID
           if (!data.id) data = { ...data, id: sourceConn.peer + '_' + data.type + '_' + (data.audioId || '') + '_' + (data.offset || 0) };
           if (seenMessagesRef.current.has(data.id)) return;
-          seenMessagesRef.current.add(data.id);
+          seenMessagesRef.current.add(data.id); pruneSeenSrv(); // FIX BUG-I
           distributeMessage(data, sourceConn.peer);
         }
         else if (data.type === 'file-start' || data.type === 'file-chunk') {
@@ -1382,7 +1394,7 @@
            // FIX BUG-G: garante ID para dedup sempre funcionar
            if (!data.id) data = { ...data, id: sourceConn.peer + '_' + data.type + '_' + Date.now() };
            if (seenMessagesRef.current.has(data.id)) return;
-           seenMessagesRef.current.add(data.id);
+           seenMessagesRef.current.add(data.id); pruneSeenSrv(); // FIX BUG-I
            if (data.type === 'youtube-chat-start') {
              if (youtubeChatIdRef.current) return;
              setYoutubeChatId(data.youtubeId);
@@ -1404,7 +1416,7 @@
            // FIX BUG-G: garante ID para dedup
            if (!data.id) data = { ...data, id: sourceConn.peer + '_yt_stop_' + Date.now() };
            if (seenMessagesRef.current.has(data.id)) return;
-           seenMessagesRef.current.add(data.id);
+           seenMessagesRef.current.add(data.id); pruneSeenSrv(); // FIX BUG-I
            setYoutubeChatId(null);
         }
       };
@@ -1548,6 +1560,7 @@
               activeGroupsRef.current[assignedGroupId] = { size: 0, reservados: [], members: new Set() };
             }
             activeGroupsRef.current[assignedGroupId].size += 1;
+            activeGroupsRef.current[assignedGroupId].members.add(conn.peer); // FIX SRV-1: sem isso o GC (V8-F10) zera o size mesmo com peers conectados
             peerGroupMapRef.current.set(conn.peer, assignedGroupId);
             if (sample.length > 0 || assignedGroupId) {
               try { conn.send({ type: 'peer-list', peers: sample, groupId: assignedGroupId }); } catch(e) {}
@@ -1669,6 +1682,9 @@
           type: 'message',
           id: Date.now() + Math.random().toString(36).substring(2),
           ttl: 15,
+          // FIX BUG-4: campo sender presente para que o filtro de vigilância
+          // identifique corretamente a fonte e não aplique spam ao peerId do servidor
+          sender: 'server-self',
           senderName: '🤖 Quiz Bot',
           direct: false,
           time: ts.toLocaleTimeString('en-US'),
@@ -1684,6 +1700,8 @@
           type: 'message',
           id: Date.now() + Math.random().toString(36).substring(2),
           ttl: 15,
+          // FIX BUG-4: idem — sender explícito
+          sender: 'server-self',
           senderName: '🤖 Quiz Bot',
           direct: false,
           time: ts.toLocaleTimeString('en-US'),
@@ -1831,6 +1849,11 @@
           console.log('🛑 Servidor já está transmitindo — handoff ignorado');
           return;
         }
+        // FIX BUG-3a: se outro peer (não quem enviou) ainda é dono do bot, ignora
+        if (quizBotPeerRef.current && quizBotPeerRef.current !== fromPeer && quizBotPeerRef.current !== 'server-self') {
+          console.log('🛑 Outro peer já é dono do Quiz Bot — handoff de', fromPeer, 'ignorado');
+          return;
+        }
         // Hidrata estado a partir do handoff (URL+ID, sem binário)
         srvQuizDisciplineRef.current = data.quizDiscipline || 'world';
         srvQuizIntervalRef.current = Math.max(SRV_MIN_QUIZ_INTERVAL, data.quizInterval || SRV_MIN_QUIZ_INTERVAL);
@@ -1852,8 +1875,17 @@
         serverQuizActiveRef.current = true;
         setServerQuizActive(true);
         console.log('🎯 Servidor assumiu o Quiz Bot via handoff de', fromPeer, data);
-        // Pequeno jitter pra evitar race com mensagens em trânsito
-        setTimeout(() => { if (serverQuizActiveRef.current) srvAskNextQuestion(); }, 1500);
+
+        // FIX BUG-3b: jitter inteligente — espera o cooldown restante + 3s de segurança,
+        // evitando que o servidor envie pergunta antes do MIN_QUIZ_INTERVAL do cliente (120s)
+        // expirar. Jitter fixo de 1500ms era insuficiente e causava violação de spam.
+        const now = Date.now();
+        const elapsed = now - srvLastQuizTimeRef.current;
+        const minMs = SRV_MIN_QUIZ_INTERVAL * 1000;
+        const cooldownRemaining = Math.max(0, minMs - elapsed);
+        const jitter = cooldownRemaining + 3000; // 3s extra de folga para mensagens em trânsito
+        console.log(`⏳ Handoff jitter: ${Math.round(jitter/1000)}s (cooldown restante: ${Math.round(cooldownRemaining/1000)}s)`);
+        srvQuizTimerRef.current = setTimeout(() => { if (serverQuizActiveRef.current) srvAskNextQuestion(); }, jitter);
       };
 
       // ── Botão "Parar Quiz" — só funciona se o servidor está transmitindo ──
