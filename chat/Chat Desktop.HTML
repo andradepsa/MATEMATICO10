@@ -1,4 +1,19 @@
-<!-- ═══ Chat K10 V8 — Hydra Hardened (Auditoria 19/abr/2026) ═══ -->
+<!-- ═══ Chat K10 V9 — Auditoria Completa V19 (19/abr/2026) ═══
+     Correções aplicadas:
+     C-1..4  File/Audio/Voice/Video: stale connections → connectionsRef.current
+     C-5     getInputStatus: cooldown verificado primeiro (modo geral)
+     C-6     stopTorrent: const t renomeado para torrent (shadowing da fn t())
+     C-7     handlePollCreated: connections stale → connectionsRef.current
+     C-8     WorldRadiosModal: (r.tags||'').split() — guard null ← NOVO V19
+     C-9     filteredMessages: isCentralServer removido das deps do useMemo ← NOVO V19
+     C-10    endCall: activeCallsRef.current evita stale closure ← NOVO V19
+     C-11    Whiteboard borracha: cor detectada dinamicamente (dark mode) ← NOVO V19
+     C-12    Whiteboard touch: e.preventDefault() evita scroll no mobile ← NOVO V19
+     C-13    handleTorrentDownload: .getBlob() depreciado → .blob() Promise ← NOVO V19
+     C-14    connectToPeer: langRef.current em timeout e catch ← NOVO V19
+     C-15    sendDirectMessage: sender:peerId adicionado ao broadcast geral ← NOVO V19
+     C-16    endCall: activeCallsRef corrigido (ver C-10)
+═══ -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -1678,7 +1693,9 @@ const Whiteboard = ({ lang, connections, selectedContact, onClose }) => {
 
   useEffect(() => {
     if (contextRef.current) {
-      contextRef.current.strokeStyle = tool === 'eraser' ? '#f8fafc' : color;
+      // FIX C-11: detecta dark mode dinamicamente — #f8fafc era visível como traço branco em dark mode
+      const eraserColor = document.body.classList.contains('dark-mode') ? '#0f172a' : '#f8fafc';
+      contextRef.current.strokeStyle = tool === 'eraser' ? eraserColor : color;
       contextRef.current.lineWidth = lineWidth;
     }
   }, [color, lineWidth, tool]);
@@ -1688,7 +1705,9 @@ const Whiteboard = ({ lang, connections, selectedContact, onClose }) => {
     if (!ctx) return;
     
     ctx.beginPath();
-    ctx.strokeStyle = drawTool === 'eraser' ? '#f8fafc' : drawColor;
+    // FIX C-11: detecta dark mode para a borracha — cor estática #f8fafc é visível como traço branco em dark mode
+    const eraserColor = document.body.classList.contains('dark-mode') ? '#0f172a' : '#f8fafc';
+    ctx.strokeStyle = drawTool === 'eraser' ? eraserColor : drawColor;
     ctx.lineWidth = drawWidth;
     ctx.moveTo(x1, y1);
     ctx.lineTo(x2, y2);
@@ -1769,6 +1788,8 @@ const Whiteboard = ({ lang, connections, selectedContact, onClose }) => {
   };
 
   const handleTouchStart = (e) => {
+    // FIX C-12: preventDefault evita que a página role ao desenhar no mobile
+    e.preventDefault();
     const touch = e.touches[0];
     const rect = canvasRef.current.getBoundingClientRect();
     const x = touch.clientX - rect.left;
@@ -1779,6 +1800,8 @@ const Whiteboard = ({ lang, connections, selectedContact, onClose }) => {
   };
 
   const handleTouchMove = (e) => {
+    // FIX C-12: preventDefault evita scroll da página ao desenhar no mobile
+    e.preventDefault();
     if (!isDrawing) return;
     const touch = e.touches[0];
     const rect = canvasRef.current.getBoundingClientRect();
@@ -2538,7 +2561,7 @@ return messages.filter(msg =>
 (isSrv && msg.recipient === selectedContact) ||
 (isSrv && msg.sender === selectedContact)
 );
-}, [messages, selectedContact, isCentralServer]);
+}, [messages, selectedContact]);
 
 
 const MessageText = ({ msg, onContentChange, onHide }) => {
@@ -2771,7 +2794,7 @@ const updated = [...prev, newMsgObj].slice(-500);
 return updated;
 });
 } else {
-const msgData = { type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: false, time: formatTime(timestamp) };
+const msgData = { type: 'message', id: msgId, ttl: 15, text: textToSend, sender: peerId, senderName: userName, direct: false, time: formatTime(timestamp) }; // FIX C-15: sender: peerId ausente → relay tracking e spam guard não funcionavam para mensagens próprias
 connectionsRef.current.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} }); // FIX BUG-L2: era connections (stale state)
 const newMsgObj = { text: textToSend, sender: 'you', recipient: 'general', senderName: userName, time: formatTime(timestamp), type: 'text', direct: false, timestamp: timestamp.getTime() };
 setMessages(prev => {
@@ -3516,7 +3539,7 @@ const WorldRadiosModal = ({ lang, onClose, onBroadcast }) => {
             <div key={i} style={{ background: '#1e293b', padding: '12px', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ overflow: 'hidden', marginRight: '10px' }}>
                 <div style={{ fontWeight: 'bold', fontSize: '14px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.name}</div>
-                <div style={{ fontSize: '12px', color: '#94a3b8' }}>{r.country} • {r.tags.split(',').slice(0,3).join(', ')}</div>
+                <div style={{ fontSize: '12px', color: '#94a3b8' }}>{r.country} • {(r.tags || '').split(',').slice(0,3).join(', ')}</div>
               </div>
               <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
                 <button 
@@ -4146,6 +4169,9 @@ const [newMessage, setNewMessage] = useState('');
 const [showContacts, setShowContacts] = useState(false);
 const [contacts, setContacts] = useState(() => { try { return JSON.parse(localStorage.getItem('p2pContacts') || '[]'); } catch { return []; } });
 const [activeCalls, setActiveCalls] = useState([]);
+// FIX C-10/C-16: activeCallsRef espelha activeCalls para evitar stale closure em callbacks PeerJS
+const activeCallsRef = useRef([]);
+useEffect(() => { activeCallsRef.current = activeCalls; }, [activeCalls]);
 const [remoteStreams, setRemoteStreams] = useState([]);
 const [youtubeChatId, setYoutubeChatId] = useState(null);
 const youtubeChatIdRef = useRef(null);
@@ -6020,7 +6046,8 @@ const timeoutId = setTimeout(() => {
 if (conn && !conn.open) {
 console.warn(`Connection to ${peerIdToConnect} timed out. Closing attempt.`);
 conn.close();
-setMessages(prev => [...prev, { text: `⚠️ ${t(lang, 'connectFailed')} ${peerIdToConnect} (Timeout)`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500)); // FIX BUG-NEW-2: era 'connectionFailed'; FIX BUG-F: +.slice(-500)
+// FIX C-14: langRef.current evita stale closure — lang pode ter mudado durante os 10s de timeout
+setMessages(prev => [...prev, { text: `⚠️ ${t(langRef.current, 'connectFailed')} ${peerIdToConnect} (Timeout)`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500));
 }
 }, 10000);
 
@@ -6068,7 +6095,7 @@ conn.on('close', () => {
   if (window.__v8ReconAttempts) window.__v8ReconAttempts.delete(peerIdToConnect);
 });
 conn.on('data', data => handleIncomingData(data, peerIdToConnect));
-} catch (err) { alert(t(lang, 'connectError') + err.message); }
+} catch (err) { alert(t(langRef.current, 'connectError') + err.message); } // FIX C-14: langRef.current evita stale closure no catch
 };
 
 
@@ -7294,35 +7321,37 @@ setMessages(prev => [...prev, { text: `📤 Torrent request sent to ${getContact
 };
 
 
+// FIX C-13: API .getBlob(callback) depreciada no WebTorrent — migrado para .blob() Promise.
+// .getBlob() silenciosamente falha em versões recentes do WebTorrent (≥2.x), causando
+// downloads que nunca disparam. .blob() é a API atual e retorna uma Promise.
+const _torrentSaveFile = async (f) => {
+  try {
+    const blob = await f.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = f.name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  } catch(e) {
+    console.error('[Torrent] Erro ao salvar arquivo:', f.name, e);
+  }
+};
+
 const handleTorrentDownload = (magnet) => {
 if (torrentClientRef.current) {
 const existing = torrentClientRef.current.get(magnet);
 if (existing) {
 if (existing.done) {
-existing.files.forEach(f => f.getBlob((err, blob) => {
-if (err) return;
-const url = URL.createObjectURL(blob);
-const a = document.createElement('a');
-a.href = url;
-a.download = f.name;
-a.click();
-}));
+existing.files.forEach(f => _torrentSaveFile(f));
 }
 return;
 }
 
-
 torrentClientRef.current.add(magnet, { announce: announceList }, (torrent) => {
 torrent.on('done', () => {
 setMessages(prev => [...prev, { text: `✅ Torrent ${torrent.name} ${t(lang, 'completed')}!`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500));
-torrent.files.forEach(f => f.getBlob((err, blob) => {
-if (err) return;
-const url = URL.createObjectURL(blob);
-const a = document.createElement('a');
-a.href = url;
-a.download = f.name;
-a.click();
-}));
+torrent.files.forEach(f => _torrentSaveFile(f));
 });
 });
 setShowTorrentManager(true);
@@ -7472,7 +7501,8 @@ const endCall = (peerIdToEnd, callType) => {
       return prev.filter(s => !(s.peerId === peerIdToEnd && s.type === callType));
     });
   } catch(e){}
-const callData = activeCalls.find(c => c.peerId === peerIdToEnd && c.type === callType);
+// FIX C-10: usa activeCallsRef.current (sempre fresco) — activeCalls é closure stale em callbacks PeerJS
+const callData = activeCallsRef.current.find(c => c.peerId === peerIdToEnd && c.type === callType);
 if (callData) {
 if (callData.call) callData.call.close();
 if (callData.localStream) { callData.localStream.getTracks().forEach(tr => tr.stop()); stopAndRemoveLocalStream(peerIdToEnd + '_' + callType); }
