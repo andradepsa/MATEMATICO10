@@ -602,7 +602,13 @@
         const saved = localStorage.getItem('pureServerMode');
         return saved === null ? true : saved === 'true';
       });
-      const pureServerModeRef = useRef(true);
+      // BUG S-6 FIX: inicializa pureServerModeRef com o valor real salvo,
+      // evitando janela de dessincronização entre estado e ref antes do primeiro useEffect.
+      const _pureServerModeInitial = (() => {
+        const saved = localStorage.getItem('pureServerMode');
+        return saved === null ? true : saved === 'true';
+      })();
+      const pureServerModeRef = useRef(_pureServerModeInitial);
       useEffect(() => { pureServerModeRef.current = pureServerMode; localStorage.setItem('pureServerMode', pureServerMode); }, [pureServerMode]);
       const [knownServers, setKnownServers] = useState(() => {
         try { return JSON.parse(localStorage.getItem('knownServers') || '[]'); } catch { return []; }
@@ -866,10 +872,13 @@
       };
 
       const setupPeer = () => {
-        if (!peerId) return;
+        // BUG S-1 FIX: usamos peerIdRef.current em vez de peerId (closure) para que
+        // handleIdChange funcione corretamente após setPeerId() assincrônico.
+        const currentId = peerIdRef.current;
+        if (!currentId) return;
         if (isManualDisconnectRef.current) return; // respeita desconexão manual
 
-        console.log("Configurando distribuidor com ID:", peerId);
+        console.log("Configurando distribuidor com ID:", currentId);
         setConnectionStatus('connecting');
         stopKeepalive();
         clearReconnectTimer();
@@ -879,7 +888,7 @@
           peerInstance.current = null;
         }
         
-        const peer = new Peer(peerId, {
+        const peer = new Peer(currentId, {
           host: '0.peerjs.com',
           port: 443,
           secure: true,
@@ -1433,7 +1442,8 @@
         const relayData = { ...data, ttl: currentTtl - 1 };
         
         activeConnectionsRef.current.forEach((conn, connPeerId) => {
-          if (connPeerId !== sourceId) {
+          // BUG S-2 FIX: checa conn.open antes de enviar para evitar erros desnecessários
+          if (connPeerId !== sourceId && conn.open) {
             try {
               console.log(`Distribuindo mensagem para ${connPeerId}`);
               conn.send(relayData);
@@ -1541,7 +1551,7 @@
           
           // Always send handshake from server so clients know it's a central server
           try {
-            conn.send({ type: 'handshake', peerId });
+            conn.send({ type: 'handshake', peerId: peerIdRef.current });
             if (youtubeChatIdRef.current) {
               conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
             }
@@ -1920,12 +1930,23 @@
         
         setYoutubeChatId(yId);
         const msgId = Date.now() + Math.random().toString(36).substring(2);
+        // BUG S-4 FIX: adiciona ao seenMessages antes de broadcast para evitar loop de relay
+        seenMessagesRef.current.add(msgId);
+        pruneSeenSrv();
         const msgData = { type: 'youtube-chat-start', id: msgId, youtubeId: yId, ttl: 15 };
-        activeConnectionsRef.current.forEach((c) => { try { c.send(msgData); } catch(e){} });
+        // BUG S-5 FIX: checa conn.open antes de enviar
+        activeConnectionsRef.current.forEach((c) => { if (c.open) try { c.send(msgData); } catch(e){} });
       };
 
       const stopYoutubeChat = () => {
         setYoutubeChatId(null);
+        // BUG S-3 FIX: faltava broadcast do stop para que os clientes
+        // saibam que o chat foi encerrado e limpem o tab YouTube.
+        const msgId = Date.now() + Math.random().toString(36).substring(2);
+        seenMessagesRef.current.add(msgId);
+        pruneSeenSrv();
+        const msgData = { type: 'youtube-chat-stop', id: msgId, ttl: 8 };
+        activeConnectionsRef.current.forEach((c) => { if (c.open) try { c.send(msgData); } catch(e){} });
       };
 
       return (
