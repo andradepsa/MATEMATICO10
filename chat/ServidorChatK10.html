@@ -610,8 +610,9 @@
       const [darkMode, setDarkMode] = useState(() => localStorage.getItem('serverDarkMode') === 'true');
       const [auditLog, setAuditLog] = useState([]);
       const auditLogRef = useRef([]);
-      const addAudit = (msg, type = 'info') => {
-        const entry = { ts: new Date().toLocaleTimeString(), msg, type };
+      const addAudit = (msg, type = 'info', toolId = null) => {
+        const fullMsg = toolId ? `[${toolId}] ${msg}` : msg;
+        const entry = { ts: new Date().toLocaleTimeString(), msg: fullMsg, type, toolId };
         auditLogRef.current = [entry, ...auditLogRef.current].slice(0, 60);
         setAuditLog([...auditLogRef.current]);
       };
@@ -646,6 +647,7 @@
       
       // ── Estado do Quiz quando o SERVIDOR assume a transmissão ──
       const [serverQuizActive, setServerQuizActive] = useState(false);
+      const [quizBotOwner, setQuizBotOwner] = useState(null);
       const serverQuizActiveRef = useRef(false);
       const srvQuizDisciplineRef = useRef('world');
       const srvQuizIntervalRef = useRef(SRV_MIN_QUIZ_INTERVAL);
@@ -1099,6 +1101,7 @@
           duration,
           sender: serverId,
           senderName: t(lang, 'serverName'),
+          toolId: 'YT-RADIO-ID',
           ttl: 15 
         };
         
@@ -1189,6 +1192,7 @@
           if (!data.groupId || typeof data.groupId !== 'string' || data.groupId.length > 50) return;
           if (data.msgId && seenMessagesRef.current.has(data.msgId)) return;
           if (data.msgId) seenMessagesRef.current.add(data.msgId);
+          addAudit(`Anúncio de Diretório: Grupo ${data.groupId}`, 'info', 'HYDRA-CORE-ID');
           if (!activeGroupsRef.current[data.groupId]) {
             activeGroupsRef.current[data.groupId] = { size: 0, reservados: [], members: new Set() };
           }
@@ -1213,7 +1217,7 @@
 
         // ═══ V8-BUG#2: group-split / group-merge — servidor relay + atualiza diretório ═══
         if (data.type === 'group-split') {
-          addAudit(`[Hydra] Split: ${data.oldGroupId} gerou ${data.newGroupId}`, 'info');
+          addAudit(`Split: ${data.oldGroupId} gerou ${data.newGroupId}`, 'info', 'HYDRA-CORE-ID');
           if (data.msgId && seenMessagesRef.current.has(data.msgId)) return;
           if (data.msgId) seenMessagesRef.current.add(data.msgId);
           if (data.newGroupId && !activeGroupsRef.current[data.newGroupId]) {
@@ -1229,7 +1233,7 @@
           return;
         }
         if (data.type === 'group-merge') {
-          addAudit(`[Hydra] Merge: ${data.absorbedGroupId} absorvido por ${data.survivingGroupId}`, 'info');
+          addAudit(`Merge: ${data.absorbedGroupId} absorvido por ${data.survivingGroupId}`, 'info', 'HYDRA-CORE-ID');
           if (data.msgId && seenMessagesRef.current.has(data.msgId)) return;
           if (data.msgId) seenMessagesRef.current.add(data.msgId);
           const { survivingGroupId, absorbedGroupId } = data;
@@ -1278,6 +1282,7 @@
             srvCurrentQuizRef.current = null;
           }
           quizBotPeerRef.current = sourceConn.peer;
+          setQuizBotOwner(sourceConn.peer); 
           // Notifica TODOS os conectados que o bot está ativo
           activeConnectionsRef.current.forEach((c, id) => {
             try { c.send({ type: 'quiz-bot-status', active: true, owner: sourceConn.peer }); } catch(e) {}
@@ -1287,6 +1292,7 @@
         if (data.type === 'quiz-bot-stop') {
           if (quizBotPeerRef.current === sourceConn.peer) {
             quizBotPeerRef.current = null;
+            setQuizBotOwner(null);
             activeConnectionsRef.current.forEach((c) => {
               try { c.send({ type: 'quiz-bot-status', active: false }); } catch(e) {}
             });
@@ -1299,6 +1305,14 @@
           return;
         }
 
+        if (data.type === 'quiz-bot-status') {
+          // Relay status to other clients
+          activeConnectionsRef.current.forEach((c) => { 
+            if (c.peer !== sourceConn.peer && c.open) try { c.send(data); } catch(e) {} 
+          });
+          return;
+        }
+
         if (data.type === 'message' || data.type === 'torrent-request') {
           if (data.id) {
             if (seenMessagesRef.current.has(data.id)) {
@@ -1307,16 +1321,23 @@
             }
             seenMessagesRef.current.add(data.id);
             if (seenMessagesRef.current.size > 10000) {
-              // FIX BUG-F: deletar 1 item de cada vez é ineficaz — purga 1000 de uma vez
               const toDelete = Array.from(seenMessagesRef.current).slice(0, 1000);
               toDelete.forEach(k => seenMessagesRef.current.delete(k));
             }
+          }
+
+          if (data.type === 'torrent-request') {
+             addAudit(`Requisição Torrent: ${data.fileName || 'desconhecido'}`, 'info', 'FILES-RELAY-ID');
           }
 
           if (data.type === 'message') {
             // Role Tracking Global: se é um quiz de um usuário, atualiza cooldown do servidor
             if (data.text === '__QUIZ__' && data.quizPayload) {
               srvLastQuizTimeRef.current = Date.now();
+              addAudit(`Questão de Quiz recebida de ${sourceConn.peer}`, 'info', data.toolId || 'QUIZ-BOT-ID');
+            }
+            if (data.text === '__QUIZ_REVEAL__') {
+               addAudit(`Revelação de Quiz recebida de ${sourceConn.peer}`, 'info', data.toolId || 'QUIZ-BOT-ID');
             }
             
             if (data.text && data.text.length > 2000) {
@@ -1343,12 +1364,17 @@
           
           distributeMessage(data, sourceConn.peer);
         }
+        else if (data.type === 'whiteboard') {
+           addAudit(`Desenho em tempo real: ${data.action}`, 'info', 'WHITEBOARD-ID');
+           distributeMessage(data, sourceConn.peer);
+        }
         else if (data.type === 'radio-start' || data.type === 'radio-stream-start' || data.type === 'radio-chunk' || data.type === 'radio-sync' || data.type === 'radio-request-sync') {
           if (!data.id) data = { ...data, id: Date.now() + Math.random().toString(36).substring(2) };
           if (seenMessagesRef.current.has(data.id)) return;
           seenMessagesRef.current.add(data.id);
           
           if (data.type === 'radio-start' || data.type === 'radio-stream-start' || data.type === 'radio-sync') {
+            addAudit(`Stream de Rádio: ${data.fileName || 'Sintonizando...'}`, 'info', data.toolId || 'RADIO-WORLD-ID');
             radioStateRef.current = {
               status: 'playing',
               radioType: data.type === 'radio-stream-start' || data.radioType === 'stream' ? 'stream' : 'file',
@@ -1368,6 +1394,9 @@
             console.log("Servidor: Áudio muito longo ignorado (limite de 1 minuto).");
             return;
           }
+          if (data.type === 'audio-start') {
+             addAudit(`Mensagem de Áudio (PTT) de ${sourceConn.peer}`, 'info', data.toolId || 'AUDIO-PTT-ID');
+          }
           // FIX BUG-E: garante ID para dedup sempre funcionar, mesmo em chunks sem ID
           if (!data.id) data = { ...data, id: sourceConn.peer + '_' + data.type + '_' + (data.audioId || '') + '_' + (data.offset || 0) };
           if (seenMessagesRef.current.has(data.id)) return;
@@ -1383,12 +1412,21 @@
            if (!data.id) data = { ...data, id: sourceConn.peer + '_' + data.type + '_' + Date.now() };
            if (seenMessagesRef.current.has(data.id)) return;
            seenMessagesRef.current.add(data.id);
+           
+           if (data.type === 'e2ee-secret') {
+             addAudit(`Troca de chaves secreta iniciada`, 'info', 'SECURE-E2EE-ID');
+           }
+           if (data.type === 'youtube-cam-start') {
+             addAudit(`Câmera de YouTube iniciada: ${data.title || 'Live'}`, 'info', 'YT-CAM-ID');
+           }
            if (data.type === 'youtube-chat-start') {
              if (youtubeChatIdRef.current) return;
              setYoutubeChatId(data.youtubeId);
+             addAudit(`YouTube Chat iniciado: ${data.youtubeId}`, 'info', 'YT-CHAT-ID');
            }
            if (data.type === 'radio-youtube-start') {
              setYoutubeBroadcasts(prev => ({ ...prev, [data.sender || sourceConn.peer]: { videoId: data.youtubeId, senderName: data.senderName } }));
+             addAudit(`Transmissão YT-Radio: ${data.youtubeId}`, 'info', 'YT-RADIO-ID');
            }
            if (data.type === 'radio-youtube-stop') {
              setYoutubeBroadcasts(prev => {
@@ -1396,6 +1434,10 @@
                delete next[data.sender || sourceConn.peer];
                return next;
              });
+             addAudit(`YT-Radio parado por ${data.sender || sourceConn.peer}`, 'info', 'YT-RADIO-ID');
+           }
+           if (data.type === 'radio-world-start') {
+             addAudit(`Rádio Mundial: ${data.fileName}`, 'info', 'RADIO-WORLD-ID');
            }
            distributeMessage(data, sourceConn.peer);
         }
@@ -1443,7 +1485,7 @@
       const setupConnection = (conn) => {
         conn.on('open', () => {
           console.log(`Conexão estabelecida com ${conn.peer}`);
-          addAudit(`🔗 Conexão aberta: ${conn.peer}`, 'ok');
+          addAudit(`Nova entrada de usuário: ${conn.peer}`, 'ok', 'AUTH-STATUS-ID');
           
           if (isHydraModeRef.current) {
             // MODO HYDRA: Apenas envia a lista de peers e desconecta
@@ -1623,7 +1665,7 @@
 
         conn.on('close', () => {
           console.log(`Conexão fechada com ${conn.peer}`);
-          addAudit(`🔌 Conexão encerrada: ${conn.peer}`, 'warn');
+          addAudit(`Saída de usuário: ${conn.peer}`, 'warn', 'AUTH-STATUS-ID');
           
           // Libera slot do Quiz Bot se era o dono
           if (quizBotPeerRef.current === conn.peer) {
@@ -1670,6 +1712,7 @@
           id: Date.now() + Math.random().toString(36).substring(2),
           ttl: 15,
           senderName: '🤖 Quiz Bot',
+          toolId: 'QUIZ-BOT-ID',
           direct: false,
           time: ts.toLocaleTimeString('en-US'),
           timestamp: ts.getTime(),
@@ -1846,6 +1889,7 @@
         }
         // Toma posse do slot único (igual quiz-bot-start)
         quizBotPeerRef.current = 'server-self';
+        setQuizBotOwner('SERVER-INTERNAL');
         activeConnectionsRef.current.forEach(c => {
           try { c.send({ type: 'quiz-bot-status', active: true, owner: 'server-self' }); } catch(e) {}
         });
@@ -1858,17 +1902,19 @@
 
       // ── Botão "Parar Quiz" — só funciona se o servidor está transmitindo ──
       const stopServerQuiz = () => {
-        if (!serverQuizActiveRef.current) return;
+        // Interrupção manual no servidor
         serverQuizActiveRef.current = false;
         setServerQuizActive(false);
         if (srvQuizTimerRef.current) { clearTimeout(srvQuizTimerRef.current); srvQuizTimerRef.current = null; }
         srvCurrentQuizRef.current = null;
-        if (quizBotPeerRef.current === 'server-self') {
-          quizBotPeerRef.current = null;
-          activeConnectionsRef.current.forEach(c => {
-            try { c.send({ type: 'quiz-bot-status', active: false }); } catch(e) {}
-          });
-        }
+        
+        // Limpa o registro do dono e informa a TODA a rede que o bot parou
+        quizBotPeerRef.current = null;
+        setQuizBotOwner(null);
+        activeConnectionsRef.current.forEach(c => {
+          if (c.open) try { c.send({ type: 'quiz-bot-status', active: false }); } catch(e) {}
+        });
+        
         console.log('🛑 Quiz parado pelo servidor (manual)');
       };
 
@@ -2093,6 +2139,12 @@
                 <div style={{ fontSize: '10px', color: '#166534', textTransform: 'uppercase' }}>{t(lang, 'hydraWebSize')}</div>
                 <div style={{ fontSize: '18px', fontWeight: 'bold', color: '#15803d' }}>{stats.hydraNodes}</div>
                 <div style={{ fontSize: '9px', color: '#166534' }}>{t(lang, 'estimatedP2PNodes')}</div>
+              </div>
+              <div style={{ background: quizBotOwner ? '#fef2f2' : '#f8fafc', padding: '10px', borderRadius: '8px', border: quizBotOwner ? '1px solid #fecaca' : '1px solid #e2e8f0', gridColumn: 'span 2' }}>
+                <div style={{ fontSize: '10px', color: quizBotOwner ? '#b91c1c' : '#64748b', textTransform: 'uppercase' }}>🎯 Mestre do Quiz Ativo</div>
+                <div style={{ fontSize: '14px', fontWeight: 'bold', color: quizBotOwner ? '#dc2626' : '#94a3b8' }}>
+                  {quizBotOwner ? `ID: ${quizBotOwner}` : 'Nenhum robô ativo na rede'}
+                </div>
               </div>
             </div>
           </div>
