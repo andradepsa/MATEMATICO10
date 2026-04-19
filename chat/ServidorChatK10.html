@@ -15,7 +15,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- HYDRA V7 server --><title>Servidor K10 - V16</title>
+  <!-- HYDRA V7 server --><title>Servidor K10 - V22</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <style>
     body {
@@ -1563,33 +1563,32 @@
             }, 5000);
           }
           
+          // FIX S-8 V20: cada send em try-catch individual — falha em handshake não descarta peer-list
           // Always send handshake from server so clients know it's a central server
-          try {
-            conn.send({ type: 'handshake', peerId: peerIdRef.current });
-            if (youtubeChatIdRef.current) {
-              conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
-            }
-            // FASE-1/M2: Bootstrap – envia amostra aleatória de peers ao novo nó
-            // para que ele possa estabelecer conexões P2P imediatamente
-            const allPeersNow = Array.from(activeConnectionsRef.current.keys());
-            const others = allPeersNow.filter(pid => pid !== conn.peer);
-            const sample = others.sort(() => 0.5 - Math.random()).slice(0, 30);
-            // FASE-2: inclui groupId do grupo mais fraco para orientar o novo nó
-            const groups = Object.entries(activeGroupsRef.current);
-            const weakestEntry = groups.length > 0
-              ? groups.reduce((a, b) => a[1].size < b[1].size ? a : b)
-              : null;
-            const assignedGroupId = weakestEntry ? weakestEntry[0] : 'G0001';
-            if (!activeGroupsRef.current[assignedGroupId]) {
-              activeGroupsRef.current[assignedGroupId] = { size: 0, reservados: [], members: new Set() };
-            }
-            activeGroupsRef.current[assignedGroupId].size += 1;
-            activeGroupsRef.current[assignedGroupId].members.add(conn.peer); // FIX SRV-1: sem isso o GC (V8-F10) zera o size mesmo com peers conectados
-            peerGroupMapRef.current.set(conn.peer, assignedGroupId);
-            if (sample.length > 0 || assignedGroupId) {
-              try { conn.send({ type: 'peer-list', peers: sample, groupId: assignedGroupId }); } catch(e) {}
-            }
-          } catch (e) {}
+          try { conn.send({ type: 'handshake', peerId: peerIdRef.current }); } catch(e) {}
+          if (youtubeChatIdRef.current) {
+            try { conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 }); } catch(e) {}
+          }
+          // FASE-1/M2: Bootstrap – envia amostra aleatória de peers ao novo nó
+          // para que ele possa estabelecer conexões P2P imediatamente
+          const allPeersNow = Array.from(activeConnectionsRef.current.keys());
+          const others = allPeersNow.filter(pid => pid !== conn.peer);
+          const sample = others.sort(() => 0.5 - Math.random()).slice(0, 30);
+          // FASE-2: inclui groupId do grupo mais fraco para orientar o novo nó
+          const groups = Object.entries(activeGroupsRef.current);
+          const weakestEntry = groups.length > 0
+            ? groups.reduce((a, b) => a[1].size < b[1].size ? a : b)
+            : null;
+          const assignedGroupId = weakestEntry ? weakestEntry[0] : 'G0001';
+          if (!activeGroupsRef.current[assignedGroupId]) {
+            activeGroupsRef.current[assignedGroupId] = { size: 0, reservados: [], members: new Set() };
+          }
+          activeGroupsRef.current[assignedGroupId].size += 1;
+          activeGroupsRef.current[assignedGroupId].members.add(conn.peer); // FIX SRV-1: sem isso o GC (V8-F10) zera o size mesmo com peers conectados
+          peerGroupMapRef.current.set(conn.peer, assignedGroupId);
+          if (sample.length > 0 || assignedGroupId) {
+            try { conn.send({ type: 'peer-list', peers: sample, groupId: assignedGroupId }); } catch(e) {}
+          }
 
           // Here is the critical change to ensure we operate in pure server mode:
           // We'll send a special message to mark this as a server connection
@@ -1610,6 +1609,7 @@
           if (radioStateRef.current.status === 'playing') {
             const now = Date.now();
             if (radioStateRef.current.radioType === 'stream') {
+              // FIX S-11 V22: cada send em try-catch individual — se radio-sync falha, '#$%' não era enviado
               try {
                 conn.send({
                   type: 'radio-sync',
@@ -1619,6 +1619,8 @@
                   fileName: radioStateRef.current.fileName || t(langRef.current, 'globalRadio'), // FIX S1
                   senderName: radioStateRef.current.senderName || t(langRef.current, 'k10Server') // FIX S1
                 });
+              } catch (e) {}
+              try {
                 conn.send({
                   type: 'message',
                   text: '#$%',
@@ -1629,8 +1631,8 @@
             } else {
               const endTime = radioStateRef.current.startTime + radioStateRef.current.duration * 1000;
               if (now < endTime) {
+                // FIX S-12 V22: cada send em try-catch individual — se radio-sync falha, '#$%' não era enviado
                 try {
-                  // Envia o radio-sync padrão
                   conn.send({
                     type: 'radio-sync',
                     radioType: 'file',
@@ -1639,7 +1641,8 @@
                     fileName: radioStateRef.current.fileName || t(langRef.current, 'globalRadio'), // FIX S1
                     senderName: radioStateRef.current.senderName || t(langRef.current, 'k10Server') // FIX S1
                   });
-                  // Envia a string #$% solicitada pelo usuário como fallback de bloqueio
+                } catch (e) {}
+                try {
                   conn.send({
                     type: 'message',
                     text: '#$%',
