@@ -2772,7 +2772,7 @@ return updated;
 });
 } else {
 const msgData = { type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: false, time: formatTime(timestamp) };
-connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
+connectionsRef.current.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} }); // FIX BUG-L2: era connections (stale state)
 const newMsgObj = { text: textToSend, sender: 'you', recipient: 'general', senderName: userName, time: formatTime(timestamp), type: 'text', direct: false, timestamp: timestamp.getTime() };
 setMessages(prev => {
 const updated = [...prev, newMsgObj].slice(-500);
@@ -4219,7 +4219,7 @@ const [quizInterval, setQuizInterval] = useState(MIN_QUIZ_INTERVAL);
 const [quizIntervalInput, setQuizIntervalInput] = useState(MIN_QUIZ_INTERVAL); // Local state for UI
 const quizIntervalRef = useRef(MIN_QUIZ_INTERVAL); // Ref to avoid stale closures in timers
 useEffect(() => { quizIntervalRef.current = Math.max(MIN_QUIZ_INTERVAL, quizInterval); }, [quizInterval]);
-const safeQuizInterval = () => quizIntervalRef.current; // sempre >= 60s, lê sempre valor atual
+const safeQuizInterval = () => quizIntervalRef.current; // FIX BUG-L1: sempre >= 120s (MIN_QUIZ_INTERVAL), lê sempre valor atual via ref
 const [quizDiscipline, setQuizDiscipline] = useState('mat');
 const quizDisciplineRef = useRef('mat');
 useEffect(() => { quizDisciplineRef.current = quizDiscipline; }, [quizDiscipline]);
@@ -5582,9 +5582,13 @@ return;
 
 
 if (data.type === 'youtube-chat-stop') {
+if (!data.id) data = { ...data, id: 'yt_stop_' + pId + '_' + Date.now() }; // garante id para dedup
 if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
 pruneSeenMessages();
+// FIX BUG-L5: youtube-chat-start faz relay mas stop não fazia — toda a rede ficava com chat preso
+let ttl = data.ttl !== undefined ? data.ttl : 8;
+if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
 setYoutubeChatId(null);
 return;
 }
@@ -7278,7 +7282,7 @@ if (file.size > 500 * 1024 * 1024) { alert(t(lang, 'torrentLimit')); return; }
 if (torrentClientRef.current) {
 torrentClientRef.current.seed(file, { announce: announceList }, (torrent) => {
 const magnet = torrent.magnetURI;
-const conn = connections.find(c => c.peer === targetPeer);
+const conn = connectionsRef.current.find(c => c.peer === targetPeer); // FIX BUG-L4: era connections (stale — callback assíncrono do seed)
 if (conn && conn.open) {
 conn.send({ type: 'torrent-request', magnet, fileName: file.name });
 setMessages(prev => [...prev, { text: `📤 Torrent request sent to ${getContactName(targetPeer)}: ${file.name}`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500));
@@ -7445,6 +7449,10 @@ connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
 
 const stopYoutubeChat = () => {
 setYoutubeChatId(null);
+// FIX BUG-L5b: sem este broadcast nenhum peer recebia o stop — rede ficava com chat preso
+const msgId = Date.now() + Math.random().toString(36).substring(2);
+const msgData = { type: 'youtube-chat-stop', id: msgId, ttl: 8 };
+connectionsRef.current.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
 };
 
 
