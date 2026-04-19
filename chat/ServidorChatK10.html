@@ -1,9 +1,10 @@
+<!-- ═══ ServidorChatK10 V8 — Hydra Hardened (Auditoria 19/abr/2026) ═══ -->
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Servidor K10 - V16</title>
+  <!-- HYDRA V7 server --><title>Servidor K10 - V16</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <style>
     body {
@@ -634,8 +635,15 @@
       const isHydraModeRef = useRef(false);
       const recentPeersRef = useRef([]);
       const heartbeatsRef = useRef(new Map());
-      const worldQuizNodesRef = useRef(new Set()); // Rastreia quem é distribuidor do World Quiz
-      const quizBotPeerRef = useRef(null); // peer do usuário com Quiz Bot ativo
+      const worldQuizNodesRef = useRef(new Set());
+      const quizBotPeerRef = useRef(null);
+      // FASE-2: diretório global de grupos no servidor
+      // { [groupId]: { size: number, reservados: string[] } }
+      const activeGroupsRef = useRef({ 'G0001': { size: 0, reservados: [], members: new Set() } });
+      // FASE-2: mapeia peerId → groupId para decrementar ao desconectar
+      const peerGroupMapRef = useRef(new Map());
+
+      
       // ── Estado do Quiz quando o SERVIDOR assume a transmissão ──
       const [serverQuizActive, setServerQuizActive] = useState(false);
       const serverQuizActiveRef = useRef(false);
@@ -655,6 +663,32 @@
       const keepaliveTimerRef    = useRef(null);
       const isManualDisconnectRef = useRef(false); // distingue desconexão manual
       const MAX_RECONNECT_ATTEMPTS = 20; // circuit-breaker
+
+      // ═══ V8-F10: GC periódico de members fantasmas em activeGroupsRef ═══
+      useEffect(() => {
+        const gc = setInterval(() => {
+          try {
+            const livePeers = new Set(activeConnectionsRef.current.keys());
+            for (const gid in activeGroupsRef.current) {
+              const g = activeGroupsRef.current[gid];
+              if (!g || !g.members) continue;
+              let removed = 0;
+              for (const p of Array.from(g.members)) {
+                if (!livePeers.has(p)) { g.members.delete(p); removed++; }
+              }
+              g.size = Math.max(0, g.members.size);
+              g.reservados = (g.reservados || []).filter(p => livePeers.has(p)).slice(0, 10);
+              if (removed > 0) console.log(`[V8-F10] GC group ${gid}: -${removed} fantasmas, size=${g.size}`);
+              // remove grupo vazio (exceto G0001)
+              if (g.members.size === 0 && gid !== 'G0001') {
+                delete activeGroupsRef.current[gid];
+              }
+            }
+          } catch(e) { console.warn('[V8-F10] gc error', e); }
+        }, 60000);
+        return () => clearInterval(gc);
+      }, []);
+
       const BASE_RECONNECT_DELAY   = 2000; // 2s inicial
 
       // Backoff exponencial com jitter: 2s, 4s, 8s … até 60s
@@ -1090,7 +1124,95 @@
         console.log(`Recebendo dados de ${sourceConn.peer}:`, data);
         
         if (data.type === 'pex') {
-          return; // Servidor não precisa processar PEX de clientes
+          // FASE-2: atualiza diretório de grupos com info do PEX enriquecido
+          if (data.groupId && data.groupSize !== undefined) {
+            if (!activeGroupsRef.current[data.groupId]) {
+              activeGroupsRef.current[data.groupId] = { size: 0, reservados: [], members: new Set() };
+            }
+            // V6 (P1): autoridade do server e o conjunto 'members'.
+            // Usa Math.max do reportado vs membros conhecidos para evitar regressao.
+            if (data.peerId) activeGroupsRef.current[data.groupId].members.add(data.peerId);
+            activeGroupsRef.current[data.groupId].size = Math.max(
+              data.groupSize,
+              activeGroupsRef.current[data.groupId].members.size
+            );
+            if (data.isReservado && data.peerId) {
+              const set = new Set(activeGroupsRef.current[data.groupId].reservados);
+              set.add(data.peerId);
+              activeGroupsRef.current[data.groupId].reservados = [...set].slice(0, 10); // V7-B7
+            }
+          }
+          return; // Servidor não precisa processar PEX de clientes além disso
+        }
+
+        // ═══ V8-BUG#2: directory-announce — servidor escuta para diretório global ═══
+        if (data.type === 'directory-announce') {
+          if (!data.groupId || typeof data.groupId !== 'string' || data.groupId.length > 50) return;
+          if (data.msgId && seenMessagesRef.current.has(data.msgId)) return;
+          if (data.msgId) seenMessagesRef.current.add(data.msgId);
+          if (!activeGroupsRef.current[data.groupId]) {
+            activeGroupsRef.current[data.groupId] = { size: 0, reservados: [], members: new Set() };
+          }
+          const g = activeGroupsRef.current[data.groupId];
+          if (typeof data.groupSize === 'number' && data.groupSize >= 0 && data.groupSize <= 100000) {
+            g.size = Math.max(g.size, data.groupSize, g.members.size);
+          }
+          if (Array.isArray(data.reservados)) {
+            const set = new Set([...g.reservados, ...data.reservados.filter(x => typeof x === 'string').slice(0, 10)]);
+            g.reservados = [...set].slice(0, 10);
+          }
+          // Re-broadcast para outros peers conectados (relay com TTL decrementado)
+          const ttl = (data.ttl || 0) - 1;
+          if (ttl > 0) {
+            const relay = { ...data, ttl };
+            activeConnectionsRef.current.forEach((c, pid) => {
+              if (pid !== sourceConn.peer && c.open) try { c.send(relay); } catch(e) {}
+            });
+          }
+          return;
+        }
+
+        // ═══ V8-BUG#2: group-split / group-merge — servidor relay + atualiza diretório ═══
+        if (data.type === 'group-split') {
+          if (data.msgId && seenMessagesRef.current.has(data.msgId)) return;
+          if (data.msgId) seenMessagesRef.current.add(data.msgId);
+          if (data.newGroupId && !activeGroupsRef.current[data.newGroupId]) {
+            activeGroupsRef.current[data.newGroupId] = { size: 0, reservados: Array.isArray(data.migratedReservados) ? data.migratedReservados.slice(0,10) : [], members: new Set() };
+          }
+          const ttl = (data.ttl || 0) - 1;
+          if (ttl > 0) {
+            const relay = { ...data, ttl };
+            activeConnectionsRef.current.forEach((c, pid) => {
+              if (pid !== sourceConn.peer && c.open) try { c.send(relay); } catch(e) {}
+            });
+          }
+          return;
+        }
+        if (data.type === 'group-merge') {
+          if (data.msgId && seenMessagesRef.current.has(data.msgId)) return;
+          if (data.msgId) seenMessagesRef.current.add(data.msgId);
+          const { survivingGroupId, absorbedGroupId } = data;
+          if (survivingGroupId && absorbedGroupId && activeGroupsRef.current[absorbedGroupId]) {
+            const surv = activeGroupsRef.current[survivingGroupId] || (activeGroupsRef.current[survivingGroupId] = { size: 0, reservados: [], members: new Set() });
+            const abs = activeGroupsRef.current[absorbedGroupId];
+            // merge members
+            abs.members.forEach(p => surv.members.add(p));
+            const mergedR = new Set([...surv.reservados, ...abs.reservados]);
+            surv.reservados = [...mergedR].slice(0, 10);
+            // V8: groupSize = MAX (idempotente)
+            surv.size = Math.max(surv.size, surv.members.size, (surv.size || 0) + (abs.size || 0));
+            // remap peerGroupMap
+            abs.members.forEach(p => peerGroupMapRef.current.set(p, survivingGroupId));
+            delete activeGroupsRef.current[absorbedGroupId];
+          }
+          const ttl = (data.ttl || 0) - 1;
+          if (ttl > 0) {
+            const relay = { ...data, ttl };
+            activeConnectionsRef.current.forEach((c, pid) => {
+              if (pid !== sourceConn.peer && c.open) try { c.send(relay); } catch(e) {}
+            });
+          }
+          return;
         }
 
         // ── Quiz Bot: controle de slot único por servidor ────────────────
@@ -1280,7 +1402,11 @@
             // MODO HYDRA: Apenas envia a lista de peers e desconecta
             if (!recentPeersRef.current.includes(conn.peer)) {
               recentPeersRef.current.push(conn.peer);
-              if (recentPeersRef.current.length > 1000) recentPeersRef.current.shift();
+              // FASE-1/M1: cap expandido 1.000→5.000; remoção aleatória evita viés temporal
+              if (recentPeersRef.current.length > 5000) {
+                const idx = Math.floor(Math.random() * recentPeersRef.current.length);
+                recentPeersRef.current.splice(idx, 1);
+              }
               
               setStats(prev => ({
                 ...prev,
@@ -1288,7 +1414,9 @@
               }));
             }
             
-            const peersToSend = recentPeersRef.current.filter(p => p !== conn.peer).slice(-50);
+            // FASE-1/M1: amostra aleatória de 50 – elimina ilhas temporais do slice(-50)
+            const filtered = recentPeersRef.current.filter(p => p !== conn.peer);
+            const peersToSend = filtered.sort(() => 0.5 - Math.random()).slice(0, 50);
             
             try {
               conn.send({
@@ -1357,6 +1485,25 @@
             conn.send({ type: 'handshake', peerId });
             if (youtubeChatIdRef.current) {
               conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
+            }
+            // FASE-1/M2: Bootstrap – envia amostra aleatória de peers ao novo nó
+            // para que ele possa estabelecer conexões P2P imediatamente
+            const allPeersNow = Array.from(activeConnectionsRef.current.keys());
+            const others = allPeersNow.filter(pid => pid !== conn.peer);
+            const sample = others.sort(() => 0.5 - Math.random()).slice(0, 30);
+            // FASE-2: inclui groupId do grupo mais fraco para orientar o novo nó
+            const groups = Object.entries(activeGroupsRef.current);
+            const weakestEntry = groups.length > 0
+              ? groups.reduce((a, b) => a[1].size < b[1].size ? a : b)
+              : null;
+            const assignedGroupId = weakestEntry ? weakestEntry[0] : 'G0001';
+            if (!activeGroupsRef.current[assignedGroupId]) {
+              activeGroupsRef.current[assignedGroupId] = { size: 0, reservados: [], members: new Set() };
+            }
+            activeGroupsRef.current[assignedGroupId].size += 1;
+            peerGroupMapRef.current.set(conn.peer, assignedGroupId);
+            if (sample.length > 0 || assignedGroupId) {
+              try { conn.send({ type: 'peer-list', peers: sample, groupId: assignedGroupId }); } catch(e) {}
             }
           } catch (e) {}
 
@@ -1438,6 +1585,15 @@
               try { c.send({ type: 'quiz-bot-status', active: false }); } catch(e) {}
             });
           }
+          
+          // FASE-2 + V3 FIX BUG#S1/S2: decrementa size E remove do members:Set.
+          // Sem o .delete(), Math.max(reportado, members.size) inflava com fantasmas.
+          const peerGroupId = peerGroupMapRef.current.get(conn.peer);
+          if (peerGroupId && activeGroupsRef.current[peerGroupId]) {
+            activeGroupsRef.current[peerGroupId].size = Math.max(0, activeGroupsRef.current[peerGroupId].size - 1);
+            activeGroupsRef.current[peerGroupId].members.delete(conn.peer);
+          }
+          peerGroupMapRef.current.delete(conn.peer);
           
           activeConnectionsRef.current.delete(conn.peer);
           
