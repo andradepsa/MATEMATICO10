@@ -1,434 +1,786 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>K10 Hydra - Developer Suite</title>
-  <style>
-    :root { --bg: #0f172a; --panel: #1e293b; --border: #334155; --text: #38bdf8; --ok: #22c55e; --err: #ef4444; --warn: #eab308; }
-    body { font-family: 'JetBrains Mono', monospace; background: var(--bg); color: #cbd5e1; padding: 20px; line-height: 1.5; margin: 0; }
-    h1 { color: #818cf8; font-size: 24px; border-bottom: 2px solid var(--border); padding-bottom: 10px; margin-top: 0; }
-    
-    /* Tabs */
-    .tabs { display: flex; gap: 10px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 10px; }
-    .tab-btn { background: transparent; color: #94a3b8; border: 1px solid transparent; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; font-family: inherit; transition: 0.2s; }
-    .tab-btn:hover { background: var(--panel); color: white; }
-    .tab-btn.active { background: #6366f1; color: white; }
-    
-    .tab-content { display: none; }
-    .tab-content.active { display: block; }
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Chat K10 V18 — Complete Manual</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0e1a;--sf:#0f1628;--sf2:#141d35;--bd:#1e2d50;--a:#2563eb;--a2:#38bdf8;--a3:#34d399;--a4:#f59e0b;--a5:#f472b6;--tx:#e2e8f0;--txm:#64748b;--txd:#94a3b8;}
+*{margin:0;padding:0;box-sizing:border-box;}
+html{scroll-behavior:smooth;}
+body{background:var(--bg);color:var(--tx);font-family:'Inter',sans-serif;font-size:15px;line-height:1.7;overflow-x:hidden;}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(37,99,235,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(37,99,235,.04) 1px,transparent 1px);background-size:48px 48px;pointer-events:none;z-index:0;}
 
-    .panel { background: var(--panel); padding: 20px; border-radius: 8px; border: 1px solid var(--border); margin-bottom: 20px; }
-    button { background: #6366f1; color: white; border: none; padding: 10px 16px; border-radius: 4px; font-weight: bold; cursor: pointer; margin-right: 10px; font-family: inherit; }
-    button:hover { background: #4f46e5; }
-    button:disabled { background: #475569; cursor: not-allowed; color: #94a3b8; }
-    input, select { background: var(--bg); border: 1px solid var(--border); color: white; padding: 8px; border-radius: 4px; font-family: inherit; }
-    
-    .console { background: #000; padding: 15px; height: 350px; overflow-y: auto; border-radius: 6px; font-size: 11.5px; white-space: pre-wrap; margin-top:10px; border: 1px solid var(--border); box-shadow: inset 0 0 10px rgba(0,0,0,0.5); color: #0f0;}
-    
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 15px; }
-    .stat-box { background: var(--border); padding: 10px; border-radius: 4px; text-align: center; }
-    .stat-val { font-size: 20px; font-weight: bold; color: white; }
-    .stat-label { font-size: 10px; color: #94a3b8; text-transform: uppercase; }
-  </style>
-  <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+/* NAV */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(10,14,26,.9);backdrop-filter:blur(20px);border-bottom:1px solid var(--bd);padding:0 2rem;height:58px;display:flex;align-items:center;justify-content:space-between;}
+.nlogo{font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--a2);letter-spacing:.05em;display:flex;align-items:center;gap:10px;}
+.nbox{width:30px;height:30px;background:linear-gradient(135deg,var(--a),var(--a2));border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:15px;}
+.nlinks{display:flex;gap:4px;list-style:none;}
+.nlinks a{color:var(--txd);text-decoration:none;font-size:12px;font-weight:500;padding:5px 10px;border-radius:5px;transition:all .18s;}
+.nlinks a:hover{color:var(--a2);background:rgba(56,189,248,.08);}
+
+/* LAYOUT */
+.layout{display:flex;min-height:100vh;padding-top:58px;}
+
+/* SIDEBAR */
+.sidebar{position:fixed;top:58px;left:0;bottom:0;width:248px;background:var(--sf);border-right:1px solid var(--bd);overflow-y:auto;padding:18px 0 40px;z-index:50;}
+.sidebar::-webkit-scrollbar{width:3px;}
+.sidebar::-webkit-scrollbar-thumb{background:var(--bd);border-radius:3px;}
+.sbt{font-family:'Space Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--txm);padding:14px 20px 5px;}
+.sbl{display:block;color:var(--txd);text-decoration:none;font-size:13px;padding:7px 20px;border-left:2px solid transparent;transition:all .16s;}
+.sbl:hover{color:var(--tx);background:var(--sf2);border-left-color:var(--a);}
+.sbl.sub{padding-left:32px;font-size:12px;}
+
+/* MAIN */
+.main{margin-left:248px;flex:1;position:relative;z-index:1;}
+
+/* HERO */
+.hero{position:relative;padding:72px 64px 56px;overflow:hidden;border-bottom:1px solid var(--bd);}
+.g1{position:absolute;top:-120px;left:-80px;width:560px;height:560px;background:radial-gradient(circle,rgba(37,99,235,.18) 0%,transparent 68%);pointer-events:none;}
+.g2{position:absolute;top:0;right:-180px;width:480px;height:480px;background:radial-gradient(circle,rgba(56,189,248,.07) 0%,transparent 68%);pointer-events:none;}
+.badge{display:inline-flex;align-items:center;gap:7px;background:rgba(37,99,235,.14);border:1px solid rgba(37,99,235,.4);color:var(--a2);font-family:'Space Mono',monospace;font-size:10px;font-weight:700;padding:5px 13px;border-radius:100px;letter-spacing:.08em;margin-bottom:22px;}
+.dot{width:6px;height:6px;background:var(--a3);border-radius:50%;animation:blink 2s infinite;}
+@keyframes blink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.75)}}
+h1{font-family:'Syne',sans-serif;font-size:clamp(30px,4.5vw,54px);font-weight:800;line-height:1.08;margin-bottom:16px;background:linear-gradient(135deg,#fff 0%,var(--a2) 55%,var(--a3) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+.hsub{font-size:17px;color:var(--txd);max-width:540px;margin-bottom:30px;font-weight:300;}
+.htags{display:flex;flex-wrap:wrap;gap:8px;}
+.tag{display:inline-flex;align-items:center;gap:5px;padding:5px 13px;border-radius:6px;font-size:12px;font-weight:500;border:1px solid;}
+.tb{background:rgba(37,99,235,.09);border-color:rgba(37,99,235,.3);color:#60a5fa;}
+.tg{background:rgba(52,211,153,.09);border-color:rgba(52,211,153,.3);color:var(--a3);}
+.ta{background:rgba(245,158,11,.09);border-color:rgba(245,158,11,.3);color:var(--a4);}
+.tp{background:rgba(244,114,182,.09);border-color:rgba(244,114,182,.3);color:var(--a5);}
+
+/* CONTENT */
+.content{padding:56px 64px;max-width:880px;}
+.section{margin-bottom:76px;scroll-margin-top:80px;}
+.shead{display:flex;align-items:center;gap:14px;margin-bottom:26px;}
+.sicon{width:44px;height:44px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;}
+.ib{background:rgba(37,99,235,.14);border:1px solid rgba(37,99,235,.3);}
+.ig{background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.3);}
+.ia{background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);}
+.ip{background:rgba(244,114,182,.12);border:1px solid rgba(244,114,182,.3);}
+.ic{background:rgba(56,189,248,.12);border:1px solid rgba(56,189,248,.3);}
+.ir{background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.3);}
+.ipu{background:rgba(139,92,246,.12);border:1px solid rgba(139,92,246,.3);}
+h2{font-family:'Syne',sans-serif;font-size:26px;font-weight:700;color:var(--tx);}
+h3{font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:var(--tx);margin:30px 0 10px;}
+p{color:var(--txd);margin-bottom:13px;}
+
+/* PRINCIPLES */
+.plist{display:flex;flex-direction:column;gap:10px;margin:10px 0 20px;}
+.pr{display:flex;align-items:flex-start;gap:12px;padding:14px 18px;background:var(--sf);border:1px solid var(--bd);border-radius:9px;transition:border-color .18s;}
+.pr:hover{border-color:rgba(56,189,248,.25);}
+.pri{font-size:18px;flex-shrink:0;}
+.prt strong{color:var(--tx);font-size:14px;display:block;margin-bottom:2px;}
+.prt span{color:var(--txm);font-size:12.5px;}
+
+/* MODE GRID */
+.mgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--bd);border-radius:12px;overflow:hidden;margin:20px 0 28px;}
+.mpanel{background:var(--sf);padding:22px 20px;transition:background .2s;}
+.mpanel:hover{background:var(--sf2);}
+.mnum{font-family:'Space Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;}
+.cb{color:var(--a2);} .cg{color:var(--a3);} .ca{color:var(--a4);} .cp{color:var(--a5);} .cr{color:#f87171;} .cpu{color:#a78bfa;}
+.mtitle{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--tx);margin-bottom:8px;}
+.mdesc{font-size:12.5px;color:var(--txm);line-height:1.6;}
+
+/* MODE DETAIL */
+.mdet{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:24px 28px;margin-bottom:24px;}
+.mdhead{display:flex;align-items:center;gap:10px;margin-bottom:16px;}
+.mnb{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-family:'Space Mono',monospace;font-size:13px;font-weight:700;}
+.bgb{background:rgba(37,99,235,.2);color:var(--a2);}
+.bgg{background:rgba(52,211,153,.2);color:var(--a3);}
+.bga{background:rgba(245,158,11,.2);color:var(--a4);}
+.bgr{background:rgba(239,68,68,.2);color:#f87171;}
+.mdet h3{margin:0;font-size:16px;}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:8px 20px;font-size:13px;margin-top:12px;}
+.kk{font-weight:600;color:var(--tx);white-space:nowrap;}
+.kv2{color:var(--txm);}
+
+/* STEPS */
+.steps{display:flex;flex-direction:column;}
+.step{display:flex;gap:18px;position:relative;}
+.step:not(:last-child)::after{content:'';position:absolute;left:18px;top:38px;bottom:0;width:1px;background:var(--bd);}
+.snum{width:38px;height:38px;border-radius:50%;background:var(--sf2);border:1px solid var(--bd);display:flex;align-items:center;justify-content:center;font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--a2);flex-shrink:0;z-index:1;}
+.sbody{padding:6px 0 26px;}
+.stitle{font-weight:600;color:var(--tx);font-size:14px;margin-bottom:4px;}
+.sdesc{font-size:13px;color:var(--txm);}
+
+/* TOOLS GRID */
+.tgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:14px;margin:16px 0 24px;}
+.tc{background:var(--sf);border:1px solid var(--bd);border-radius:12px;padding:20px;transition:all .2s;position:relative;overflow:hidden;}
+.tc::after{content:'';position:absolute;inset:0;border-radius:12px;background:linear-gradient(135deg,rgba(56,189,248,.05),transparent);opacity:0;transition:opacity .2s;}
+.tc:hover{border-color:rgba(56,189,248,.28);transform:translateY(-2px);}
+.tc:hover::after{opacity:1;}
+.tci{font-size:26px;margin-bottom:10px;}
+.tct{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--tx);margin-bottom:6px;}
+.tcd{font-size:12.5px;color:var(--txm);line-height:1.55;}
+.tcb{display:inline-block;margin-top:10px;padding:2px 9px;border-radius:4px;font-size:10.5px;font-weight:700;font-family:'Space Mono',monospace;letter-spacing:.04em;}
+.td{background:rgba(52,211,153,.15);color:var(--a3);}
+.ts{background:rgba(37,99,235,.15);color:#60a5fa;}
+.ty{background:rgba(245,158,11,.15);color:var(--a4);}
+
+/* QUIZ */
+.qgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:16px 0 24px;}
+.qc{background:var(--sf);border:1px solid var(--bd);border-radius:10px;padding:18px;transition:border-color .18s;}
+.qc:hover{border-color:rgba(56,189,248,.25);}
+.ql{font-family:'Space Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;margin-bottom:8px;}
+.qc h4{font-family:'Syne',sans-serif;font-size:14px;font-weight:700;color:var(--tx);margin-bottom:8px;}
+.qc p{font-size:12.5px;margin:0;}
+
+/* ENCRYPT */
+.egrid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:16px 0;}
+.ei{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;background:var(--sf);border:1px solid var(--bd);border-radius:9px;}
+.esym{font-size:22px;flex-shrink:0;}
+.et strong{color:var(--tx);font-size:13px;display:block;margin-bottom:3px;}
+.et span{color:var(--txm);font-size:12.5px;}
+
+/* SERVER FEATS */
+.sflist{display:flex;flex-direction:column;gap:10px;margin:14px 0 24px;}
+.sfi{display:flex;align-items:flex-start;gap:14px;padding:16px 18px;background:var(--sf);border:1px solid var(--bd);border-radius:9px;transition:border-color .18s;}
+.sfi:hover{border-color:rgba(56,189,248,.22);}
+.sfic{font-size:20px;flex-shrink:0;margin-top:1px;}
+.sfb strong{color:var(--tx);font-size:14px;display:block;margin-bottom:4px;}
+.sfb p{font-size:13px;margin:0;}
+
+/* LIMITS */
+.lgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px;margin:16px 0 24px;}
+.li{background:var(--sf);border:1px solid var(--bd);border-radius:9px;padding:16px;text-align:center;}
+.lv{font-family:'Space Mono',monospace;font-size:20px;font-weight:700;margin-bottom:4px;}
+.ll{font-size:12px;color:var(--txm);}
+
+/* INVITE TABLE */
+.itable{width:100%;border-collapse:collapse;margin:16px 0 24px;}
+.itable th{background:var(--sf2);padding:10px 16px;font-family:'Space Mono',monospace;font-size:10.5px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--txm);text-align:left;border:1px solid var(--bd);}
+.itable td{padding:11px 16px;font-size:13px;color:var(--txd);border:1px solid var(--bd);}
+.itable td strong{color:var(--tx);}
+
+/* ALERT */
+.al{border-radius:10px;padding:14px 18px;margin:16px 0;display:flex;gap:12px;align-items:flex-start;font-size:13.5px;}
+.ali{font-size:16px;flex-shrink:0;margin-top:1px;}
+.alt{color:var(--txd);}
+.alt strong{color:var(--tx);}
+.ali2{background:rgba(37,99,235,.08);border:1px solid rgba(37,99,235,.22);}
+.alw{background:rgba(245,158,11,.08);border:1px solid rgba(245,158,11,.22);}
+.als{background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.22);}
+.ald{background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.22);}
+
+/* CODE */
+.mono{font-family:'Space Mono',monospace;font-size:12px;background:var(--sf2);border:1px solid var(--bd);border-radius:5px;padding:2px 8px;color:var(--a2);}
+.cb2{background:var(--sf2);border:1px solid var(--bd);border-radius:10px;padding:16px 20px;font-family:'Space Mono',monospace;font-size:12px;color:var(--a2);overflow-x:auto;margin:12px 0 20px;line-height:1.8;}
+
+/* FAQ */
+.fq{border:1px solid var(--bd);border-radius:10px;overflow:hidden;margin-bottom:10px;}
+.fqq{padding:15px 20px;font-weight:600;color:var(--tx);font-size:14px;background:var(--sf);display:flex;justify-content:space-between;align-items:center;}
+.fqq span{font-family:'Space Mono',monospace;font-size:18px;color:var(--txm);}
+.fqa{padding:15px 20px;background:var(--bg);font-size:13.5px;color:var(--txd);border-top:1px solid var(--bd);line-height:1.7;}
+
+/* QUICK REF */
+.qrw{background:var(--sf);border:1px solid var(--bd);border-radius:12px;overflow:hidden;margin:16px 0;}
+.qri{display:flex;align-items:center;gap:16px;padding:12px 20px;border-bottom:1px solid rgba(30,45,80,.5);transition:background .15s;}
+.qri:last-child{border-bottom:none;}
+.qri:hover{background:rgba(56,189,248,.03);}
+.qrf{width:170px;flex-shrink:0;font-weight:600;font-size:13px;color:var(--tx);}
+.qrh{font-size:12.5px;color:var(--txm);}
+.qrcat{margin-left:auto;font-family:'Space Mono',monospace;font-size:10px;font-weight:700;padding:2px 8px;border-radius:4px;flex-shrink:0;}
+
+/* DIVIDER */
+.div{height:1px;background:linear-gradient(90deg,transparent,var(--bd) 20%,var(--bd) 80%,transparent);margin:48px 0;}
+
+/* FOOTER */
+footer{border-top:1px solid var(--bd);padding:36px 64px;display:flex;align-items:center;justify-content:space-between;font-size:13px;color:var(--txm);position:relative;z-index:1;}
+footer a{color:var(--a2);text-decoration:none;}
+
+/* PROGRESS */
+#prog{position:fixed;top:58px;left:0;height:2px;width:0%;background:linear-gradient(90deg,var(--a),var(--a2),var(--a3));z-index:200;transition:width .08s;}
+
+@media(max-width:900px){
+  .sidebar{display:none;} .main{margin-left:0;} .content{padding:32px 20px;} .hero{padding:40px 20px 32px;}
+  .mgrid{grid-template-columns:1fr;} .qgrid{grid-template-columns:1fr;} .egrid{grid-template-columns:1fr;}
+  .tgrid{grid-template-columns:1fr 1fr;} .nlinks{display:none;}
+  footer{flex-direction:column;gap:12px;padding:30px 20px;text-align:center;}
+}
+</style>
 </head>
 <body>
+<div id="prog"></div>
 
-  <h1>🛠️ K10 Hydra - Developer Suite</h1>
-  
-  <div class="tabs">
-    <button class="tab-btn active" onclick="showTab('tab-island')">🏝️ War-Room (Islands & PEX)</button>
-    <button class="tab-btn" onclick="showTab('tab-stress')">💀 Attack & Stress</button>
-    <button class="tab-btn" onclick="showTab('tab-v8')">🔬 V8 Static Audit</button>
-    <button class="tab-btn" onclick="showTab('tab-manual')">📖 Tool Manual</button>
+<!-- NAV -->
+<nav>
+  <div class="nlogo"><div class="nbox">💬</div>CHAT K10 — MANUAL V18</div>
+  <ul class="nlinks">
+    <li><a href="#intro">Intro</a></li>
+    <li><a href="#modes">Modes</a></li>
+    <li><a href="#server">Server</a></li>
+    <li><a href="#tools">Tools</a></li>
+    <li><a href="#encryption">Encryption</a></li>
+    <li><a href="#security">Security</a></li>
+    <li><a href="#benchmark">Benchmark</a></li>
+    <li><a href="#faq">FAQ</a></li>
+    <li><a href="#reference">Reference</a></li>
+  </ul>
+</nav>
+
+<div class="layout">
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sbt">Getting Started</div>
+  <a href="#intro" class="sbl">Introduction</a>
+  <a href="#principles" class="sbl">Key Principles</a>
+  <a href="#modes" class="sbl">User Modes</a>
+  <a href="#mode1" class="sbl sub">→ Mode 1: Direct P2P</a>
+  <a href="#mode2" class="sbl sub">→ Mode 2: Server Relay</a>
+  <a href="#mode3" class="sbl sub">→ Mode 3: General Web</a>
+  <div class="sbt">Server K10</div>
+  <a href="#server" class="sbl">Server Features</a>
+  <a href="#federation" class="sbl sub">→ Federation</a>
+  <a href="#yt-live" class="sbl sub">→ YouTube Live Chat</a>
+  <a href="#auto-hydra" class="sbl sub">→ Auto-Hydra Mode</a>
+  <a href="#srv-stats" class="sbl sub">→ Server Statistics</a>
+  <div class="sbt">Tools</div>
+  <a href="#tools" class="sbl">All Tools</a>
+  <a href="#quiz" class="sbl sub">→ Quiz Bot</a>
+  <a href="#radio" class="sbl sub">→ Radios &amp; Media</a>
+  <a href="#youtube" class="sbl sub">→ YouTube (all features)</a>
+  <a href="#calls" class="sbl sub">→ Voice &amp; Video Calls</a>
+  <div class="sbt">Security</div>
+  <a href="#encryption" class="sbl">Encryption (E2EE)</a>
+  <a href="#invite" class="sbl">Invite Links</a>
+  <a href="#security" class="sbl">Security & Anti-Spam</a>
+  <a href="#limits" class="sbl sub">→ Size Limits</a>
+  <div class="sbt">Developer</div>
+  <a href="#architecture" class="sbl">System Architecture</a>
+  <a href="#arch-organic-flow" class="sbl sub">→ P2P Eco-Shields</a>
+  <a href="#arch-auto-hydra" class="sbl sub">→ Auto-Hydra Tracker</a>
+  <a href="#arch-federation" class="sbl sub">→ Friendly Servers</a>
+  <a href="#arch-topologies" class="sbl sub">→ Split &amp; Merge</a>
+  <a href="#benchmark" class="sbl">Benchmark Suite</a>
+  <div class="sbt">Reference</div>
+  <a href="#faq" class="sbl">FAQ & Troubleshooting</a>
+  <a href="#reference" class="sbl">Quick Reference</a>
+  <a href="#ui" class="sbl">UI Tips</a>
+</aside>
+
+<!-- MAIN -->
+<div class="main">
+
+<!-- HERO -->
+<div class="hero">
+  <div class="g1"></div><div class="g2"></div>
+  <div class="badge"><div class="dot"></div>V18 · APRIL 2026</div>
+  <h1>Chat K10<br>Complete Manual</h1>
+  <p class="hsub">Hydra Mesh — Peer-to-Peer Encrypted Chat. No central servers, no surveillance, no limits.</p>
+  <div class="htags">
+    <span class="tag tb">🔒 End-to-End Encryption</span>
+    <span class="tag tg">🌐 Decentralized P2P</span>
+    <span class="tag ta">🧠 100k+ Quiz Questions</span>
+    <span class="tag tp">📡 Infinite Scalability</span>
+    <span class="tag tb">🌍 100+ Languages</span>
+    <span class="tag tg">🛠 No Installation</span>
+  </div>
+</div>
+
+<div class="content">
+
+<!-- INTRO -->
+<section class="section" id="intro">
+  <div class="shead"><div class="sicon ib">📖</div><h2>Introduction</h2></div>
+  <p>Chat K10 V18 is a decentralized communication platform that works without central servers. Unlike traditional chat apps (WhatsApp, Telegram, Discord), your messages <strong>never pass through a company database</strong>. You talk directly to other people (Peer-to-Peer) or through optional helper servers that you or your friends can run.</p>
+  <p>The entire application runs as a single HTML file — no installation, no account, no telemetry. Open it in any modern browser and you're ready to communicate privately.</p>
+
+  <div id="principles"></div>
+  <h3>Key Principles</h3>
+  <div class="plist">
+    <div class="pr"><div class="pri">🚫</div><div class="prt"><strong>No central database</strong><span>Nobody stores your conversations. Data stays between peers only.</span></div></div>
+    <div class="pr"><div class="pri">🔐</div><div class="prt"><strong>End-to-end encryption (AES-256-GCM)</strong><span>Only the recipient can read your messages — not even a server owner.</span></div></div>
+    <div class="pr"><div class="pri">🌐</div><div class="prt"><strong>Runs in any browser</strong><span>No installation required. Just open the HTML file and start chatting.</span></div></div>
+    <div class="pr"><div class="pri">💾</div><div class="prt"><strong>Works offline / on a USB stick</strong><span>Perfect for emergencies, restricted networks, LAN parties, or air-gapped environments.</span></div></div>
+    <div class="pr"><div class="pri">🔗</div><div class="prt"><strong>Share links, not heavy data</strong><span>YouTube, radio, and most media are shared via URLs. Each user streams from the original source — the chat never carries video bytes.</span></div></div>
+  </div>
+  <div class="al ali2"><div class="ali">ℹ️</div><div class="alt"><strong>Who is Chat K10 for?</strong> Friends who want private, uncensored conversations · Communities that don't trust corporate apps · Educational groups (Quiz Bot, Whiteboard) · Events, LAN parties, or situations with limited internet access.</div></div>
+</section>
+
+<div class="div"></div>
+
+<!-- MODES -->
+<section class="section" id="modes">
+  <div class="shead"><div class="sicon ic">🔀</div><h2>Four Network Topologies</h2></div>
+  <p>The routing architecture of Chat K10 operates across four distinct topological flows. Understanding these communication paths explains how the network scales from two people to thousands.</p>
+
+  <style>
+    .mgrid-4 { display:grid; grid-template-columns:repeat(2, 1fr); gap:2px; background:var(--bd); border-radius:12px; overflow:hidden; margin:20px 0 28px; }
+    @media(max-width:900px){ .mgrid-4 { grid-template-columns:1fr; } }
+  </style>
+  <div class="mgrid-4">
+    <div class="mpanel"><div class="mnum cb">TOPOLOGY 01</div><div class="mtitle">User ↔ User</div><div class="mdesc">Direct P2P channel. No servers, zero intermediary latency.</div></div>
+    <div class="mpanel"><div class="mnum cg">TOPOLOGY 02</div><div class="mtitle">User ↔ Server ↔ User</div><div class="mdesc">Star topology. A central server relays messages to a group.</div></div>
+    <div class="mpanel"><div class="mnum cp">TOPOLOGY 03</div><div class="mtitle">User ↔ Server ↔ Friendly Servers ↔ Users</div><div class="mdesc">Server Federation (Trees). Multiplies capacity immensely.</div></div>
+    <div class="mpanel"><div class="mnum ca">TOPOLOGY 04</div><div class="mtitle">General Mode (Hydra Mesh)</div><div class="mdesc">Controlled flooding. Everyone relays to everyone without bounds.</div></div>
   </div>
 
-  <!-- ============================================== -->
-  <!-- TAB 1: WAR-ROOM (Islands & PEX)        -->
-  <!-- ============================================== -->
-  <div id="tab-island" class="tab-content active">
-    <div class="panel">
-      <h3 style="color:#10b981; margin-top:0;">1. Passive Subnet Configuration</h3>
-      <p style="font-size:12px; color:#94a3b8;">Build an isolated "Island" of bot users to test organic scalability and merges between PCs.</p>
-      
-      <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 15px;">
-        <select id="islandName">
-          <option value="ISLAND_A">Network A (ISLAND_A)</option>
-          <option value="ISLAND_B">Network B (ISLAND_B)</option>
-        </select>
-        <input type="text" id="targetIdIsland" placeholder="Local Chat Peer ID" style="width:250px;">
-        <button id="btnConnIsland" onclick="startIslandSim()">Spawn Population</button>
-        <button id="btnStopIsland" onclick="stopIslandSim()" disabled style="background:var(--err)">Abort</button>
-      </div>
-
-      <div class="stats-grid">
-        <div class="stat-box"><div class="stat-val" id="sBots">0</div><div class="stat-label">Bots Connected</div></div>
-        <div class="stat-box"><div class="stat-val" id="sStatus" style="color:var(--warn)">WAITING</div><div class="stat-label">Island Status</div></div>
-      </div>
-    </div>
-
-    <div class="panel" style="border-left: 4px solid #10b981;">
-      <h3 style="margin-top:0;">2. Trigger PEX Bridge (Group Merge)</h3>
-      <p style="font-size:12px; color:#94a3b8;">Insert the target PC/Island ID. Bots will send a `group-merge` proposal to validate the Math.max(size) rule.</p>
-      <div style="display: flex; gap: 10px;">
-        <input type="text" id="bridgeId" placeholder="Peer ID for OTHER PC K10" style="width:250px;">
-        <button id="btnBridge" onclick="bridgeNetworks()" disabled style="background:#10b981; color:#022c22;">Merge Topologies</button>
-      </div>
-    </div>
-    <div class="console" id="logIsland">Waiting for topology commands...\n</div>
-  </div>
-
-  <!-- ============================================== -->
-  <!-- TAB 2: ATTACK & STRESS (Tsunami/Poison)        -->
-  <!-- ============================================== -->
-  <div id="tab-stress" class="tab-content">
-    <div class="panel">
-      <h3 style="color:#f43f5e; margin-top:0;">1. Connect Botnet Armada</h3>
-      <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 15px;">
-        <input type="text" id="targetIdStress" placeholder="Target Chat Peer ID" style="width:250px;">
-        <button id="btnConnStress" onclick="startStressSim()">Deploy Armada</button>
-        <button id="btnStopStress" onclick="stopStressSim()" disabled style="background:var(--err)">Retreat</button>
-      </div>
-      <div class="stats-grid">
-        <div class="stat-box"><div class="stat-val" id="stBots">0</div><div class="stat-label">Bots Ready</div></div>
-        <div class="stat-box"><div class="stat-val" id="stMsgs">0</div><div class="stat-label">TPS (Msgs/sec)</div></div>
-        <div class="stat-box"><div class="stat-val" id="stTotal">0</div><div class="stat-label">Total Volume</div></div>
-      </div>
-    </div>
-
-    <div class="panel" style="border-left: 4px solid #f43f5e;">
-      <h3 style="margin-top:0;">2. Attack Vectors</h3>
-      <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-        <button onclick="triggerFlood()" id="btnFlood" disabled style="background:#059669">🌊 Tsunami (Cache LRU Limit Test)</button>
-        <button onclick="triggerPEXTsunami()" id="btnPEXAttack" disabled style="background:#ca8a04">🌍 Topology DDoS (1850 Fake Nodes)</button>
-        <button onclick="triggerPoison()" id="btnPoison" disabled style="background:#be123c">💀 Inject 2GB File (Bounds/OOM Test)</button>
-      </div>
-    </div>
-    <div class="console" id="logStress">Waiting for defensive targets...\n</div>
-  </div>
-
-  <!-- ============================================== -->
-  <!-- TAB 3: V8 STATIC AUDIT (Code Ray-X)            -->
-  <!-- ============================================== -->
-  <div id="tab-v8" class="tab-content">
-    <div class="panel">
-      <h3 style="color:#a855f7; margin-top:0;">Structural Code Audit (V8)</h3>
-      <p style="font-size:12px; color:#94a3b8;">Drag and drop or select the <b>chat.html</b> or <b>server.html</b> file to run the rigorous security test battery (RegEx).</p>
-      
-      <input type="file" id="fileUpload" accept=".html,.txt" style="margin-bottom:15px; display:block;">
-      <button onclick="runV8FileAudit()" style="background:#a855f7;">Execute V8 Ray-X</button>
-    </div>
-    <div class="console" id="logV8">Scanner Idle. Load a project file to inspect...\n</div>
-  </div>
-
-  <!-- ============================================== -->
-  <!-- TAB 4: OFFICIAL TOOL MANUAL                    -->
-  <!-- ============================================== -->
-  <div id="tab-manual" class="tab-content">
-    <div class="panel" style="border-left: 4px solid #38bdf8; max-height: 70vh; overflow-y: auto;">
-      <h2 style="color:#38bdf8; margin-top:0;">📖 Definitive Manual: K10 Hydra Developer Suite</h2>
-      <p>This tool is an <b>Isolated Test Harness</b>. It allows auditors and developers to attack, verify, and simulate real WebRTC connections within the K10 Chat architecture, without needing to "dirty" the production code with visible test buttons for regular users.</p>
-
-      <h3 style="color:#10b981; border-bottom:1px solid var(--border); padding-bottom:5px; margin-top:25px;">🏝️ Tab 1: War-Room (Islands & PEX)</h3>
-      <p><b>Objective:</b> Simulate the organic behavior of the network when partitioned (several "islands" of users operating in isolation and then connecting).</p>
-      <ul>
-        <li><b>Spawn Population:</b> Creates 25 simulated bots acting safely. They emit <code>directory-announce</code> packets and create a healthy topological network.</li>
-        <li><b>PEX Bridge (Group Merge):</b> Represents the moment Island A "discovers" Island B. Pasting the K10 ID of another computer makes the bots eject the local topology into the remote network. This verifies the vital <b>Idempotency rule (Math.max)</b> of the original K10 — validating if the code safely accepts the new population without an infinite inflation loop.</li>
-      </ul>
-
-      <h3 style="color:#f43f5e; border-bottom:1px solid var(--border); padding-bottom:5px; margin-top:25px;">💀 Tab 2: Attack & Stress</h3>
-      <p><b>Objective:</b> Test the browser's resilience and the raw defenses of the target code (Bandwidth and Memory/OOM Limits).</p>
-      <ul>
-        <li><b>🌊 Tsunami (Cache LRU):</b> Dumps violent, asynchronous bursts of messages (thousands per second). The goal is to cause a <b>RAM memory leak</b> in the target browser. If Chat K10 doesn't crash, it means the LRU hard-cap filter (limit of 10,000 hash table records) worked perfectly.</li>
-        <li><b>🌍 Topology DDoS:</b> Spoofs a PEX protocol warning Chat K10 that there are <b>1850 nodes</b> disputing the election, forcing a destructive <code>group-split</code> command. Tests if the <code>slice(0, 10)</code> and the server group size locks can keep the tree stable.</li>
-        <li><b>💀 Inject 2GB File (Poison):</b> Exploits buffer fragility (Uint8Array). Sends <code>radio-start</code> packets requesting the allocation of <b>2 Billion Bytes</b> followed by absurd offsets. If the K10 tab remains alive, the "Bounds Check" (Limits lock &lt; 256KB) operated seamlessly.</li>
-      </ul>
-
-      <h3 style="color:#a855f7; border-bottom:1px solid var(--border); padding-bottom:5px; margin-top:25px;">🔬 Tab 3: V8 Static Audit</h3>
-      <p><b>Objective:</b> Perform a "Mapped Ray-X" directly on non-executed code to prevent behavioral regressions.</p>
-      <p>Instead of scanning external network behavior, this tab reads the lines of code from the source file (<code>chat.html</code> or <code>server.html</code>) using advanced Regular Expressions (Strict Regex). </p>
-      <ul>
-        <li>Ensures no defensive line accidentally vanished during human editing or refactoring (like the React <code>isDuplicate</code>).</li>
-        <li>Blocks deployments lacking the formal <code>URL.revokeObjectURL()</code> release, preventing zombie memory retention (Audio Blob Limits).</li>
-      </ul>
-
-      <h3 style="color:#fbbf24; border-bottom:1px solid var(--border); padding-bottom:5px; margin-top:25px;">⚠️ Tips & Troubleshooting</h3>
-      <ul>
-        <li><b>"Tracking Prevention blocked access":</b> When executed locally via "File://", Chrome or Edge will block cloud trackers (PeerJS Proxy) if many tabs ping simultaneously. <b>Ignore the red "Storage" warnings</b> in the console (F12). They do not break the peer-to-peer WebRTC of the tool.</li>
-        <li><b>"Frozen" Tabs:</b> For the <i>Island War</i> test to validate on the same computer, place Chat A and Chat B in <b>separate visible screens</b> (side-by-side). If a tab is hidden or docked, Chrome's performance engine suspends WebSockets, causing delays in attacks/PEX merges.</li>
-      </ul>
+  <!-- MODE 1 -->
+  <div id="mode1" class="mdet">
+    <div class="mdhead"><div class="mnb bgb">01</div><h3>User ↔ User (Direct P2P)</h3></div>
+    <p>Two browsers establish a direct WebRTC connection. No server is in the middle at any point. The message travels directly from sender to recipient over the shortest possible network path.</p>
+    <div class="kv">
+      <span class="kk">✅ Best for</span><span class="kv2">Private one-on-one conversations, heavy WebRTC file transfers, or Voice/Video calls.</span>
+      <span class="kk">⚡ Advantage</span><span class="kv2">Fastest and most private — works completely offline (LAN/USB) and survives if all servers die.</span>
+      <span class="kk">▶ How it works</span><span class="kv2">Add the other person's Peer ID as a contact, click their name, and send.</span>
     </div>
   </div>
+
+  <!-- MODE 2 -->
+  <div id="mode2" class="mdet">
+    <div class="mdhead"><div class="mnb bgg">02</div><h3>User ↔ Server ↔ User (Central Relay)</h3></div>
+    <p>A "Star" topology. Everyone connects to one central server (ID ending with <span class="mono">-CENTRAL</span>). When a user sends a message, it goes to the server, and the server immediately rebroadcasts it to all other connected users.</p>
+    <div class="kv">
+      <span class="kk">✅ Best for</span><span class="kv2">Stable group chats and users trapped behind strict corporate firewalls or symmetric NATs.</span>
+      <span class="kk">⚡ Advantage</span><span class="kv2">Very stable coordination (up to 200 users per node). Perfect for classrooms or managed events.</span>
+      <span class="kk">▶ How it works</span><span class="kv2">Open <span class="mono">ServidorChatK10.html</span>, then have users add that server's ID to their lists.</span>
+    </div>
+  </div>
+
+  <!-- MODE 3 -->
+  <div id="mode3" class="mdet">
+    <div class="mdhead"><div class="mnb" style="background:rgba(244,114,182,.2);color:var(--a5);">03</div><h3>User ↔ Server ↔ Friendly Servers ↔ Users (Federation)</h3></div>
+    <p>A "Tree" topology. Server limits are easily bypassed by linking servers together. When User A sends a message to Server A: Server A broadcasts to its local users, <strong>AND</strong> forwards it to Server B (a Friendly Server). Server B then broadcasts the message to all of its local users.</p>
+    <div class="kv">
+      <span class="kk">✅ Best for</span><span class="kv2">Massive audiences crossing the 200-user limit, like large global announcements or mega-events.</span>
+      <span class="kk">⚡ Advantage</span><span class="kv2">Allows thousands of users across multiple servers. If one server goes offline, local segments survive.</span>
+      <span class="kk">▶ How it works</span><span class="kv2">In the Server UI, the owner adds another server's <span class="mono">-CENTRAL</span> ID to form the Federation Bridge.</span>
+    </div>
+  </div>
+
+  <!-- MODE 4 -->
+  <div id="mode4" class="mdet">
+    <div class="mdhead"><div class="mnb bga">04</div><h3>General Mode (Hydra Mesh / Flooding)</h3></div>
+    <p>An unstructured, decentralized "Mesh" topology. No central server is required. When a message is sent, it is broadcast to all of your immediate contacts. Those contacts forward it to their contacts, and so on. To prevent infinite loops, every message carries a <strong>TTL (Time To Live)</strong> counter, and every node uses a high-speed LRU Hash Cache to silently drop duplicate IDs.</p>
+    <div class="kv">
+      <span class="kk">✅ Best for</span><span class="kv2">Censorship-resistant anonymous broadcasting and automatic spill-over when servers get full.</span>
+      <span class="kk">⚡ Advantage</span><span class="kv2">Infinite scalability. The more peers that join, the stronger the network paths become.</span>
+      <span class="kk">▶ How it works</span><span class="kv2">Deselect all contacts in the UI. The header shows "GENERAL MODE ACTIVATED". Type and send.</span>
+    </div>
+  </div>
+</section>
+
+<div class="div"></div>
+
+<!-- SERVER -->
+<section class="section" id="server">
+  <div class="shead"><div class="sicon ig">🖥️</div><h2>Server Features</h2></div>
+  <p>Open <span class="mono">ServidorChatK10.html</span> to become a server owner. Your computer will relay messages for other users. The server interface provides full control and real-time statistics.</p>
+
+  <div class="sflist">
+    <div class="sfi" id="federation">
+      <div class="sfic">🤝</div>
+      <div class="sfb">
+        <strong>Friendly Servers — Server Federation</strong>
+        <p>A server can add another server (ID ending with <span class="mono">-CENTRAL</span>) as a contact. Once connected, the two servers form a <em>federation</em>. When User A sends a message: (1) Server A broadcasts to its own users → (2) Server A forwards to every federated server → (3) each federated server broadcasts to its users. The same TTL and anti-loop cache applies. Each server handles up to 200 users — federation allows thousands across multiple servers. Resilience: if one server goes down, others continue. Users never need to know about federation; it's completely transparent.</p>
+        <div class="al als" style="margin-top:10px;"><div class="ali">▶</div><div class="alt">In the server interface, type the other server's ID (must end with <span class="mono">-CENTRAL</span>) in the "Connect to another Server" field and click Connect.</div></div>
+      </div>
+    </div>
+    <div class="sfi" id="yt-live">
+      <div class="sfic">📺</div>
+      <div class="sfb">
+        <strong>YouTube Live Chat Broadcasting</strong>
+        <p>The server can mirror a YouTube Live chat to all connected users. They see a second tab — <em>Chat YouTube</em> — with the live comments embedded. Start: click <em>"Start YT Chat"</em> and paste the YouTube Live URL. Stop: click <em>"Stop YT Chat"</em>.</p>
+        <p>Individual clients can also start and stop YouTube Live Chat independently (via Tools → Start YouTube Chat), sending the live comment tab to their contacts without needing the server.</p>
+      </div>
+    </div>
+    <div class="sfi" id="auto-hydra">
+      <div class="sfic">🐉</div>
+      <div class="sfb">
+        <strong>Auto-Hydra Mode — Self-Scaling</strong>
+        <p>When the server reaches <strong>150 connected users</strong>, it automatically switches to Hydra mode: it sends a list of known peers to everyone, then disconnects. All users migrate to the General Web (P2P mesh) — the chat never stops. The hard cap is 200 connections; beyond that, new connections are rejected or migrated. This is how the network scales infinitely without crashing the server.</p>
+      </div>
+    </div>
+    <div class="sfi" id="srv-stats">
+      <div class="sfic">📊</div>
+      <div class="sfb">
+        <strong>Server Statistics (Real-Time)</strong>
+        <p>Live dashboard shows: messages received / distributed · active connections · estimated Hydra Web size (P2P node count) · audit log with all connection events.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="div"></div>
+
+<!-- TOOLS -->
+<section class="section" id="tools">
+  <div class="shead"><div class="sicon ia">🛠️</div><h2>Tools &amp; Collaborative Features</h2></div>
+  <p>Click the <strong>Tools</strong> button in the header to open the tools menu. All features below are accessible from there.</p>
+
+  <div class="tgrid">
+    <div class="tc"><div class="tci">🖊️</div><div class="tct">Collaborative Whiteboard</div><div class="tcd">Shared canvas where everyone can draw, write, and create arrows. Everything syncs in real-time via P2P.</div><div class="tcb td">P2P Direct</div></div>
+    <div class="tc"><div class="tci">📊</div><div class="tct">Live Polls</div><div class="tcd">Create instant polls (e.g., "Which movie tonight?"). Others vote, results update live with progress bars via invisible P2P messages.</div><div class="tcb ty">Any Mode</div></div>
+    <div class="tc"><div class="tci">📝</div><div class="tct">Markdown Editor</div><div class="tcd">Collaborative real-time text editor supporting bold, italic, code blocks, and headers. Changes appear instantly for everyone.</div><div class="tcb ty">Any Mode</div></div>
+    <div class="tc"><div class="tci">📻</div><div class="tct">World Radios</div><div class="tcd">Search 30,000+ radio stations from radio-browser.info by country. Preview then broadcast the URL — each user streams directly from the source.</div><div class="tcb ty">Any Mode</div></div>
+    <div class="tc"><div class="tci">▶️</div><div class="tct">YouTube Radio</div><div class="tcd">Any user can broadcast a YouTube video, <strong>live stream</strong>, or playlist to the whole room. Playback syncs via startTime — everyone tunes in at exactly the same point. Use the quick-grid (1–103) to store favorite links. Only the video ID is shared; each user streams directly from YouTube.</div><div class="tcb ty">Any Mode</div></div>
+    <div class="tc"><div class="tci">🎵</div><div class="tct">DJ Radio (MP3)</div><div class="tcd">Upload an MP3 (max 5 MB) and broadcast it to the whole room. File is transferred in chunks via WebRTC and plays at a scheduled time.</div><div class="tcb td">P2P Direct Only</div></div>
+    <div class="tc"><div class="tci">🧲</div><div class="tct">Torrent Manager</div><div class="tcd">Share large files (up to 500 MB) via WebTorrent directly in the browser. Generate a magnet link — only the link travels through the chat.</div><div class="tcb ty">Any Mode</div></div>
+    <div class="tc"><div class="tci">📞</div><div class="tct">Voice &amp; Video Calls</div><div class="tcd">One-click calls via the phone or camera icon next to any contact. Floating windows, individual volume sliders, simultaneous multi-contact calls.</div><div class="tcb td">P2P Direct</div></div>
+  </div>
+
+  <!-- QUIZ -->
+  <div id="quiz">
+    <h3>🧠 Quiz Bot — Multiplayer Trivia</h3>
+    <p>One of the most innovative features. No central server required — the bot runs in a user's browser and spreads questions through the P2P network. Supports <strong>over 100,000 questions</strong> and auto-translates into any of 100+ languages using Google Translate (no API key needed).</p>
+    <div class="qgrid">
+      <div class="qc"><div class="ql cb">Mode A</div><h4>All Subjects</h4><p class="cb" style="font-size:12px;margin-bottom:8px">Mixed disciplines</p><p>Randomly cycles through Math, Physics, Biology, History, Geography, and General Knowledge. 100k+ questions in JSON files on GitHub.</p></div>
+      <div class="qc"><div class="ql cg">Mode B</div><h4>Single Subject</h4><p class="cg" style="font-size:12px;margin-bottom:8px">Focused study</p><p>Select one discipline (e.g., Mathematics only). Perfect for focused study sessions or thematic competitions. Thousands of questions per subject.</p></div>
+      <div class="qc"><div class="ql ca">Mode C</div><h4>World Places ∞</h4><p class="ca" style="font-size:12px;margin-bottom:8px">Infinite questions</p><p>Fetches real landmark photos from Pixabay (Christ the Redeemer, Eiffel Tower, etc.). Asks country → state/city. Millions of unique image+question combos.</p></div>
+    </div>
+    <div class="al ali2"><div class="ali">🔄</div><div class="alt"><strong>Self-healing handoff:</strong> If the user running the Quiz Bot stops it or disconnects, the bot automatically transfers to the connected server (if any) without interrupting the game. If no server is present, the bot stops completely.</div></div>
+  </div>
+
+  <!-- RADIO -->
+  <div id="radio">
+    <h3>📻 Radios &amp; Media — Detail</h3>
+    <p><strong>World Radios</strong> pull from radio-browser.info's database of 30,000+ stations. Type a country name, pick a station, preview it, then broadcast the stream URL to the room. Each user plays the audio directly from the radio server — no audio data passes through the chat.</p>
+    <p><strong>DJ Radio</strong> allows uploading your own MP3 (max 5 MB). The file is chunked and sent via WebRTC, scheduled to begin playback at the same moment for all recipients. Only available in direct P2P mode to avoid server bandwidth overload.</p>
+  </div>
+
+  <!-- YOUTUBE -->
+  <div id="youtube">
+    <h3>▶️ YouTube — All Possibilities</h3>
+    <p>YouTube is deeply integrated into Chat K10. There are <strong>five distinct ways</strong> to use it, all available to any user — no special permissions required.</p>
+
+    <div class="al ali2" style="margin-bottom:18px;">
+      <div class="ali">💡</div>
+      <div class="alt">The chat <strong>never carries video bytes</strong>. Only the video ID (or playlist ID) and a sync timestamp travel through the P2P network. Each user's browser streams the content directly from YouTube's servers, keeping traffic minimal and copyright compliance intact.</div>
+    </div>
+
+    <h4 style="margin:20px 0 8px;">1 · YouTube Radio — Any User Can Broadcast Any Live, Video or Playlist</h4>
+    <p><strong>Any connected user</strong> can act as a broadcaster at any time. This includes YouTube <em>live streams</em> — not just recorded videos. To start:</p>
+    <ol style="margin:8px 0 8px 20px;line-height:1.8;">
+      <li>Click <strong>Tools → YouTube Radio</strong> (or the YouTube Radio button).</li>
+      <li>Paste any YouTube URL: a normal video, a <em>live stream</em> (<code>youtube.com/live/…</code> or <code>watch?v=…</code>), or a playlist (<code>list=…</code>).</li>
+      <li>Click a number in the quick-grid (1–103) to use a saved favourite — or type the URL directly.</li>
+      <li>All recipients automatically receive a <code>radio-youtube-start</code> message and a floating player opens on their screen, tuned to the same point in the stream.</li>
+    </ol>
+    <p>When the broadcaster stops the transmission (<strong>Stop YouTube Radio</strong>), all players close automatically on every connected client.</p>
+
+    <h4 style="margin:20px 0 8px;">2 · Synced Playback (startTime)</h4>
+    <p>For recorded videos and playlists, the sender calculates a <code>startTime</code> a few seconds in the future and embeds it in the broadcast message. When that moment arrives every recipient starts playing simultaneously — eliminating the "who's ahead?" problem in watch parties. For live streams the player simply joins the live edge, so everyone watches the same live moment.</p>
+
+    <h4 style="margin:20px 0 8px;">3 · Floating Player Controls</h4>
+    <p>The YouTube player appears in a <strong>draggable, resizable floating window</strong>. Options available during playback:</p>
+    <ul style="margin:8px 0 8px 20px;line-height:1.8;">
+      <li><strong>Show / Hide Video</strong> — toggle to listen as audio-only (background music mode).</li>
+      <li><strong>Video Size</strong> — Small (320 × 180 px) · Medium (560 × 315 px) · Large (854 × 480 px).</li>
+      <li>Individual <strong>volume control</strong> inside the YouTube iframe.</li>
+    </ul>
+
+    <h4 style="margin:20px 0 8px;">4 · Quick-Grid of Favourite Links (1–103)</h4>
+    <p>The YouTube Radio panel shows a numbered grid from <strong>1 to 103</strong>. Each slot can store a custom YouTube URL (video, live, or playlist):</p>
+    <ul style="margin:8px 0 8px 20px;line-height:1.8;">
+      <li><strong>Left-click</strong> a number to immediately broadcast that link to the room.</li>
+      <li><strong>Right-click</strong> a number to edit / replace its saved URL.</li>
+    </ul>
+    <p>Numbers with a saved link appear highlighted in blue; empty slots appear white. The grid makes switching between DJ sets, live channels, or playlists instant — no copy-paste required.</p>
+
+    <h4 style="margin:20px 0 8px;">5 · YouTube Live Chat (Comments Tab)</h4>
+    <p>Separate from the video stream, any user (or the server) can relay the <em>comment section</em> of a YouTube Live to everyone in the room. This opens a second tab — <strong>Chat YouTube</strong> — displaying the live comments via YouTube's official embed (<code>youtube.com/live_chat?v=…</code>). Two ways to start it:</p>
+    <ul style="margin:8px 0 8px 20px;line-height:1.8;">
+      <li><strong>Server</strong>: Click <em>Start YT Chat</em> in the server interface → paste the live URL → all connected clients receive the comments tab. Stop with <em>Stop YT Chat</em>.</li>
+      <li><strong>Any client</strong>: Click <em>Tools → Start YouTube Chat</em> → paste the live URL → the comments tab propagates to all P2P contacts. Stop with <em>Stop YouTube Chat</em>.</li>
+    </ul>
+    <p>The comments tab and the video stream (YouTube Radio) are <strong>independent</strong> — you can run both at the same time for a full watch-party experience: video playing in the floating window, live comments visible in the side tab.</p>
+
+    <div class="al als" style="margin-top:16px;">
+      <div class="ali">▶</div>
+      <div class="alt"><strong>Quick-start for a live watch party:</strong> Open Tools → YouTube Radio → paste the live URL or click a grid number → the live video opens for everyone. Then open Tools → Start YouTube Chat with the same URL → the comments appear in a separate tab. Done.</div>
+    </div>
+  </div>
+
+  <!-- CALLS -->
+  <div id="calls">
+    <h3>📞 Voice &amp; Video Calls — Detail</h3>
+    <p>Voice and video calls use WebRTC directly between peers. Each call opens in its own floating window — drag by the title bar, resize by the bottom-right corner, change opacity and header color via the gear icon. The <em>Next Camera</em> button cycles through available streams. Individual volume sliders let you control each participant's audio level separately. You can maintain simultaneous calls with multiple contacts.</p>
+    <div class="al alw"><div class="ali">⚠️</div><div class="alt"><strong>Laggy call?</strong> Use direct P2P mode (not through a server) for best performance. Switch to voice-only to reduce bandwidth demand significantly.</div></div>
+  </div>
+</section>
+
+<div class="div"></div>
+
+<!-- ENCRYPTION -->
+<section class="section" id="encryption">
+  <div class="shead"><div class="sicon ip">🔐</div><h2>Encryption (E2EE)</h2></div>
+  <p>Chat K10 uses <strong>AES-256-GCM</strong> encryption with <strong>PBKDF2</strong> key derivation. Nobody except you and the recipient can read your messages — not even the server owner. Encryption must be activated manually and requires both parties to exchange secrets.</p>
+
+  <h3>Step-by-Step to Activate Encryption</h3>
+  <div class="steps">
+    <div class="step"><div class="snum">1</div><div class="sbody"><div class="stitle">Click the 🔑 button in the message input bar</div><div class="sdesc">A modal window opens listing your online contacts.</div></div></div>
+    <div class="step"><div class="snum">2</div><div class="sbody"><div class="stitle">Select the contact who is online and connected</div><div class="sdesc">Only currently online contacts appear as selectable.</div></div></div>
+    <div class="step"><div class="snum">3</div><div class="sbody"><div class="stitle">Click "Send Secret Now"</div><div class="sdesc">Your browser generates a unique cryptographic secret and sends it directly via P2P — the server never sees it.</div></div></div>
+    <div class="step"><div class="snum">4</div><div class="sbody"><div class="stitle">The other person must do the same for you</div><div class="sdesc">⚠️ Critical: encryption is bidirectional. They must also click the button and send their secret to you. Sending only yours is not enough.</div></div></div>
+    <div class="step"><div class="snum">5</div><div class="sbody"><div class="stitle">Look for the lock icon — you're fully encrypted</div><div class="sdesc">Once both sides have exchanged secrets, a 🔒 appears next to the contact's name. All subsequent messages are E2EE.</div></div></div>
+  </div>
+
+  <h3>Encryption Indicators</h3>
+  <div class="egrid">
+    <div class="ei"><div class="esym">🔒</div><div class="et"><strong>Full E2EE Active</strong><span>Both sides exchanged secrets. All messages encrypted in both directions.</span></div></div>
+    <div class="ei"><div class="esym">📤</div><div class="et"><strong>Sending Encrypted</strong><span>You sent your secret, but the other side hasn't replied yet. Your outbound messages are encrypted; inbound are not.</span></div></div>
+    <div class="ei"><div class="esym">📥</div><div class="et"><strong>Receiving Encrypted</strong><span>You can read their encrypted messages, but you haven't sent your secret yet.</span></div></div>
+    <div class="ei"><div class="esym">🔐</div><div class="et"><strong>Group Encryption</strong><span>Group E2EE active on a server. Messages pass through fully encrypted — the server sees only ciphertext.</span></div></div>
+  </div>
+
+  <h3>Group Encryption on Servers</h3>
+  <p>If connected to a <span class="mono">-CENTRAL</span> server, you can activate group encryption. <strong>Prerequisite:</strong> you must have exchanged individual secrets with every participant first. Click the encryption button next to the server in the conversations list. A group secret is generated and sent to all contacts who already have E2EE with you. From then on, all messages through that server are encrypted — the server sees only gibberish. Users without the group secret see blank messages.</p>
+  <div class="al alw"><div class="ali">⚠️</div><div class="alt"><strong>New users joining later</strong> do not automatically receive the group secret. An existing participant must manually share it with them out-of-band.</div></div>
+</section>
+
+<div class="div"></div>
+
+<!-- INVITE -->
+<section class="section" id="invite">
+  <div class="shead"><div class="sicon ic">🔗</div><h2>Invite Links &amp; Sharing</h2></div>
+  <h3>Peer IDs</h3>
+  <p>Every user and every server has a unique <strong>Peer ID</strong>. Client IDs are <strong>9 random characters</strong> (uppercase letters + digits, excluding look-alike characters such as I, L, O and 1 — e.g., <span class="mono">A3BX7KQ2P</span>). Server IDs must end with <span class="mono">-CENTRAL</span> (e.g., <span class="mono">MyServer-CENTRAL</span>). Your ID appears in the blue bar at the top — click <em>Copy</em> to share it.</p>
+  <h3>Invite Links (Client Only)</h3>
+  <p>Only the Chat K10 client (not the server) can generate invite links. Click <strong>Generate Invite Link</strong>. A complete URL is created containing your ID and the IDs of the <strong>first 15 users</strong> from your active connections list (your own ID always comes first, followed by up to 14 contacts — even if you are connected to more). When someone opens that link, they automatically connect to all listed IDs.</p>
+  <h3>Manual URL Parameters</h3>
+  <div class="cb2">https://your-server.com/chat.html?portas=ID1,ID2,ID3,...</div>
+  <table class="itable">
+    <tr><th></th><th>Peer ID</th><th>Invite Link</th></tr>
+    <tr><td><strong>What is it?</strong></td><td>A short text identifier</td><td>A full URL with parameters</td></tr>
+    <tr><td><strong>Who generates?</strong></td><td>Every user/server automatically</td><td>Only the client (not the server)</td></tr>
+    <tr><td><strong>What does it do?</strong></td><td>Identifies you on the network</td><td>Opens the chat and auto-connects to all listed peers</td></tr>
+    <tr><td><strong>How to share?</strong></td><td>Copy and paste manually</td><td>Click the link — one-tap connection</td></tr>
+   </table>
+</section>
+
+<div class="div"></div>
+
+<!-- SYSTEM ARCHITECTURE -->
+<section class="section" id="architecture">
+  <div class="shead"><div class="sicon ib">🧠</div><h2>System Architecture &amp; P2P Physics</h2></div>
+  <p>For engineers and curious minds, this section details the underlying mechanisms of the Hydra Network. It explains how the chat avoids infinite loops, how islands of users merge or split, and how servers handle overwhelming scale.</p>
+
+  <!-- Flow & Eco-Shields -->
+  <div class="mdet" id="arch-organic-flow">
+    <div class="mdhead"><div class="mnb" style="background:rgba(37,99,235,.2);color:#38bdf8;">01</div><h3>Organic Propagation: The Reciprocal Flow</h3></div>
+    <p>Messaging in the General Web operates through a bidirectional chain: <strong>Parent ↔ Child ↔ Grandchild</strong>. Every WebRTC channel is perfectly reciprocal. If the Parent shouts a message, it passes down the line. If the Grandchild replies, it travels back up. However, in a mesh, a Grandchild might also be connected back to the Parent, creating a severe risk of an infinite broadcast storm (the "Echo").</p>
+    <p>Hydra solves this using two absolute shields:</p>
+    <div class="kv">
+      <span class="kk">💾 The "I've Seen It" Log</span><span class="kv2">Every device runs a high-speed <strong>LRU Hash Cache</strong> that memorizes exactly the last <strong>10,000 message IDs</strong>. If a message circulates around the globe and comes back to you, your cache detects the duplicate and silently drops it, killing the echo instantly.</span>
+      <span class="kk">⏱️ The Breath (TTL)</span><span class="kv2">Messages are born with a Time-To-Live (TTL = 15). Every time it hops from user to user, the TTL decreases by 1. At 0, the message dies of exhaustion. Heavy protocol messages (like topological sweeps) use a smaller TTL (4 or 5) to save bandwidth.</span>
+    </div>
+  </div>
+
+  <!-- Auto-Hydra Tracker -->
+  <div class="mdet" id="arch-auto-hydra">
+    <div class="mdhead"><div class="mnb" style="background:rgba(16,185,129,.2);color:#34d399;">02</div><h3>The Bouncer: Auto-Hydra at 200 Users</h3></div>
+    <p>A typical server completely collapses when too many users connect. Chat K10 avoids this by transforming the Server's role when it reaches its physical limit (150-200 concurrent WebSockets).</p>
+    <div class="kv">
+      <span class="kk">🚪 The Chat Door Closes</span><span class="kv2">The server stops acting as a central relay. It refuses to read or re-transmit heavy chat messages, audio, or files for the external network.</span>
+      <span class="kk">📡 Becoming a Bouncer (Tracker)</span><span class="kv2">Users pushed out into the decentralized Mesh simply send tiny radar pings (<code>p2p-heartbeat</code>) to the server every few seconds. The server's only job is to note down: <em>"Okay, User X is currently alive on the street."</em></span>
+      <span class="kk">🔗 PEX Injection (Routing)</span><span class="kv2">When New User 201 knocks on the server's door, the server answers: <em>"The VIP room is full, but the party continues outside. Connect directly to these 10 people I just saw on my radar."</em> The server hands over a Peer Exchange (PEX) list and hangs up. The new user uses those IDs to join the infinite Mesh.</span>
+    </div>
+  </div>
+
+  <!-- Federation -->
+  <div class="mdet" id="arch-federation">
+    <div class="mdhead"><div class="mnb" style="background:rgba(244,114,182,.2);color:#f472b6;">03</div><h3>Friendly Servers (Federated Trees)</h3></div>
+    <p>To break a single server's limits without forcing users onto the mesh, Server Owners can federate by inserting another server's <code>-CENTRAL</code> ID.</p>
+    <div class="kv">
+      <span class="kk">🌐 The Express Tube</span><span class="kv2">An invisible, high-speed WebRTC channel links Server A and B. When User X sends a message on Server A, it distributes to Server A's crowd <strong>and</strong> travels the tube to Server B, which relays it to its crowd. Thousands of users behave as if they share one room.</span>
+      <span class="kk">🛡️ Crash Resilience (Fail-over)</span><span class="kv2">If the owner of Server B loses power, the global room doesn't die. The link simply breaks. Server A and Server C continue routing their local hubs peacefully. It is true decentralization across administrators.</span>
+    </div>
+  </div>
+
+  <!-- Splitting and Merging -->
+  <div class="mdet" id="arch-topologies">
+    <div class="mdhead"><div class="mnb" style="background:rgba(245,158,11,.2);color:#fbbf24;">04</div><h3>Healing the Network: Split &amp; Merge</h3></div>
+    <p>The mesh constantly mutates based on internet connectivity. Two algorithms prevent the P2P tree from rotting or inflating infinitely.</p>
+    <div class="kv" style="margin-bottom:12px;">
+      <span class="kk">🔪 Fission (Group Split)</span><span class="kv2">If an internet cable cuts a continent in half, nodes notice that heartbeats from the other side have been missing for <strong>exactly 90 seconds</strong> (90,000ms). The surviving nodes panic-evaluate: they alphabetically sort all their IPs and elect the top 10 strongest nodes (requiring <code>&ge; 20 connections</code> and desktop-class hardware). These new leaders broadcast a <code>group-split</code> packet, officially severing ties and cleanly resetting the network's state.</span>
+    </div>
+    <div class="kv">
+      <span class="kk">🤝 Fusion (Group Merge)</span><span class="kv2">If two isolated islands (Group A and Group B) suddenly meet, they broadcast a <code>group-merge</code>. To prevent ghost multiplication (e.g., A hears the merge 5 times and inflates the user counter infinitely), the engine employs a strict rule: <code>Math.max(surviving, surviving+absorbed, absorbed)</code>. Additionally, the new mega-group is capped at <strong>10 Reserved Leaders</strong> (<code>slice(0, 10)</code>). This ensures immediate geographical healing without blowing up the browser's RAM routing tables.</span>
+    </div>
+  </div>
+
+</section>
+
+<div class="div"></div>
+
+<!-- BENCHMARK SUITE (Developer) -->
+<section class="section" id="benchmark">
+  <div class="shead"><div class="sicon ipu">🛡️</div><h2>Developer Suite — Benchmark & Stress Test</h2></div>
+  <p>For security researchers, auditors and advanced developers, Chat K10 provides a dedicated <strong>Benchmark Suite</strong> that simulates attack vectors, validates network resilience and performs static code analysis. This tool is completely isolated from the main chat — it does not interfere with normal users.</p>
+
+  <div class="al ali2" style="margin-bottom:20px;">
+    <div class="ali">🔗</div>
+    <div class="alt"><strong>Access the tool directly:</strong> <a href="https://andradepsa.github.io/MATEMATICO10/chat/TESTE/benchmark.html" target="_blank" style="color:var(--a2); text-decoration:underline;">https://andradepsa.github.io/MATEMATICO10/chat/TESTE/benchmark.html</a><br>Open this link in a separate browser tab. It works alongside the main Chat K10 client or server.</div>
+  </div>
+
+  <h3>What the Benchmark Suite Does</h3>
+  <div class="tgrid">
+    <div class="tc"><div class="tci">🏝️</div><div class="tct">War‑Room (Islands & PEX)</div><div class="tcd">Simulates isolated sub‑networks (up to 25 bots) and triggers group merge (PEX) to validate the Math.max(size) idempotency rule. Tests split‑brain handling.</div><div class="tcb td">Network Topology</div></div>
+    <div class="tc"><div class="tci">💀</div><div class="tct">Attack & Stress</div><div class="tcd">Deploys a controlled botnet (15 peers) to launch three attack vectors: <strong>Tsunami (LRU cache flood)</strong>, <strong>Topology DDoS (1850 fake nodes)</strong>, and <strong>Poison (2GB buffer injection)</strong> to test OOM guards.</div><div class="tcb td">Resilience</div></div>
+    <div class="tc"><div class="tci">🔬</div><div class="tct">V8 Static Audit</div><div class="tcd">Uploads <code>chat.html</code> or <code>server.html</code> and runs a regex‑based security audit: checks for LRU cap, URL revoke, message size limits, chunk OOB guards, and group idempotency. Returns pass/fail per rule.</div><div class="tcb td">Code Analysis</div></div>
+    <div class="tc"><div class="tci">📖</div><div class="tct">Tool Manual (Embedded)</div><div class="tcd">Inside the benchmark tool itself there is a complete manual explaining each test, why it matters, and how to interpret results — perfect for auditors.</div><div class="tcb td">Documentation</div></div>
+  </div>
+
+  <h3>Why Use the Benchmark Suite?</h3>
+  <div class="plist">
+    <div class="pr"><div class="pri">🧪</div><div class="prt"><strong>Validate network limits</strong><span>Confirm that the LRU cache (10k messages) and TTL system prevent infinite loops under heavy load.</span></div></div>
+    <div class="pr"><div class="pri">🛡️</div><div class="prt"><strong>Test OOM & memory leak protections</strong><span>The Poison vector attempts to allocate 2GB and trigger out‑of‑bounds offsets — the client must remain stable.</span></div></div>
+    <div class="pr"><div class="pri">📐</div><div class="prt"><strong>Verify PEX idempotency</strong><span>The group merge simulation ensures that two networks can merge without artificially inflating group size.</span></div></div>
+    <div class="pr"><div class="pri">🔍</div><div class="prt"><strong>Static regression scanning</strong><span>Run the V8 audit after every code change to detect accidental removal of critical security lines (e.g., <code>URL.revokeObjectURL</code>, chunk size checks).</span></div></div>
+  </div>
+
+  <div class="al als"><div class="ali">⚠️</div><div class="alt"><strong>Important notes for testers:</strong><br>• The benchmark tool connects to real PeerJS servers — ensure you have an internet connection.<br>• Running the Tsunami or Topology DDoS against a production server may degrade performance; use on a test instance or isolated LAN.<br>• The V8 audit works purely locally; no file is uploaded to any external server.<br>• For accurate island simulation, run two Chat K10 instances side‑by‑side (not in background tabs) to avoid Chrome’s throttling of WebSockets.</div></div>
+</section>
+
+<div class="div"></div>
+
+<!-- SECURITY -->
+<section class="section" id="security">
+  <div class="shead"><div class="sicon ir">🛡️</div><h2>Security &amp; Abuse Prevention</h2></div>
+  <p>Chat K10 includes multiple protection layers against misuse, even if someone modifies the client code to attack the network.</p>
+
+  <h3>Automatic Anti-Spam Measures</h3>
+  <div class="plist">
+    <div class="pr"><div class="pri">⏱️</div><div class="prt"><strong>Message rate limiting</strong><span>Each user must wait between messages based on network size: <span class="mono">wait = max(1s, ⌊networkSize/1000⌋ × 1s)</span> — minimum always 1 second; grows with the crowd (e.g. 2,000 users → 2s wait).</span></div></div>
+    <div class="pr"><div class="pri">🚫</div><div class="prt"><strong>Three-strikes ban</strong><span>After 3 spam violations, the offending peer is locally banned and the connection is closed.</span></div></div>
+  </div>
+
+  <h3>Anti-Loop &amp; TTL System</h3>
+  <p>Every message carries a unique ID and a <strong>TTL (Time-To-Live)</strong> counter (default: 15). Each retransmission decrements TTL by 1. When TTL reaches 0, the message is discarded. Servers and clients maintain a cache of up to 10,000 recently seen message IDs to prevent duplicate processing.</p>
+
+  <h3 id="limits">Size Limits</h3>
+  <div class="lgrid">
+    <div class="li"><div class="lv cb">2,000</div><div class="ll">characters per text message</div></div>
+    <div class="li"><div class="lv cg">5 MB</div><div class="ll">direct file transfer (WebRTC)</div></div>
+    <div class="li"><div class="lv ca">2 MB</div><div class="ll">recorded audio (~1 minute)</div></div>
+    <div class="li"><div class="lv cp">500 MB</div><div class="ll">torrent seeding (WebTorrent)</div></div>
+    <div class="li"><div class="lv cb">200</div><div class="ll">max simultaneous server connections</div></div>
+    <div class="li"><div class="lv cg">10,000</div><div class="ll">message ID cache (anti-loop)</div></div>
+  </div>
+
+  <h3>Server Protections</h3>
+  <div class="plist">
+    <div class="pr"><div class="pri">🚦</div><div class="prt"><strong>Heartbeat monitoring</strong><span>Clients must send a heartbeat every 30s. Idle for 45s → automatically removed.</span></div></div>
+    <div class="pr"><div class="pri">🐉</div><div class="prt"><strong>Auto-Hydra at 150 connections</strong><span>Prevents server overload by migrating users to the P2P mesh automatically.</span></div></div>
+    <div class="pr"><div class="pri">🔁</div><div class="prt"><strong>Exponential backoff reconnect (server)</strong><span>The server uses a circuit-breaker: exponential backoff up to max <strong>20 attempts</strong> before giving up on a failed PeerJS connection. Clients use a separate backoff capped at 30s per retry with no hard attempt limit.</span></div></div>
+    <div class="pr"><div class="pri">🚫</div><div class="prt"><strong>Blocks file transfers &amp; large audio</strong><span>Server blocks file-start and file-chunk messages, and rejects audio &gt;2 MB, to save bandwidth.</span></div></div>
+  </div>
+
+  <div class="al als"><div class="ali">✅</div><div class="alt"><strong>Best practices for secure use:</strong><br>• Always exchange E2EE secrets with your contacts (🔑 button)<br>• For server groups, activate group encryption after exchanging individual secrets<br>• Use the General Web (Hydra) for maximum resilience — no central point of failure<br>• If you suspect an attacker, manually remove their Peer ID from your contacts</div></div>
+</section>
+
+<div class="div"></div>
+
+<!-- UI TIPS -->
+<section class="section" id="ui">
+  <div class="shead"><div class="sicon ipu">🎨</div><h2>User Interface Tips</h2></div>
+  <div class="tgrid">
+    <div class="tc"><div class="tci">🌍</div><div class="tct">Language Selection</div><div class="tcd">Dropdown in the header with 100+ languages. The entire interface, all messages, and Quiz Bot questions are auto-translated. Preference saved in browser.</div></div>
+    <div class="tc"><div class="tci">🌙</div><div class="tct">Dark Mode</div><div class="tcd">Click the 🌙 button to toggle dark mode. Setting is saved automatically between sessions.</div></div>
+    <div class="tc"><div class="tci">🖼️</div><div class="tct">Avatars</div><div class="tcd">Click your avatar circle to upload a profile picture. Resized to 120×120 and shared with contacts automatically via P2P.</div></div>
+    <div class="tc"><div class="tci">⭐</div><div class="tct">SuperNode Mode</div><div class="tcd">Click the ★ button next to your ID. Increases your connection limit from 15 to 50 neighbors, strengthening the P2P mesh significantly.</div></div>
+    <div class="tc"><div class="tci">😀</div><div class="tct">Emojis</div><div class="tcd">Click the 😊 button in the message input to open the full emoji picker.</div></div>
+    <div class="tc"><div class="tci">🗑️</div><div class="tct">Delete Messages</div><div class="tcd">Hover over any message and click the trash icon that appears.</div></div>
+    <div class="tc"><div class="tci">👤</div><div class="tct">Remove a Contact</div><div class="tcd">In the conversations list, hover over a contact and click the user-minus icon to remove them.</div></div>
+    <div class="tc"><div class="tci">🪟</div><div class="tct">Floating Windows</div><div class="tcd">Video/radio streams appear in separate floating windows. Drag by title bar, resize by corner, gear icon → change opacity and color.</div></div>
+  </div>
+</section>
+
+<div class="div"></div>
+
+<!-- FAQ -->
+<section class="section" id="faq">
+  <div class="shead"><div class="sicon ia">❓</div><h2>FAQ &amp; Troubleshooting</h2></div>
+
+  <div class="fq"><div class="fqq">"I see a white screen for a few seconds when opening" <span>—</span></div><div class="fqa">Normal on first load — the browser is compiling React/JSX with Babel. Wait 3–7 seconds; a loading spinner appears. For faster startup, host the HTML file on a local web server instead of opening directly from disk.</div></div>
+
+  <div class="fq"><div class="fqq">"My friend cannot connect to me" <span>—</span></div><div class="fqa">Make sure both of you are online and have allowed microphone/camera permissions if needed. Try using a server (connect to a <span class="mono">-CENTRAL</span> server) — it helps with strict firewalls and symmetric NAT. If behind a very restrictive network, use General Web mode (deselect all contacts). Your message will find a path through the mesh.</div></div>
+
+  <div class="fq"><div class="fqq">"Encryption doesn't work" <span>—</span></div><div class="fqa"><strong>Both sides must exchange secrets.</strong> Just sending your secret is not enough — the other person must also click the 🔑 button and send their secret to you. Check the indicator next to the contact's name: 🔒 means fully active E2EE.</div></div>
+
+  <div class="fq"><div class="fqq">"The server is full / I got a migration message" <span>—</span></div><div class="fqa">The server reached its 150-user Auto-Hydra threshold. You were automatically moved to the General Web — this is normal and good; the network is scaling. You can keep chatting normally without any interruption.</div></div>
+
+  <div class="fq"><div class="fqq">"Quiz Bot questions appear in the wrong language" <span>—</span></div><div class="fqa">Change your language in the header dropdown. The next questions will be auto-translated via Google Translate. On very slow connections you might briefly see the original language before translation completes.</div></div>
+
+  <div class="fq"><div class="fqq">"What happens if I stop the Quiz Bot?" <span>—</span></div><div class="fqa">If you click "Stop Bot", the bot automatically transfers to the connected server (if any). The server continues sending questions without interruption from exactly where you left off. If no server is connected, the bot stops completely.</div></div>
+
+  <div class="fq"><div class="fqq">"My video call is laggy" <span>—</span></div><div class="fqa">Video calls depend on your upload speed. Switch to voice-only for a much lighter load. Use direct P2P mode (not through a server relay) for best performance. Quality controls are planned for a future version.</div></div>
+
+  <div class="fq"><div class="fqq">"I can't send files larger than 5 MB" <span>—</span></div><div class="fqa">5 MB is the limit for direct WebRTC file transfer. For larger files, use the <strong>Torrent Manager</strong> in the Tools menu — it supports files up to 500 MB via WebTorrent (only the magnet link travels through the chat).</div></div>
+
+  <div class="fq"><div class="fqq">"What is the difference between a Peer ID and an Invite Link?" <span>—</span></div><div class="fqa"><strong>Peer ID:</strong> A 9-character code (e.g., <span class="mono">A3BX7KQ2P</span> or <span class="mono">MyServer-CENTRAL</span>) that identifies you on the network. Share it manually by copying and pasting. <strong>Invite Link:</strong> A full URL generated only by the client. When someone clicks it, the chat opens and automatically connects to all listed peer IDs — convenient for inviting multiple people at once.</div></div>
+
+  <div class="fq"><div class="fqq">"How does the General Web have no user limit?" <span>—</span></div><div class="fqa">There is no central server. Each user connects to up to 15 others (50 in SuperNode mode). Messages hop from user to user up to 15 times (TTL). The network grows organically — more users make it stronger, not weaker. The 200-connection server limit only applies when you choose to use a relay server. The General Web is truly limitless.</div></div>
+</section>
+
+<div class="div"></div>
+
+<!-- REFERENCE -->
+<section class="section" id="reference">
+  <div class="shead"><div class="sicon ib">⚡</div><h2>Quick Reference</h2></div>
+  <p>Every feature at a glance.</p>
+  <div class="qrw">
+    <div class="qri"><span class="qrf">Direct P2P chat</span><span class="qrh">Add contact → click them in Conversations list</span><span class="qrcat td">P2P</span></div>
+    <div class="qri"><span class="qrf">Server relay chat</span><span class="qrh">Connect to a <span class="mono">-CENTRAL</span> server ID</span><span class="qrcat ts">Server</span></div>
+    <div class="qri"><span class="qrf">General Web (Hydra)</span><span class="qrh">Deselect all contacts — messages go to entire mesh, no user limit</span><span class="qrcat ty">Hydra</span></div>
+    <div class="qri"><span class="qrf">Voice call</span><span class="qrh">📞 phone icon next to contact</span><span class="qrcat td">P2P</span></div>
+    <div class="qri"><span class="qrf">Video call</span><span class="qrh">📷 camera icon next to contact</span><span class="qrcat td">P2P</span></div>
+    <div class="qri"><span class="qrf">Send file</span><span class="qrh">📎 paperclip button (max 5 MB)</span><span class="qrcat td">P2P</span></div>
+    <div class="qri"><span class="qrf">Record audio</span><span class="qrh">🎙 microphone button (max 1 min / 2 MB)</span><span class="qrcat ty">Any</span></div>
+    <div class="qri"><span class="qrf">Torrent sharing</span><span class="qrh">🧲 magnet icon — max 500 MB · only magnet link is shared</span><span class="qrcat ty">Any</span></div>
+    <div class="qri"><span class="qrf">Whiteboard</span><span class="qrh">Tools menu → Collaborative Whiteboard</span><span class="qrcat td">P2P</span></div>
+    <div class="qri"><span class="qrf">Live Poll</span><span class="qrh">Tools menu → Create Poll</span><span class="qrcat ty">Any</span></div>
+    <div class="qri"><span class="qrf">Markdown Editor</span><span class="qrh">Tools menu → Markdown Editor (real-time collaboration)</span><span class="qrcat ty">Any</span></div>
+    <div class="qri"><span class="qrf">Quiz Bot</span><span class="qrh">Tools menu → Quiz Bot (100k+ questions, 3 modes, 100+ languages)</span><span class="qrcat ty">Any</span></div>
+    <div class="qri"><span class="qrf">World Radios</span><span class="qrh">Tools menu → World Radios → search by country name</span><span class="qrcat ty">Any</span></div>
+    <div class="qri"><span class="qrf">YouTube Radio (video/live)</span><span class="qrh">Tools menu → YouTube Radio → paste URL or pick from grid 1–103 → synced playback for everyone</span><span class="qrcat ty">Any</span></div>
+    <div class="qri"><span class="qrf">YouTube Radio (playlist)</span><span class="qrh">Tools menu → YouTube Radio → paste playlist URL (<code>list=…</code>) → synced queue</span><span class="qrcat ty">Any</span></div>
+    <div class="qri"><span class="qrf">YouTube player controls</span><span class="qrh">Show/Hide Video · Size: small / medium / large · volume inside iframe</span><span class="qrcat ty">Any</span></div>
+    <div class="qri"><span class="qrf">YouTube Quick-Grid (1–103)</span><span class="qrh">Left-click to broadcast · right-click to edit saved URL</span><span class="qrcat ty">Any</span></div>
+    <div class="qri"><span class="qrf">YouTube Live Chat (client)</span><span class="qrh">Tools menu → Start YouTube Chat → paste live URL → comments tab opens for all contacts</span><span class="qrcat ty">Any</span></div>
+    <div class="qri"><span class="qrf">DJ Radio (MP3)</span><span class="qrh">Tools menu → DJ Radio (direct P2P only, max 5 MB)</span><span class="qrcat td">P2P</span></div>
+    <div class="qri"><span class="qrf">Encryption (E2EE)</span><span class="qrh">🔑 button in message bar — both sides must exchange secrets</span><span class="qrcat ty">Any</span></div>
+    <div class="qri"><span class="qrf">Group encryption</span><span class="qrh">🔐 button next to server in Conversations (requires prior individual E2EE)</span><span class="qrcat ts">Server</span></div>
+    <div class="qri"><span class="qrf">YouTube Live Chat (server)</span><span class="qrh">Server interface → Start YT Chat → paste live URL → comments tab for all connected clients</span><span class="qrcat ts">Server</span></div>
+    <div class="qri"><span class="qrf">Server Federation</span><span class="qrh">Server interface → add another server's <span class="mono">-CENTRAL</span> ID</span><span class="qrcat ts">Server</span></div>
+    <div class="qri"><span class="qrf">Invite link</span><span class="qrh">Generate Invite Link button (client only) — includes your ID + first 14 active contacts (max 15 total)</span><span class="qrcat ty">Any</span></div>
+    <div class="qri"><span class="qrf">Dark mode</span><span class="qrh">🌙 button in header</span><span class="qrcat ty">UI</span></div>
+    <div class="qri"><span class="qrf">Language</span><span class="qrh">Dropdown in header — 100+ languages, auto-translates everything</span><span class="qrcat ty">UI</span></div>
+    <div class="qri"><span class="qrf">Avatar upload</span><span class="qrh">Click your profile picture circle</span><span class="qrcat ty">UI</span></div>
+    <div class="qri"><span class="qrf">SuperNode mode</span><span class="qrh">★ button — increases connection limit from 15 to 50</span><span class="qrcat ty">UI</span></div>
+  </div>
+</section>
+
+<footer>
+  <div>Chat K10 V18 · Community Documentation · April 2026</div>
+  <div><a href="https://github.com/andradepsa/MATEMATICO10" target="_blank">github.com/andradepsa/MATEMATICO10</a></div>
+</footer>
+
+</div></div></div>
 
 <script>
-  // ================= GENERAL =================
-  function showTab(tabId) {
-    document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
-    document.getElementById(tabId).classList.add('active');
-    event.currentTarget.classList.add('active');
-  }
-
-  const logT = (tab, msg, clr='#38bdf8') => {
-    const el = document.getElementById(tab === 'ISLAND' ? 'logIsland' : (tab === 'V8' ? 'logV8' : 'logStress'));
-    el.innerHTML += `<span style="color:#64748b">[${new Date().toLocaleTimeString()}]</span> <span style="color:${clr}">${msg}</span>\n`;
-    el.scrollTop = el.scrollHeight;
-  };
-
-  // ================= BOT ENGINE (SHARED) =================
-  let bots = [];
-  let isRunning = false;
-  let targetId = '';
-  let msgCounter = 0;
-  let tpsLastCount = 0;
-  let pulseTimer = null;
-
-  setInterval(() => {
-    if (!isRunning) return;
-    const tps = msgCounter - tpsLastCount;
-    tpsLastCount = msgCounter;
-    document.getElementById('stMsgs').innerText = tps;
-    document.getElementById('stTotal').innerText = msgCounter;
-  }, 1000);
-
-  function destroyBots(tabMode) {
-    isRunning = false;
-    if(pulseTimer) clearInterval(pulseTimer);
-    bots.forEach(p => { try { if(p.conn) p.conn.close(); p.peer.destroy(); } catch(e){} });
-    bots = [];
-    
-    if (tabMode === 'ISLAND') {
-      document.getElementById('sBots').innerText = '0';
-      document.getElementById('sStatus').innerText = 'OFFLINE';
-      document.getElementById('sStatus').style.color = 'var(--err)';
-      document.getElementById('btnConnIsland').disabled = false;
-      document.getElementById('btnStopIsland').disabled = true;
-      document.getElementById('btnBridge').disabled = true;
-    } else {
-      document.getElementById('stBots').innerText = '0';
-      document.getElementById('btnConnStress').disabled = false;
-      document.getElementById('btnStopStress').disabled = true;
-      document.getElementById('btnFlood').disabled = true;
-      document.getElementById('btnPEXAttack').disabled = true;
-      document.getElementById('btnPoison').disabled = true;
+window.addEventListener('scroll',()=>{
+  const el=document.documentElement;
+  const p=el.scrollTop/(el.scrollHeight-el.clientHeight)*100;
+  document.getElementById('prog').style.width=p+'%';
+});
+const links=document.querySelectorAll('.sbl');
+const sections=document.querySelectorAll('.section');
+const obs=new IntersectionObserver(entries=>{
+  entries.forEach(e=>{
+    if(e.isIntersecting){
+      links.forEach(l=>l.classList.remove('active'));
+      const id=e.target.id;
+      const a=document.querySelector('.sbl[href="#'+id+'"]');
+      if(a)a.classList.add('active');
     }
-  }
-
-  // ================= ISLAND WAR-ROOM LOGIC =================
-  async function startIslandSim() {
-    targetId = document.getElementById('targetIdIsland').value.trim();
-    const namespace = document.getElementById('islandName').value;
-    if (!targetId) return alert('Enter Target Chat Peer ID.');
-    
-    document.getElementById('btnConnIsland').disabled = true;
-    isRunning = true;
-    const COUNT = 25; // Peaceful count limit
-    
-    logT('ISLAND', `🚀 Building ${namespace}... Contacting main node: ${targetId}`, '#fbbf24');
-    
-    for (let i = 0; i < COUNT; i++) {
-        if(!isRunning) break;
-        await spawnBot(i, namespace, 'ISLAND', targetId);
-        await new Promise(r => setTimeout(r, 600)); 
-    }
-    
-    if (isRunning) {
-        document.getElementById('btnStopIsland').disabled = false;
-        document.getElementById('btnBridge').disabled = false;
-        document.getElementById('sStatus').innerText = 'POPULATED';
-        document.getElementById('sStatus').style.color = 'var(--ok)';
-        logT('ISLAND', `✅ Sub-Network stabilized. Target K10 now believes there are ${COUNT} clean nodes.`, '#22c55e');
-        pulseTimer = setInterval(() => {
-          const active = bots.filter(b => b.connected);
-          if (!active.length) return;
-          const a = active[Math.floor(Math.random()*active.length)];
-          try { a.conn.send({ type: 'p2p-heartbeat', msgId: Date.now()+'_b', groupId: 'G0001', peerId: a.id, ttl: 2}); } catch(e){}
-        }, 10000);
-    }
-  }
-
-  function stopIslandSim() { destroyBots('ISLAND'); logT('ISLAND', `🛑 Peaceful mesh destroyed.`, '#ef4444'); }
-
-  function bridgeNetworks() {
-    const bridgeTarget = document.getElementById('bridgeId').value.trim();
-    if (!bridgeTarget) return alert('Enter Host B Peer ID.');
-    logT('ISLAND', `🌉 Triggering PEX BRIDGE (Merge) against ${bridgeTarget}...`, '#10b981');
-    const envoyBots = bots.filter(b => b.connected).slice(0, 3);
-    envoyBots.forEach((bot, i) => {
-        logT('ISLAND', `🏹 Diplomat ${bot.id} contacting Host B...`, '#6ee7b7');
-        const bridgeConn = bot.peer.connect(bridgeTarget, { reliable: true, serialization: 'json' });
-        bridgeConn.on('open', () => {
-            logT('ISLAND', `✅ Bridge Open! Forcing Math.max(groupSize)...`, '#f43f5e');
-            bridgeConn.send({ type: 'group-merge', msgId: Date.now() + '_mg_'+bot.id, survivingGroupId: 'G0001', absorbedGroupId: 'G0001', ttl: 4 });
-            setTimeout(() => {
-                bridgeConn.send({ type: 'directory-announce', groupId: 'G0001', groupSize: bots.length+1, reservados: bots.map(b=>b.id).slice(0,3), ttl: 4 });
-            }, 500);
-        });
-    });
-  }
-
-  // ================= STRESS & ATTACK LOGIC =================
-  async function startStressSim() {
-    targetId = document.getElementById('targetIdStress').value.trim();
-    if (!targetId) return alert('Enter Target Chat Peer ID.');
-    document.getElementById('btnConnStress').disabled = true;
-    isRunning = true;
-    const COUNT = 15; 
-    
-    logT('STRESS', `⚙️ Invoking Botnet Armada... Target: ${targetId}`, '#fbbf24');
-    for (let i = 0; i < COUNT; i++) {
-        if(!isRunning) break;
-        await spawnBot(i, 'atk', 'STRESS', targetId);
-        await new Promise(r => setTimeout(r, 600)); 
-    }
-    
-    if (isRunning) {
-        document.getElementById('btnStopStress').disabled = false;
-        document.getElementById('btnFlood').disabled = false;
-        document.getElementById('btnPEXAttack').disabled = false;
-        document.getElementById('btnPoison').disabled = false;
-        logT('STRESS', `✅ P2P Armada engaged and ready to fire.`, '#22c55e');
-    }
-  }
-
-  function stopStressSim() { destroyBots('STRESS'); logT('STRESS', `🛑 Armada deactivated.`, '#ef4444'); }
-
-  function spawnBot(idx, namespace, uiMode, tgt) {
-    return new Promise((r) => {
-        const id = `bot-${namespace}-${Math.random().toString(36).substr(2,4)}`;
-        const peer = new Peer(id, { host: '0.peerjs.com', secure: true, debug: 0 });
-        const bot = { id, peer, conn: null, connected: false };
-        bots.push(bot);
-
-        peer.on('open', () => {
-            const conn = peer.connect(tgt, { reliable: true, serialization: 'json' });
-            bot.conn = conn;
-            conn.on('open', () => {
-                bot.connected = true;
-                if (uiMode === 'ISLAND') document.getElementById('sBots').innerText = bots.filter(p=>p.connected).length;
-                else document.getElementById('stBots').innerText = bots.filter(p=>p.connected).length;
-                
-                // Initial PEX Announcement
-                conn.send({ type: 'directory-announce', msgId: Date.now()+'_ini', groupId: 'G0001', groupSize: bots.length+1, reservados: [bot.id], ttl: 3 });
-                r();
-            });
-            conn.on('error', () => r());
-        });
-        peer.on('error', () => r());
-    });
-  }
-
-  // Attack Vectors
-  function triggerFlood() {
-    logT('STRESS', `🌊 LRU Tsunami Fired...`, '#c084fc');
-    let cycles = 0;
-    const interval = setInterval(() => {
-        if (!isRunning || cycles > 50) { clearInterval(interval); logT('STRESS', `🌊 Tsunami concluded.`, '#a855f7'); return; }
-        bots.filter(p=>p.connected).forEach(b => {
-            try {
-                b.conn.send({ type: 'message', id: Date.now()+'-'+Math.random(), ttl: 15, text: `Flood ${cycles}`, sender: b.id });
-                b.conn.send({ type: 'message', id: Date.now()+'-n-'+Math.random(), ttl: 5, text: '__QUIZ__', sender: b.id });
-                msgCounter+=2;
-            } catch (e) {}
-        });
-        cycles++;
-    }, 150);
-  }
-
-  function triggerPEXTsunami() {
-    logT('STRESS', `🌍 Topology DDoS (Spoofing 1850 nodes)...`, '#facc15');
-    const fakePeers = Array.from({length: 1850}, (_, i) => 'fktile-' + i);
-    bots.filter(p=>p.connected).forEach((bot, idx) => {
-        if (idx === 0) {
-            bot.conn.send({ type: 'pex', peers: fakePeers.slice(0, 50), groupId: 'G0001', groupSize: 1850, isReservado: true, peerId: bot.id });
-            msgCounter++; logT('STRESS', `🌍 Bot 0 spoofed groupSize = 1850 in PEX`, '#eab308');
-        } else if (idx === 1) {
-             bot.conn.send({ type: 'group-split', msgId: Date.now()+'sp', oldGroupId: 'G0001', newGroupId: 'GTRAP', action: 'reservados-migrate', ttl: 8 });
-             logT('STRESS', `🌍 Bot 1 requested fake group-split`, '#eab308');
-        }
-    });
-  }
-
-  function triggerPoison() {
-    logT('STRESS', `💀 Injecting Bomb (2GB Array Bypass Test)...`, '#f43f5e');
-    const bot = bots.find(p => p.connected);
-    if (!bot) return;
-    try {
-        bot.conn.send({ type: 'radio-start', id: 'psn_r_'+Date.now(), radioId: 'bomb', fileSize: 2000000000, ttl: 15, sender: bot.id });
-        msgCounter++; logT('STRESS', `💀 Fired fileSize: 2,000,000,000 bytes`, '#fb7185');
-        setTimeout(() => {
-            bot.conn.send({ type: 'radio-chunk', id: 'psn_c_'+Date.now(), radioId: 'bomb', offset: 2147483647, chunk: new Uint8Array(10), ttl: 5 });
-            msgCounter++; logT('STRESS', `💀 Fired OOB offset chunk`, '#fb7185');
-        }, 500);
-    } catch (e) {}
-  }
-
-  // ================= V8 STATIC AUDITOR =================
-  function runV8FileAudit() {
-    const fileInput = document.getElementById('fileUpload');
-    if (fileInput.files.length === 0) return alert('Please, select a file (chat.html or server.html).');
-    
-    const file = fileInput.files[0];
-    const reader = new FileReader();
-    
-    reader.onload = function(e) {
-      const SRC = e.target.result;
-      const FILE_KIND = file.name.toLowerCase().includes('server') ? 'SERVER' : 'CLIENT';
-      
-      document.getElementById('logV8').innerHTML = '';
-      logT('V8', `🔬 STARTING V8 RAY-X ON FILE: ${file.name} (${FILE_KIND})`, '#a855f7');
-      
-      let pass=0, fail=0, warn=0;
-      const T = (name, fn) => {
-        try {
-          const r = fn();
-          if (r === 'WARN') { warn++; logT('V8', '⚠ ' + name, '#fbbf24'); }
-          else if (r === false || r === null) { fail++; logT('V8', '✗ ' + name, '#f87171'); }
-          else { pass++; logT('V8', '✓ ' + name + (typeof r==='string'?'  → '+r:''), '#4ade80'); }
-        } catch(ex) { fail++; logT('V8', '✗ ' + name + ' EXC: ' + ex.message, '#f87171'); }
-      };
-      
-      const count = re => (SRC.match(re) || []).length;
-      const testRegex = (re) => re.test(SRC);
-      
-      // REGEX EXTREMAMENTE RIGOROSOS DE ENGENHARIA (NÍVEL K10 PRO)
-      logT('V8', `\n> 1. NETWORK STABILITY & HYDRA PEX`, '#cbd5e1');
-      T('H1: split-brain handler (Reservados list)', () => testRegex(/data\.migratedReservados[^]*slice\(0,\s*10\)/) || testRegex(/directoryGlobalRef\.current[^]*reservados:/) || 'WARN');
-      T('H2: Group Idempotency (Math.max on PEX)', () => count(/Math\.max[^]*size/g) >= 1 && testRegex(/groupSize\s*=\s*Math\.max/));
-      T('H3: Organic Election tied to Clock/Heartbeat', () => testRegex(/Date\.now\(\)\s*-\s*info\.lastSeen\s*<\s*\d+/) && testRegex(/livePeers\.push/));
-      T('H4: TTL Pruning on Relay (Closed Loop Prevention)', () => testRegex(/ttl\s*[-]\s*1/) && testRegex(/ttl\s*>\s*0/));
-      
-      logT('V8', `\n> 2. OOM MEMORY LEAK PREVENTION`, '#cbd5e1');
-      T('M1: Expired Cache Cleanup (TTL GC GC)', () => testRegex(/cache\.delete[^]*exp[^]*now/) && testRegex(/cache\.size\s*>\s*\d+/));
-      T('M2: LRU Hash Physical Limiter (Flood Armor)', () => testRegex(/while\s*\(\s*cache\.size\s*>\s*\d+/));
-      T('M3: Phantom Audio URLs Pruning (Blob Leak)', () => testRegex(/(__v8BlobUrls)|(URL\.revokeObjectURL)/));
-      T('M4: Connection Map Pruning on Peer Death', () => testRegex(/peerInstance\.current\.destroy\(\)/) && testRegex(/connectionsRef\.current\s*=\s*\[\]/));
-
-      logT('V8', `\n> 3. PAYLOAD & INJECTION SHIELDING (DOS)`, '#cbd5e1');
-      T('D1: General Message Size Limit (<200KB)', () => count(/200\s*\*\s*1024/) >= 1 || count(/204800/g) >= 1);
-      if (FILE_KIND === 'CLIENT') {
-          T('D2: Radio File Size Guard (Max Blob Limit)', () => testRegex(/fileSize\s*>\s*50\s*\*/));
-          T('D3: Radio Chunk OOB Guard (Absurd Offsets)', () => testRegex(/offset\s*\+\s*chunk\.length\s*>\s*fd\.totalSize/));
-          T('D4: React State Mount Protection (Tsunami UI Freeze)', () => testRegex(/connectionsRef\.current\.forEach/) && !testRegex(/setConnections[^]*forEach/));
-          T('D5: PRE-Execution Group Deduplication', () => testRegex(/isDuplicate\(data\.msgId\)\)\s*return/) && count(/isDuplicate/g) > 5);
-      }
-      
-      if (FILE_KIND === 'SERVER') {
-          logT('V8', `\n> 4. K10 SERVER CORE POLICIES`, '#cbd5e1');
-          T('S1: Garbage Collector for Zombie Heartbeats', () => testRegex(/heartbeatsRef\.current\.delete/));
-          T('S2: Shielded Unconditional Relay (Data Drop)', () => testRegex(/bloqueado[^]*texto[^]*emojis/i));
-          T('S3: Relay UUID Shield (Guarantees Hashed ID)', () => testRegex(/if\s*\(\!data\.id\)\s+data\s*=\s*\{.*id:/));
-      }
-
-      logT('V8', `\n━━━━━━━━━━ AUDIT RESULT ━━━━━━━━━━`, '#60a5fa');
-      logT('V8', ` PASSED: ${pass}   WARNINGS: ${warn}   FAILED: ${fail}`, fail>0?'#f87171':(warn>0?'#fbbf24':'#4ade80'));
-      if(fail===0 && warn===0) logT('V8', `✅ CODE COMPLETELY COMPLIANT WITH HYDRA-V8 STANDARDS.`, '#4ade80');
-      else logT('V8', `🚨 Weaknesses found. Code may crash under specific vectors covered by Ray-X.`, '#f87171');
-    };
-    reader.readAsText(file);
-  }
+  });
+},{rootMargin:'-30% 0px -60% 0px'});
+sections.forEach(s=>obs.observe(s));
 </script>
-
 </body>
 </html>
