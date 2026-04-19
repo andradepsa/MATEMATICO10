@@ -1,4 +1,4 @@
-<!-- ═══ Chat K10 V9 — Auditoria Completa V19 (19/abr/2026) ═══
+<!-- ═══ Chat K10 V9 — Auditoria Completa V21 (19/abr/2026) ═══
      Correções aplicadas:
      C-1..4  File/Audio/Voice/Video: stale connections → connectionsRef.current
      C-5     getInputStatus: cooldown verificado primeiro (modo geral)
@@ -45,7 +45,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V16</title>
+<title>Chat K10 — V22</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -1655,7 +1655,7 @@ alert(t(lang, 'magnetCopied'));
 // ================================================================
 // SendSecretModal
 // ================================================================
-const Whiteboard = ({ lang, connections, selectedContact, onClose }) => {
+const Whiteboard = ({ lang, connectionsRef, selectedContact, onClose }) => { // FIX O-1 V21: era connections (prop stale em onMouseMove) → connectionsRef
   const canvasRef = useRef(null);
   const contextRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -1727,12 +1727,12 @@ const Whiteboard = ({ lang, connections, selectedContact, onClose }) => {
         tool: drawTool
       };
       if (selectedContact) {
-        const conn = connections.find(c => c.peer === selectedContact);
+        const conn = connectionsRef.current.find(c => c.peer === selectedContact);
         if (conn && conn.open) {
           conn.send(payload);
         }
       } else {
-        connections.forEach(conn => {
+        connectionsRef.current.forEach(conn => {
           if (conn.open) {
             try { conn.send(payload); } catch(e) {}
           }
@@ -1750,12 +1750,12 @@ const Whiteboard = ({ lang, connections, selectedContact, onClose }) => {
     if (emit) {
       const payload = { type: 'whiteboard', action: 'clear' };
       if (selectedContact) {
-        const conn = connections.find(c => c.peer === selectedContact);
+        const conn = connectionsRef.current.find(c => c.peer === selectedContact);
         if (conn && conn.open) {
           conn.send(payload);
         }
       } else {
-        connections.forEach(conn => {
+        connectionsRef.current.forEach(conn => {
           if (conn.open) {
             try { conn.send(payload); } catch(e) {}
           }
@@ -2070,7 +2070,7 @@ const QuizQuestion = ({ msg, peerId, onAnswer }) => {
 };
 
 
-const MarkdownEditor = ({ lang, connections, selectedContact, onClose }) => {
+const MarkdownEditor = ({ lang, connectionsRef, selectedContact, onClose }) => { // FIX O-2 V21: era connections (prop stale em onChange) → connectionsRef
   const [content, setContent] = useState('');
   const [html, setHtml] = useState('');
 
@@ -2098,10 +2098,10 @@ const MarkdownEditor = ({ lang, connections, selectedContact, onClose }) => {
     
     const payload = { type: 'md-editor', content: newContent };
     if (selectedContact) {
-      const conn = connections.find(c => c.peer === selectedContact);
+      const conn = connectionsRef.current.find(c => c.peer === selectedContact);
       if (conn && conn.open) conn.send(payload);
     } else {
-      connections.forEach(conn => {
+      connectionsRef.current.forEach(conn => {
         if (conn.open) try { conn.send(payload); } catch(err) {}
       });
     }
@@ -2482,11 +2482,12 @@ const handleVote = (pollId, optionIndex) => {
     ttl: 15
   };
 
+  // FIX N-4 V20: era connections (stale closure) → connectionsRef.current
   if (selectedContact) {
-    const conn = connections.find(c => c.peer === selectedContact);
+    const conn = connectionsRef.current.find(c => c.peer === selectedContact);
     if (conn && conn.open) conn.send({ ...voteData, direct: true });
   } else {
-    connections.forEach(c => { if (c.open) try { c.send({ ...voteData, direct: false }); } catch(e){} });
+    connectionsRef.current.forEach(c => { if (c.open) try { c.send({ ...voteData, direct: false }); } catch(e){} });
   }
 };
 
@@ -2523,11 +2524,12 @@ const handleQuizAnswer = (quizId, optionIndex) => {
     direct: false
   };
 
+  // FIX N-5 V20: era connections (stale closure) → connectionsRef.current
   if (selectedContact) {
-    const conn = connections.find(c => c.peer === selectedContact);
+    const conn = connectionsRef.current.find(c => c.peer === selectedContact);
     if (conn && conn.open) conn.send({ ...answerData, direct: true });
   } else {
-    connections.forEach(c => { if (c.open) try { c.send({ ...answerData, direct: false }); } catch(e){} });
+    connectionsRef.current.forEach(c => { if (c.open) try { c.send({ ...answerData, direct: false }); } catch(e){} });
   }
 };
 
@@ -2760,9 +2762,10 @@ if (newMessage.length > 2000) { alert(t(lang, 'msgTooLong')); return; }
 
 
 if (selectedContact) {
-const conn = connections.find(c => c.peer === selectedContact);
+// FIX N-8 V20: era connections.find (stale closure) → connectionsRef.current.find
+const conn = connectionsRef.current.find(c => c.peer === selectedContact);
 if (!conn || !conn.open) { alert(t(lang, 'contactOffline', { name: getContactName(selectedContact) })); return; }
-} else if (connections.length === 0) {
+} else if (connectionsRef.current.length === 0) {
 return;
 }
 
@@ -2785,7 +2788,7 @@ textToSend = GROUP_E2EE_PREFIX + await encryptMsg(newMessage, serverE2EE[selecte
 } else if (!selectedIsServer && canSendPrivate) {
 textToSend = E2EE_PREFIX + await encryptMsg(newMessage, e2eeState[selectedContact].mySecret);
 }
-const conn = connections.find(c => c.peer === selectedContact);
+const conn = connectionsRef.current.find(c => c.peer === selectedContact); // FIX N-8 V20: era connections.find (stale pós-await encryptMsg)
 if (!conn || !conn.open) throw new Error('Connection lost during encryption. Please try again.');
 conn.send({ type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: true, time: formatTime(timestamp) });
 const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
@@ -4322,12 +4325,13 @@ const handlePollCreated = (question, options) => {
     ttl: 15
   };
 
+  // FIX N-3 V20: era connections (stale closure) → connectionsRef.current
   if (selectedContact) {
-    const conn = connections.find(c => c.peer === selectedContact);
+    const conn = connectionsRef.current.find(c => c.peer === selectedContact);
     if (conn && conn.open) conn.send({ ...msgData, direct: true });
     setMessages(prev => [...prev, { ...msgData, sender: 'you', recipient: selectedContact }].slice(-500));
   } else {
-    connections.forEach(c => { if (c.open) try { c.send({ ...msgData, direct: false }); } catch(e){} });
+    connectionsRef.current.forEach(c => { if (c.open) try { c.send({ ...msgData, direct: false }); } catch(e){} });
     setMessages(prev => [...prev, { ...msgData, sender: 'you', recipient: 'general' }].slice(-500));
   }
   setShowPollCreator(false);
@@ -4977,12 +4981,11 @@ else { const first = localStreamsRef.current.values().next().value; if (localVid
 
 
 const sendHandshake = (conn) => {
-try {
-conn.send({ type: 'handshake', peerId, avatar: userAvatarRef.current }); // FIX BUG-D: ref evita avatar stale
+// FIX O-6 V21: cada send em try-catch individual — falha no handshake não descarta youtube-chat-start
+try { conn.send({ type: 'handshake', peerId, avatar: userAvatarRef.current }); } catch(e) {}
 if (youtubeChatIdRef.current) {
-conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
+  try { conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 }); } catch(e) {}
 }
-} catch(e) {}
 };
 
 
@@ -5093,7 +5096,7 @@ if (data.type === 'network-stats' && data.totalOnline !== undefined) {
 if (data.worldQuizNodes) {
   worldQuizNodesRef.current = data.worldQuizNodes;
 }
-setNetworkSize(prev => Math.max(data.totalOnline, connections.length + 1));
+setNetworkSize(prev => Math.max(data.totalOnline, connectionsRef.current.length + 1)); // FIX P-1 V22: era connections.length (stale closure em callback PeerJS)
 // Relay stats to other peers to spread the info
 let ttl = data.ttl !== undefined ? data.ttl : 5;
 if (ttl > 0) {
@@ -6373,9 +6376,9 @@ const heartbeatMsg = {
 };
 
 
-// 1. Send to central server if connected
+// FIX N-6 V20: era connections.find (stale closure dentro de setInterval) → connectionsRef.current.find
 if (centralServerId) {
-const serverConn = connections.find(c => c.peer === centralServerId && c.open);
+const serverConn = connectionsRef.current.find(c => c.peer === centralServerId && c.open);
 if (serverConn) {
 try { serverConn.send(heartbeatMsg); } catch(e) {}
 } else {
@@ -6403,19 +6406,21 @@ return () => {
 clearInterval(interval);
 clearTimeout(timeout);
 };
-}, [peerId, centralServerId, connections.length]);
+}, [peerId, centralServerId]); // FIX O-5 V21: era [peerId, centralServerId, connections.length] — recriava interval a cada conexão; após N-6 a dep connections.length é desnecessária
 
 
 useEffect(() => {
 const iv = setInterval(() => {
-if (connections.length > 0) {
-const allKnown = Array.from(new Set([...connections.map(c => c.peer), ...Array.from(knownUsersRef.current)]));
+// FIX N-7 V20: era connections (stale closure dentro de setInterval) → connectionsRef.current; deps [] evita recriar o interval a cada nova conexão
+const conns = connectionsRef.current;
+if (conns.length > 0) {
+const allKnown = Array.from(new Set([...conns.map(c => c.peer), ...Array.from(knownUsersRef.current)]));
 // FASE-2: PEX enriquecido com groupId, groupSize e isReservado para diretório global
 const myGroupId = myGroupIdRef.current;
 const myGroupSize = myGroupId && directoryGlobalRef.current[myGroupId]
   ? directoryGlobalRef.current[myGroupId].groupSize
-  : connections.length + 1;
-connections.forEach(conn => {
+  : conns.length + 1;
+conns.forEach(conn => {
 if (conn.open) try {
   conn.send({
     type: 'pex',
@@ -6430,7 +6435,7 @@ if (conn.open) try {
 }
 }, 30000);
 return () => clearInterval(iv);
-}, [connections]);
+}, []); // FIX N-7 V20: era [connections] — recriava o interval a cada nova conexão
 
 
 // ════════════════════════════════════════════════════════════════════
@@ -6478,8 +6483,8 @@ useEffect(() => {
   const intervalMs = isSuperNode ? 60000 : 300000;
   const updatePeerInterval = setInterval(() => {
     const myGroupId = myGroupIdRef.current;
-    if (!myGroupId || connections.length === 0) return;
-    const myGroupSize = directoryGlobalRef.current[myGroupId]?.groupSize ?? connections.length + 1;
+    if (!myGroupId || connectionsRef.current.length === 0) return; // FIX O-4 V21: era connections.length (stale)
+    const myGroupSize = directoryGlobalRef.current[myGroupId]?.groupSize ?? connectionsRef.current.length + 1; // FIX O-4 V21
     const msg = {
       type: 'update-peer', msgId: 'up_'+peerId+'_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),
       peerId: peerId,
@@ -6491,7 +6496,7 @@ useEffect(() => {
     connectionsRef.current.forEach(c => { if (c.open) try { c.send(msg); } catch(e) {} });
   }, intervalMs);
   return () => clearInterval(updatePeerInterval);
-}, [isSuperNode, connections]);
+}, [isSuperNode]); // FIX O-4 V21: era [isSuperNode, connections] — recriava interval a cada nova conexão
 
 
 // ════════════════════════════════════════════════════════════════════
@@ -7419,7 +7424,7 @@ sendChunkedData(conn, 'audioId', audioBlob, 'audio', {});
 
 const startVoiceCall = async (peerIdToCall) => {
 if (!peerInstance.current || !peerIdToCall) return;
-if (activeCalls.some(c => c.peerId === peerIdToCall && c.type === 'voice')) return;
+if (activeCallsRef.current.some(c => c.peerId === peerIdToCall && c.type === 'voice')) return; // FIX N-1 V20: era activeCalls (stale closure)
 // BUG C-3 FIX: usa connectionsRef.current para evitar stale closure em event handlers
 const conn = connectionsRef.current.find(c => c.peer === peerIdToCall);
 if (!conn || !conn.open) { alert(t(lang, 'contactOffline2')); return; }
@@ -7437,7 +7442,7 @@ call.on('error', err => { alert(t(lang, 'callError') + err.message); endCall(pee
 
 const toggleVideoCall = async (peerIdToCall) => {
 if (!peerInstance.current || !peerIdToCall) return;
-const existingCall = activeCalls.find(c => c.peerId === peerIdToCall && c.type === 'video');
+const existingCall = activeCallsRef.current.find(c => c.peerId === peerIdToCall && c.type === 'video'); // FIX N-2 V20: era activeCalls (stale closure)
 const isSendingVideo = existingCall && existingCall.localStream;
 // BUG C-4 FIX: usa connectionsRef.current para evitar stale closure
 const conn = connectionsRef.current.find(c => c.peer === peerIdToCall);
@@ -7480,7 +7485,7 @@ if (!yId) { alert(t(lang, 'invalidYoutubeUrl') || 'Invalid YouTube URL'); return
 setYoutubeChatId(yId);
 const msgId = Date.now() + Math.random().toString(36).substring(2);
 const msgData = { type: 'youtube-chat-start', id: msgId, youtubeId: yId, ttl: 15 };
-connections.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
+connectionsRef.current.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} }); // FIX O-3 V21: era connections (stale closure)
 };
 
 
@@ -7528,7 +7533,7 @@ return (
 
 const generateInviteLink = () => {
 if (!peerId) return;
-const activePeers = connections.filter(c => c.open && c.peer !== peerId).map(c => c.peer);
+const activePeers = connectionsRef.current.filter(c => c.open && c.peer !== peerId).map(c => c.peer); // FIX O-7 V21: era connections (stale closure)
 const allIds = [peerId, ...activePeers].slice(0, 15);
 const url = new URL(window.location.href);
 url.searchParams.set('portas', allIds.join(','));
@@ -7615,9 +7620,9 @@ return (
   </div>
 )}
 {showPollCreator && <PollCreator onClose={() => setShowPollCreator(false)} onCreated={handlePollCreated} />}
-{showMarkdownEditor && <MarkdownEditor lang={lang} connections={connections} selectedContact={selectedContact} onClose={() => setShowMarkdownEditor(false)} />}
+{showMarkdownEditor && <MarkdownEditor lang={lang} connectionsRef={connectionsRef} selectedContact={selectedContact} onClose={() => setShowMarkdownEditor(false)} />}
 {showGeneralModeInfo && <GeneralModeInfoModal lang={lang} selectedContact={selectedContact} onClose={() => setShowGeneralModeInfo(false)} />}
-{showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => connections.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act});}catch(e){} })} sendQuizHandoff={sendQuizHandoff} />}
+{showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act});}catch(e){} })}  /* FIX N-9 V20: era connections (stale closure) */ sendQuizHandoff={sendQuizHandoff} />}
 {showTorrentManager && (
 <TorrentManagerModal
 lang={lang}
@@ -8003,7 +8008,7 @@ currentQuizQuestionRef={currentQuizQuestionRef}
 {showWhiteboard && (
   <Whiteboard 
     lang={lang} 
-    connections={connections} 
+    connectionsRef={connectionsRef}
     selectedContact={selectedContact} 
     onClose={() => setShowWhiteboard(false)} 
   />
