@@ -1174,6 +1174,7 @@
 
         // ═══ V8-BUG#2: group-split / group-merge — servidor relay + atualiza diretório ═══
         if (data.type === 'group-split') {
+          addAudit(`[Hydra] Split: ${data.oldGroupId} gerou ${data.newGroupId}`, 'info');
           if (data.msgId && seenMessagesRef.current.has(data.msgId)) return;
           if (data.msgId) seenMessagesRef.current.add(data.msgId);
           if (data.newGroupId && !activeGroupsRef.current[data.newGroupId]) {
@@ -1189,6 +1190,7 @@
           return;
         }
         if (data.type === 'group-merge') {
+          addAudit(`[Hydra] Merge: ${data.absorbedGroupId} absorvido por ${data.survivingGroupId}`, 'info');
           if (data.msgId && seenMessagesRef.current.has(data.msgId)) return;
           if (data.msgId) seenMessagesRef.current.add(data.msgId);
           const { survivingGroupId, absorbedGroupId } = data;
@@ -1217,6 +1219,7 @@
 
         // ── Quiz Bot: controle de slot único por servidor ────────────────
         if (data.type === 'subscribe-world-quiz') {
+          addAudit(`[Quiz] Usuário ${sourceConn.peer} inscrito no Quiz Mundial`, 'info');
           // O servidor apenas repassa essa mensagem para o distribuidor correto
           const distributorConn = activeConnectionsRef.current.get(data.distributorId);
           if (distributorConn) {
@@ -1480,9 +1483,46 @@
             }, 5000);
           }
           
-          // Always send handshake from server so clients know it's a central server
-          try {
-            conn.send({ type: 'handshake', peerId });
+          // V9: Garbage Collector para conexões WebRTC fantasmas (onde o evento on('close') não dispara)
+const ghostGcIv = setInterval(() => {
+  activeConnectionsRef.current.forEach((conn, peerId) => {
+    if (!conn.peerConnection) return;
+    const state = conn.peerConnection.connectionState;
+    if (state === 'failed' || state === 'closed' || state === 'disconnected') {
+      addAudit(`[GhostGC] Peer fantasma [${peerId}] detectado e removido (${state})`, 'warn');
+      try { conn.close(); } catch(e){}
+      
+      // Limpeza manual já que o evento close pode não disparar
+      if (quizBotPeerRef.current === peerId) {
+        quizBotPeerRef.current = null;
+        activeConnectionsRef.current.forEach((c) => {
+          try { c.send({ type: 'quiz-bot-status', active: false }); } catch(e) {}
+        });
+      }
+      
+      const peerGroupId = peerGroupMapRef.current.get(peerId);
+      if (peerGroupId && activeGroupsRef.current[peerGroupId]) {
+        activeGroupsRef.current[peerGroupId].size = Math.max(0, activeGroupsRef.current[peerGroupId].size - 1);
+        activeGroupsRef.current[peerGroupId].members.delete(peerId);
+      }
+      peerGroupMapRef.current.delete(peerId);
+      activeConnectionsRef.current.delete(peerId);
+      
+      setConnections(Array.from(activeConnectionsRef.current.keys()));
+      setStats(prev => ({
+        ...prev,
+        activeConnections: activeConnectionsRef.current.size,
+        hydraNodes: recentPeersRef.current.length
+      }));
+    }
+  });
+}, 5000);
+
+// Cleanup do timer ao desmontar
+useEffect(() => {
+  return () => clearInterval(ghostGcIv);
+}, []);
+
             if (youtubeChatIdRef.current) {
               conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
             }
