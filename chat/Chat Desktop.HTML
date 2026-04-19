@@ -1,3 +1,4 @@
+<!-- ═══ Chat K10 V8 — Hydra Hardened (Auditoria 19/abr/2026) ═══ -->
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -632,7 +633,7 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 <body>
 <noscript>
   <div style="padding:40px;font-family:system-ui,-apple-system,sans-serif;text-align:center;max-width:560px;margin:60px auto;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);">
-    <h1 style="color:#1e40af;margin-top:0;">Chat K10</h1>
+    <h1 style="color:#1e40af;margin-top:0;">Chat K10 V7</h1>
     <p style="color:#1e293b;font-size:16px;line-height:1.6;">
       <strong>JavaScript is required.</strong><br>
       This peer-to-peer encrypted chat needs JavaScript to establish secure connections between browsers.
@@ -4037,7 +4038,16 @@ const [isPeerInitialized, setIsPeerInitialized] = useState(false);
 const [centralServerId, setCentralServerId] = useState(null);
 const [cooldownRemaining, setCooldownRemaining] = useState(0);
 const [networkSize, setNetworkSize] = useState(1);
-const [isSuperNode, setIsSuperNode] = useState(false);
+const [isSuperNode, _setIsSuperNodeRaw] = useState(false);
+// V7-B15: wrapper que respeita canBeReservadoRef
+const setIsSuperNode = (v) => {
+  if (v === true && canBeReservadoRef && canBeReservadoRef.current === false) {
+    console.warn('[V7-B15] Bloqueado: dispositivo mobile/low-mem não pode ser SuperNode');
+    alert('Seu dispositivo (mobile/baixa memória) não pode ser SuperNode.');
+    return;
+  }
+  _setIsSuperNodeRaw(v);
+};
 // FIX BUG-2: refs always hold the latest value, solving stale-closure inside useEffect([peerId])
 const isSuperNodeRef = useRef(false);
 useEffect(() => { isSuperNodeRef.current = isSuperNode; }, [isSuperNode]);
@@ -4642,11 +4652,72 @@ const torrentClientRef = useRef(null);
 const pendingRadioFiles = useRef({});
 const radioIntervalRef = useRef(null);
 const knownUsersRef = useRef(new Set());
+const peerIdRef = useRef(null);
 const lastMessageTimeRef = useRef(new Map());
 const bannedPeersRef = useRef(new Set());
 const spamViolationsRef = useRef(new Map());
 const CHUNK_SIZE = 16 * 1024;
 
+// ── HYDRA FASE-2/3: Estado distribuído de grupos ─────────────────────────────
+// groupId deste nó (null até receber peer-list do servidor ou bootstrap P2P)
+const myGroupIdRef = useRef(localStorage.getItem('myGroupId') || null);
+// Diretório global: { [groupId]: { reservados: string[], groupSize: number } }
+const directoryGlobalRef = useRef({});
+// FASE-3/Caso2: locks de operações em andamento { [groupId]: expiryTimestamp }
+const lockedGroupsRef = useRef({});
+// FASE-3/Caso2: flag local de operação em andamento
+const groupOperationInProgressRef = useRef(false);
+const groupOperationExpiryRef = useRef(0);
+
+// ── HYDRA V6: Estruturas para correcao P1-P8 ─────────────────────────────
+// P8: cache de deduplicacao para flooding (msgId -> expiry)
+const seenMsgIdsRef = useRef(new Map());
+// P1+P2: heartbeats ativos por peer { peerId: { lastSeen, groupId, isReservado } }
+const peerHeartbeatsRef = useRef(new Map());
+// P6: estado de consenso por epoca { epoch: number, leader: string|null, leaderExpiry: number }
+const consensusStateRef = useRef({ epoch: 0, leader: null, leaderExpiry: 0 });
+// P5: tick logico (epoca) - incrementa a cada 60s, alinhado por NTP-like sync
+// V4 FIX BUG#2: epochRef agora é DERIVADO do tempo (nunca mutado) e há ref
+//               dedicada lastSplitEpochRef para "já executei nesta época".
+const epochRef = useRef(Math.floor(Date.now() / 60000));
+const lastSplitEpochRef = useRef(0);
+// Atualiza epochRef a cada segundo a partir do relógio (sem mutações externas)
+useEffect(() => {
+  const iv = setInterval(() => {
+    epochRef.current = Math.floor(Date.now() / 60000);
+  }, 1000);
+  return () => clearInterval(iv);
+}, []);
+// P4: salt de colisao para retry de groupId
+const groupSaltRef = useRef(0);
+
+// ─── HYDRA V6 PATCH-3: capacidade do device + Visibility API ─────────────────
+// iOS, Android low-end e tabs com pouca RAM nunca devem virar reservados:
+// drenam bateria, perdem heartbeats em background e desestabilizam consenso.
+const canBeReservadoRef = useRef(true);
+
+
+
+const isPageVisibleRef = useRef(true);
+
+useEffect(() => {
+  const ua = navigator.userAgent || '';
+  const isIOS = /iPhone|iPad|iPod/i.test(ua);
+  const isAndroid = /Android/i.test(ua);
+  const isMobile = isIOS || isAndroid;
+  const lowMem = (navigator.deviceMemory ?? 4) < 4;
+  const lowCPU = (navigator.hardwareConcurrency ?? 4) < 4;
+  canBeReservadoRef.current = !isMobile && !lowMem && !lowCPU;
+  console.log(`[HYDRA-V6 P3] canBeReservado=${canBeReservadoRef.current}`,
+              { isIOS, isAndroid, lowMem, lowCPU });
+
+  const onVis = () => {
+    isPageVisibleRef.current = !document.hidden;
+    console.log(`[HYDRA-V6 P3] visibility=${!document.hidden ? 'visible' : 'hidden'}`);
+  };
+  document.addEventListener('visibilitychange', onVis);
+  return () => document.removeEventListener('visibilitychange', onVis);
+}, []);
 
 
 useEffect(() => {
@@ -4871,6 +4942,8 @@ setTimeout(() => connectToPeer(newPId), Math.random() * 3000); // Random delay t
 }
 });
 }
+// FASE-2: proteção mútua — se não temos groupId ainda, o servidor/reservado já
+// enviou o groupId via peer-list; aqui apenas registramos o message do sistema
 setMessages(prev => [...prev, { text: data.message || "Servidor lotado. Você foi migrado para a rede descentralizada (P2P) automaticamente.", sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
 return;
 }
@@ -4917,7 +4990,46 @@ return;
 }
 
 
+if (data.type === 'peer-list' && Array.isArray(data.peers)) {
+  // FASE-1/M3: conecta aos peers recebidos no bootstrap
+  if (peerInstance.current) {
+    const maxConns = isSuperNodeRef.current ? 50 : 15;
+    data.peers.forEach(newPId => {
+      const activeCount = Object.keys(peerInstance.current.connections).length;
+      if (activeCount < maxConns
+          && newPId !== peerId
+          && !peerInstance.current.connections[newPId]
+          && !bannedPeersRef.current.has(newPId)) {
+        setTimeout(() => connectToPeer(newPId), Math.random() * 3000);
+      }
+    });
+  }
+  // FASE-2: armazena groupId atribuído pelo servidor
+  if (data.groupId) {
+    // FASE-3/Caso4: se groupId salvo não existe mais no diretório, ignora e usa o novo
+    const savedGroupId = localStorage.getItem('myGroupId');
+    if (!savedGroupId || !directoryGlobalRef.current[savedGroupId] || savedGroupId === data.groupId) {
+      myGroupIdRef.current = data.groupId;
+      localStorage.setItem('myGroupId', data.groupId);
+    }
+  }
+  return;
+}
+
+
 if (data.type === 'pex' && Array.isArray(data.peers)) {
+// FASE-2: atualiza diretório global ao receber PEX enriquecido
+if (data.groupId && data.groupSize !== undefined) {
+  if (!directoryGlobalRef.current[data.groupId]) {
+    directoryGlobalRef.current[data.groupId] = { reservados: [], groupSize: 0 };
+  }
+  directoryGlobalRef.current[data.groupId].groupSize = data.groupSize;
+  if (data.isReservado && data.peerId) {
+    const set = new Set(directoryGlobalRef.current[data.groupId].reservados);
+    set.add(data.peerId);
+    directoryGlobalRef.current[data.groupId].reservados = [...set].slice(0, 10); // PATCH-B: V6=10
+  }
+}
 if (peerInstance.current) {
 const activeCount = Object.keys(peerInstance.current.connections).length;
 if (activeCount < maxConnections) {
@@ -4929,6 +5041,221 @@ setTimeout(() => connectToPeer(newPId), 2000);
 }
 }
 return;
+}
+
+
+// ════════════════════════════════════════════════════════════════════
+// V8-BUG#4: bounds-check de tamanho ANTES de qualquer relay/processamento
+// Mensagens de topologia/texto não devem passar de 200KB. file-chunk e
+// audio-chunk têm seus próprios limites (totalSize já validado).
+// ════════════════════════════════════════════════════════════════════
+try {
+  if (data && typeof data === 'object' &&
+      data.type !== 'file-chunk' && data.type !== 'file-start' &&
+      data.type !== 'audio-chunk' && data.type !== 'audio-start' &&
+      data.type !== 'radio-chunk' && data.type !== 'radio-start') {
+    const approxSize = JSON.stringify(data).length;
+    if (approxSize > 200 * 1024) {
+      console.warn('[V8-BUG#4] mensagem rejeitada por tamanho:', data.type, approxSize);
+      return;
+    }
+  }
+} catch(e) {}
+
+// ════════════════════════════════════════════════════════════════════
+// FASE-3: Handlers de topologia Hydra (split, merge, eleição)
+// ════════════════════════════════════════════════════════════════════
+
+// FASE-3/Caso2: trava de operação em andamento recebida de outro grupo
+if (data.type === 'group-operation-lock') {
+  // V6 FIX: dedup + TTL decremento para evitar eco infinito
+  if (data.msgId && seenMsgIdsRef.current.has(data.msgId)) return;
+  if (data.msgId) seenMsgIdsRef.current.set(data.msgId, Date.now() + 300000);
+  lockedGroupsRef.current[data.groupId] = data.expiry;
+  if (data.ttl !== undefined && data.ttl > 0) {
+    const relayLock = { ...data, ttl: data.ttl - 1 };
+    connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relayLock); } catch(e) {} });
+  }
+  return;
+}
+
+// FASE-3/Caso5: eleição de novo reservado após split
+if (data.type === 'new-reservado' && data.peerId && data.groupId) {
+  if (directoryGlobalRef.current[data.groupId]) {
+    const set = new Set(directoryGlobalRef.current[data.groupId].reservados);
+    set.add(data.peerId);
+    directoryGlobalRef.current[data.groupId].reservados = [...set].slice(0, 10); // PATCH-B: V6=10
+  }
+  // Propagar para demais
+  connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(data); } catch(e) {} });
+  return;
+}
+
+// FASE-3: receber group-split — atualiza diretório e, se reservado, migra
+if (data.type === 'group-split') {
+  // V4 FIX BUG#5: dedup ANTES de qualquer mutação de estado
+  if (data.msgId && isDuplicate(data.msgId)) return;
+  const { oldGroupId, newGroupId } = data;
+  // Atualiza diretório: cria entrada para o novo grupo
+  if (newGroupId && !directoryGlobalRef.current[newGroupId]) {
+    directoryGlobalRef.current[newGroupId] = { reservados: data.migratedReservados || [], groupSize: data.migratedReservados ? data.migratedReservados.length : 0, lastUpdate: Date.now() };
+  }
+  // Se sou reservado do grupo que fez split, migro para o novo grupo
+  if (isSuperNodeRef.current && myGroupIdRef.current === oldGroupId) {
+    myGroupIdRef.current = newGroupId;
+    localStorage.setItem('myGroupId', newGroupId);
+  }
+  // FASE-3/Caso5: se meu grupo original perdeu todos os reservados, auto-eleição
+  if (myGroupIdRef.current === oldGroupId && !isSuperNodeRef.current) {
+    const myConns = Object.keys(peerInstance.current ? peerInstance.current.connections : {}).length;
+    if (myConns >= 20) {
+      // V6 (P7): eleicao baseada em heartbeats observados localmente.
+      // Cada no calcula o conjunto de peers vivos de seu grupo, ordena por peerId,
+      // e elege os 10 menores como novos reservados (capacidade reduzida 1800->10).
+      const myGroupNow = myGroupIdRef.current;
+      const livePeers = [peerId];
+      for (const [pid, info] of peerHeartbeatsRef.current) {
+        if (info.groupId === myGroupNow && Date.now() - info.lastSeen < 90000) livePeers.push(pid);
+      }
+      const sorted = [...new Set(livePeers)].sort();
+      const electedTop10 = sorted.slice(0, 10);
+      // PATCH-3 (V4 FIX BUG#1): só assume reservado se device for capaz (desktop, RAM/CPU OK)
+      // Lógica original estava invertida — o else-if capturava QUALQUER eleição.
+      if (electedTop10.includes(peerId) && canBeReservadoRef.current) {
+        isSuperNodeRef.current = true;
+        setIsSuperNode(true);
+        const electMsg = {
+          type: 'new-reservado',
+          msgId: makeMsgId(),
+          peerId,
+          groupId: oldGroupId,
+          epoch: epochRef.current,
+          ttl: 5
+        };
+        floodMessage(electMsg, null);
+      } else if (electedTop10.includes(peerId)) {
+        console.log('[HYDRA-V6 P3] Eleito mas device incapaz (mobile/lowmem) — recusando');
+      }
+    }
+  }
+  // V4 FIX BUG#5: dedup já feito no início; aqui só relay.
+  if (data.ttl !== undefined && data.ttl > 0) {
+    const relay = { ...data, ttl: data.ttl - 1 };
+    connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
+  }
+  return;
+}
+
+// FASE-3/Caso3: receber group-merge — confiar na mensagem do reservado remetente
+if (data.type === 'group-merge') {
+  // V4 FIX BUG#6: dedup ANTES de qualquer mutação. Sem isso, cada hop somava
+  //               groupSize (BUG#7) e remigrar o nó N vezes.
+  if (data.msgId && isDuplicate(data.msgId)) return;
+  const { survivingGroupId, absorbedGroupId } = data;
+  // Confiar na mensagem — remetente tem dados mais atualizados
+  if (myGroupIdRef.current === absorbedGroupId) {
+    myGroupIdRef.current = survivingGroupId;
+    localStorage.setItem('myGroupId', survivingGroupId);
+  }
+  // Atualizar diretório local imediatamente
+  if (directoryGlobalRef.current[absorbedGroupId]) {
+    const absorbed = directoryGlobalRef.current[absorbedGroupId];
+    if (!directoryGlobalRef.current[survivingGroupId]) {
+      directoryGlobalRef.current[survivingGroupId] = { reservados: [], groupSize: 0, lastUpdate: Date.now() };
+    }
+    // Merge dos reservados
+    const mergedR = new Set([
+      ...directoryGlobalRef.current[survivingGroupId].reservados,
+      ...absorbed.reservados
+    ]);
+    directoryGlobalRef.current[survivingGroupId].reservados = [...mergedR].slice(0, 10); // PATCH-B: V6=10
+    // V8-BUG#3: groupSize idempotente — usar MAX(soma_atual, soma_absorvido)
+    // para que múltiplos relays não inflem o tamanho.
+    const survivingSize = directoryGlobalRef.current[survivingGroupId].groupSize || 0;
+    const absorbedSize  = absorbed.groupSize || 0;
+    directoryGlobalRef.current[survivingGroupId].groupSize = Math.max(survivingSize, survivingSize + absorbedSize, absorbedSize);
+    directoryGlobalRef.current[survivingGroupId].lastUpdate = Date.now();
+    delete directoryGlobalRef.current[absorbedGroupId];
+  }
+  if (data.ttl !== undefined && data.ttl > 0) {
+    const relay = { ...data, ttl: data.ttl - 1 };
+    connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
+  }
+  return;
+}
+
+// V6 (P1+P2): handler de p2p-heartbeat para manter contagem real de membros
+if (data.type === 'p2p-heartbeat') {
+  if (data.msgId && isDuplicate(data.msgId)) return;
+  if (data.peerId) {
+    peerHeartbeatsRef.current.set(data.peerId, {
+      lastSeen: Date.now(),
+      groupId: data.groupId,
+      isReservado: data.isReservado,
+      epoch: data.epoch,
+      afk: !!data.afk  // PATCH-3: rastreia tabs em background
+    });
+  }
+  // relay
+  if (data.ttl !== undefined && data.ttl > 0) {
+    const relay = { ...data, ttl: data.ttl - 1 };
+    connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
+  }
+  return;
+}
+
+// ─── HYDRA V6 PATCH-A: directory-announce global ─────────────────────────────
+// Líder de cada grupo emite anúncio inter-grupo via flooding TTL=8.
+// Resolve cobertura incompleta do diretório (proteção mútua passa a funcionar).
+if (data.type === 'directory-announce') {
+  if (data.msgId && isDuplicate(data.msgId)) return;
+  if (!data.groupId) return;
+  const cur = directoryGlobalRef.current[data.groupId];
+  const incomingEpoch = data.epoch || 0;
+  if (!cur || (cur.epoch || 0) <= incomingEpoch) {
+    directoryGlobalRef.current[data.groupId] = {
+      reservados: Array.isArray(data.reservados) ? data.reservados.slice(0, 10) : [],
+      groupSize: typeof data.groupSize === 'number' ? data.groupSize : 0,
+      epoch: incomingEpoch,
+      lastUpdate: Date.now()
+    };
+  }
+  const ttl = (data.ttl ?? 0) - 1;
+  if (ttl > 0) {
+    const relay = { ...data, ttl };
+    connectionsRef.current.forEach(c => {
+      if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {}
+    });
+  }
+  return;
+}
+
+// FASE-2: update-peer — mensagem de topologia com TTL=5, filtrada por grupo
+if (data.type === 'update-peer') {
+  if (data.msgId && isDuplicate(data.msgId)) return; // V7-B4 dedup
+  // Descartar se não for do meu grupo (flooding contido ao grupo)
+  if (data.groupId && myGroupIdRef.current && data.groupId !== myGroupIdRef.current) return;
+  // Atualizar diretório com info do nó
+  if (data.groupId && data.peerId) {
+    if (!directoryGlobalRef.current[data.groupId]) {
+      directoryGlobalRef.current[data.groupId] = { reservados: [], groupSize: 0 };
+    }
+    if (data.isReservado) {
+      const set = new Set(directoryGlobalRef.current[data.groupId].reservados);
+      set.add(data.peerId);
+      directoryGlobalRef.current[data.groupId].reservados = [...set].slice(0, 10); // PATCH-B: V6=10 reservados
+    }
+    if (data.groupSize !== undefined) {
+      directoryGlobalRef.current[data.groupId].groupSize = data.groupSize;
+    }
+  }
+  // Relay com TTL decrementado (TTL=5 para mensagens de topologia)
+  const ttl = data.ttl !== undefined ? data.ttl : 5;
+  if (ttl > 0) {
+    const relay = { ...data, ttl: ttl - 1 };
+    connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
+  }
+  return;
 }
 
 
@@ -4945,14 +5272,16 @@ const now = Date.now();
 if (data.radioType === 'stream') {
   setRadioState(prev => {
     if (prev.status === 'idle') {
-      return { status: now >= data.startTime ? 'playing' : 'buffering', type: 'stream', startTime: data.startTime, audioUrl: data.streamUrl, fileName: data.fileName, sender: data.senderName, showVideo: false, videoSize: 'medium' };
+      if (typeof data.streamUrl !== 'string' || !/^https?:\/\//i.test(data.streamUrl)) { console.warn('[V7] streamUrl inválido'); return prev; }
+return { status: now >= data.startTime ? 'playing' : 'buffering', type: 'stream', startTime: data.startTime, audioUrl: data.streamUrl, fileName: data.fileName, sender: data.senderName, showVideo: false, videoSize: 'medium' };
     }
     return prev;
   });
 } else if (data.radioType === 'youtube') {
   setRadioState(prev => {
     if (prev.status === 'idle') {
-      return { status: now >= data.startTime ? 'playing' : 'buffering', type: 'youtube', startTime: data.startTime, duration: data.duration || 300, audioUrl: null, youtubeId: data.youtubeId, fileName: data.fileName, sender: data.senderName, showVideo: false, videoSize: 'medium' };
+      if (typeof data.youtubeId !== 'string' || !/^[A-Za-z0-9_:-]{1,80}$/.test(data.youtubeId)) { console.warn('[V7] youtubeId inválido'); return prev; }
+return { status: now >= data.startTime ? 'playing' : 'buffering', type: 'youtube', startTime: data.startTime, duration: data.duration || 300, audioUrl: null, youtubeId: data.youtubeId, fileName: data.fileName, sender: data.senderName, showVideo: false, videoSize: 'medium' };
     }
     return prev;
   });
@@ -5065,7 +5394,8 @@ pruneSeenMessages();
 let ttl = data.ttl !== undefined ? data.ttl : 8;
 if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
 if (data.type === 'radio-start') {
-pendingRadioFiles.current[data.radioId] = { chunks: new Uint8Array(data.fileSize), receivedBytes: 0, totalSize: data.fileSize };
+if (typeof data.fileSize !== 'number' || data.fileSize <= 0 || data.fileSize > 50*1024*1024) { console.warn('[V7] radio-start rejeitado'); return; }
+pendingRadioFiles.current[data.radioId] = { chunks: new Uint8Array(data.fileSize), receivedBytes: 0, totalSize: data.fileSize, _t: Date.now() };
 setRadioState({ status: 'buffering', type: 'file', startTime: data.startTime, duration: data.duration, audioUrl: null, youtubeId: null, fileName: data.fileName, sender: data.senderName, showVideo: false, videoSize: 'medium' });
 } else if (data.type === 'radio-stream-start') {
 setUserRadios(prev => ({ ...prev, [data.sender]: { url: data.streamUrl, name: data.fileName, radioId: data.radioId } }));
@@ -5073,8 +5403,17 @@ setUserRadios(prev => ({ ...prev, [data.sender]: { url: data.streamUrl, name: da
 const fd = pendingRadioFiles.current[data.radioId];
 if (fd) {
 const chunk = data.chunk instanceof ArrayBuffer ? new Uint8Array(data.chunk) : new Uint8Array(Object.values(data.chunk));
+// V8-BUG#8: bounds reforçado + chunk size cap (≤256KB)
+if (!(chunk instanceof Uint8Array) || chunk.length === 0 || chunk.length > 256*1024) { console.warn('[V8] radio-chunk size inválido'); return; }
+if (typeof data.offset !== 'number' || !Number.isInteger(data.offset) || data.offset < 0 || data.offset + chunk.length > fd.totalSize) { console.warn('[V8] radio-chunk offset OOB'); return; }
 fd.chunks.set(chunk, data.offset); fd.receivedBytes += chunk.length;
-if (fd.receivedBytes === fd.totalSize) { const url = URL.createObjectURL(new Blob([fd.chunks], { type: 'audio/mpeg' })); setRadioState(prev => ({ ...prev, audioUrl: url })); delete pendingRadioFiles.current[data.radioId]; }
+if (fd.receivedBytes === fd.totalSize) {
+  const url = URL.createObjectURL(new Blob([fd.chunks], { type: 'audio/mpeg' }));
+  if (!window.__v8BlobUrls) window.__v8BlobUrls = new Map();
+  window.__v8BlobUrls.set(url, Date.now()); // V8-LEAK#17
+  setRadioState(prev => ({ ...prev, audioUrl: url }));
+  delete pendingRadioFiles.current[data.radioId];
+}
 }
 }
 return;
@@ -5126,6 +5465,11 @@ if (data.type === 'poll-create') {
 }
 
 if (data.type === 'poll-vote') {
+  // V8-F11: validação reforçada
+  if (typeof data.sender !== 'string' || !data.sender || data.sender.length > 200) { console.warn('[V8-F11] poll-vote sender inválido'); return; }
+  if (/[<>"']/.test(data.sender)) { console.warn('[V8-F11] poll-vote sender com chars suspeitos'); return; }
+  if (typeof data.optionIndex !== 'number' || !Number.isInteger(data.optionIndex) || data.optionIndex < 0 || data.optionIndex > 50) { console.warn('[V8-F11] poll-vote optionIndex inválido'); return; }
+  if (typeof data.pollId !== 'string' || data.pollId.length > 200) { console.warn('[V8-F11] poll-vote pollId inválido'); return; }
   if (seenMessagesRef.current.has(data.id)) return;
   seenMessagesRef.current.add(data.id);
   pruneSeenMessages();
@@ -5178,6 +5522,7 @@ if (data.type === 'message' && data.id && data.text === '__QUIZ_ANSWER__' && dat
 if (data.type === 'message' && data.id) {
 if (data.sender) {
 if (!knownUsersRef.current.has(data.sender)) {
+if (knownUsersRef.current.size > 10000) { const arr = Array.from(knownUsersRef.current); knownUsersRef.current = new Set(arr.slice(-5000)); }
 knownUsersRef.current.add(data.sender);
 setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
 }
@@ -5374,16 +5719,26 @@ if (isQuizBotMsg && needsTranslation) {
   }
 }
 } else if (data.type === 'file-start') {
-pendingFiles.current[data.fileId] = { fileName: data.fileName, chunks: new Uint8Array(data.fileSize), receivedBytes: 0, totalSize: data.fileSize, fileType: data.fileType };
+if (typeof data.fileSize !== 'number' || data.fileSize <= 0 || data.fileSize > 100*1024*1024) { console.warn('[V7] file-start rejeitado: tamanho inválido', data.fileSize); return; }
+pendingFiles.current[data.fileId] = { fileName: data.fileName, chunks: new Uint8Array(data.fileSize), receivedBytes: 0, totalSize: data.fileSize, fileType: data.fileType, _t: Date.now() };
 messageToAdd = { ...baseMessage, fileId: data.fileId, fileName: data.fileName, type: 'file', receiving: true, progress: 0 };
 } else if (data.type === 'file-chunk') {
 const fd = pendingFiles.current[data.fileId];
 if (fd) {
 const chunk = data.chunk instanceof ArrayBuffer ? new Uint8Array(data.chunk) : new Uint8Array(Object.values(data.chunk));
+// V8-BUG#8: bounds reforçado + chunk size cap (≤256KB)
+if (!(chunk instanceof Uint8Array) || chunk.length === 0 || chunk.length > 256*1024) { console.warn('[V8] file-chunk size inválido'); return; }
+if (typeof data.offset !== 'number' || !Number.isInteger(data.offset) || data.offset < 0 || data.offset + chunk.length > fd.totalSize) { console.warn('[V8] file-chunk offset OOB'); return; }
 fd.chunks.set(chunk, data.offset); fd.receivedBytes += chunk.length;
 const progress = Math.min(100, Math.floor((fd.receivedBytes / fd.totalSize) * 100));
 setMessages(prev => prev.map(m => m.fileId === data.fileId ? { ...m, progress } : m));
-if (fd.receivedBytes === fd.totalSize) { const url = URL.createObjectURL(new Blob([fd.chunks], { type: fd.fileType || 'application/octet-stream' })); setMessages(prev => prev.map(m => m.fileId === data.fileId ? { ...m, fileData: url, receiving: false, progress: 100 } : m)); delete pendingFiles.current[data.fileId]; }
+if (fd.receivedBytes === fd.totalSize) {
+  const url = URL.createObjectURL(new Blob([fd.chunks], { type: fd.fileType || 'application/octet-stream' }));
+  if (!window.__v8BlobUrls) window.__v8BlobUrls = new Map();
+  window.__v8BlobUrls.set(url, Date.now()); // V8-LEAK#17
+  setMessages(prev => prev.map(m => m.fileId === data.fileId ? { ...m, fileData: url, receiving: false, progress: 100 } : m));
+  delete pendingFiles.current[data.fileId];
+}
 }
 return;
 } else if (data.type === 'audio-start') {
@@ -5394,10 +5749,18 @@ messageToAdd = { ...baseMessage, audioId: data.audioId, type: 'audio', receiving
 const ad = pendingFiles.current[data.audioId];
 if (ad) {
 const chunk = data.chunk instanceof ArrayBuffer ? new Uint8Array(data.chunk) : new Uint8Array(Object.values(data.chunk));
+if (!(chunk instanceof Uint8Array) || chunk.length === 0 || chunk.length > 256*1024) { console.warn('[V8] audio-chunk size inválido'); return; }
+if (typeof data.offset !== 'number' || !Number.isInteger(data.offset) || data.offset < 0 || data.offset + chunk.length > ad.totalSize) { console.warn('[V8] audio-chunk offset OOB'); return; }
 ad.chunks.set(chunk, data.offset); ad.receivedBytes += chunk.length;
 const progress = Math.min(100, Math.floor((ad.receivedBytes / ad.totalSize) * 100));
 setMessages(prev => prev.map(m => m.audioId === data.audioId ? { ...m, progress } : m));
-if (ad.receivedBytes === ad.totalSize) { const url = URL.createObjectURL(new Blob([ad.chunks], { type: 'audio/webm' })); setMessages(prev => prev.map(m => m.audioId === data.audioId ? { ...m, audioData: url, receiving: false, progress: 100 } : m)); delete pendingFiles.current[data.audioId]; }
+if (ad.receivedBytes === ad.totalSize) {
+  const url = URL.createObjectURL(new Blob([ad.chunks], { type: 'audio/webm' }));
+  if (!window.__v8BlobUrls) window.__v8BlobUrls = new Map();
+  window.__v8BlobUrls.set(url, Date.now()); // V8-LEAK#17
+  setMessages(prev => prev.map(m => m.audioId === data.audioId ? { ...m, audioData: url, receiving: false, progress: 100 } : m));
+  delete pendingFiles.current[data.audioId];
+}
 }
 return;
 } else if (data.type === 'torrent-request') {
@@ -5477,7 +5840,8 @@ if (selectedContact === pId) { setSelectedContact(null); setServerQuizBotActive(
 const connectToPeer = (peerIdToConnect) => {
 if (!peerIdToConnect || !peerInstance.current || !isPeerInitialized) return;
 if (bannedPeersRef.current.has(peerIdToConnect)) return;
-if (connections.some(c => c.peer === peerIdToConnect && c.open)) return;
+// V8-BUG#7: usar connectionsRef.current (sempre fresco) em vez de state React
+if (connectionsRef.current.some(c => c.peer === peerIdToConnect && c.open)) return;
 try {
 const conn = peerInstance.current.connect(peerIdToConnect, { reliable: true });
 if (!conn) throw new Error("Connection failed");
@@ -5499,12 +5863,36 @@ sendHandshake(conn);
 sendRadioSync(conn);
 try { conn.send({ type: 'radio-request-sync' }); } catch(e){}
 if (!knownUsersRef.current.has(peerIdToConnect)) {
+if (knownUsersRef.current.size > 10000) { const arr = Array.from(knownUsersRef.current); knownUsersRef.current = new Set(arr.slice(-5000)); }
 knownUsersRef.current.add(peerIdToConnect);
 setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
 }
 });
-conn.on('error', err => { clearTimeout(timeoutId); setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)); alert(t(lang, 'connectFailed') + (err.message || 'Contact offline')); });
-conn.on('close', () => { clearTimeout(timeoutId); worldQuizSubscribersRef.current.delete(peerIdToConnect); setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect)); setTimeout(checkAndAssumeQuizMaster, 1000); });
+conn.on('error', err => {
+  clearTimeout(timeoutId);
+  setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect));
+  console.warn('[V8-BUG#9] conn error', peerIdToConnect, err && err.message);
+  // V8-BUG#9: reconexão automática com backoff exponencial
+  if (!bannedPeersRef.current.has(peerIdToConnect)) {
+    const attempts = (window.__v8ReconAttempts = window.__v8ReconAttempts || new Map());
+    const n = (attempts.get(peerIdToConnect) || 0) + 1;
+    if (n <= 5) {
+      attempts.set(peerIdToConnect, n);
+      const delay = Math.min(30000, 1000 * Math.pow(2, n - 1)) + Math.random() * 1000;
+      setTimeout(() => { try { connectToPeer(peerIdToConnect); } catch(e){} }, delay);
+    } else {
+      console.warn('[V8-BUG#9] desistindo de reconectar', peerIdToConnect);
+    }
+  }
+});
+conn.on('close', () => {
+  clearTimeout(timeoutId);
+  worldQuizSubscribersRef.current.delete(peerIdToConnect);
+  setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect));
+  setTimeout(checkAndAssumeQuizMaster, 1000);
+  // V8-BUG#9: reset contador em close limpo
+  if (window.__v8ReconAttempts) window.__v8ReconAttempts.delete(peerIdToConnect);
+});
 conn.on('data', data => handleIncomingData(data, peerIdToConnect));
 } catch (err) { alert(t(lang, 'connectError') + err.message); }
 };
@@ -5618,6 +6006,7 @@ sendHandshake(conn);
 sendRadioSync(conn);
 try { conn.send({ type: 'radio-request-sync' }); } catch(e){}
 if (!knownUsersRef.current.has(conn.peer)) {
+if (knownUsersRef.current.size > 10000) { const arr = Array.from(knownUsersRef.current); knownUsersRef.current = new Set(arr.slice(-5000)); }
 knownUsersRef.current.add(conn.peer);
 setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
 }
@@ -5720,6 +6109,8 @@ try { serverConn.send(heartbeatMsg); } catch(e) {}
 // If not connected, try a quick connection just for heartbeat
 const tempConn = peerInstance.current.connect(centralServerId, { reliable: true });
 if (tempConn) {
+tempConn.on('error', () => { try { tempConn.close(); } catch(e){} });
+setTimeout(() => { try { tempConn.close(); } catch(e){} }, 5000); // V7-B22 timeout total
 tempConn.on('open', () => {
 try { tempConn.send(heartbeatMsg); } catch(e) {}
 setTimeout(() => tempConn.close(), 2000);
@@ -5746,13 +6137,481 @@ useEffect(() => {
 const iv = setInterval(() => {
 if (connections.length > 0) {
 const allKnown = Array.from(new Set([...connections.map(c => c.peer), ...Array.from(knownUsersRef.current)]));
+// FASE-2: PEX enriquecido com groupId, groupSize e isReservado para diretório global
+const myGroupId = myGroupIdRef.current;
+const myGroupSize = myGroupId && directoryGlobalRef.current[myGroupId]
+  ? directoryGlobalRef.current[myGroupId].groupSize
+  : connections.length + 1;
 connections.forEach(conn => {
-if (conn.open) try { conn.send({ type: 'pex', peers: [...allKnown].sort(() => 0.5 - Math.random()).slice(0, isSuperNode ? 100 : 50) }); } catch(e) {}
+if (conn.open) try {
+  conn.send({
+    type: 'pex',
+    peers: [...allKnown].sort(() => 0.5 - Math.random()).slice(0, isSuperNode ? 100 : 50),
+    groupId: myGroupId || undefined,
+    groupSize: myGroupSize,
+    isReservado: isSuperNodeRef.current,
+    peerId: peerId
+  });
+} catch(e) {}
 });
 }
 }, 30000);
 return () => clearInterval(iv);
 }, [connections]);
+
+
+// ════════════════════════════════════════════════════════════════════
+// V7-B20+B21: GC periódico de pendingFiles/pendingRadioFiles órfãos (>5min)
+const v7MsgCapId = setInterval(() => { try { setMessages(prev => prev.length > 500 ? prev.slice(-500) : prev); } catch(e){} }, 30000); // V7-B18
+const v7GcId = setInterval(() => {
+  const now = Date.now();
+  try {
+    Object.keys(pendingFiles.current||{}).forEach(k => {
+      const e = pendingFiles.current[k];
+      if (e && e._t && now - e._t > 5*60*1000) { delete pendingFiles.current[k]; console.warn('[V8] pendingFile GC', k); }
+    });
+    Object.keys(pendingRadioFiles.current||{}).forEach(k => {
+      const e = pendingRadioFiles.current[k];
+      if (e && e._t && now - e._t > 5*60*1000) { delete pendingRadioFiles.current[k]; console.warn('[V8] pendingRadio GC', k); }
+    });
+    // V8-LEAK#17: revogar blob URLs órfãos (não referenciados por nenhuma message)
+    if (window.__v8BlobUrls && window.__v8BlobUrls.size > 0) {
+      try {
+        const referenced = new Set();
+        // varre messages atuais — usa referência via DOM (audio/img/a[href])
+        document.querySelectorAll('audio[src], video[src], img[src], a[href]').forEach(el => {
+          const u = el.getAttribute('src') || el.getAttribute('href');
+          if (u && u.startsWith('blob:')) referenced.add(u);
+        });
+        for (const [url, ts] of window.__v8BlobUrls) {
+          // só revoga após 10min e se não está referenciado
+          if (now - ts > 10*60*1000 && !referenced.has(url)) {
+            try { URL.revokeObjectURL(url); } catch(e){}
+            window.__v8BlobUrls.delete(url);
+          }
+        }
+      } catch(e){}
+    }
+  } catch(e){}
+}, 60000);
+// FASE-2: Broadcast periódico de update-peer para manter diretório global
+// SuperNodes: a cada 60s | Regulares: a cada 300s
+// ════════════════════════════════════════════════════════════════════
+useEffect(() => {
+  const intervalMs = isSuperNode ? 60000 : 300000;
+  const updatePeerInterval = setInterval(() => {
+    const myGroupId = myGroupIdRef.current;
+    if (!myGroupId || connections.length === 0) return;
+    const myGroupSize = directoryGlobalRef.current[myGroupId]?.groupSize ?? connections.length + 1;
+    const msg = {
+      type: 'update-peer', msgId: 'up_'+peerId+'_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),
+      peerId: peerId,
+      groupId: myGroupId,
+      groupSize: myGroupSize,
+      isReservado: isSuperNodeRef.current,
+      ttl: 5
+    };
+    connectionsRef.current.forEach(c => { if (c.open) try { c.send(msg); } catch(e) {} });
+  }, intervalMs);
+  return () => clearInterval(updatePeerInterval);
+}, [isSuperNode, connections]);
+
+
+// ════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════
+// HYDRA V6: Helpers de flooding com TTL+dedup (corrige P8)
+// ════════════════════════════════════════════════════════════════════
+const makeMsgId = () => {
+  return (peerIdRef.current || 'anon') + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
+};
+const isDuplicate = (msgId) => {
+  // V8-F16: LRU com hard-cap absoluto 5000 + GC por TTL
+  const cache = seenMsgIdsRef.current;
+  const HARD_CAP = 5000;
+  const now = Date.now();
+  // GC por TTL primeiro (entradas expiradas)
+  if (cache.size > 500) {
+    for (const [k, exp] of cache) if (exp < now) cache.delete(k);
+  }
+  // Hard-cap LRU: remove os 1000 mais antigos (Map preserva ordem de inserção)
+  while (cache.size > HARD_CAP) {
+    const k = cache.keys().next().value;
+    if (k === undefined) break;
+    cache.delete(k);
+  }
+  if (!msgId) return false;
+  if (cache.has(msgId)) {
+    // touch: re-insert para atualizar ordem LRU
+    const exp = cache.get(msgId);
+    cache.delete(msgId);
+    cache.set(msgId, exp);
+    return true;
+  }
+  cache.set(msgId, now + 300000);
+  return false;
+};
+const floodMessage = (msg, excludePeer) => {
+  // Garantir msgId e TTL
+  if (!msg.msgId) msg.msgId = makeMsgId();
+  if (msg.ttl === undefined) msg.ttl = 5;
+  if (isDuplicate(msg.msgId)) return;
+  if (msg.ttl <= 0) return;
+  const relayMsg = { ...msg, ttl: msg.ttl - 1 };
+  connectionsRef.current.forEach(c => {
+    if (c.open && c.peer !== excludePeer) {
+      try { c.send(relayMsg); } catch(e) {}
+    }
+  });
+};
+
+// ════════════════════════════════════════════════════════════════════
+// V6 FIX: sincroniza peerIdRef com peerId state (necessario para makeMsgId/heartbeat)
+useEffect(() => { peerIdRef.current = peerId; }, [peerId]);
+
+// // HYDRA V6: Heartbeat ativo P2P para groupSize confiavel (corrige P1+P2)
+// SuperNodes mantem mapa de membros vivos via heartbeat de 30s,
+// remove peers ausentes por 2 ciclos (60s) -> groupSize sempre exato.
+// ════════════════════════════════════════════════════════════════════
+useEffect(() => {
+  // V4 FIX BUG#3+#9: TODOS os peers (não só SuperNodes) enviam heartbeat.
+  // Sem isso, groupSize só conta SuperNodes (~10 por grupo) e não reflete o
+  // tamanho REAL. Patch P1+P2 da PROPOSTA exige contagem de TODOS os membros.
+  // Reservados continuam fazendo o GC e os announces (bloco abaixo).
+  const HB_INTERVAL = 30000;
+  const HB_TIMEOUT = 75000; // 2.5 ciclos
+  // Envia heartbeat P2P (TODOS os peers)
+  const sendHB = setInterval(() => {
+    const myGroupId = myGroupIdRef.current;
+    if (!myGroupId) return;
+    const hb = {
+      type: 'p2p-heartbeat',
+      peerId: peerIdRef.current || peerId,
+      groupId: myGroupId,
+      isReservado: isSuperNodeRef.current,
+      epoch: epochRef.current,
+      ts: Date.now(),
+      afk: !isPageVisibleRef.current  // PATCH-3: avisa se aba está em background
+    };
+    floodMessage(hb, null);
+  }, HB_INTERVAL);
+  // GC: remove peers silenciosos e atualiza groupSize
+  const gcHB = setInterval(() => {
+    const now = Date.now();
+    const myGroupId = myGroupIdRef.current;
+    const map = peerHeartbeatsRef.current;
+    let removed = 0;
+    for (const [pid, info] of map) {
+      // PATCH-3: peers em background têm tolerância 3× maior antes de serem removidos
+      const tolerance = info.afk ? HB_TIMEOUT * 3 : HB_TIMEOUT;
+      if (now - info.lastSeen > tolerance) {
+        map.delete(pid);
+        removed++;
+      }
+    }
+    if (myGroupId) {
+      // Recalcula groupSize com base em heartbeats vivos do meu grupo
+      let count = 1; // eu mesmo
+      for (const [, info] of map) {
+        if (info.groupId === myGroupId) count++;
+      }
+      if (!directoryGlobalRef.current[myGroupId]) {
+        directoryGlobalRef.current[myGroupId] = { reservados: [], groupSize: 0 };
+      }
+      directoryGlobalRef.current[myGroupId].groupSize = count;
+      if (removed > 0) console.log(`[HYDRA-V6] GC heartbeat: ${removed} peers removidos, groupSize=${count}`);
+    }
+  }, HB_INTERVAL);
+
+  // ─── PATCH-A: directory-announce global (líder do grupo emite a cada 60s) ──
+  // V4 FIX BUG#3: só SuperNodes emitem announce.
+  const announceIv = setInterval(() => {
+    if (!isSuperNodeRef.current) return;
+    const myGroupId = myGroupIdRef.current;
+    if (!myGroupId) return;
+    // Sou leader se sou o menor peerId entre os reservados vivos do meu grupo
+    const myReservados = [peerIdRef.current];
+    for (const [pid, info] of peerHeartbeatsRef.current) {
+      if (info.groupId === myGroupId && info.isReservado &&
+          Date.now() - info.lastSeen < 90000) {
+        myReservados.push(pid);
+      }
+    }
+    const sorted = [...new Set(myReservados)].filter(Boolean).sort();
+    const leader = sorted[0];
+    if (leader !== peerIdRef.current) return; // não sou leader desta época
+
+    const dirEntry = directoryGlobalRef.current[myGroupId] || {};
+    // V4 FIX BUG#4: marca lastUpdate do próprio grupo para evitar GC dele
+    if (directoryGlobalRef.current[myGroupId]) {
+      directoryGlobalRef.current[myGroupId].lastUpdate = Date.now();
+    }
+    floodMessage({
+      type: 'directory-announce',
+      groupId: myGroupId,
+      groupSize: dirEntry.groupSize || 1,
+      reservados: sorted.slice(0, 10),
+      epoch: epochRef.current,
+      ttl: 8
+    }, null);
+  }, 60000);
+
+  // ─── PATCH-A: GC do diretório (remove grupos sem announce há 5 min) ────────
+  // V8-F15: + hard-cap absoluto de 500 grupos (LRU por lastUpdate)
+  const dirGcIv = setInterval(() => {
+    const now = Date.now();
+    const dir = directoryGlobalRef.current;
+    for (const gid in dir) {
+      const entry = dir[gid];
+      if (entry.lastUpdate && now - entry.lastUpdate > 300000 &&
+          gid !== myGroupIdRef.current) {
+        delete dir[gid];
+      }
+    }
+    const keys = Object.keys(dir);
+    if (keys.length > 500) {
+      const sorted = keys
+        .filter(k => k !== myGroupIdRef.current)
+        .sort((a,b) => (dir[a].lastUpdate || 0) - (dir[b].lastUpdate || 0));
+      const toRemove = sorted.slice(0, keys.length - 500);
+      toRemove.forEach(k => delete dir[k]);
+      if (toRemove.length) console.warn('[V8-F15] dirGc hard-cap removeu', toRemove.length);
+    }
+  }, 60000);
+
+  return () => {
+    clearInterval(sendHB);
+    clearInterval(gcHB);
+    clearInterval(announceIv);
+    clearInterval(dirGcIv);
+  };
+}, [isSuperNode, peerId]);
+
+// // FASE-3: Loops de detecção de split e fusão (apenas SuperNodes)
+// ════════════════════════════════════════════════════════════════════
+useEffect(() => {
+  // V6 (P4): hash determinístico com salt incremental para resolver colisao.
+  // Se 'G' + hash ja existe no diretorio, incrementa salt ate achar slot livre.
+  const simpleHash = (str, salt) => {
+    const s = salt || 0;
+    const input = str + '#' + s;
+    let h = 5381;
+    for (let i = 0; i < input.length; i++) h = ((h << 5) + h) ^ input.charCodeAt(i);
+    const abs = Math.abs(h) % 5000;
+    return 'G' + String(abs).padStart(4, '0');
+  };
+  const hashWithCollisionAvoidance = (str) => {
+    for (let salt = 0; salt < 100; salt++) {
+      const id = simpleHash(str, salt);
+      if (!directoryGlobalRef.current[id]) return id;
+    }
+    // fallback: usa salt timestamp
+    return simpleHash(str, Date.now());
+  };
+
+  // V6: broadcastToAll usa floodMessage (TTL+dedup) em vez de hop unico.
+  // V4 FIX BUG#8: aborta se msgId já visto (idempotente em re-render).
+  const broadcastToAll = (msg) => {
+    if (!msg.msgId) msg.msgId = makeMsgId();
+    if (msg.ttl === undefined) msg.ttl = 8;
+    if (isDuplicate(msg.msgId)) return; // já enviado nesta sessão — não duplica
+    connectionsRef.current.forEach(c => {
+      if (c.open) try { c.send(msg); } catch(e) {}
+    });
+  };
+
+  // FASE-3/Caso2: verifica se pode iniciar operação (sem trava ativa)
+  const canStartOperation = () => {
+    if (groupOperationInProgressRef.current && Date.now() < groupOperationExpiryRef.current) return false;
+    const now = Date.now();
+    const lockedGroups = lockedGroupsRef.current;
+    for (const gId in lockedGroups) {
+      if (lockedGroups[gId] > now) return false;
+    }
+    return true;
+  };
+
+  // FASE-3/Caso2: adquire trava local e transmite para rede
+  const acquireOperationLock = () => {
+    groupOperationInProgressRef.current = true;
+    groupOperationExpiryRef.current = Date.now() + 120000;
+    const myGroupId = myGroupIdRef.current;
+    if (myGroupId) {
+      broadcastToAll({ type: 'group-operation-lock', msgId: makeMsgId(), groupId: myGroupId, expiry: groupOperationExpiryRef.current, ttl: 5 });
+    }
+  };
+
+  // ── DETECÇÃO DE SPLIT (a cada 60s, apenas SuperNodes) ─────────────────────
+  const splitInterval = setInterval(() => {
+    if (!isSuperNodeRef.current) return;
+    const myGroupId = myGroupIdRef.current;
+    if (!myGroupId) return;
+    // V8-BUG#1: SEMPRE avançar lastSplitEpochRef antes do early-return de tamanho,
+    // para que o tracker de epoch reflita o relógio mesmo em grupos pequenos.
+    const now = Date.now();
+    const epochNow = Math.floor(now / 60000);
+    const msIntoEpoch = now % 60000;
+    if (msIntoEpoch <= 15000 && epochNow !== lastSplitEpochRef.current) {
+      lastSplitEpochRef.current = epochNow;
+    }
+    const myGroupSize = directoryGlobalRef.current[myGroupId]?.groupSize ?? 0;
+    if (myGroupSize <= 1800) return; // V6 (P1+P5): limite alinhado a capacidade real do broker
+    if (epochNow !== lastSplitEpochRef.current) return; // não estamos na janela 0-15s
+    if (msIntoEpoch > 15000) return;
+
+    // FASE-3/Caso2: verifica trava
+    if (!canStartOperation()) return;
+    acquireOperationLock();
+
+    // V6 (P4+P6): leader-eleito calcula novo groupId; salt evita colisao.
+    // Eleicao: reservado com menor peerId lexicografico no grupo.
+    const myReservados = directoryGlobalRef.current[myGroupId]?.reservados || [];
+    const sortedR = [...new Set([...myReservados, peerId])].sort();
+    const leaderForEpoch = sortedR[0];
+    if (leaderForEpoch !== peerId) {
+      console.log(`[HYDRA-V6] Split: nao sou leader (${leaderForEpoch}), aguardando broadcast`);
+      return;
+    }
+    const tick = Math.floor(now / 60000);
+    const newGroupId = hashWithCollisionAvoidance(myGroupId + '-' + tick);
+    console.log(`[HYDRA-V6] Sou leader, executando split ${myGroupId} -> ${newGroupId}`);
+
+    // Cria entrada para o novo grupo no diretório
+    if (!directoryGlobalRef.current[newGroupId]) {
+      directoryGlobalRef.current[newGroupId] = { reservados: [], groupSize: 0 };
+    }
+
+    // V6 (P8): broadcast com msgId para dedup; TTL 8.
+    broadcastToAll({
+      type: 'group-split',
+      msgId: makeMsgId(),
+      oldGroupId: myGroupId,
+      newGroupId: newGroupId,
+      migratedReservados: directoryGlobalRef.current[myGroupId]?.reservados || [],
+      action: 'reservados-migrate',
+      epoch: epochRef.current,
+      leader: peerId,
+      ttl: 8
+    });
+
+    // Este nó (reservado) migra para o novo grupo
+    myGroupIdRef.current = newGroupId;
+    localStorage.setItem('myGroupId', newGroupId);
+    directoryGlobalRef.current[newGroupId].reservados.push(peerId);
+
+    // Libera trava após 2 ciclos de PEX (60s)
+    setTimeout(() => { groupOperationInProgressRef.current = false; }, 60000);
+
+    console.log(`[HYDRA] Split executado: ${myGroupId} → ${newGroupId}`);
+  }, 60000);
+
+  // ── DETECÇÃO DE FUSÃO (a cada 120s, apenas SuperNodes) ────────────────────
+  const mergeInterval = setInterval(() => {
+    if (!isSuperNodeRef.current) return;
+    const myGroupId = myGroupIdRef.current;
+    if (!myGroupId) return;
+
+    // V6 (P5): janela ancorada em epoca pares (a cada 120s). Anti race com split.
+    const now = Date.now();
+    const epoch120 = Math.floor(now / 120000);
+    const msIntoEpoch = now % 120000;
+    if (msIntoEpoch > 15000) return;
+    if (consensusStateRef.current.lastMergeEpoch === epoch120) return;
+    consensusStateRef.current.lastMergeEpoch = epoch120;
+
+    // FASE-3/Caso2: verifica trava
+    if (!canStartOperation()) return;
+
+    const MERGE_THRESHOLD = 1620; // V6: 90% de 1800 (margem 10%)
+    const groups = Object.entries(directoryGlobalRef.current);
+
+    for (let i = 0; i < groups.length; i++) {
+      for (let j = i + 1; j < groups.length; j++) {
+        const [idA, gA] = groups[i];
+        const [idB, gB] = groups[j];
+        const sizeA = gA.groupSize || 0;
+        const sizeB = gB.groupSize || 0;
+
+        if (sizeA + sizeB <= MERGE_THRESHOLD) {
+          // Consenso determinístico: menor groupId absorve o maior
+          const survivingId = idA < idB ? idA : idB;
+          const absorbedId  = idA < idB ? idB : idA;
+
+          // Só execute se meu grupo está envolvido
+          if (myGroupId !== idA && myGroupId !== idB) continue;
+
+          acquireOperationLock();
+
+          // V6 (P6): so o leader (menor peerId entre reservados de ambos os grupos) executa
+          const allRes = [
+            ...(directoryGlobalRef.current[idA]?.reservados || []),
+            ...(directoryGlobalRef.current[idB]?.reservados || []),
+            peerId
+          ];
+          const mergeLeader = [...new Set(allRes)].sort()[0];
+          if (mergeLeader !== peerId) {
+            console.log(`[HYDRA-V6] Merge: nao sou leader (${mergeLeader})`);
+            continue;
+          }
+          broadcastToAll({
+            type: 'group-merge',
+            msgId: makeMsgId(),
+            survivingGroupId: survivingId,
+            absorbedGroupId: absorbedId,
+            leader: peerId,
+            epoch: epochRef.current,
+            ttl: 8
+          });
+
+          // Nós do grupo absorvido atualizam seu groupId
+          if (myGroupIdRef.current === absorbedId) {
+            myGroupIdRef.current = survivingId;
+            localStorage.setItem('myGroupId', survivingId);
+          }
+
+          // Atualiza diretório local
+          if (directoryGlobalRef.current[absorbedId]) {
+            const absorbed = directoryGlobalRef.current[absorbedId];
+            if (!directoryGlobalRef.current[survivingId]) {
+              directoryGlobalRef.current[survivingId] = { reservados: [], groupSize: 0 };
+            }
+            const mergedR = new Set([...directoryGlobalRef.current[survivingId].reservados, ...absorbed.reservados]);
+            directoryGlobalRef.current[survivingId].reservados = [...mergedR].slice(0, 10); // PATCH-B: V6=10
+            directoryGlobalRef.current[survivingId].groupSize = sizeA + sizeB;
+            delete directoryGlobalRef.current[absorbedId];
+          }
+
+          setTimeout(() => { groupOperationInProgressRef.current = false; }, 60000);
+          console.log(`[HYDRA] Fusão executada: ${absorbedId} → ${survivingId}`);
+          break;
+        }
+      }
+    }
+  }, 120000);
+
+  // ── FASE-3/Caso4: Validação do groupId salvo ao iniciar ──────────────────
+  // (executado uma vez, após o primeiro ciclo de PEX popular o diretório)
+  const startupCheckTimer = setTimeout(() => {
+    const savedGroupId = localStorage.getItem('myGroupId');
+    if (savedGroupId) {
+      // V8-F14: só descartar se o diretório foi populado (>1 grupo conhecido).
+      // Em redes pequenas (1 grupo só), confiar no savedGroupId.
+      const dirSize = Object.keys(directoryGlobalRef.current || {}).length;
+      if (!directoryGlobalRef.current[savedGroupId] && dirSize >= 2) {
+        console.warn(`[V8-F14] groupId salvo (${savedGroupId}) não existe no diretório (dirSize=${dirSize}). Descartando.`);
+        myGroupIdRef.current = null;
+        localStorage.removeItem('myGroupId');
+      } else if (!directoryGlobalRef.current[savedGroupId]) {
+        console.log(`[V8-F14] groupId salvo (${savedGroupId}) preservado — diretório ainda esparso (dirSize=${dirSize}).`);
+      }
+    }
+  }, 90000); // aguarda ~3 ciclos de PEX para o diretório se popular
+
+  return () => {
+    clearInterval(splitInterval);
+    clearInterval(mergeInterval);
+    clearTimeout(startupCheckTimer);
+  };
+}, [isSuperNode]); // re-registra quando o usuário ativa/desativa SuperNode
 
 
 useEffect(() => {
@@ -6346,6 +7205,13 @@ setYoutubeChatId(null);
 
 
 const endCall = (peerIdToEnd, callType) => {
+  // V7-B19: parar tracks do remoteStream antes de remover
+  try {
+    setRemoteStreams(prev => {
+      prev.forEach(s => { if (s.peerId === peerIdToEnd && s.type === callType && s.stream) { try { s.stream.getTracks().forEach(t => t.stop()); } catch(e){} } });
+      return prev.filter(s => !(s.peerId === peerIdToEnd && s.type === callType));
+    });
+  } catch(e){}
 const callData = activeCalls.find(c => c.peerId === peerIdToEnd && c.type === callType);
 if (callData) {
 if (callData.call) callData.call.close();
@@ -6872,5 +7738,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     }
   })();
 </script>
+
 </body>
 </html>
