@@ -344,7 +344,7 @@
         return [all, idx];
       }
 
-      const SRV_MIN_QUIZ_INTERVAL = 120;
+      const SRV_MIN_QUIZ_INTERVAL = 60;
 
 
     const TRANSLATIONS = {
@@ -649,6 +649,7 @@
       const serverQuizActiveRef = useRef(false);
       const srvQuizDisciplineRef = useRef('world');
       const srvQuizIntervalRef = useRef(SRV_MIN_QUIZ_INTERVAL);
+      const srvLastQuizTimeRef = useRef(0);
       const srvQuizUsedImagesRef = useRef(new Set());
       const srvQuizTimerRef = useRef(null);
       const srvCurrentQuizRef = useRef(null);
@@ -1313,6 +1314,11 @@
           }
 
           if (data.type === 'message') {
+            // Role Tracking Global: se é um quiz de um usuário, atualiza cooldown do servidor
+            if (data.text === '__QUIZ__' && data.quizPayload) {
+              srvLastQuizTimeRef.current = Date.now();
+            }
+            
             if (data.text && data.text.length > 2000) {
               console.log("Servidor: Mensagem muito longa ignorada.");
               return;
@@ -1658,6 +1664,7 @@
       // ════════════════════════════════════════════════════════════════════
       const srvSendQuizQuestion = (quizData) => {
         const ts = new Date();
+        srvLastQuizTimeRef.current = ts.getTime();
         const wireMsg = {
           type: 'message',
           id: Date.now() + Math.random().toString(36).substring(2),
@@ -1801,6 +1808,19 @@
 
       const srvAskNextQuestion = async () => {
         if (!serverQuizActiveRef.current) return;
+        
+        // FIX: Respeita o cooldown global antes de disparar próxima pergunta
+        const now = Date.now();
+        const elapsed = now - srvLastQuizTimeRef.current;
+        const minIntervalMs = SRV_MIN_QUIZ_INTERVAL * 1000;
+        
+        if (elapsed < minIntervalMs) {
+          const wait = minIntervalMs - elapsed + 1000;
+          console.log(`Server Quiz: Respeitando cooldown. Aguardando ${Math.round(wait/1000)}s...`);
+          srvQuizTimerRef.current = setTimeout(srvAskNextQuestion, wait);
+          return;
+        }
+
         if (srvQuizDisciplineRef.current === 'world') return srvAskWorldQuestion();
         return srvAskDisciplineQuestion();
       };
@@ -1815,6 +1835,7 @@
         srvQuizDisciplineRef.current = data.quizDiscipline || 'world';
         srvQuizIntervalRef.current = Math.max(SRV_MIN_QUIZ_INTERVAL, data.quizInterval || SRV_MIN_QUIZ_INTERVAL);
         srvQuizUsedImagesRef.current = new Set(data.usedImageIds || []);
+        if (data.lastQuizTime) srvLastQuizTimeRef.current = data.lastQuizTime;
         // Hidrata cache de hits Pixabay (já buscados pelo cliente — evita refetch)
         if (data.bufferedHits && typeof data.bufferedHits === 'object') {
           for (const q in data.bufferedHits) {
