@@ -1696,6 +1696,7 @@ const Whiteboard = ({ lang, connections, selectedContact, onClose }) => {
     if (emit) {
       const payload = {
         type: 'whiteboard',
+        toolId: 'WHITEBOARD-ID',
         action: 'draw',
         x: x2,
         y: y2,
@@ -1727,7 +1728,7 @@ const Whiteboard = ({ lang, connections, selectedContact, onClose }) => {
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (emit) {
-      const payload = { type: 'whiteboard', action: 'clear' };
+      const payload = { type: 'whiteboard', toolId: 'WHITEBOARD-ID', action: 'clear' };
       if (selectedContact) {
         const conn = connections.find(c => c.peer === selectedContact);
         if (conn && conn.open) {
@@ -4098,7 +4099,12 @@ const [isLocalVideoVisible, setIsLocalVideoVisible] = useState(false);
 const [showEmojiPanel, setShowEmojiPanel] = useState(false);
 const [selectedContact, setSelectedContact] = useState(null);
 const [isPeerInitialized, setIsPeerInitialized] = useState(false);
-const [centralServerId, setCentralServerId] = useState(null);
+const [centralServerId, setCentralServerId] = useState(() => {
+  try { return localStorage.getItem('centralServerId') || null; } catch { return null; }
+});
+useEffect(() => {
+  if (centralServerId) localStorage.setItem('centralServerId', centralServerId);
+}, [centralServerId]);
 const [cooldownRemaining, setCooldownRemaining] = useState(0);
 const [networkSize, setNetworkSize] = useState(1);
 const [isSuperNode, _setIsSuperNodeRaw] = useState(false);
@@ -4149,12 +4155,14 @@ const [showQuizBot, setShowQuizBot] = useState(false);
 const [auditLogs, setAuditLogs] = useState([]);
 const [showAuditPanel, setShowAuditPanel] = useState(false);
 
-const addAudit = (msg, type = 'info') => {
+const addAudit = (msg, type = 'info', toolId = null) => {
+  const fullMsg = toolId ? `[${toolId}] ${msg}` : msg;
   const entry = {
     id: Date.now() + Math.random().toString(36).substring(2),
     time: new Date().toLocaleTimeString(),
-    msg,
-    type
+    msg: fullMsg,
+    type,
+    toolId
   };
   setAuditLogs(prev => [entry, ...prev].slice(0, 200));
 };
@@ -4353,6 +4361,7 @@ const sendQuizQuestion = (quizData) => {
     id: msgId,
     ttl: 15,
     senderName: '🤖 Quiz Bot',
+    toolId: 'QUIZ-BOT-ID',
     direct: false,
     time: timeStr,
     timestamp: timestamp.getTime(),
@@ -4553,11 +4562,16 @@ const broadcastQuizViolation = (violatorId, violatorName, elapsedSec) => {
 };
 
 // ── Eleição de Mestre P2P (Self-Healing e Consistência) ──
+const isCentralServer = (id) => id && (id.endsWith('-CENTRAL') || id.includes('-SRV-') || id === 'SERVER-K10');
+
 const checkAndAssumeQuizMaster = () => {
   if (!quizBotActiveRef.current) return false;
   // Pega todos os peers conectados + nós mesmos
-  const peers = [peerId, ...connectionsRef.current.filter(c => c.open).map(c => c.peer)];
-  peers.sort(); // Eleição alfanumérica
+  // FIX: Exclui IDs de servidor do algoritmo de eleição de mestre P2P para evitar deadlock (onde o cliente espera o servidor e o servidor espera o cliente)
+  const peers = [peerId, ...connectionsRef.current.filter(c => c.open).map(c => c.peer)]
+    .filter(id => !isCentralServer(id));
+  
+  peers.sort(); // Eleição alfanumérica entre clientes
   const isMaster = peers[0] === peerId;
   const wasMaster = quizMasterIdRef.current === peerId;
   quizMasterIdRef.current = peers[0];
@@ -4829,7 +4843,6 @@ return () => clearTimeout(timer);
 }, [cooldownRemaining]);
 
 
-const isCentralServer = (id) => id && id.endsWith('-CENTRAL');
 const getContactName = (pId) => contacts.find(c => c.peerId === pId)?.name || pId;
 const saveUserName = () => { if (userName.trim()) { localStorage.setItem('p2pUserName', userName); setEditingName(false); } };
 
@@ -4913,6 +4926,15 @@ toDelete.forEach(k => s.delete(k));
 
 
 const handleIncomingData = (data, pId) => {
+if (data.toolId) {
+  // Log automático de ferramentas no cliente
+  if (data.type === 'message' && data.text === '__QUIZ__') addAudit(`Questão de Quiz recebida`, 'info', data.toolId);
+  else if (data.type === 'message' && data.text === '__QUIZ_REVEAL__') addAudit(`Resultado do Quiz recebido`, 'info', data.toolId);
+  else if (data.type === 'radio-world-start') addAudit(`Sintonizando Rádio: ${data.fileName}`, 'info', data.toolId);
+  else if (data.type === 'radio-youtube-start') addAudit(`YT-Radio: ${data.youtubeId}`, 'info', data.toolId);
+  else if (data.type === 'whiteboard') addAudit(`Atividade no Quadro`, 'info', data.toolId);
+  else if (data.type === 'audio-start') addAudit(`Mensagem de Voz recebida`, 'info', data.toolId);
+}
 const maxConnections = isSuperNode ? 50 : 15;
 // ── VIGILÂNCIA P2P: alerta de violação vindo de outro peer ──────────────────
 if (data.type === 'quiz-violation') {
@@ -4998,6 +5020,7 @@ if (data.type === 'quiz-bot-global-toggle') {
 
 if (data.type === 'quiz-bot-status') {
   setServerQuizBotActive(data.active);
+  console.log(`[Quiz-Status] Servidor informou: Ativo=${data.active}, Owner=${data.owner}`);
   if (data.active && data.owner !== peerId && quizBotActiveRef.current) {
     // Se outro ligou o bot e eu também estou com ele ligado, eu desligo o meu
     setQuizBotActive(false);
@@ -6034,7 +6057,7 @@ debug: 1
 
 peer.on('open', (id) => {
 setIsPeerInitialized(true);
-addAudit(`[Rede] Peer inicializado com ID: ${id}`, 'success');
+addAudit(`Peer inicializado com ID: ${id}`, 'success', 'NETWORK-CORE-ID');
 reconnectAttempts = 0;
 const urlParams = new URLSearchParams(window.location.search);
 const portasStr = urlParams.get('portas');
@@ -6046,18 +6069,18 @@ else if (!centralServerId) { setCentralServerId(portas[0]); setSelectedContact(p
 setTimeout(() => {
 portas.forEach(porta => {
 if (porta && porta !== id) {
-addAudit(`[P2P] Tentando conectar ao nó: ${porta} ${isCentralServer(porta) ? '(Servidor)' : ''}`, 'info');
+addAudit(`Tentando conectar ao nó: ${porta} ${isCentralServer(porta) ? '(Servidor)' : ''}`, 'info', 'NETWORK-P2P-ID');
 const conn = peer.connect(porta, { reliable: true });
 if (conn) {
 conn.on('open', () => { 
-  addAudit(`[P2P] Conexão estabelecida com: ${porta}`, 'success');
+  addAudit(`Conexão estabelecida com: ${porta}`, 'success', 'NETWORK-P2P-ID');
   setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]); 
   sendRadioSync(conn); 
   try { conn.send({ type: 'radio-request-sync' }); } catch(e){} 
 });
 conn.on('data', data => handleIncomingData(data, porta));
 conn.on('close', () => { 
-  addAudit(`[P2P] Conexão encerrada com: ${porta}`, 'warn');
+  addAudit(`Conexão encerrada com: ${porta}`, 'warn', 'NETWORK-P2P-ID');
   worldQuizSubscribersRef.current.delete(porta); 
   setConnections(prev => prev.filter(c => c.peer !== porta)); 
   setSelectedContact(curr => curr === porta ? null : curr); 
@@ -6088,6 +6111,7 @@ window.location.reload();
 } else if (['socket-error', 'network', 'socket-closed'].includes(err.type)) {
 // Network errors should trigger reconnection, not a white screen
 console.log("Network error detected, will attempt reconnect...");
+addAudit(`Erro de rede: ${err.type}`, 'error', 'NETWORK-CORE-ID');
 } else if (err.type !== 'peer-unavailable') {
 // Non-critical errors as system messages
 setMessages(prev => [...prev, { text: `System: PeerJS Error (${err.type})`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
@@ -6118,13 +6142,13 @@ peerInstance.current.reconnect();
 
 
 peer.on('connection', conn => {
-  addAudit(`[P2P] Nova conexão de entrada de: ${conn.peer}`, 'info');
+  addAudit(`Nova conexão de entrada de: ${conn.peer}`, 'info', 'NETWORK-P2P-ID');
   if (bannedPeersRef.current.has(conn.peer)) { setTimeout(() => conn.close(), 500); return; }
 // FIX BUG-2: use refs — isSuperNode and connections captured from closure would be stale here
 const maxConns = isSuperNodeRef.current ? 50 : 15;
 if (connectionsRef.current.length >= maxConns) { setTimeout(() => conn.close(), 500); return; }
 conn.on('open', () => {
-addAudit(`[P2P] Conexão de entrada aberta: ${conn.peer}`, 'success');
+addAudit(`Conexão de entrada aberta: ${conn.peer}`, 'success', 'NETWORK-P2P-ID');
 setConnections(prev => [...prev.filter(c => c.peer !== conn.peer), conn]);
 sendHandshake(conn);
 sendRadioSync(conn);
@@ -6137,7 +6161,7 @@ setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
 });
 conn.on('data', data => handleIncomingData(data, conn.peer));
 conn.on('close', () => { 
-  addAudit(`[P2P] Conexão encerrada: ${conn.peer}`, 'warn');
+  addAudit(`Conexão encerrada: ${conn.peer}`, 'warn', 'NETWORK-P2P-ID');
   worldQuizSubscribersRef.current.delete(conn.peer); 
   setConnections(prev => prev.filter(c => c.peer !== conn.peer)); 
   setSelectedContact(curr => curr === conn.peer ? null : curr); 
@@ -6146,7 +6170,7 @@ conn.on('close', () => {
   setTimeout(checkAndAssumeQuizMaster, 1000); 
 });
 conn.on('error', (e) => { 
-  addAudit(`[P2P] Erro na conexão com ${conn.peer}: ${e?.message || '?' }`, 'error');
+  addAudit(`Erro na conexão com ${conn.peer}: ${e?.message || '?' }`, 'error', 'NETWORK-P2P-ID');
   worldQuizSubscribersRef.current.delete(conn.peer); 
   setConnections(prev => prev.filter(c => c.peer !== conn.peer)); 
   setSelectedContact(curr => curr === conn.peer ? null : curr); 
@@ -7009,6 +7033,7 @@ const startWorldRadioBroadcast = (station) => {
     streamUrl: station.url_resolved, 
     sender: peerId, 
     senderName: userName, 
+    toolId: 'RADIO-WORLD-ID',
     ttl: 15 
   };
 
@@ -7154,6 +7179,7 @@ radioId,
 youtubeId: finalYoutubeId,
 sender: peerId,
 senderName: userName,
+toolId: 'YT-RADIO-ID',
 ttl: 15
 };
 
@@ -7301,11 +7327,11 @@ readChunk();
 
 
 const handleAudioRecording = (audioBlob, targetContact) => {
-if (!userName.trim()) { alert(t(lang, 'defineNameFirst')); setEditingName(true); return; }
-if (!targetContact) { alert(t(lang, 'selectContactFirst2')); return; }
-const conn = connections.find(c => c.peer === targetContact);
-if (!conn || !conn.open) { alert(t(lang, 'contactOffline2')); return; }
-sendChunkedData(conn, 'audioId', audioBlob, 'audio', {});
+  if (!userName.trim()) { alert(t(lang, 'defineNameFirst')); setEditingName(true); return; }
+  if (!targetContact) { alert(t(lang, 'selectContactFirst2')); return; }
+  const conn = connections.find(c => c.peer === targetContact);
+  if (!conn || !conn.open) { alert(t(lang, 'contactOffline2')); return; }
+  sendChunkedData(conn, 'audioId', audioBlob, 'audio', { toolId: 'AUDIO-PTT-ID' });
 };
 
 
