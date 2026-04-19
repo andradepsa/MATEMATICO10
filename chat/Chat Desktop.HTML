@@ -923,6 +923,10 @@ collaborativeMarkdownEditor: "Collaborative Markdown Editor",
 typeMarkdownHere: "Type your markdown here...",
 msgTooLong: "Message exceeds 2000 characters limit.",
 usersOnlineGeneral: "Users Online in General Web",
+auditLog: "Audit Log",
+auditLogs: "Audit Logs",
+auditSystem: "K10 NETWORK AUDIT",
+auditNoLogs: "No network events logged yet.",
 },
 pt: {
 appTitle: "Chat K10",
@@ -1112,6 +1116,10 @@ collaborativeMarkdownEditor: "Editor Markdown Colaborativo",
 typeMarkdownHere: "Digite seu markdown aqui...",
 msgTooLong: "A mensagem excede o limite de 2000 caracteres.",
 usersOnlineGeneral: "Usuários Online na Teia Geral",
+auditLog: "Log de Auditoria",
+auditLogs: "Logs de Auditoria",
+auditSystem: "AUDITORIA DE REDE K10",
+auditNoLogs: "Nenhum evento de rede registrado ainda.",
 }
 };
 
@@ -1412,6 +1420,61 @@ const GROUP_E2EE_PREFIX = "\u{1F6E1}GRP:";
 // ================================================================
 // ERROR BOUNDARY
 // ================================================================
+// ================================================================
+// Audit Log UI
+// ================================================================
+const AuditPanel = ({ lang, logs, onClose }) => {
+  return (
+    <div className="media-controls-overlay" onClick={e => { if (e.target === e.currentTarget) onClose(); }} style={{ zIndex: 10000 }}>
+      <div className="md-editor-container" style={{ maxWidth: '600px', height: '70vh', border: '1px solid #334155', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7)' }}>
+        <div className="md-editor-header" style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#0f172a' }}>
+          <h2 style={{ fontSize: '15px', fontWeight: '800', margin: 0, color: '#f1f5f9', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '18px' }}>📜</span>
+            {t(lang, 'auditLogs')}
+          </h2>
+          <button className="tutorial-close" onClick={onClose} style={{ color: '#94a3b8' }}>×</button>
+        </div>
+        <div style={{ flex: 1, overflowY: 'auto', padding: '15px', background: '#020617' }}>
+          <div style={{ fontSize: '10px', color: '#6366f1', fontWeight: '800', padding: '0 0 12px', borderBottom: '1px solid #1e293b', marginBottom: '12px', letterSpacing: '2px', display: 'flex', justifyContent: 'space-between' }}>
+            <span>{t(lang, 'auditSystem')}</span>
+            <span style={{ opacity: 0.6 }}>{logs.length} EVENTS</span>
+          </div>
+          {logs.length === 0 ? (
+            <div style={{ padding: '60px 20px', textAlign: 'center', color: '#475569', fontSize: '13px' }}>
+              <div style={{ fontSize: '32px', marginBottom: '15px', opacity: 0.3 }}>📡</div>
+              {t(lang, 'auditNoLogs')}
+            </div>
+          ) : (
+            logs.map((log) => (
+              <div key={log.id} style={{ 
+                padding: '10px 12px', 
+                borderBottom: '1px solid rgba(30, 41, 59, 0.5)', 
+                fontSize: '11px', 
+                fontFamily: '"JetBrains Mono", monospace',
+                display: 'flex',
+                gap: '12px',
+                lineHeight: '1.4'
+              }}>
+                <span style={{ color: '#475569', whiteSpace: 'nowrap' }}>[{log.time}]</span>
+                <span style={{ 
+                  color: log.type === 'error' ? '#f87171' : 
+                         log.type === 'warn' ? '#fbbf24' : 
+                         log.type === 'success' ? '#4ade80' : 
+                         log.type === 'sys' ? '#a78bfa' : '#38bdf8',
+                  flex: 1
+                }}>
+                  {log.msg}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
 const Avatar = ({ peerId, name, avatars, size = 'medium', className = '' }) => {
   const avatarData = avatars[peerId];
   const initial = (name || peerId || '?').charAt(0).toUpperCase();
@@ -4083,6 +4146,19 @@ const [showMediaControls, setShowMediaControls] = useState(false);
 const [showPollCreator, setShowPollCreator] = useState(false);
 const [showMarkdownEditor, setShowMarkdownEditor] = useState(false);
 const [showQuizBot, setShowQuizBot] = useState(false);
+const [auditLogs, setAuditLogs] = useState([]);
+const [showAuditPanel, setShowAuditPanel] = useState(false);
+
+const addAudit = (msg, type = 'info') => {
+  const entry = {
+    id: Date.now() + Math.random().toString(36).substring(2),
+    time: new Date().toLocaleTimeString(),
+    msg,
+    type
+  };
+  setAuditLogs(prev => [entry, ...prev].slice(0, 200));
+};
+
 const [quizBotActive, setQuizBotActive] = useState(false);
 const [quizInterval, setQuizInterval] = useState(MIN_QUIZ_INTERVAL);
 const [quizIntervalInput, setQuizIntervalInput] = useState(MIN_QUIZ_INTERVAL); // Local state for UI
@@ -5081,6 +5157,7 @@ if (data.type === 'group-operation-lock') {
 
 // FASE-3/Caso5: eleição de novo reservado após split
 if (data.type === 'new-reservado' && data.peerId && data.groupId) {
+  addAudit(`[Hydra] Novo Reservado eleito: ${data.peerId} para o grupo ${data.groupId}`, 'sys');
   if (directoryGlobalRef.current[data.groupId]) {
     const set = new Set(directoryGlobalRef.current[data.groupId].reservados);
     set.add(data.peerId);
@@ -5148,6 +5225,7 @@ if (data.type === 'group-split') {
 
 // FASE-3/Caso3: receber group-merge — confiar na mensagem do reservado remetente
 if (data.type === 'group-merge') {
+  addAudit(`[Hydra] Fusão de grupos: ${data.absorbedGroupId} absorvido por ${data.survivingGroupId}`, 'sys');
   // V4 FIX BUG#6: dedup ANTES de qualquer mutação. Sem isso, cada hop somava
   //               groupSize (BUG#7) e remigrar o nó N vezes.
   if (data.msgId && isDuplicate(data.msgId)) return;
@@ -5842,6 +5920,7 @@ if (!peerIdToConnect || !peerInstance.current || !isPeerInitialized) return;
 if (bannedPeersRef.current.has(peerIdToConnect)) return;
 // V8-BUG#7: usar connectionsRef.current (sempre fresco) em vez de state React
 if (connectionsRef.current.some(c => c.peer === peerIdToConnect && c.open)) return;
+addAudit(`[P2P] Iniciando conexão com: ${peerIdToConnect} ${isCentralServer(peerIdToConnect) ? '(Servidor)' : ''}`, 'info');
 try {
 const conn = peerInstance.current.connect(peerIdToConnect, { reliable: true });
 if (!conn) throw new Error("Connection failed");
@@ -5858,6 +5937,7 @@ setMessages(prev => [...prev, { text: `⚠️ ${t(lang, 'connectionFailed')} ${p
 
 conn.on('open', () => {
 clearTimeout(timeoutId);
+addAudit(`[P2P] Conexão estabelecida com ${peerIdToConnect}`, 'success');
 setConnections(prev => [...prev.filter(c => c.peer !== peerIdToConnect), conn]);
 sendHandshake(conn);
 sendRadioSync(conn);
@@ -5870,6 +5950,7 @@ setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
 });
 conn.on('error', err => {
   clearTimeout(timeoutId);
+  addAudit(`[P2P] Falha na conexão com ${peerIdToConnect}: ${err?.type || 'unknown'}`, 'error');
   setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect));
   setSelectedContact(curr => curr === peerIdToConnect ? null : curr);
   console.warn('[V8-BUG#9] conn error', peerIdToConnect, err && err.message);
@@ -5888,6 +5969,7 @@ conn.on('error', err => {
 });
 conn.on('close', () => {
   clearTimeout(timeoutId);
+  addAudit(`[P2P] Conexão encerrada: ${peerIdToConnect}`, 'warn');
   worldQuizSubscribersRef.current.delete(peerIdToConnect);
   setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect));
   setSelectedContact(curr => curr === peerIdToConnect ? null : curr);
@@ -5932,6 +6014,7 @@ debug: 1
 
 peer.on('open', (id) => {
 setIsPeerInitialized(true);
+addAudit(`[Rede] Peer inicializado com ID: ${id}`, 'success');
 reconnectAttempts = 0;
 const urlParams = new URLSearchParams(window.location.search);
 const portasStr = urlParams.get('portas');
@@ -5943,12 +6026,29 @@ else if (!centralServerId) { setCentralServerId(portas[0]); setSelectedContact(p
 setTimeout(() => {
 portas.forEach(porta => {
 if (porta && porta !== id) {
+addAudit(`[P2P] Tentando conectar ao nó: ${porta} ${isCentralServer(porta) ? '(Servidor)' : ''}`, 'info');
 const conn = peer.connect(porta, { reliable: true });
 if (conn) {
-conn.on('open', () => { setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]); sendRadioSync(conn); try { conn.send({ type: 'radio-request-sync' }); } catch(e){} });
+conn.on('open', () => { 
+  addAudit(`[P2P] Conexão estabelecida com: ${porta}`, 'success');
+  setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]); 
+  sendRadioSync(conn); 
+  try { conn.send({ type: 'radio-request-sync' }); } catch(e){} 
+});
 conn.on('data', data => handleIncomingData(data, porta));
-conn.on('close', () => { worldQuizSubscribersRef.current.delete(porta); setConnections(prev => prev.filter(c => c.peer !== porta)); setSelectedContact(curr => curr === porta ? null : curr); setTimeout(checkAndAssumeQuizMaster, 1000); });
-conn.on('error', () => { worldQuizSubscribersRef.current.delete(porta); setConnections(prev => prev.filter(c => c.peer !== porta)); setSelectedContact(curr => curr === porta ? null : curr); });
+conn.on('close', () => { 
+  addAudit(`[P2P] Conexão encerrada com: ${porta}`, 'warn');
+  worldQuizSubscribersRef.current.delete(porta); 
+  setConnections(prev => prev.filter(c => c.peer !== porta)); 
+  setSelectedContact(curr => curr === porta ? null : curr); 
+  setTimeout(checkAndAssumeQuizMaster, 1000); 
+});
+conn.on('error', (e) => { 
+  addAudit(`[P2P] Erro na conexão com ${porta}: ${e?.message || '?' }`, 'error');
+  worldQuizSubscribersRef.current.delete(porta); 
+  setConnections(prev => prev.filter(c => c.peer !== porta)); 
+  setSelectedContact(curr => curr === porta ? null : curr); 
+});
 }
 }
 });
@@ -5998,11 +6098,13 @@ peerInstance.current.reconnect();
 
 
 peer.on('connection', conn => {
-if (bannedPeersRef.current.has(conn.peer)) { setTimeout(() => conn.close(), 500); return; }
+  addAudit(`[P2P] Nova conexão de entrada de: ${conn.peer}`, 'info');
+  if (bannedPeersRef.current.has(conn.peer)) { setTimeout(() => conn.close(), 500); return; }
 // FIX BUG-2: use refs — isSuperNode and connections captured from closure would be stale here
 const maxConns = isSuperNodeRef.current ? 50 : 15;
 if (connectionsRef.current.length >= maxConns) { setTimeout(() => conn.close(), 500); return; }
 conn.on('open', () => {
+addAudit(`[P2P] Conexão de entrada aberta: ${conn.peer}`, 'success');
 setConnections(prev => [...prev.filter(c => c.peer !== conn.peer), conn]);
 sendHandshake(conn);
 sendRadioSync(conn);
@@ -6014,8 +6116,23 @@ setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
 }
 });
 conn.on('data', data => handleIncomingData(data, conn.peer));
-conn.on('close', () => { worldQuizSubscribersRef.current.delete(conn.peer); setConnections(prev => prev.filter(c => c.peer !== conn.peer)); setSelectedContact(curr => curr === conn.peer ? null : curr); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); setTimeout(checkAndAssumeQuizMaster, 1000); });
-conn.on('error', () => { worldQuizSubscribersRef.current.delete(conn.peer); setConnections(prev => prev.filter(c => c.peer !== conn.peer)); setSelectedContact(curr => curr === conn.peer ? null : curr); endCall(conn.peer, 'video'); endCall(conn.peer, 'voice'); });
+conn.on('close', () => { 
+  addAudit(`[P2P] Conexão encerrada: ${conn.peer}`, 'warn');
+  worldQuizSubscribersRef.current.delete(conn.peer); 
+  setConnections(prev => prev.filter(c => c.peer !== conn.peer)); 
+  setSelectedContact(curr => curr === conn.peer ? null : curr); 
+  endCall(conn.peer, 'video'); 
+  endCall(conn.peer, 'voice'); 
+  setTimeout(checkAndAssumeQuizMaster, 1000); 
+});
+conn.on('error', (e) => { 
+  addAudit(`[P2P] Erro na conexão com ${conn.peer}: ${e?.message || '?' }`, 'error');
+  worldQuizSubscribersRef.current.delete(conn.peer); 
+  setConnections(prev => prev.filter(c => c.peer !== conn.peer)); 
+  setSelectedContact(curr => curr === conn.peer ? null : curr); 
+  endCall(conn.peer, 'video'); 
+  endCall(conn.peer, 'voice'); 
+});
 });
 
 
@@ -6049,6 +6166,7 @@ const ghostGcIv = setInterval(() => {
       if (state === 'failed' || state === 'closed' || state === 'disconnected') {
         changed = true;
         evictIds.push(c.peer);
+        addAudit(`[GhostGC] Phantom peer [${c.peer}] removed (${state})`, 'warn');
         try { c.close(); } catch(e){}
         
         // Também removemos referências se for o servidor
@@ -7526,6 +7644,9 @@ overflow: 'hidden'
         <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>{t(lang, 'yourName')}:</span>
         <span className="username">{userName}</span>
         <button className="user-edit-button" onClick={() => setEditingName(true)}>{t(lang, 'edit')}</button>
+        <button className="user-edit-button" style={{ background: '#f8fafc', color: '#6366f1', border: '1px solid #e2e8f0', marginLeft: '6px' }} onClick={() => setShowAuditPanel(true)}>
+          <i className="fas fa-list-alt"></i> {t(lang, 'auditLog')}
+        </button>
       </div>
     )}
   </div>
@@ -7752,6 +7873,7 @@ currentQuizQuestionRef={currentQuizQuestionRef}
     onClose={() => setShowWhiteboard(false)} 
   />
 )}
+{showAuditPanel && <AuditPanel lang={lang} logs={auditLogs} onClose={() => setShowAuditPanel(false)} />}
 </div>
 );
 };
