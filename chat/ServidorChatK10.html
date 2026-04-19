@@ -653,6 +653,44 @@
       const srvQuizTimerRef = useRef(null);
       const srvCurrentQuizRef = useRef(null);
       const srvWorldPlaceIdxRef = useRef(0);
+
+      // V9: Garbage Collector para conexões WebRTC fantasmas (onde o evento on('close') não dispara)
+      useEffect(() => {
+        const ghostGcIv = setInterval(() => {
+          activeConnectionsRef.current.forEach((conn, peerId) => {
+            if (!conn.peerConnection) return;
+            const state = conn.peerConnection.connectionState;
+            if (state === 'failed' || state === 'closed' || state === 'disconnected') {
+              addAudit(`[GhostGC] Peer fantasma [${peerId}] detectado e removido (${state})`, 'warn');
+              try { conn.close(); } catch(e){}
+              
+              // Limpeza manual já que o evento close pode não disparar
+              if (quizBotPeerRef.current === peerId) {
+                quizBotPeerRef.current = null;
+                activeConnectionsRef.current.forEach((c) => {
+                  try { c.send({ type: 'quiz-bot-status', active: false }); } catch(e) {}
+                });
+              }
+              
+              const peerGroupId = peerGroupMapRef.current.get(peerId);
+              if (peerGroupId && activeGroupsRef.current[peerGroupId]) {
+                activeGroupsRef.current[peerGroupId].size = Math.max(0, activeGroupsRef.current[peerGroupId].size - 1);
+                activeGroupsRef.current[peerGroupId].members.delete(peerId);
+              }
+              peerGroupMapRef.current.delete(peerId);
+              activeConnectionsRef.current.delete(peerId);
+              
+              setConnections(Array.from(activeConnectionsRef.current.keys()));
+              setStats(prev => ({
+                ...prev,
+                activeConnections: activeConnectionsRef.current.size,
+                hydraNodes: recentPeersRef.current.length
+              }));
+            }
+          });
+        }, 5000);
+        return () => clearInterval(ghostGcIv);
+      }, []);
       const srvQuizAllIdxRef = useRef(0);
       const HYDRA_THRESHOLD = 150;
       const CHUNK_SIZE = 16 * 1024;
@@ -1483,46 +1521,9 @@
             }, 5000);
           }
           
-          // V9: Garbage Collector para conexões WebRTC fantasmas (onde o evento on('close') não dispara)
-const ghostGcIv = setInterval(() => {
-  activeConnectionsRef.current.forEach((conn, peerId) => {
-    if (!conn.peerConnection) return;
-    const state = conn.peerConnection.connectionState;
-    if (state === 'failed' || state === 'closed' || state === 'disconnected') {
-      addAudit(`[GhostGC] Peer fantasma [${peerId}] detectado e removido (${state})`, 'warn');
-      try { conn.close(); } catch(e){}
-      
-      // Limpeza manual já que o evento close pode não disparar
-      if (quizBotPeerRef.current === peerId) {
-        quizBotPeerRef.current = null;
-        activeConnectionsRef.current.forEach((c) => {
-          try { c.send({ type: 'quiz-bot-status', active: false }); } catch(e) {}
-        });
-      }
-      
-      const peerGroupId = peerGroupMapRef.current.get(peerId);
-      if (peerGroupId && activeGroupsRef.current[peerGroupId]) {
-        activeGroupsRef.current[peerGroupId].size = Math.max(0, activeGroupsRef.current[peerGroupId].size - 1);
-        activeGroupsRef.current[peerGroupId].members.delete(peerId);
-      }
-      peerGroupMapRef.current.delete(peerId);
-      activeConnectionsRef.current.delete(peerId);
-      
-      setConnections(Array.from(activeConnectionsRef.current.keys()));
-      setStats(prev => ({
-        ...prev,
-        activeConnections: activeConnectionsRef.current.size,
-        hydraNodes: recentPeersRef.current.length
-      }));
-    }
-  });
-}, 5000);
-
-// Cleanup do timer ao desmontar
-useEffect(() => {
-  return () => clearInterval(ghostGcIv);
-}, []);
-
+          // Always send handshake from server so clients know it's a central server
+          try {
+            conn.send({ type: 'handshake', peerId });
             if (youtubeChatIdRef.current) {
               conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 });
             }
