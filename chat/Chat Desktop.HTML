@@ -848,6 +848,7 @@ connectFailed: "Failed to connect: ",
 serverFull: "Server full. Could not connect.",
 maxFileSizeErr: "Max 5MB.",
 radioAlreadyPlaying: "A song is already playing!",
+worldRadios: "World Radios", // FIX BUG-NEW-3
 radioGlobal: "Global Radio",
 djLabel: "DJ: ",
 nowPlaying: "▶ Now Playing",
@@ -1041,6 +1042,7 @@ connectFailed: "Erro ao conectar: ",
 serverFull: "Servidor cheio.",
 maxFileSizeErr: "Máx 5MB.",
 radioAlreadyPlaying: "Já existe uma música tocando!",
+worldRadios: "Rádios do Mundo", // FIX BUG-NEW-3
 radioGlobal: "Rádio Global",
 djLabel: "DJ: ",
 nowPlaying: "▶ Tocando agora",
@@ -3405,6 +3407,49 @@ return <video className="video-player" ref={el => videoRefs.current[targetId] = 
 };
 
 
+// ════════════════════════════════════════════════════════════════════
+// FIX BUG-NEW-1: GeneralModeInfoModal era usado no JSX mas nunca definido → ReferenceError
+// ════════════════════════════════════════════════════════════════════
+const GeneralModeInfoModal = ({ lang, selectedContact, onClose }) => {
+  const isGeneral = !selectedContact;
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px',
+        padding: '28px 24px', maxWidth: '420px', width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.35)'
+      }}>
+        <h3 style={{ margin: '0 0 12px', color: 'var(--primary)', fontSize: '16px', fontWeight: 700 }}>
+          {t(lang, 'generalModeInfo')}
+        </h3>
+        <p style={{ margin: '0 0 14px', color: 'var(--text)', fontSize: '14px', lineHeight: 1.6 }}>
+          {t(lang, 'generalModeDesc')}
+        </p>
+        <div style={{
+          background: isGeneral ? 'rgba(16,185,129,0.12)' : 'rgba(99,102,241,0.12)',
+          border: `1px solid ${isGeneral ? 'rgba(16,185,129,0.35)' : 'rgba(99,102,241,0.35)'}`,
+          borderRadius: '8px', padding: '10px 14px', marginBottom: '18px', fontSize: '13px', color: 'var(--text)'
+        }}>
+          {isGeneral
+            ? <><strong>⚡ {t(lang, 'generalModeActivated')}</strong><br />{t(lang, 'generalModeActivatedDesc')}</>
+            : <><strong>🔒 {t(lang, 'generalModeDeactivated')}</strong><br />{t(lang, 'generalModeDeactivatedDesc')}</>
+          }
+        </div>
+        <button
+          onClick={onClose}
+          style={{
+            width: '100%', padding: '9px 0', borderRadius: '8px', border: 'none',
+            background: 'var(--primary)', color: '#fff', fontWeight: 600, fontSize: '14px', cursor: 'pointer'
+          }}
+        >OK</button>
+      </div>
+    </div>
+  );
+};
+
+
 const WorldRadiosModal = ({ lang, onClose, onBroadcast }) => {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
@@ -3992,11 +4037,21 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
               const newActive = !quizBotActive;
               // ── HANDOFF: ao DESLIGAR, transferimos o estado do quiz para o servidor
               // assumir a transmissão (mesmo padrão URL+ID, sem binários).
+              // FIX BUG-5: handoff já implica parada do bot — NÃO enviamos quiz-bot-stop
+              // separado quando handoff foi enviado. Em P2P a ordem de chegada não é
+              // garantida: se quiz-bot-stop chegar antes do quiz-handoff, o servidor
+              // descarta o handoff ou pisca active:false para todos os clientes.
+              let handoffSent = false;
               if (!newActive && sendQuizHandoff) {
-                try { sendQuizHandoff(); } catch(e) { console.warn('Quiz handoff failed', e); }
+                try { sendQuizHandoff(); handoffSent = true; } catch(e) { console.warn('Quiz handoff failed', e); }
               }
               setQuizBotActive(newActive);
-              notifyServer(newActive ? 'quiz-bot-start' : 'quiz-bot-stop');
+              // Só envia quiz-bot-stop se NÃO enviou handoff (bot desligado sem servidor ativo)
+              if (newActive) {
+                notifyServer('quiz-bot-start');
+              } else if (!handoffSent) {
+                notifyServer('quiz-bot-stop');
+              }
               
               // Dispara ativação global via P2P (Self-Healing)
               if (broadcastToggle) broadcastToggle(newActive);
@@ -4191,7 +4246,7 @@ useEffect(() => { selectedContactRef.current = selectedContact; }, [selectedCont
 const quizLastSeenRef = useRef({}); // { peerId: timestampMs }
 const lastQuizTimeRef = useRef(0); // Rastreia o ÚLTIMO quiz enviado/recebido na REDE (Global Role Tracking)
 const quizSeenNoncesRef = useRef(new Set()); // Para impedir ataques de Repetição de Mensagem (Replay Avoidance)
-const QUIZ_VIGILANCE_MIN_MS = MIN_QUIZ_INTERVAL * 1000; // 60 000 ms — trava absoluta
+// FIX BUG-E: QUIZ_VIGILANCE_MIN_MS era declarada mas nunca usada; comentário dizia "60 000 ms" mas MIN_QUIZ_INTERVAL=120 → 120 000 ms. Constante removida.
 
 // Embaralha array in-place (Fisher-Yates)
 function shuffleArray(arr) {
@@ -4242,10 +4297,10 @@ const handlePollCreated = (question, options) => {
   if (selectedContact) {
     const conn = connections.find(c => c.peer === selectedContact);
     if (conn && conn.open) conn.send({ ...msgData, direct: true });
-    setMessages(prev => [...prev, { ...msgData, sender: 'you', recipient: selectedContact }]);
+    setMessages(prev => [...prev, { ...msgData, sender: 'you', recipient: selectedContact }].slice(-500));
   } else {
     connections.forEach(c => { if (c.open) try { c.send({ ...msgData, direct: false }); } catch(e){} });
-    setMessages(prev => [...prev, { ...msgData, sender: 'you', recipient: 'general' }]);
+    setMessages(prev => [...prev, { ...msgData, sender: 'you', recipient: 'general' }].slice(-500));
   }
   setShowPollCreator(false);
 };
@@ -4330,11 +4385,11 @@ const sendBotMessage = (text) => {
     // Conectado a um servidor: envia SÓ para o servidor, ele faz o relay para todos
     const conn = connectionsRef.current.find(c => c.peer === target && c.open);
     if (conn) try { conn.send(wireMsg); } catch(e) { console.error('Quiz bot send error', e); }
-    setMessages(prev => [...prev, { ...localMsg, recipient: target }]);
+    setMessages(prev => [...prev, { ...localMsg, recipient: target }].slice(-500));
   } else {
     // Modo geral (sem servidor): broadcast direto para todos os peers
     connectionsRef.current.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
-    setMessages(prev => [...prev, { ...localMsg, recipient: 'general' }]);
+    setMessages(prev => [...prev, { ...localMsg, recipient: 'general' }].slice(-500));
   }
 };
 
@@ -4375,10 +4430,10 @@ const sendQuizQuestion = (quizData) => {
   if (target) {
     const conn = connectionsRef.current.find(c => c.peer === target && c.open);
     if (conn) try { conn.send(wireMsg); } catch(e) { console.error('Quiz send error', e); }
-    setMessages(prev => [...prev, localMsg]);
+    setMessages(prev => [...prev, localMsg].slice(-500));
   } else {
     connectionsRef.current.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
-    setMessages(prev => [...prev, localMsg]);
+    setMessages(prev => [...prev, localMsg].slice(-500));
   }
   
   // Envia para os inscritos do World Quiz, independentemente de estar em um servidor ou não
@@ -4547,7 +4602,7 @@ const broadcastQuizViolation = (violatorId, violatorName, elapsedSec) => {
     time: new Date().toLocaleTimeString('en-US'),
     timestamp: Date.now(),
     recipient: 'general',
-    text: `⚠️ VIOLAÇÃO DETECTADA: "${violatorName || violatorId}" enviou quiz com apenas ${Math.round(elapsedSec)}s de intervalo (mínimo: 60s). Mensagem BLOQUEADA pela rede.`
+    text: `⚠️ VIOLAÇÃO DETECTADA: "${violatorName || violatorId}" enviou quiz com apenas ${Math.round(elapsedSec)}s de intervalo (mínimo: ${MIN_QUIZ_INTERVAL}s). Mensagem BLOQUEADA pela rede.`
   };
   setMessages(prev => [...prev, alertMsg].slice(-500));
 };
@@ -4929,7 +4984,7 @@ if (data.type === 'quiz-violation') {
     time: new Date(data.timestamp).toLocaleTimeString('en-US'),
     timestamp: data.timestamp,
     recipient: 'general',
-    text: `⚠️ VIOLAÇÃO DETECTADA por ${data.detectedByName || data.detectedBy}: "${data.violatorName}" enviou quiz com apenas ${data.elapsedSec}s de intervalo (mínimo: 60s). Mensagem BLOQUEADA.`
+    text: `⚠️ VIOLAÇÃO DETECTADA por ${data.detectedByName || data.detectedBy}: "${data.violatorName}" enviou quiz com apenas ${data.elapsedSec}s de intervalo (mínimo: ${MIN_QUIZ_INTERVAL}s). Mensagem BLOQUEADA.`
   }].slice(-500));
   return;
 }
@@ -5001,7 +5056,7 @@ if (data.type === 'quiz-bot-status') {
   if (data.active && data.owner !== peerId && quizBotActiveRef.current) {
     // Se outro ligou o bot e eu também estou com ele ligado, eu desligo o meu
     setQuizBotActive(false);
-    alert(t(lang, 'botAlreadyActiveServer'));
+    alert(t(langRef.current, 'botAlreadyActiveServer')); // FIX BUG-NEW-4: era t(lang,...) stale closure
   }
   return;
 }
@@ -5036,7 +5091,7 @@ setTimeout(() => connectToPeer(newPId), Math.random() * 3000); // Random delay t
 }
 // FASE-2: proteção mútua — se não temos groupId ainda, o servidor/reservado já
 // enviou o groupId via peer-list; aqui apenas registramos o message do sistema
-setMessages(prev => [...prev, { text: data.message || "Servidor lotado. Você foi migrado para a rede descentralizada (P2P) automaticamente.", sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
+setMessages(prev => [...prev, { text: data.message || "Servidor lotado. Você foi migrado para a rede descentralizada (P2P) automaticamente.", sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500));
 return;
 }
 
@@ -5058,7 +5113,7 @@ if (data.type === 'avatar-update' && data.avatar) {
 if (data.type === 'e2ee-secret' && data.secret) {
 setE2eeState(prev => ({ ...prev, [pId]: { ...prev[pId], contactSecret: data.secret } }));
 const name = getContactName(pId);
-setMessages(prev => [...prev, { text: t(lang, 'e2eeSecretReceived', { name }), sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now(), systemFor: pId }]);
+setMessages(prev => [...prev, { text: t(langRef.current, 'e2eeSecretReceived', { name }), sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now(), systemFor: pId }].slice(-500));
 return;
 }
 
@@ -5066,7 +5121,7 @@ return;
 if (data.type === 'server-e2ee-invite' && data.groupSecret && data.serverId) {
 const name = getContactName(pId);
 setMessages(prev => [...prev, {
-text: t(lang, 'groupInviteReceived', { name, id: data.serverId }),
+text: t(langRef.current, 'groupInviteReceived', { name, id: data.serverId }), // FIX BUG-NEW-4: era t(lang,...) stale
 sender: '__system__',
 recipient: 'you',
 senderName: 'System',
@@ -5077,7 +5132,7 @@ timestamp: Date.now(),
 systemFor: pId,
 isInvite: true,
 inviteData: { serverId: data.serverId, groupSecret: data.groupSecret }
-}]);
+}].slice(-500)); // FIX BUG-F
 return;
 }
 
@@ -5614,7 +5669,10 @@ if (data.type === 'message' && data.id && data.text === '__QUIZ_ANSWER__' && dat
 // ────────────────────────────────────────────────────────────────────────────────
 
 if (data.type === 'message' && data.id) {
-if (data.sender) {
+// FIX BUG-6b: 'server-self' é o servidor central — isento do rate-limit de spam.
+// O bot do servidor envia pergunta + reveal em sequência curta (≈5s), o que
+// acionaria o banimento incorreto sem esta isenção.
+if (data.sender && data.sender !== 'server-self') {
 if (!knownUsersRef.current.has(data.sender)) {
 if (knownUsersRef.current.size > 10000) { const arr = Array.from(knownUsersRef.current); knownUsersRef.current = new Set(arr.slice(-5000)); }
 knownUsersRef.current.add(data.sender);
@@ -5694,26 +5752,32 @@ if (data.text === '__QUIZ__' && data.quizPayload) {
   }
 
   // ── VIGILÂNCIA: verifica intervalo mínimo de 60s por peer ──────
-  const senderId = pId || data.senderId || 'unknown';
+  // FIX BUG-6: usa data.sender quando disponível (servidor envia 'server-self')
+  // para evitar que o peerId da conexão varie (ex: relay) e acione falso positivo.
+  const senderId = data.sender || pId || data.senderId || 'unknown';
   const now = Date.now();
   
   // Atualiza cooldown global independente do sender (Role Tracking)
   lastQuizTimeRef.current = now;
 
-  const lastSeen = quizLastSeenRef.current[senderId];
-  if (lastSeen) {
-    const elapsed = (now - lastSeen) / 1000;
-    if (elapsed < MIN_QUIZ_INTERVAL) {
-      // VIOLAÇÃO DE REPLAY: mensagem velha enviada novamente — dropa imediato
-      if (data.quizPayload && data.quizPayload.nonce && quizSeenNoncesRef.current.has(data.quizPayload.nonce)) {
-         return; // Drop ignorando silenciosamente (previne ataque)
-      }
-      quizSeenNoncesRef.current.add(data.quizPayload?.nonce);
-      if (quizSeenNoncesRef.current.size > 200) { Array.from(quizSeenNoncesRef.current).slice(0, 100).forEach(n => quizSeenNoncesRef.current.delete(n)); } // Mantem limpo o set
+  // FIX BUG-6: 'server-self' é o servidor central que já respeita SRV_MIN_QUIZ_INTERVAL
+  // internamente — isenta de vigilância para evitar broadcastQuizViolation falso.
+  if (senderId !== 'server-self') {
+    const lastSeen = quizLastSeenRef.current[senderId];
+    if (lastSeen) {
+      const elapsed = (now - lastSeen) / 1000;
+      if (elapsed < MIN_QUIZ_INTERVAL) {
+        // VIOLAÇÃO DE REPLAY: mensagem velha enviada novamente — dropa imediato
+        if (data.quizPayload && data.quizPayload.nonce && quizSeenNoncesRef.current.has(data.quizPayload.nonce)) {
+           return; // Drop ignorando silenciosamente (previne ataque)
+        }
+        quizSeenNoncesRef.current.add(data.quizPayload?.nonce);
+        if (quizSeenNoncesRef.current.size > 200) { Array.from(quizSeenNoncesRef.current).slice(0, 100).forEach(n => quizSeenNoncesRef.current.delete(n)); } // Mantem limpo o set
 
-      // VIOLAÇÃO: rejeita mensagem e alerta toda a rede
-      broadcastQuizViolation(senderId, data.senderName, elapsed);
-      return; // bloqueia o quiz
+        // VIOLAÇÃO: rejeita mensagem e alerta toda a rede
+        broadcastQuizViolation(senderId, data.senderName, elapsed);
+        return; // bloqueia o quiz
+      }
     }
   }
   quizLastSeenRef.current[senderId] = now; // atualiza timestamp
@@ -5920,7 +5984,7 @@ try { conn.send(worldMsg); } catch(e) {}
 
 const disconnectPeer = (pId) => {
 if (!pId) return;
-const conn = connections.find(c => c.peer === pId);
+const conn = connectionsRef.current.find(c => c.peer === pId); // FIX BUG-C: era connections (stale closure)
 if (conn) {
 try { conn.close(); } catch(e) {}
 }
@@ -5950,7 +6014,7 @@ const timeoutId = setTimeout(() => {
 if (conn && !conn.open) {
 console.warn(`Connection to ${peerIdToConnect} timed out. Closing attempt.`);
 conn.close();
-setMessages(prev => [...prev, { text: `⚠️ ${t(lang, 'connectionFailed')} ${peerIdToConnect} (Timeout)`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
+setMessages(prev => [...prev, { text: `⚠️ ${t(lang, 'connectFailed')} ${peerIdToConnect} (Timeout)`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500)); // FIX BUG-NEW-2: era 'connectionFailed'; FIX BUG-F: +.slice(-500)
 }
 }, 10000);
 
@@ -6051,7 +6115,8 @@ const conn = peer.connect(porta, { reliable: true });
 if (conn) {
 conn.on('open', () => { 
   addAudit(`[P2P] Conexão estabelecida com: ${porta}`, 'success');
-  setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]); 
+  setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]);
+  sendHandshake(conn); // FIX BUG-B: peer remoto precisa saber nossa identidade
   sendRadioSync(conn); 
   try { conn.send({ type: 'radio-request-sync' }); } catch(e){} 
 });
@@ -6090,7 +6155,7 @@ window.location.reload();
 console.log("Network error detected, will attempt reconnect...");
 } else if (err.type !== 'peer-unavailable') {
 // Non-critical errors as system messages
-setMessages(prev => [...prev, { text: `System: PeerJS Error (${err.type})`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
+setMessages(prev => [...prev, { text: `System: PeerJS Error (${err.type})`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500));
 }
 });
 
@@ -6337,6 +6402,8 @@ return () => clearInterval(iv);
 
 // ════════════════════════════════════════════════════════════════════
 // V7-B20+B21: GC periódico de pendingFiles/pendingRadioFiles órfãos (>5min)
+// FIX BUG-A: movido para useEffect para evitar memory/CPU leak a cada re-render
+useEffect(() => {
 const v7MsgCapId = setInterval(() => { try { setMessages(prev => prev.length > 500 ? prev.slice(-500) : prev); } catch(e){} }, 30000); // V7-B18
 const v7GcId = setInterval(() => {
   const now = Date.now();
@@ -6369,6 +6436,8 @@ const v7GcId = setInterval(() => {
     }
   } catch(e){}
 }, 60000);
+return () => { clearInterval(v7MsgCapId); clearInterval(v7GcId); };
+}, []); // eslint-disable-line react-hooks/exhaustive-deps
 // FASE-2: Broadcast periódico de update-peer para manter diretório global
 // SuperNodes: a cada 60s | Regulares: a cada 300s
 // ════════════════════════════════════════════════════════════════════
@@ -6872,7 +6941,7 @@ if (current.status === 'buffering') {
               time: new Date().toLocaleTimeString(),
               timestamp: Date.now(),
               type: 'text'
-            }]);
+            }].slice(-500));
           }
         }
       };
@@ -7195,7 +7264,7 @@ seenMessagesRef.current.add(_msgId);
 const _msgData = { type: 'message', id: _msgId, ttl: 15, text, senderName: userName, direct: false, time: formatTime(_ts) };
 connectionsRef.current.forEach(c => { if (c.open) try { c.send(_msgData); } catch(e){} });
 setMessages(prev => [...prev, { text, sender: 'you', recipient: 'general', senderName: userName, time: formatTime(_ts), type: 'text', direct: false, timestamp: _ts.getTime() }].slice(-500));
-setMessages(prev => [...prev, { text: t(lang, 'torrentStarted', { name: file.name }), sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
+setMessages(prev => [...prev, { text: t(lang, 'torrentStarted', { name: file.name }), sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500));
 });
 }
 };
@@ -7212,7 +7281,7 @@ const magnet = torrent.magnetURI;
 const conn = connections.find(c => c.peer === targetPeer);
 if (conn && conn.open) {
 conn.send({ type: 'torrent-request', magnet, fileName: file.name });
-setMessages(prev => [...prev, { text: `📤 Torrent request sent to ${getContactName(targetPeer)}: ${file.name}`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
+setMessages(prev => [...prev, { text: `📤 Torrent request sent to ${getContactName(targetPeer)}: ${file.name}`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500));
 }
 });
 }
@@ -7239,7 +7308,7 @@ return;
 
 torrentClientRef.current.add(magnet, { announce: announceList }, (torrent) => {
 torrent.on('done', () => {
-setMessages(prev => [...prev, { text: `✅ Torrent ${torrent.name} ${t(lang, 'completed')}!`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }]);
+setMessages(prev => [...prev, { text: `✅ Torrent ${torrent.name} ${t(lang, 'completed')}!`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500));
 torrent.files.forEach(f => f.getBlob((err, blob) => {
 if (err) return;
 const url = URL.createObjectURL(blob);
