@@ -2840,8 +2840,10 @@ else if (type === 'video') { const el = videoRefs.current[rPeerId]; if (el && el
 
 
 const getInputStatus = () => {
-if (!selectedContact) return { placeholder: t(lang, 'generalMsg'), style: {} };
+// BUG C-5 FIX: cooldown deve ser checado PRIMEIRO, independente do selectedContact.
+// Antes, em modo geral (sem contato), o placeholder de cooldown nunca era exibido.
 if (cooldownRemaining > 0) return { placeholder: t(lang, 'waitCooldown', { s: cooldownRemaining }), style: {} };
+if (!selectedContact) return { placeholder: t(lang, 'generalMsg'), style: {} };
 if (selectedIsServer && serverGroupActive)
 return { placeholder: t(lang, 'groupMsg', { name: getContactName(selectedContact) }), style: { borderColor: '#3b82f6', boxShadow: '0 0 0 2px rgba(59,130,246,0.2)' } };
 if (canSendPrivate && !selectedIsServer)
@@ -7330,8 +7332,10 @@ setShowTorrentManager(true);
 
 const stopTorrent = (infoHash) => {
 if (torrentClientRef.current) {
-const t = torrentClientRef.current.get(infoHash);
-if (t) t.destroy();
+// BUG C-6 FIX: variável renomeada de `t` para `torrent` pois `t` é a função de tradução global.
+// Usar `t` aqui causaria ReferenceError ou comportamento inesperado ao chamar t(lang,'key').
+const torrent = torrentClientRef.current.get(infoHash);
+if (torrent) torrent.destroy();
 }
 };
 
@@ -7340,7 +7344,8 @@ const handleFileChange = (e) => {
 if (!userName.trim()) { alert(t(lang, 'defineNameFirst')); setEditingName(true); return; }
 if (!selectedContact) { alert(t(lang, 'selectContactFirst2')); return; }
 const file = e.target.files[0]; if (!file) return;
-const conn = connections.find(c => c.peer === selectedContact);
+// BUG C-1 FIX: usa connectionsRef.current (sempre fresco) para evitar stale closure
+const conn = connectionsRef.current.find(c => c.peer === selectedContact);
 if (!conn || !conn.open) { alert(t(lang, 'contactOffline2')); return; }
 sendChunkedData(conn, 'fileId', file, 'file', { fileName: file.name });
 fileInputRef.current.value = '';
@@ -7376,7 +7381,8 @@ readChunk();
 const handleAudioRecording = (audioBlob, targetContact) => {
 if (!userName.trim()) { alert(t(lang, 'defineNameFirst')); setEditingName(true); return; }
 if (!targetContact) { alert(t(lang, 'selectContactFirst2')); return; }
-const conn = connections.find(c => c.peer === targetContact);
+// BUG C-2 FIX: usa connectionsRef.current para evitar stale closure em callback assíncrono
+const conn = connectionsRef.current.find(c => c.peer === targetContact);
 if (!conn || !conn.open) { alert(t(lang, 'contactOffline2')); return; }
 sendChunkedData(conn, 'audioId', audioBlob, 'audio', {});
 };
@@ -7385,7 +7391,8 @@ sendChunkedData(conn, 'audioId', audioBlob, 'audio', {});
 const startVoiceCall = async (peerIdToCall) => {
 if (!peerInstance.current || !peerIdToCall) return;
 if (activeCalls.some(c => c.peerId === peerIdToCall && c.type === 'voice')) return;
-const conn = connections.find(c => c.peer === peerIdToCall);
+// BUG C-3 FIX: usa connectionsRef.current para evitar stale closure em event handlers
+const conn = connectionsRef.current.find(c => c.peer === peerIdToCall);
 if (!conn || !conn.open) { alert(t(lang, 'contactOffline2')); return; }
 try {
 const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
@@ -7403,7 +7410,8 @@ const toggleVideoCall = async (peerIdToCall) => {
 if (!peerInstance.current || !peerIdToCall) return;
 const existingCall = activeCalls.find(c => c.peerId === peerIdToCall && c.type === 'video');
 const isSendingVideo = existingCall && existingCall.localStream;
-const conn = connections.find(c => c.peer === peerIdToCall);
+// BUG C-4 FIX: usa connectionsRef.current para evitar stale closure
+const conn = connectionsRef.current.find(c => c.peer === peerIdToCall);
 if (isSendingVideo) {
 if (existingCall.localStream) { existingCall.localStream.getTracks().forEach(tr => tr.stop()); localStreamsRef.current.delete(peerIdToCall + '_video'); }
 setActiveCalls(prev => prev.map(c => c.peerId === peerIdToCall && c.type === 'video' ? { ...c, localStream: null } : c));
