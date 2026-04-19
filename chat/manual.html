@@ -213,6 +213,7 @@ footer a{color:var(--a2);text-decoration:none;}
     <li><a href="#intro">Intro</a></li>
     <li><a href="#modes">Modes</a></li>
     <li><a href="#server">Server</a></li>
+    <li><a href="#audit">Audit</a></li>
     <li><a href="#tools">Tools</a></li>
     <li><a href="#encryption">Encryption</a></li>
     <li><a href="#security">Security</a></li>
@@ -234,6 +235,7 @@ footer a{color:var(--a2);text-decoration:none;}
   <a href="#mode3" class="sbl sub">→ Mode 3: General Web</a>
   <div class="sbt">Server K10</div>
   <a href="#server" class="sbl">Server Features</a>
+  <a href="#audit" class="sbl sub">→ Audit Log & Health</a>
   <a href="#federation" class="sbl sub">→ Federation</a>
   <a href="#yt-live" class="sbl sub">→ YouTube Live Chat</a>
   <a href="#auto-hydra" class="sbl sub">→ Auto-Hydra Mode</a>
@@ -400,6 +402,80 @@ footer a{color:var(--a2);text-decoration:none;}
       <div class="sfb">
         <strong>Server Statistics (Real-Time)</strong>
         <p>Live dashboard shows: messages received / distributed · active connections · estimated Hydra Web size (P2P node count) · audit log with all connection events.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="div"></div>
+
+<!-- AUDIT -->
+<section class="section" id="audit">
+  <div class="shead"><div class="sicon ia">📜</div><h2>Audit Log & Network Health</h2></div>
+  <p>The <strong>Audit Log (📜 Registro de Auditoria)</strong> is the "Pulse" of the Chat K10 network. It ensures complete transparency by logging real-time connectivity events, errors, and automated maintenance actions across the entire decentralized structure.</p>
+
+  <div class="mdet">
+    <h3>🔍 Automated Monitoring</h3>
+    <p>Both Client and Server instances maintain their own detailed Audit Logs to detect "Ghost Connections" and verify synchronization. Every entry includes a precision timestamp and is color-coded by severity category.</p>
+    <div class="kv">
+      <span class="kk">✅ OK</span><span class="kv2">Successful handshakes, peer connections established, or server becoming active.</span>
+      <span class="kk">ℹ️ INFO</span><span class="kv2">Hydra network structural changes (group split/merge) or auto-reconnection logs.</span>
+      <span class="kk">⚠️ WARN</span><span class="kv2">Ghost connection detected by GC, peer disconnected, or non-fatal WebRTC signaling delays.</span>
+      <span class="kk">❌ ERROR</span><span class="kv2">Peer ID already in use, remote peer not found, or total loss of connectivity to signaling broker.</span>
+    </div>
+  </div>
+
+  <div class="mdet" style="border-color:var(--a4);">
+    <div class="mdhead"><div class="mnb bga">GC</div><h3>The "Ghost Connection" Garbage Collector</h3></div>
+    <p>In decentralized mesh networks like Hydra, WebRTC sockets can occasionally fail silently (entering a "phantom" or "zombie" state). Chat K10 runs an active <strong>Garbage Collector (GC)</strong> every 5 seconds to ensure network stability.</p>
+    <div class="kv">
+      <span class="kk">Scanning</span><span class="kv2">Monitors the <code>connectionState</code> of every remote peer in the <code>activeConnections</code> pool.</span>
+      <span class="kk">Cleansing</span><span class="kv2">If a peer is <code>failed</code>, <code>closed</code>, or <code>disconnected</code>, the GC force-closes the socket and purges UI references.</span>
+      <span class="kk">Deduplication</span><span class="kv2">Ensures the <code>PeerGroupMap</code> is cleaned up to maintain accurate server and Hydra statistics.</span>
+      <span class="kk">Audit Entry</span><span class="kv2">Logs <code>[GhostGC] Peer fantasma detectado e removido</code> to explain why a node suddenly disappeared.</span>
+    </div>
+  </div>
+
+  <div class="mdet" style="border-color:var(--a3);">
+    <div class="mdhead"><div class="mnb bgg">⏰</div><h3>Agenda de Sincronização e Saúde da Rede</h3></div>
+    <p>Para que o Chat K10 seja rápido e não trave seu computador, ele não faz tudo ao mesmo tempo. Ele segue uma agenda rigorosa de limpeza e atualizações automáticas:</p>
+    <div class="kv">
+      <span class="kk">A cada 30 seg</span><span class="kv2"><strong>Indicações e Presença (PEX):</strong> Cada usuário avisa aos amigos que está online e "indica" outros contatos conhecidos. É assim que a lista de pessoas cresce sozinha sem um servidor central.</span>
+      <span class="kk">A cada 60 seg</span><span class="kv2"><strong>Censo da Rede (Directory):</strong> Os líderes e servidores contam quantas pessoas existem no grupo e espalham esse número para que todos vejam o tamanho real da rede Hydra.</span>
+      <span class="kk">Após 90 seg</span><span class="kv2"><strong>Expulsão por Silêncio:</strong> Se alguém parar de enviar o sinal de "estou vivo" por mais de 90 segundos, o sistema entende que a pessoa caiu e a remove da lista.</span>
+      <span class="kk">Sempre (3-5s)</span><span class="kv2"><strong>Faxina Técnica (Ghost GC):</strong> O motor de rede verifica os cabos invisíveis. Se detectar um erro técnico imediato, ele remove o "fantasma" da tela em segundos, sem esperar os 90 segundos de silêncio.</span>
+      <span class="kk">Imediato</span><span class="kv2"><strong>Aperto de Mão (Handshake):</strong> No momento em que você se conecta a alguém novo, a troca de contatos acontece nos primeiros 5 segundos para que vocês não fiquem isolados.</span>
+    </div>
+  </div>
+
+  <div id="glossary" class="mdet" style="border-style:dashed;">
+    <h3>📚 Glossário: Entendendo os Termos Técnicos</h3>
+    <p>Se você não é programador, aqui está uma tradução simples do que esses termos significam na prática:</p>
+    <div class="plist">
+      <div class="pr"><div class="pri">🗣️</div><div class="prt"><strong>PEX (Peer Exchange) — "O Boca a Boca"</strong><span>É como quando um amigo te apresenta a outro amigo em uma festa. No chat, seu computador conta para os outros quem ele conhece, para que todo mundo fique conectado sem precisar de um "patrão" (servidor) no meio.</span></div></div>
+      <div class="pr"><div class="pri">💓</div><div class="prt"><strong>Heartbeat — "O Batimento Cardíaco"</strong><span>É um pequeno sinal automático enviado em silêncio de 30 em 30 segundos. Ele serve apenas para dizer: "Ei, ainda estou aqui!". Se o coração para de bater, o chat sabe que você saiu.</span></div></div>
+      <div class="pr"><div class="pri">👻</div><div class="prt"><strong>Ghost Connection — "Conexão Fantasma"</strong><span>Às vezes o sinal cai, mas o chat ainda mostra a pessoa lá (como um fantasma). O nosso faxineiro (GC) percebe que o "corpo" está lá mas a "alma" (sinal) já foi, e limpa a tela para você não enviar mensagens no vácuo.</span></div></div>
+      <div class="pr"><div class="pri">🦘</div><div class="prt"><strong>TTL (Time To Live) — "Limite de Pulos"</strong><span>Como a rede Hydra é uma teia, as mensagens pulam de uma pessoa para outra. Para a mensagem não ficar pulando para sempre em círculos, ela tem um "ticket" que vale 15 pulos. Quando o ticket acaba, a mensagem para de viajar.</span></div></div>
+      <div class="pr"><div class="pri">🐉</div><div class="prt"><strong>Hydra Mesh — "A Teia de Aranha"</strong><span>Diferente do WhatsApp (onde tudo vai para uma empresa central), aqui a rede é como uma teia. Se o meio da teia rasgar, os fios das pontas continuam segurando tudo. É uma rede sem dono e impossível de desligar.</span></div></div>
+      <div class="pr"><div class="pri">🌐</div><div class="prt"><strong>WebRTC — "Cabo Direto"</strong><span>É a tecnologia que permite que dois navegadores conversem diretamente, como se houvesse um cabo ligado entre os dois computadores, sem nada no meio do caminho.</span></div></div>
+      <div class="pr"><div class="pri">🔒</div><div class="prt"><strong>E2EE (Criptografia de Ponta a Ponta) — "A Caixa com Cadeado"</strong><span>Imagine que você coloca sua mensagem em uma caixa de aço e tranca com um cadeado. Só você e o destinatário têm a chave. Mesmo que alguém (como um dono de servidor) intercepte a caixa, ele não consegue ver o que tem dentro.</span></div></div>
+      <div class="pr"><div class="pri">🏰</div><div class="prt"><strong>Federação — "A Aliança de Cidades"</strong><span>É quando dois ou mais servidores resolvem trabalhar juntos. É como duas cidades independentes que constroem uma ponte para que seus cidadãos possam se visitar e conversar livremente.</span></div></div>
+      <div class="pr"><div class="pri">🧱</div><div class="prt"><strong>NAT Simétrico / Firewall — "O Muro de Condomínio"</strong><span>Algumas redes de internet (como de empresas ou faculdades) são como condomínios fechados com seguranças muito rígidos que não deixam estranhos entrarem. Isso pode dificultar a conexão direta entre usuários.</span></div></div>
+    </div>
+  </div>
+
+  <div class="al ali2">
+    <div class="ali">💻</div>
+    <div class="alt">
+      <strong>Technical Reference:</strong>
+      <p>The Audit Log uses a high-performance <code>useRef</code> + <code>useState</code> mirror to prevent render lag. Below is the standard Implementation pattern used in the Chat K10 components:</p>
+      <div class="cb2">
+        // Standard Audit Implementation Log<br/>
+        const addAudit = (msg, type = 'info') =&gt; {<br/>
+        &nbsp;&nbsp;const entry = { ts: new Date().toLocaleTimeString(), msg, type };<br/>
+        &nbsp;&nbsp;auditLogRef.current = [entry, ...auditLogRef.current].slice(0, 60);<br/>
+        &nbsp;&nbsp;setAuditLog([...auditLogRef.current]);<br/>
+        };
       </div>
     </div>
   </div>
