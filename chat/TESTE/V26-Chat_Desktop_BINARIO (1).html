@@ -2713,8 +2713,14 @@ pendingTorrentRequests, setPendingTorrentRequests, handleTorrentDirectSeed,
 youtubeChatId, disconnectPeer,
 showWhiteboard, setShowWhiteboard,
 avatars,
-currentQuizQuestionRef
+currentQuizQuestionRef,
+connectionsRef: connectionsRefProp
 }) => {
+// FIX: usa connectionsRef recebido via prop (do App) para evitar stale closure no sendDirectMessage
+// Se não recebeu a prop (compatibilidade), cria um ref local sincronizado com connections
+const _localConnRef = useRef(connections);
+useEffect(() => { _localConnRef.current = connections; }, [connections]);
+const connectionsRef = connectionsRefProp || _localConnRef;
 const messagesEndRef = useRef(null);
 const messagesContainerRef = useRef(null);
 const [showSendSecretModal, setShowSendSecretModal] = useState(false);
@@ -8715,6 +8721,7 @@ showWhiteboard={showWhiteboard}
 setShowWhiteboard={setShowWhiteboard}
 avatars={avatars}
 currentQuizQuestionRef={currentQuizQuestionRef}
+connectionsRef={connectionsRef}
 />
 )}
 
