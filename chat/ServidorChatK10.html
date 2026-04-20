@@ -1,4 +1,4 @@
-<!-- ═══ ServidorChatK10 V9 — Auditoria Completa V19 (19/abr/2026) ═══
+<!-- ═══ ServidorChatK10 V9 — Auditoria Completa V25 (19/abr/2026) ═══
      Correções aplicadas:
      S-1  peerId stale no closure → peerIdRef.current
      S-2  distributeMessage: guard conn.open antes de send
@@ -9,13 +9,72 @@
      S-7  youtube-chat-stop de cliente agora é relay para todos os peers ← NOVO V19
      S-8  setupConnection: cada send em try-catch individual
      S-9  startKeepalive: linha p.socket._socket removida (API privada inexistente PeerJS 1.5+) ← NOVO V19
+     S-10 Sistema K10 ID: prefixo K10(3) + GID(4) + sufixo(2) = 9 chars ← NOVO V23
+          - GID dinâmico: cresce de 1→2→3→4 chars conforme a rede (cap 4)
+          - PEX comprimido: transmite {gid, users:[sufixo2chars]} — K10 implícito
+          - generateGid: 62 chars case-sensitive (A-Z a-z 0-9)
+          - assignUserSuffix: auto-busca sufixo livre na lista do grupo
+          - peer-list envia {gid, users} ao invés de peers com IDs completos
+     S-11 K10 V24: GID Hierárquico + Lista Delta + Dominância Dinâmica ← NOVO V24
+          - generateChildGid: novo grupo deriva GID do pai (prefixo 3 chars herdado)
+          - findGroupFamily: localiza todos os GIDs irmãos (mesmo prefixo)
+          - buildFamilyPex: comprime listas de grupos irmãos em pex-family com base+deltas
+          - checkAndPromote: troca GIDs quando filho supera pai em >20% de usuários
+          - Relay de gid-promote e pex-family adicionados ao handleIncomingData
+     S-13 K10 V26: Protocolo Binário — pex-update, position-update, gid-promote ← NOVO V26
+          - K10BinaryProtocol: instância global k10bin (registry GID↔idx, encode/decode)
+          - registerGid: chamado ao criar grupo → atribui índice uint16 sequencial
+          - peer-list JSON: campo gidIdx adicionado → cliente aprende o índice do GID
+          - pex-update: enviado como Uint8Array(7) via binary protocol (−89% vs JSON)
+          - position-update: enviado como Uint8Array(7) via binary protocol (−86%)
+          - gid-promote: enviado como Uint8Array(7) via binary protocol (−91%)
+          - Relay binário: reencodeWithDecrementedTtl() → sem JSON.stringify/parse
+          - Fallback: se conn não suportar binário → JSON V25 mantido como fallback
+     S-12 K10 V25: Lista de Posições Fixa + Swap-on-Leave + pex-update ← NOVO V25
+          - K10_MAX_GROUP: limite de 1800 usuários por grupo
+          - K10_POSITION_LIST: lista fixa de 1800 sufixos (AA..dB) — idêntica em todos os nós
+          - positions[]: array contíguo por grupo; positions[i] = peerId na posição i+1
+          - peerPositionMapRef: mapeia peerId → {gid, posIdx}
+          - Entrada: peer recebe {gid, user, count} — conecta às posições 0..count-1
+          - Saída: peer sai → último ocupa buraco → broadcast {type:'pex-update',gid,user}
+          - pex-update relay: servidor repassa para toda a rede com TTL decrementado
+          - GC atualizado: limpa peerPositionMapRef + reconstrói positions[] correto
+     S-13 K10 V25 — FIXES DE BANCADA (19/abr/2026) ← NOVO
+          - FIX V25-BUG1: position-update enviado ao peer movido após swap-on-leave
+            Sem isso, o peer movido ficava com sufixo errado e mensagens diretas falhavam
+            Aplicado em conn.on('close') E no GhostGC
+          - FIX V25-BANDA: removido users:[] do peer-list
+            Reduz peer-list de ~565 bytes para ~65 bytes (−88%) para grupo de 100 peers
+     S-15 AUDITORIA BANCADA V25-FINAL (20/abr/2026) — 8 fixes adicionais ← NOVO
+          - FIX-AUDIT-SRV-TITLE: título corrigido V23→V25
+          - FIX-AUDIT-SRV-HYDRA 🔴: cap de conexões aplicado também no modo Hydra
+            Sem este guard, Hydra aceitava conexões ilimitadas → DoS por RAM
+            MAX_HYDRA_CONNECTIONS=500 (fecha em 2s, suporta mais tráfego)
+          - FIX-AUDIT-SRV-LOG 🟠: console.log removidos de distributeMessage,
+            setupConnection, handleIncomingData, setupPeer, monitoramento
+            Previne exposição de IDs de peers, política de bloqueio e metadados
+          - FIX-AUDIT-SRV-HYDRA2 🟠: console.log de ativação do modo Hydra
+            substituído por addAudit (visível apenas no painel de auditoria)
+          - FIX-AUDIT-SRV-AUDIO: descarte silencioso de áudio longo e ficheiros
+          - FIX-AUDIT-SRV-CONN-ERR: conn.on error agora registra no audit log
+          - FIX-AUDIT-SRV1 🔴: TTL clampado [0..15] em distributeMessage
+            Previne relay amplificado por peer malicioso injetando TTL=999999
+          - FIX-AUDIT-SRV2 🔴: console.log(data) removido (linha 1455)
+            Dados de chat não mais expostos no DevTools do servidor
+          - FIX-AUDIT-SRV3 🔴: positions:[] adicionado em directory-announce, group-split, group-merge
+            GC periódico não mais falha silenciosamente com peerPositionMap inconsistente
+          - FIX-AUDIT-SRV4 🔴: GC periódico agora faz broadcast pex-update quando remove fantasmas
+            Clientes corrigem groupSize imediatamente, não esperando 30s
+          - FIX-AUDIT-SRV5a 🟠: senderName limitado a 60 chars (previne OOM)
+          - FIX-AUDIT-SRV5b 🟠: youtubeId validado com regex [a-zA-Z0-9_-]{6,50}
+            Previne injeção de string maliciosa no broadcast de YouTube Chat
 ═══ -->
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- HYDRA V7 server --><title>Servidor K10 - V22</title>
+  <!-- HYDRA V7 server --><title>Servidor K10 - V25</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <style>
     body {
@@ -657,11 +716,301 @@
       const heartbeatsRef = useRef(new Map());
       const worldQuizNodesRef = useRef(new Set());
       const quizBotPeerRef = useRef(null);
+
+      // ═══════════════════════════════════════════════════════════════
+      // S-10 V23: Sistema K10 ID
+      // Estrutura: K10(3) + GID(4) + sufixo(2) = 9 chars total
+      // K10 = prefixo implícito — NUNCA transmitido na rede
+      // GID = identificador do grupo — 4 chars, transmitido 1× por lista
+      // sufixo = identificador do usuário no grupo — 2 chars
+      // Charset: 62 chars case-sensitive (A-Z a-z 0-9)
+      // ═══════════════════════════════════════════════════════════════
+      const K10_PREFIX = 'K10';
+      const K10_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+      const K10_GID_LEN = 4;
+      const K10_SUFFIX_LEN = 2;
+
+      // ── V25: Lista de 1800 posições fixas — idêntica em TODOS os nós ──────
+      // Posição 1→'AA', Posição 2→'AB', ..., Posição 1800→'dB'
+      // Gravada no código: ninguém precisa transmitir a lista, só o índice/sufixo
+      const K10_MAX_GROUP = 1800;
+      const K10_POSITION_LIST = (() => {
+        const list = [];
+        for (let i = 0; i < K10_CHARS.length; i++) {
+          for (let j = 0; j < K10_CHARS.length; j++) {
+            if (list.length >= K10_MAX_GROUP) break;
+            list.push(K10_CHARS[i] + K10_CHARS[j]);
+          }
+          if (list.length >= K10_MAX_GROUP) break;
+        }
+        return list; // ['AA','AB','AC',...,'dB'] — exatamente 1800 entradas
+      })();
+
+      // ── V26: Protocolo Binário K10 ─────────────────────────────────────────
+      // K10BinaryProtocol: registry GID↔idx + encode/decode de 7 bytes
+      // MAGIC=0xB1 | TYPE(1B) | PARAM_A uint16LE | PARAM_B uint16LE | AUX(TTL+SEQ)
+      const K10B_MAGIC   = 0xB1;
+      const K10B_SIZE    = 7;
+      const K10B_TYPE    = { PEX_UPDATE:0x01, POSITION_UPDATE:0x02, GID_PROMOTE:0x03, JOIN_UPDATE:0x04 };
+      const K10B_SEQ_MASK  = 0x1F;
+      const K10B_TTL_SHIFT = 5;
+      const K10B_TTL_MAX   = 6;
+
+      class K10BinaryProtocol {
+        constructor() {
+          this._gidToIdx = new Map();
+          this._idxToGid = new Map();
+          this._nextIdx  = 0;
+          this._seqCounters = new Map();
+          this._dedupCache  = new Set();
+          this._dedupOrder  = [];
+        }
+        registerGid(gid) {
+          if (this._gidToIdx.has(gid)) return this._gidToIdx.get(gid);
+          const idx = this._nextIdx++;
+          this._gidToIdx.set(gid, idx);
+          this._idxToGid.set(idx, gid);
+          return idx;
+        }
+        getIdx(gid)  { return this._gidToIdx.has(gid) ? this._gidToIdx.get(gid) : -1; }
+        getGid(idx)  { return this._idxToGid.get(idx) || null; }
+        learnGid(gid, idx) {
+          if (typeof idx !== 'number' || idx < 0) return;
+          this._gidToIdx.set(gid, idx); this._idxToGid.set(idx, gid);
+          if (idx >= this._nextIdx) this._nextIdx = idx + 1;
+        }
+        nextSeq(gidIdx) {
+          const next = ((this._seqCounters.get(gidIdx) || 0) + 1) & K10B_SEQ_MASK;
+          this._seqCounters.set(gidIdx, next); return next;
+        }
+        isDuplicate(gidIdx, type, seq) {
+          const key = `${gidIdx}:${type}:${seq}`;
+          if (this._dedupCache.has(key)) return true;
+          this._dedupCache.add(key); this._dedupOrder.push(key);
+          if (this._dedupOrder.length > 128) this._dedupCache.delete(this._dedupOrder.shift());
+          return false;
+        }
+        encode(type, gidIdxA, paramB, ttl = K10B_TTL_MAX, seq = -1) {
+          if (gidIdxA < 0) return null;
+          const safeGidA  = gidIdxA & 0xFFFF;
+          const safeParamB = paramB   & 0xFFFF;
+          const safeTtl   = Math.min(Math.max(0, ttl), K10B_TTL_MAX) & 0x07;
+          const safeSeq   = seq < 0 ? this.nextSeq(safeGidA) : (seq & K10B_SEQ_MASK);
+          const buf = new Uint8Array(K10B_SIZE);
+          const view = new DataView(buf.buffer);
+          buf[0] = K10B_MAGIC; buf[1] = type;
+          view.setUint16(2, safeGidA, true);
+          view.setUint16(4, safeParamB, true);
+          buf[6] = (safeTtl << K10B_TTL_SHIFT) | safeSeq;
+          return buf;
+        }
+        decode(buffer) {
+          const buf = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+          if (buf.length < K10B_SIZE || buf[0] !== K10B_MAGIC) return null;
+          const view = new DataView(buf.buffer, buf.byteOffset);
+          const type   = buf[1];
+          const paramA = view.getUint16(2, true);
+          const paramB = view.getUint16(4, true);
+          const aux    = buf[6];
+          return { type, paramA, paramB, ttl:(aux >> K10B_TTL_SHIFT) & 0x07, seq:aux & K10B_SEQ_MASK };
+        }
+        static isBinaryPacket(data) {
+          if (data instanceof ArrayBuffer) return data.byteLength >= K10B_SIZE && new Uint8Array(data)[0] === K10B_MAGIC;
+          if (data instanceof Uint8Array)  return data.length   >= K10B_SIZE && data[0]                  === K10B_MAGIC;
+          return false;
+        }
+        // Alto nível — servidor
+        encodePexUpdate(gid, newCount, ttl = K10B_TTL_MAX) {
+          return this.encode(K10B_TYPE.PEX_UPDATE, this.getIdx(gid), newCount, ttl);
+        }
+        encodePositionUpdate(gid, newPosIdx) {
+          return this.encode(K10B_TYPE.POSITION_UPDATE, this.getIdx(gid), newPosIdx, 0);
+        }
+        encodeGidPromote(gidA, gidB, ttl = K10B_TTL_MAX) {
+          const ia = this.getIdx(gidA), ib = this.getIdx(gidB);
+          if (ia < 0 || ib < 0) return null;
+          return this.encode(K10B_TYPE.GID_PROMOTE, ia, ib, ttl);
+        }
+        // Alto nível — relay
+        reencodeWithDecrementedTtl(buffer) {
+          const pkt = this.decode(buffer);
+          if (!pkt || pkt.ttl === 0) return null;
+          return this.encode(pkt.type, pkt.paramA, pkt.paramB, pkt.ttl - 1, pkt.seq);
+        }
+      }
+
+      // Instância global do protocolo binário (compartilhada por todas as funções do servidor)
+      const k10bin = new K10BinaryProtocol();
+
+      // Wrapper de envio: tenta binário primeiro, cai em JSON se necessário
+      const k10Send = (conn, binaryBuf, jsonFallback) => {
+        if (!conn || !conn.open) return;
+        try {
+          if (binaryBuf) {
+            conn.send(binaryBuf.buffer); // PeerJS suporta ArrayBuffer
+            return;
+          }
+        } catch(e) { /* fallthrough para JSON */ }
+        try { conn.send(jsonFallback); } catch(e2) {}
+      };
+
+      // Wrapper de broadcast binário para todos os peers conectados
+      const k10BroadcastBinary = (binaryBuf, jsonFallback, excludePeer = null) => {
+        if (!binaryBuf && !jsonFallback) return;
+        activeConnectionsRef.current.forEach((c, pid) => {
+          if (pid === excludePeer || !c.open) return;
+          k10Send(c, binaryBuf, jsonFallback);
+        });
+      };
+      // ── Fim V26 Protocolo Binário ──────────────────────────────────────────
+
+      // Gera um GID aleatório de 4 chars
+      const generateGid = () => {
+        const buf = new Uint8Array(K10_GID_LEN);
+        crypto.getRandomValues(buf);
+        return Array.from(buf).map(b => K10_CHARS[b % K10_CHARS.length]).join('');
+      };
+
+      // Contador global de GIDs gerados — usado para GID sequencial quando necessário
+      const gidCounterRef = useRef(0);
+
+      // Gera próximo GID sequencial (para grupos novos criados pelo servidor)
+      const nextSequentialGid = () => {
+        let n = gidCounterRef.current++;
+        let gid = '';
+        for (let i = 0; i < K10_GID_LEN; i++) {
+          gid = K10_CHARS[n % K10_CHARS.length] + gid;
+          n = Math.floor(n / K10_CHARS.length);
+        }
+        return gid;
+      };
+
+      // Extrai sufixo (2 chars) de um peerId completo K10GGGGXX
+      const extractSuffix = (peerId) => {
+        if (!peerId || peerId.length < K10_PREFIX.length + K10_GID_LEN + K10_SUFFIX_LEN) return null;
+        return peerId.slice(K10_PREFIX.length + K10_GID_LEN);
+      };
+
+      // Extrai GID (4 chars) de um peerId completo K10GGGGXX
+      const extractGid = (peerId) => {
+        if (!peerId || peerId.length < K10_PREFIX.length + K10_GID_LEN) return null;
+        return peerId.slice(K10_PREFIX.length, K10_PREFIX.length + K10_GID_LEN);
+      };
+
+      // Reconstrói peerId completo a partir de GID + sufixo
+      const buildPeerId = (gid, suffix) => K10_PREFIX + gid + suffix;
+
+      // Encontra o próximo sufixo livre para um grupo (varredura sequencial)
+      const findFreeSuffix = (gid) => {
+        const group = activeGroupsRef.current[gid];
+        const usedSuffixes = new Set();
+        if (group && group.members) {
+          group.members.forEach(pid => {
+            const s = extractSuffix(pid);
+            if (s) usedSuffixes.add(s);
+          });
+        }
+        // Varredura sequencial: AA, AB, AC ... zz
+        for (let i = 0; i < K10_CHARS.length; i++) {
+          for (let j = 0; j < K10_CHARS.length; j++) {
+            const candidate = K10_CHARS[i] + K10_CHARS[j];
+            if (!usedSuffixes.has(candidate)) return candidate;
+          }
+        }
+        return null; // grupo cheio (3844 usuários)
+      };
+
+      // ═══════════════════════════════════════════════════════════════
+      // K10 V24: GID Hierárquico + Lista Delta + Dominância Dinâmica
+      // ═══════════════════════════════════════════════════════════════
+
+      // Gera GID filho derivado do pai (herança do prefixo de 3 chars)
+      // Pai "AbCd" → filho "AbCe", "AbCf" ... até esgotar → fallback sequencial
+      const generateChildGid = (parentGid) => {
+        if (!parentGid || parentGid.length < K10_GID_LEN) return nextSequentialGid();
+        const prefix = parentGid.slice(0, K10_GID_LEN - 1);
+        const siblings = new Set(
+          Object.keys(activeGroupsRef.current)
+            .filter(g => g.startsWith(prefix) && g.length === K10_GID_LEN)
+            .map(g => g[K10_GID_LEN - 1])
+        );
+        for (const c of K10_CHARS) {
+          if (!siblings.has(c)) return prefix + c;
+        }
+        return nextSequentialGid(); // todos 62 slots do prefixo ocupados
+      };
+
+      // Retorna todos os GIDs da mesma família (prefixo dos 3 primeiros chars)
+      const findGroupFamily = (gid) => {
+        const prefix = gid.slice(0, K10_GID_LEN - 1);
+        return Object.keys(activeGroupsRef.current)
+          .filter(g => g.startsWith(prefix) && g.length === K10_GID_LEN);
+      };
+
+      // Monta pex-family comprimido: base = sufixos em TODOS, branches = deltas por grupo
+      // Retorna null se a família tiver só 1 membro (sem ganho de compressão)
+      const buildFamilyPex = (referenceGid) => {
+        const family = findGroupFamily(referenceGid);
+        if (family.length < 2) return null;
+        const memberSets = family.map(gid =>
+          new Set(
+            Array.from(activeGroupsRef.current[gid]?.members || new Set())
+              .map(pid => extractSuffix(pid)).filter(Boolean)
+          )
+        );
+        const base = [...memberSets[0]].filter(s => memberSets.every(set => set.has(s)));
+        const branches = family.map((gid, i) => ({
+          ext: gid[K10_GID_LEN - 1],
+          delta: [...memberSets[i]].filter(s => !base.includes(s))
+        }));
+        return { type: 'pex-family', prefix: referenceGid.slice(0, K10_GID_LEN - 1), base, branches, ttl: 6 };
+      };
+
       // FASE-2: diretório global de grupos no servidor
-      // { [groupId]: { size: number, reservados: string[] } }
-      const activeGroupsRef = useRef({ 'G0001': { size: 0, reservados: [], members: new Set() } });
+      // { [gid]: { size: number, reservados: string[], members: Set<peerId> } }
+      // V23: GID inicial gerado dinamicamente (4 chars, 62-charset)
+      const _initialGid = nextSequentialGid(); // 'AAAA' na primeira execução
+      k10bin.registerGid(_initialGid); // V26: registra GID inicial no registry binário
+      const activeGroupsRef = useRef({ [_initialGid]: { size: 0, reservados: [], members: new Set(), positions: [] } });
       // FASE-2: mapeia peerId → groupId para decrementar ao desconectar
       const peerGroupMapRef = useRef(new Map());
+      // V25: mapeia peerId → {gid, posIdx} para swap-on-leave eficiente
+      const peerPositionMapRef = useRef(new Map());
+
+      // V24: Verifica e executa troca de GID quando filho domina o pai em tamanho
+      // Chamado após cada split e periodicamente pelo GC
+      const checkAndPromote = (gidA, gidB) => {
+        const ga = activeGroupsRef.current[gidA];
+        const gb = activeGroupsRef.current[gidB];
+        if (!ga || !gb) return;
+        const sA = ga.members.size, sB = gb.members.size;
+        if (sA === sB || Math.min(sA, sB) === 0) return;
+        // Só troca se diferença for >20% para evitar flip-flop contínuo
+        if (Math.abs(sA - sB) / Math.min(sA, sB) < 0.2) return;
+        // Só troca entre grupos da mesma família (prefixo de 3 chars igual)
+        if (gidA.slice(0, K10_GID_LEN - 1) !== gidB.slice(0, K10_GID_LEN - 1)) return;
+        const [dominant, recessive] = sA > sB ? [gidA, gidB] : [gidB, gidA];
+        // Swap no diretório
+        const tmp = activeGroupsRef.current[dominant];
+        activeGroupsRef.current[dominant] = activeGroupsRef.current[recessive];
+        activeGroupsRef.current[recessive] = tmp;
+        // Atualiza peerGroupMap
+        peerGroupMapRef.current.forEach((gid, peer) => {
+          if (gid === dominant) peerGroupMapRef.current.set(peer, recessive);
+          else if (gid === recessive) peerGroupMapRef.current.set(peer, dominant);
+        });
+        // V26: gid-promote BINÁRIO (7 bytes vs ~80 bytes JSON)
+        const binPromote = k10bin.encodeGidPromote(dominant, recessive, 8);
+        const jsonPromote = {
+          type: 'gid-promote',
+          msgId: Date.now().toString(36) + Math.random().toString(36).slice(2),
+          formerDominantGid: dominant,
+          formerRecessiveGid: recessive,
+          ttl: 8
+        };
+        k10BroadcastBinary(binPromote, jsonPromote);
+        addAudit(`[K10-V26] Promoção GID binária: ${dominant} ↔ ${recessive} (${Math.max(sA,sB)} vs ${Math.min(sA,sB)} users)`, 'info');
+      };
 
       // FIX BUG-I: seenMessagesRef crescia sem limite → memory leak grave no servidor
       // Mantém no máximo 2 000 entradas; ao ultrapassar, descarta a metade mais antiga (FIFO)
@@ -703,11 +1052,51 @@
                 });
               }
               
-              const peerGroupId = peerGroupMapRef.current.get(peerId);
-              if (peerGroupId && activeGroupsRef.current[peerGroupId]) {
-                activeGroupsRef.current[peerGroupId].size = Math.max(0, activeGroupsRef.current[peerGroupId].size - 1);
-                activeGroupsRef.current[peerGroupId].members.delete(peerId);
+              // V25: swap-on-leave para manter positions[] contíguo
+              const ghostPosInfo = peerPositionMapRef.current.get(peerId);
+              if (ghostPosInfo) {
+                const { gid: ghostGid, posIdx: ghostPosIdx } = ghostPosInfo;
+                const ghostGroup = activeGroupsRef.current[ghostGid];
+                if (ghostGroup && ghostGroup.positions) {
+                  const oldLen = ghostGroup.positions.length;
+                  if (oldLen > 0 && ghostPosIdx < oldLen) {
+                    if (ghostPosIdx < oldLen - 1) {
+                      // Move o último para o buraco
+                      const lastPeer = ghostGroup.positions[oldLen - 1];
+                      ghostGroup.positions[ghostPosIdx] = lastPeer;
+                      peerPositionMapRef.current.set(lastPeer, { gid: ghostGid, posIdx: ghostPosIdx });
+                      // FIX V25-BUG1 / V26: notifica peer movido — position-update BINÁRIO
+                      const movedConn = activeConnectionsRef.current.get(lastPeer);
+                      if (movedConn && movedConn.open) {
+                        const binPosUpd = k10bin.encodePositionUpdate(ghostGid, ghostPosIdx);
+                        const jsonPosUpd = { type: 'position-update', gid: ghostGid, user: K10_POSITION_LIST[ghostPosIdx] };
+                        k10Send(movedConn, binPosUpd, jsonPosUpd);
+                      }
+                    }
+                    ghostGroup.positions.pop();
+                    // V26: broadcast pex-update BINÁRIO (7 bytes vs ~65 bytes JSON)
+                    const newCount = ghostGroup.positions.length;
+                    const binPexUpd = k10bin.encodePexUpdate(ghostGid, newCount, 6);
+                    const jsonPexUpd = {
+                      type: 'pex-update', gid: ghostGid,
+                      user: K10_POSITION_LIST[oldLen - 1], ttl: 6,
+                      msgId: Date.now().toString(36) + Math.random().toString(36).slice(2)
+                    };
+                    k10BroadcastBinary(binPexUpd, jsonPexUpd);
+                  }
+                  ghostGroup.members.delete(peerId);
+                  ghostGroup.size = ghostGroup.positions.length;
+                }
+                peerPositionMapRef.current.delete(peerId);
+              } else {
+                // Fallback: remoção antiga (sem posição rastreada)
+                const peerGroupId = peerGroupMapRef.current.get(peerId);
+                if (peerGroupId && activeGroupsRef.current[peerGroupId]) {
+                  activeGroupsRef.current[peerGroupId].size = Math.max(0, activeGroupsRef.current[peerGroupId].size - 1);
+                  activeGroupsRef.current[peerGroupId].members.delete(peerId);
+                }
               }
+              
               peerGroupMapRef.current.delete(peerId);
               activeConnectionsRef.current.delete(peerId);
               
@@ -745,11 +1134,39 @@
               for (const p of Array.from(g.members)) {
                 if (!livePeers.has(p)) { g.members.delete(p); removed++; }
               }
+              // V25: reconstrói positions[] com base nos membros vivos, mantendo ordem original
+              if (Array.isArray(g.positions)) {
+                const oldLen = g.positions.length;
+                g.positions = g.positions.filter(p => livePeers.has(p));
+                // Atualiza posIdx para cada peer restante
+                g.positions.forEach((p, idx) => {
+                  peerPositionMapRef.current.set(p, { gid, posIdx: idx });
+                });
+                // Remove do peerPositionMapRef os peers que foram removidos
+                for (const p of Array.from(peerPositionMapRef.current.keys())) {
+                  if (peerPositionMapRef.current.get(p)?.gid === gid && !g.positions.includes(p)) {
+                    peerPositionMapRef.current.delete(p);
+                  }
+                }
+                if (oldLen !== g.positions.length) {
+                  addAudit(`[V25-GC] posições grupo ${gid}: ${oldLen}→${g.positions.length}`, 'info');
+                  // FIX-AUDIT-SRV4 / V26: broadcast pex-update BINÁRIO para clientes corrigirem groupSize
+                  const newLen = g.positions.length;
+                  const gcBinPex = k10bin.encodePexUpdate(gid, newLen, 4);
+                  const gcPexUpd = {
+                    type: 'pex-update', gid,
+                    user: K10_POSITION_LIST[newLen] || 'AA', ttl: 4,
+                    msgId: 'gc_' + gid + '_' + Date.now().toString(36)
+                  };
+                  k10BroadcastBinary(gcBinPex, gcPexUpd);
+                }
+              }
               g.size = Math.max(0, g.members.size);
               g.reservados = (g.reservados || []).filter(p => livePeers.has(p)).slice(0, 10);
-              if (removed > 0) console.log(`[V8-F10] GC group ${gid}: -${removed} fantasmas, size=${g.size}`);
-              // remove grupo vazio (exceto G0001)
-              if (g.members.size === 0 && gid !== 'G0001') {
+              if (removed > 0) addAudit(`[V8-F10] GC grupo ${gid}: -${removed} fantasmas, size=${g.size}`, 'warn');
+              // V23: remove grupo vazio exceto o primeiro grupo da rede (índice 0 do gidCounter)
+              const firstGid = Object.keys(activeGroupsRef.current)[0];
+              if (g.members.size === 0 && gid !== firstGid) {
                 delete activeGroupsRef.current[gid];
               }
             }
@@ -802,7 +1219,7 @@
               } catch(e) {}
             });
           } else if (p && p.disconnected && !p.destroyed) {
-            console.log("Keepalive: peer desconectado, tentando reconectar...");
+            // peer desconectado — scheduleReconnect será chamado
             scheduleReconnect();
           }
         }, 25000);
@@ -826,7 +1243,7 @@
 
         const delay = getBackoffDelay(reconnectAttemptsRef.current);
         reconnectAttemptsRef.current += 1;
-        console.log(`Reconectando em ${(delay/1000).toFixed(1)}s (tentativa ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})...`);
+        addAudit(`🔄 Reconectando em ${(delay/1000).toFixed(1)}s (tentativa ${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`, 'warn');
         setConnectionStatus(`reconnecting (${reconnectAttemptsRef.current}/${MAX_RECONNECT_ATTEMPTS})`);
 
         reconnectTimerRef.current = setTimeout(() => {
@@ -866,7 +1283,7 @@
         stopKeepalive();
         if (peerInstance.current) {
           try {
-            console.log("Desconectando peer (manual)...");
+            // desconexão manual
             activeConnectionsRef.current.forEach((conn) => {
               try { conn.close(); } catch (e) {}
             });
@@ -876,7 +1293,7 @@
             peerInstance.current = null;
             setConnectionStatus('disconnected');
             setStats({ messagesReceived: 0, messagesDistributed: 0, activeConnections: 0, hydraNodes: 0 });
-            console.log("Peer desconectado com sucesso");
+            // peer destruído com sucesso
           } catch (err) {
             console.error("Erro ao desconectar peer:", err);
           }
@@ -890,7 +1307,7 @@
         if (!currentId) return;
         if (isManualDisconnectRef.current) return; // respeita desconexão manual
 
-        console.log("Configurando distribuidor com ID:", currentId);
+        // setupPeer: currentId carregado
         setConnectionStatus('connecting');
         stopKeepalive();
         clearReconnectTimer();
@@ -925,7 +1342,6 @@
         });
 
         peer.on('open', (id) => {
-          console.log("Distribuidor conectado com ID:", id);
           reconnectAttemptsRef.current = 0; // reset do circuit-breaker ao conectar
           setConnectionStatus('connected');
           addAudit(`✅ Servidor online: ${id}`, 'ok');
@@ -934,7 +1350,6 @@
           // FIX: usa ref para evitar stale closure – knownServers pode estar desatualizado
           knownServersRef.current.forEach(serverId => {
             if (serverId !== id) {
-              console.log(`Auto-conectando ao servidor: ${serverId}`);
               addAudit(`🔗 Auto-conectando a: ${serverId}`, 'info');
               const conn = peer.connect(serverId);
               setupConnection(conn);
@@ -943,16 +1358,21 @@
         });
 
         peer.on('connection', (conn) => {
-          console.log("Nova conexão recebida de:", conn.peer);
-          
+          // FIX-AUDIT-SRV-HYDRA: cap de conexões também no modo Hydra
+          // Sem este guard, modo Hydra aceitava conexões ilimitadas → DoS por esgotamento de memória
+          const MAX_HYDRA_CONNECTIONS = 500; // Hydra suporta mais pois fecha em 2s
+          const MAX_SERVER_CONNECTIONS = 200;
+
           if (isHydraModeRef.current) {
+            if (recentPeersRef.current.length >= MAX_HYDRA_CONNECTIONS) {
+              setTimeout(() => { try { conn.close(); } catch (e) {} }, 200);
+              return;
+            }
             setupConnection(conn);
             return;
           }
 
-          const MAX_SERVER_CONNECTIONS = 200;
           if (activeConnectionsRef.current.size >= MAX_SERVER_CONNECTIONS) {
-            console.log("Servidor cheio. Rejeitando conexão de:", conn.peer);
             setTimeout(() => { try { conn.close(); } catch (e) {} }, 500);
             return;
           }
@@ -991,7 +1411,7 @@
         // Sinalização desconectou (não o peer em si) – tenta reconectar
         peer.on('disconnected', () => {
           if (isManualDisconnectRef.current) return;
-          console.log("Peer desconectado do servidor de sinalização. Reconectando...");
+          // sinalização perdida — scheduleReconnect
           addAudit('⚠️ Sinalização perdida — reconectando…', 'warn');
           setConnectionStatus('reconnecting');
           scheduleReconnect();
@@ -1013,12 +1433,12 @@
       // ── Reconecta quando a internet voltar ──────────────────────────────
       useEffect(() => {
         const handleOnline = () => {
-          console.log("Rede online detectada.");
+          // rede online
           if (!isManualDisconnectRef.current) {
             const p = peerInstance.current;
             const isOk = p && !p.destroyed && !p.disconnected;
             if (!isOk) {
-              console.log("Reconectando após retorno da rede...");
+              // reconectando após rede voltar
               reconnectAttemptsRef.current = 0;
               setupPeer();
             }
@@ -1040,7 +1460,7 @@
           if (connectionStatus.startsWith('error')) return;
 
           if (p && p.disconnected && !p.destroyed) {
-            console.log("Monitor: peer desconectado, agendando reconexão...");
+            // monitor: peer desconectado
             if (!isManualDisconnectRef.current) scheduleReconnect();
           }
           
@@ -1194,28 +1614,71 @@
         // Se estiver no modo Hydra, ignora qualquer mensagem de chat/dados
         if (isHydraModeRef.current) return;
 
-        console.log(`Recebendo dados de ${sourceConn.peer}:`, data);
+        // FIX-AUDIT-SRV2: log mínimo — não loga conteúdo de mensagens (privacidade)
+        // console.log(`[SRV] tipo:${data.type} de:${sourceConn.peer}`);
         
         if (data.type === 'pex') {
-          // FASE-2: atualiza diretório de grupos com info do PEX enriquecido
-          if (data.groupId && data.groupSize !== undefined) {
-            if (!activeGroupsRef.current[data.groupId]) {
-              activeGroupsRef.current[data.groupId] = { size: 0, reservados: [], members: new Set() };
+          // V23 S-10: PEX comprimido — data.gid (4 chars) + data.users ([2 chars each])
+          // Mantém compatibilidade com formato antigo (data.groupId) para transição suave
+          const gid = data.gid || data.groupId;
+          if (gid) {
+            if (!activeGroupsRef.current[gid]) {
+              activeGroupsRef.current[gid] = { size: 0, reservados: [], members: new Set(), positions: [] };
             }
-            // V6 (P1): autoridade do server e o conjunto 'members'.
-            // Usa Math.max do reportado vs membros conhecidos para evitar regressao.
-            if (data.peerId) activeGroupsRef.current[data.groupId].members.add(data.peerId);
-            activeGroupsRef.current[data.groupId].size = Math.max(
-              data.groupSize,
-              activeGroupsRef.current[data.groupId].members.size
-            );
-            if (data.isReservado && data.peerId) {
-              const set = new Set(activeGroupsRef.current[data.groupId].reservados);
-              set.add(data.peerId);
-              activeGroupsRef.current[data.groupId].reservados = [...set].slice(0, 10); // V7-B7
+            const g = activeGroupsRef.current[gid];
+            if (!g.positions) g.positions = [];
+            // Reconstrói peerId completo para registrar no members
+            if (data.peerId) {
+              g.members.add(data.peerId);
+            } else if (data.suffix) {
+              // V23: sender informa seu sufixo; reconstrói peerId
+              g.members.add(buildPeerId(gid, data.suffix));
+            }
+            // V25: se veio count, atualiza size
+            if (data.count !== undefined) {
+              g.size = Math.max(g.size, data.count);
+            } else if (Array.isArray(data.users)) {
+              // Compatibilidade V24: lista comprimida de usuários
+              data.users.forEach(s => {
+                if (typeof s === 'string' && s.length === K10_SUFFIX_LEN) {
+                  g.members.add(buildPeerId(gid, s));
+                }
+              });
+              const reportedSize = data.groupSize !== undefined ? data.groupSize : data.users.length;
+              g.size = Math.max(reportedSize, g.members.size);
+            }
+            if (data.isReservado && (data.peerId || data.suffix)) {
+              const reservadoPid = data.peerId || buildPeerId(gid, data.suffix);
+              const set = new Set(g.reservados);
+              set.add(reservadoPid);
+              g.reservados = [...set].slice(0, 10);
             }
           }
           return; // Servidor não precisa processar PEX de clientes além disso
+        }
+
+        // V25: pex-update — relay compacto de saída de peer
+        // { type:'pex-update', gid, user, ttl, msgId }
+        // 'user' = sufixo da última posição que "saiu" → K10_POSITION_LIST.indexOf(user) = nova contagem
+        if (data.type === 'pex-update') {
+          if (!data.id) data = { ...data, id: data.msgId || (sourceConn.peer + '_pexupd_' + Date.now()) };
+          if (seenMessagesRef.current.has(data.id)) return;
+          seenMessagesRef.current.add(data.id); pruneSeenSrv();
+          // Atualiza contagem local do grupo
+          if (data.gid && data.user) {
+            const newCount = K10_POSITION_LIST.indexOf(data.user);
+            if (newCount >= 0 && activeGroupsRef.current[data.gid]) {
+              activeGroupsRef.current[data.gid].size = Math.min(
+                activeGroupsRef.current[data.gid].size,
+                newCount
+              );
+            }
+          }
+          // Relay com TTL decrementado
+          if ((data.ttl || 0) > 0) {
+            distributeMessage({ ...data, ttl: data.ttl - 1 }, sourceConn.peer);
+          }
+          return;
         }
 
         // ═══ V8-BUG#2: directory-announce — servidor escuta para diretório global ═══
@@ -1224,7 +1687,8 @@
           if (data.msgId && seenMessagesRef.current.has(data.msgId)) return;
           if (data.msgId) { seenMessagesRef.current.add(data.msgId); pruneSeenSrv(); } // FIX BUG-I
           if (!activeGroupsRef.current[data.groupId]) {
-            activeGroupsRef.current[data.groupId] = { size: 0, reservados: [], members: new Set() };
+            // FIX-AUDIT-SRV3: sempre inicializa com positions:[] para evitar inconsistência no GC V25
+            activeGroupsRef.current[data.groupId] = { size: 0, reservados: [], members: new Set(), positions: [] };
           }
           const g = activeGroupsRef.current[data.groupId];
           if (typeof data.groupSize === 'number' && data.groupSize >= 0 && data.groupSize <= 100000) {
@@ -1251,7 +1715,8 @@
           if (data.msgId && seenMessagesRef.current.has(data.msgId)) return;
           if (data.msgId) { seenMessagesRef.current.add(data.msgId); pruneSeenSrv(); } // FIX BUG-I
           if (data.newGroupId && !activeGroupsRef.current[data.newGroupId]) {
-            activeGroupsRef.current[data.newGroupId] = { size: 0, reservados: Array.isArray(data.migratedReservados) ? data.migratedReservados.slice(0,10) : [], members: new Set() };
+            // FIX-AUDIT-SRV3: positions:[] obrigatório
+            activeGroupsRef.current[data.newGroupId] = { size: 0, reservados: Array.isArray(data.migratedReservados) ? data.migratedReservados.slice(0,10) : [], members: new Set(), positions: [] };
           }
           const ttl = (data.ttl || 0) - 1;
           if (ttl > 0) {
@@ -1259,6 +1724,10 @@
             activeConnectionsRef.current.forEach((c, pid) => {
               if (pid !== sourceConn.peer && c.open) try { c.send(relay); } catch(e) {}
             });
+          }
+          // V24: verifica dominância entre o grupo original e o novo após split
+          if (data.oldGroupId && data.newGroupId) {
+            setTimeout(() => checkAndPromote(data.oldGroupId, data.newGroupId), 5000);
           }
           return;
         }
@@ -1268,7 +1737,8 @@
           if (data.msgId) { seenMessagesRef.current.add(data.msgId); pruneSeenSrv(); } // FIX BUG-I
           const { survivingGroupId, absorbedGroupId } = data;
           if (survivingGroupId && absorbedGroupId && activeGroupsRef.current[absorbedGroupId]) {
-            const surv = activeGroupsRef.current[survivingGroupId] || (activeGroupsRef.current[survivingGroupId] = { size: 0, reservados: [], members: new Set() });
+            // FIX-AUDIT-SRV3: positions:[] obrigatório em criação via merge
+            const surv = activeGroupsRef.current[survivingGroupId] || (activeGroupsRef.current[survivingGroupId] = { size: 0, reservados: [], members: new Set(), positions: [] });
             const abs = activeGroupsRef.current[absorbedGroupId];
             // merge members
             abs.members.forEach(p => surv.members.add(p));
@@ -1290,6 +1760,39 @@
           return;
         }
 
+        // V24: gid-promote — relay do servidor para todos os peers
+        if (data.type === 'gid-promote') {
+          if (data.msgId && seenMessagesRef.current.has(data.msgId)) return;
+          if (data.msgId) { seenMessagesRef.current.add(data.msgId); pruneSeenSrv(); }
+          addAudit(`[K10-V24] Relay gid-promote: ${data.formerDominantGid} ↔ ${data.formerRecessiveGid}`, 'info');
+          const ttlP = (data.ttl || 0) - 1;
+          if (ttlP > 0) {
+            const relay = { ...data, ttl: ttlP };
+            activeConnectionsRef.current.forEach((c, pid) => {
+              if (pid !== sourceConn.peer && c.open) try { c.send(relay); } catch(e) {}
+            });
+          }
+          return;
+        }
+
+        // V24: pex-family — relay do servidor para peers da família
+        if (data.type === 'pex-family') {
+          if (!data.prefix || typeof data.prefix !== 'string') return;
+          const ttlF = (data.ttl || 0) - 1;
+          if (ttlF > 0) {
+            const relay = { ...data, ttl: ttlF };
+            activeConnectionsRef.current.forEach((c, pid) => {
+              if (pid !== sourceConn.peer && c.open) {
+                const peerGid = peerGroupMapRef.current.get(pid);
+                if (peerGid && peerGid.startsWith(data.prefix)) {
+                  try { c.send(relay); } catch(e) {}
+                }
+              }
+            });
+          }
+          return;
+        }
+
         // ── Quiz Bot: controle de slot único por servidor ────────────────
         if (data.type === 'subscribe-world-quiz') {
           addAudit(`[Quiz] Usuário ${sourceConn.peer} inscrito no Quiz Mundial`, 'info');
@@ -1305,7 +1808,6 @@
           // Se o SERVIDOR estava transmitindo: cede o controle ao usuário
           // (para timer, limpa estado, mas NÃO anuncia status:false — o owner muda direto)
           if (serverQuizActiveRef.current) {
-            console.log('🔄 Usuário', sourceConn.peer, 'assumiu o Quiz — servidor cede transmissão');
             serverQuizActiveRef.current = false;
             setServerQuizActive(false);
             if (srvQuizTimerRef.current) { clearTimeout(srvQuizTimerRef.current); srvQuizTimerRef.current = null; }
@@ -1339,8 +1841,7 @@
         if (data.type === 'message' || data.type === 'torrent-request') {
           if (data.id) {
             if (seenMessagesRef.current.has(data.id)) {
-              console.log(`Servidor: ${data.type} repetido ignorado (Anti-Loop).`);
-              return;
+              return; // FIX-AUDIT-SRV: não logar anti-loop, evita spam de log
             }
             seenMessagesRef.current.add(data.id);
             pruneSeenSrv(); // FIX BUG-I: substitui purga manual por pruneSeenSrv() consistente
@@ -1353,15 +1854,15 @@
             }
             
             if (data.text && data.text.length > 2000) {
-              console.log("Servidor: Mensagem muito longa ignorada.");
-              return;
+              return; // FIX-AUDIT-SRV: descartar silenciosamente — não logar conteúdo
             }
             setStats(prev => ({
               ...prev,
               messagesReceived: prev.messagesReceived + 1
             }));
 
-            const senderName = data.senderName || sourceConn.peer;
+            // FIX-AUDIT-SRV5: limitar senderName a 60 chars — previne OOM por string gigante
+            const senderName = String(data.senderName || sourceConn.peer).slice(0, 60);
             
             const newMessage = {
               id: data.id || (Date.now() + Math.random().toString(36).substring(2)),
@@ -1398,8 +1899,7 @@
         }
         else if (data.type === 'audio-start' || data.type === 'audio-chunk') {
           if (data.type === 'audio-start' && data.audioSize > 2 * 1024 * 1024) {
-            console.log("Servidor: Áudio muito longo ignorado (limite de 1 minuto).");
-            return;
+            return; // áudio muito longo — descartado silenciosamente
           }
           // FIX BUG-E: garante ID para dedup sempre funcionar, mesmo em chunks sem ID
           if (!data.id) data = { ...data, id: sourceConn.peer + '_' + data.type + '_' + (data.audioId || '') + '_' + (data.offset || 0) };
@@ -1408,7 +1908,7 @@
           distributeMessage(data, sourceConn.peer);
         }
         else if (data.type === 'file-start' || data.type === 'file-chunk') {
-          console.log("Bloqueado: O servidor agora só repassa mensagens de texto, emojis, torrents e áudio para proteger a banda da rede.");
+          return; // Servidor só repassa texto, torrents e áudio — arquivos bloqueados
         }
         else if (data.type === 'e2ee-secret' || data.type === 'server-e2ee-invite' || data.type === 'youtube-cam-start' || data.type === 'youtube-cam-stop' || data.type === 'youtube-chat-start' || data.type === 'radio-youtube-start' || data.type === 'radio-youtube-stop' || data.type === 'radio-world-start' || data.type === 'radio-world-stop') {
            // Relay para segredos E2EE, YouTube Cam, YouTube Chat e Radio YouTube
@@ -1418,7 +1918,11 @@
            seenMessagesRef.current.add(data.id); pruneSeenSrv(); // FIX BUG-I
            if (data.type === 'youtube-chat-start') {
              if (youtubeChatIdRef.current) return;
-             setYoutubeChatId(data.youtubeId);
+             // FIX-AUDIT-SRV5: valida formato do youtubeId — previne injeção de string maliciosa
+             const ytId = String(data.youtubeId || '');
+             const validYtId = /^[a-zA-Z0-9_-]{6,50}$/.test(ytId) || /^playlist:[a-zA-Z0-9_-]{6,50}$/.test(ytId);
+             if (!validYtId) return;
+             setYoutubeChatId(ytId);
            }
            if (data.type === 'radio-youtube-start') {
              setYoutubeBroadcasts(prev => ({ ...prev, [data.sender || sourceConn.peer]: { videoId: data.youtubeId, senderName: data.senderName } }));
@@ -1447,10 +1951,11 @@
       const distributeMessage = (data, sourceId) => {
         let distributionCount = 0;
         
-        let currentTtl = data.ttl !== undefined ? data.ttl : 8;
+        // FIX-AUDIT-SRV1: TTL clampado [0..15] — impede relay amplificado por TTL injetado
+        const rawTtl = data.ttl !== undefined ? data.ttl : 8;
+        let currentTtl = Math.min(Math.max(0, parseInt(rawTtl) || 0), 15);
         if (currentTtl <= 0) {
-          console.log("Servidor: Mensagem descartada por TTL = 0");
-          return;
+          return; // descarta silenciosamente — não loga para não vazar metadados
         }
         
         const relayData = { ...data, ttl: currentTtl - 1 };
@@ -1459,7 +1964,6 @@
           // BUG S-2 FIX: checa conn.open antes de enviar para evitar erros desnecessários
           if (connPeerId !== sourceId && conn.open) {
             try {
-              console.log(`Distribuindo mensagem para ${connPeerId}`);
               conn.send(relayData);
               distributionCount++;
             } catch (err) {
@@ -1472,13 +1976,10 @@
           ...prev,
           messagesDistributed: prev.messagesDistributed + distributionCount
         }));
-        
-        console.log(`Mensagem distribuída para ${distributionCount} conexões`);
       };
 
       const setupConnection = (conn) => {
         conn.on('open', () => {
-          console.log(`Conexão estabelecida com ${conn.peer}`);
           addAudit(`🔗 Conexão aberta: ${conn.peer}`, 'ok');
           
           if (isHydraModeRef.current) {
@@ -1533,8 +2034,8 @@
 
           // VERIFICA SE ATINGIU O LIMITE PARA VIRAR HYDRA AUTOMATICAMENTE
           if (activeConnectionsRef.current.size >= HYDRA_THRESHOLD && !isHydraModeRef.current) {
-            console.log("LIMITE ATINGIDO! Ativando MODO HYDRA: Migrando todos para a Rede Global P2P...");
             isHydraModeRef.current = true;
+            addAudit(`🌊 Modo Hydra ativado — ${activeConnectionsRef.current.size} conexões`, 'warn');
             
             const allPeers = Array.from(activeConnectionsRef.current.keys());
             recentPeersRef.current = [...allPeers]; // Salva os peers atuais no cache do Hydra
@@ -1569,26 +2070,106 @@
           if (youtubeChatIdRef.current) {
             try { conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 }); } catch(e) {}
           }
-          // FASE-1/M2: Bootstrap – envia amostra aleatória de peers ao novo nó
-          // para que ele possa estabelecer conexões P2P imediatamente
-          const allPeersNow = Array.from(activeConnectionsRef.current.keys());
-          const others = allPeersNow.filter(pid => pid !== conn.peer);
-          const sample = others.sort(() => 0.5 - Math.random()).slice(0, 30);
-          // FASE-2: inclui groupId do grupo mais fraco para orientar o novo nó
+
+          // ── S-12 V25: Atribuição de GID + sufixo (sistema K10 Posicional) ──
+          // Seleciona o grupo com vagas (<1800); se todos cheios, cria filho derivado
           const groups = Object.entries(activeGroupsRef.current);
-          const weakestEntry = groups.length > 0
-            ? groups.reduce((a, b) => a[1].size < b[1].size ? a : b)
-            : null;
-          const assignedGroupId = weakestEntry ? weakestEntry[0] : 'G0001';
-          if (!activeGroupsRef.current[assignedGroupId]) {
-            activeGroupsRef.current[assignedGroupId] = { size: 0, reservados: [], members: new Set() };
+          let assignedGid = null;
+
+          // Procura grupo com vagas; prefere o mais populoso (agrupa em vez de fragmentar)
+          const available = groups.filter(([, g]) => (g.positions || []).length < K10_MAX_GROUP);
+          if (available.length > 0) {
+            assignedGid = available.reduce((a, b) =>
+              (a[1].positions||[]).length > (b[1].positions||[]).length ? a : b
+            )[0];
+          } else {
+            // Todos cheios — deriva novo GID do grupo mais populoso (herança hierárquica)
+            const allGids = Object.keys(activeGroupsRef.current);
+            const largestGid = allGids.reduce((best, g) =>
+              (activeGroupsRef.current[g]?.positions?.length || 0) > (activeGroupsRef.current[best]?.positions?.length || 0) ? g : best
+            , allGids[0]);
+            assignedGid = generateChildGid(largestGid);
+            activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set(), positions: [] };
+            k10bin.registerGid(assignedGid); // V26: registra novo grupo no registry binário
+            addAudit(`[K10-V25] Novo grupo filho ${assignedGid} derivado de ${largestGid}`, 'info');
           }
-          activeGroupsRef.current[assignedGroupId].size += 1;
-          activeGroupsRef.current[assignedGroupId].members.add(conn.peer); // FIX SRV-1: sem isso o GC (V8-F10) zera o size mesmo com peers conectados
-          peerGroupMapRef.current.set(conn.peer, assignedGroupId);
-          if (sample.length > 0 || assignedGroupId) {
-            try { conn.send({ type: 'peer-list', peers: sample, groupId: assignedGroupId }); } catch(e) {}
+
+          // Garante que o grupo existe com positions[]
+          if (!activeGroupsRef.current[assignedGid]) {
+            activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set(), positions: [] };
           }
+          if (!activeGroupsRef.current[assignedGid].positions) {
+            activeGroupsRef.current[assignedGid].positions = [];
+          }
+
+          const assignedGroup = activeGroupsRef.current[assignedGid];
+          const posIdx = assignedGroup.positions.length; // próxima posição disponível
+          let assignedSuffix = K10_POSITION_LIST[posIdx];
+
+          // Fallback: posIdx fora da lista (não deveria acontecer pois verificamos vagas)
+          if (!assignedSuffix) {
+            const fallbackGid = generateChildGid(assignedGid);
+            activeGroupsRef.current[fallbackGid] = { size: 0, reservados: [], members: new Set(), positions: [] };
+            k10bin.registerGid(fallbackGid); // V26
+            assignedGid = fallbackGid;
+            assignedSuffix = K10_POSITION_LIST[0];
+            addAudit(`[K10-V25] Fallback hierárquico: novo grupo ${fallbackGid}`, 'warn');
+          }
+
+          // Registra o peer no grupo
+          activeGroupsRef.current[assignedGid].positions.push(conn.peer);
+          activeGroupsRef.current[assignedGid].members.add(conn.peer);
+          activeGroupsRef.current[assignedGid].size = activeGroupsRef.current[assignedGid].positions.length;
+          peerGroupMapRef.current.set(conn.peer, assignedGid);
+          peerPositionMapRef.current.set(conn.peer, { gid: assignedGid, posIdx });
+
+          // V25: peer-list compacto — {gid, user, count}
+          // 'user' = sufixo atribuído ao novo peer (K10_POSITION_LIST[posIdx])
+          // 'count' = total de membros no grupo
+          // O cliente reconstrói quem conectar: K10 + gid + K10_POSITION_LIST[0..count-1]
+          // FIX V25-BANDA: removido users:[] — V24 compat mantém só 'suffix' (scalar, não array)
+          // V26: gidIdx adicionado — cliente aprende o índice binário do GID nesta mensagem
+          const groupCount = activeGroupsRef.current[assignedGid].positions.length;
+          const gidIdx = k10bin.getIdx(assignedGid); // V26: índice uint16 do GID
+          try {
+            conn.send({
+              type: 'peer-list',
+              gid: assignedGid,            // 4 chars — ID do grupo (texto, para UI)
+              gidIdx,                      // V26: índice binário do GID (uint16)
+              user: assignedSuffix,         // V25: sufixo atribuído (posição do novo peer)
+              count: groupCount,            // V25: total de membros (substitui users:[])
+              suffix: assignedSuffix,       // compat V24 mínima (scalar, sem custo)
+              // REMOVIDO: users:[N sufixos] — V25 usa K10_POSITION_LIST[0..count-1]
+              // Economia total V26: peer-list enviado 1×; eventos seguintes em 7 bytes binários
+            });
+          } catch(e) { console.warn('[K10-V26] Erro ao enviar peer-list:', e); }
+
+          addAudit(`[K10-V25] Peer ${conn.peer} → grupo ${assignedGid} posição ${posIdx+1}/${groupCount}`, 'ok');
+
+          // V24: se o grupo faz parte de uma família, envia pex-family comprimido
+          // para todos os peers da família (informam novos membros uns aos outros)
+          try {
+            const familyPex = buildFamilyPex(assignedGid);
+            if (familyPex) {
+              const familyGids = new Set(findGroupFamily(assignedGid));
+              activeConnectionsRef.current.forEach((c, pid) => {
+                const peerGid = peerGroupMapRef.current.get(pid);
+                if (peerGid && familyGids.has(peerGid) && c.open && pid !== conn.peer) {
+                  try { c.send(familyPex); } catch(e) {}
+                }
+              });
+              // Envia também para o novo peer (ele precisa conhecer a família)
+              try { conn.send(familyPex); } catch(e) {}
+            }
+          } catch(e) { console.warn('[K10-V24] Erro ao enviar pex-family:', e); }
+
+          // V24: verifica dominância entre grupos irmãos após nova entrada
+          try {
+            const siblings = findGroupFamily(assignedGid).filter(g => g !== assignedGid);
+            siblings.forEach(sibGid => {
+              setTimeout(() => checkAndPromote(assignedGid, sibGid), 4000);
+            });
+          } catch(e) {}
 
           // Here is the critical change to ensure we operate in pure server mode:
           // We'll send a special message to mark this as a server connection
@@ -1662,7 +2243,6 @@
         });
 
         conn.on('close', () => {
-          console.log(`Conexão fechada com ${conn.peer}`);
           addAudit(`🔌 Conexão encerrada: ${conn.peer}`, 'warn');
           
           // Libera slot do Quiz Bot se era o dono
@@ -1673,12 +2253,59 @@
             });
           }
           
-          // FASE-2 + V3 FIX BUG#S1/S2: decrementa size E remove do members:Set.
-          // Sem o .delete(), Math.max(reportado, members.size) inflava com fantasmas.
-          const peerGroupId = peerGroupMapRef.current.get(conn.peer);
-          if (peerGroupId && activeGroupsRef.current[peerGroupId]) {
-            activeGroupsRef.current[peerGroupId].size = Math.max(0, activeGroupsRef.current[peerGroupId].size - 1);
-            activeGroupsRef.current[peerGroupId].members.delete(conn.peer);
+          // V25: swap-on-leave — mantém positions[] sempre contíguo
+          // Quando peer P sai de um grupo de N:
+          //   1. Internamente: último (posição N) ocupa buraco de P
+          //   2. Broadcast: anuncia que a ÚLTIMA posição (sufixo N) saiu
+          //   → Todos entendem: grupo tinha N, agora tem N-1, sem buracos
+          const posInfo = peerPositionMapRef.current.get(conn.peer);
+          if (posInfo) {
+            const { gid: peerGid, posIdx } = posInfo;
+            const group = activeGroupsRef.current[peerGid];
+            if (group && group.positions) {
+              const oldLen = group.positions.length;
+              if (oldLen > 0 && posIdx < oldLen) {
+                // O sufixo da última posição será o que anunciamos como "saiu"
+                const lastSuffix = K10_POSITION_LIST[oldLen - 1];
+                
+                if (posIdx < oldLen - 1) {
+                  // Peer saiu do MEIO — move o último para o buraco
+                  const lastPeer = group.positions[oldLen - 1];
+                  group.positions[posIdx] = lastPeer;
+                  peerPositionMapRef.current.set(lastPeer, { gid: peerGid, posIdx });
+                  // FIX V25-BUG1 / V26: notifica peer movido — position-update BINÁRIO
+                  const movedConn = activeConnectionsRef.current.get(lastPeer);
+                  if (movedConn && movedConn.open) {
+                    const binPosUpd = k10bin.encodePositionUpdate(peerGid, posIdx);
+                    const jsonPosUpd = { type: 'position-update', gid: peerGid, user: K10_POSITION_LIST[posIdx] };
+                    k10Send(movedConn, binPosUpd, jsonPosUpd);
+                  }
+                  addAudit(`[K10-V26] Swap: pos${oldLen}(${lastPeer.slice(-2)})→pos${posIdx+1} grupo ${peerGid} [binário]`, 'info');
+                }
+                group.positions.pop();
+                group.members.delete(conn.peer);
+                group.size = group.positions.length;
+
+                // V26: pex-update BINÁRIO (7 bytes) — substitui ~65 bytes JSON
+                // newCount = group.positions.length (após pop)
+                const newCount = group.positions.length;
+                const binPexUpd = k10bin.encodePexUpdate(peerGid, newCount, 6);
+                const jsonPexUpd = {
+                  type: 'pex-update', gid: peerGid, user: lastSuffix, ttl: 6,
+                  msgId: Date.now().toString(36) + Math.random().toString(36).slice(2)
+                };
+                k10BroadcastBinary(binPexUpd, jsonPexUpd, conn.peer);
+                addAudit(`[K10-V26] pex-update binário: grupo ${peerGid} → ${newCount} usuários`, 'ok');
+              }
+            }
+            peerPositionMapRef.current.delete(conn.peer);
+          } else {
+            // Fallback: peer sem posição rastreada (conexão antiga/legada)
+            const peerGroupId = peerGroupMapRef.current.get(conn.peer);
+            if (peerGroupId && activeGroupsRef.current[peerGroupId]) {
+              activeGroupsRef.current[peerGroupId].size = Math.max(0, activeGroupsRef.current[peerGroupId].size - 1);
+              activeGroupsRef.current[peerGroupId].members.delete(conn.peer);
+            }
           }
           peerGroupMapRef.current.delete(conn.peer);
           
@@ -1694,7 +2321,7 @@
         });
 
         conn.on('error', (err) => {
-          console.error(`Erro na conexão com ${conn.peer}:`, err);
+          addAudit(`⚠️ Erro na conexão ${conn.peer}: ${err?.message || err?.type || 'desconhecido'}`, 'warn');
         });
       };
 
@@ -1861,7 +2488,7 @@
         
         if (elapsed < minIntervalMs) {
           const wait = minIntervalMs - elapsed + 1000;
-          console.log(`Server Quiz: Respeitando cooldown. Aguardando ${Math.round(wait/1000)}s...`);
+          addAudit(`[Quiz] Cooldown ativo: aguardando ${Math.round(wait/1000)}s`, 'info');
           srvQuizTimerRef.current = setTimeout(srvAskNextQuestion, wait);
           return;
         }
@@ -1873,12 +2500,12 @@
       // ── Receber HANDOFF: o usuário desligou e entregou o controle ──
       const handleQuizHandoff = (data, fromPeer) => {
         if (serverQuizActiveRef.current) {
-          console.log('🛑 Servidor já está transmitindo — handoff ignorado');
+          addAudit('[Quiz] Handoff ignorado: servidor já transmite', 'warn');
           return;
         }
         // FIX BUG-3a: se outro peer (não quem enviou) ainda é dono do bot, ignora
         if (quizBotPeerRef.current && quizBotPeerRef.current !== fromPeer && quizBotPeerRef.current !== 'server-self') {
-          console.log('🛑 Outro peer já é dono do Quiz Bot — handoff de', fromPeer, 'ignorado');
+          addAudit(`[Quiz] Handoff ignorado: outro peer (${fromPeer}) já é dono`, 'warn');
           return;
         }
         // Hidrata estado a partir do handoff (URL+ID, sem binário)
@@ -1901,7 +2528,7 @@
         });
         serverQuizActiveRef.current = true;
         setServerQuizActive(true);
-        console.log('🎯 Servidor assumiu o Quiz Bot via handoff de', fromPeer, data);
+        addAudit(`[Quiz] Servidor assumiu Quiz via handoff de ${fromPeer}`, 'ok');
 
         // FIX BUG-3b: jitter inteligente — espera o cooldown restante + 3s de segurança,
         // evitando que o servidor envie pergunta antes do MIN_QUIZ_INTERVAL do cliente (120s)
@@ -1911,7 +2538,7 @@
         const minMs = SRV_MIN_QUIZ_INTERVAL * 1000;
         const cooldownRemaining = Math.max(0, minMs - elapsed);
         const jitter = cooldownRemaining + 3000; // 3s extra de folga para mensagens em trânsito
-        console.log(`⏳ Handoff jitter: ${Math.round(jitter/1000)}s (cooldown restante: ${Math.round(cooldownRemaining/1000)}s)`);
+        addAudit(`[Quiz] Handoff jitter: ${Math.round(jitter/1000)}s (cooldown: ${Math.round(cooldownRemaining/1000)}s)`, 'info');
         srvQuizTimerRef.current = setTimeout(() => { if (serverQuizActiveRef.current) srvAskNextQuestion(); }, jitter);
       };
 
@@ -1928,7 +2555,7 @@
             try { c.send({ type: 'quiz-bot-status', active: false }); } catch(e) {}
           });
         }
-        console.log('🛑 Quiz parado pelo servidor (manual)');
+        addAudit('[Quiz] Quiz parado manualmente pelo servidor', 'warn');
       };
 
       const broadcastYoutubeChat = () => {
