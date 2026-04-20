@@ -1,4 +1,4 @@
-<!-- ═══ Chat K10 V9 — Auditoria Completa V25 (19/abr/2026) ═══
+<!-- ═══ Chat K10 V9 — Auditoria Completa V24 (19/abr/2026) ═══
      Correções aplicadas:
      C-1..4  File/Audio/Voice/Video: stale connections → connectionsRef.current
      C-5     getInputStatus: cooldown verificado primeiro (modo geral)
@@ -24,45 +24,6 @@
              - Handler pex-family: processa lista base+delta de grupos irmãos
              - Handler gid-promote: troca GID local quando dominância muda
              - Atualização automática de peerId e directoryGlobalRef após promoção
-     C-19    K10 V25: Lista de Posições Fixa + pex-update + Swap-on-Leave ← NOVO V25
-             - K10_MAX_GROUP: limite de 1800 usuários por grupo
-             - K10_POSITION_LIST: lista fixa de 1800 sufixos (AA..dB) — idêntica em todos os nós
-             - myPositionIdxRef: rastreia posição local no grupo
-             - peer-list V25: recebe {gid, user, count} — conecta às posições 0..count-1
-             - pex-update handler: decrementa groupSize + relay com TTL
-             - PEX send V25: {gid, user, count} — sem array de usuários
-             - P2P conn.on('close'): broadcast pex-update se último da lista
-     C-20    K10 V25 — FIXES DE BANCADA (19/abr/2026) ← NOVO
-             - FIX V25-BUG2: P2P double-decrement corrigido com msgId determinístico
-               Antes: msgId = peerIdRef + Date.now() → cada peer gerava ID único
-               Depois: msgId = "pexupd_<gid>_<sufixo>_<bucket5s>" → deduplicação funciona
-               Resultado: groupSize decrementado 1× em vez de N× em modo P2P
-             - FIX V25-BANDA: removido users:[] do PEX periódico
-               Reduz PEX de ~303 bytes para ~51 bytes (−83%) por conexão a cada 30s
-     C-22    AUDITORIA BANCADA V25-FINAL (20/abr/2026) — 8 fixes adicionais ← NOVO
-             - FIX-AUDIT-CLI-TITLE: título da página corrigido V23→V25
-             - FIX-AUDIT-CLI-NOSCRIPT: versão no noscript corrigida V7→V25
-             - FIX-AUDIT-CLI3a..f 🔴: capTtl() aplicado em TODOS os relay de mídia
-               radio-youtube-start, radio-youtube-stop, radio-world-start,
-               radio-world-stop, radio-start/chunk/stream, youtube-chat-start
-               Previne amplificação de TTL por peer malicioso injetando ttl:99999
-             - FIX-AUDIT-CLI-BLOB 🟠: URL.revokeObjectURL() chamado ao criar nova
-               Blob URL, ao fim natural da reprodução e no stopRadio()
-               Previne memory leak progressivo em sessões longas com rádio
-             - FIX-AUDIT-CLI-LOG 🟠: console.log removidos de StreamRenderer,
-               radio-world-start/stop handlers e handleOnline
-               Previne exposição de URLs privadas e metadados de rede no DevTools
-             - FIX-AUDIT-CLI1 🔴: position-update só aceito do servidor central
-               Peer P2P malicioso não consegue mais trocar peerId da vítima
-               Implementado via centralServerIdRef (evita stale closure)
-             - FIX-AUDIT-CLI2 🔴: 'style' removido de ALLOWED_ATTR no DOMPurify
-               Previne CSS injection (position:fixed, background-image tracker, etc.)
-               Adicionado FORCE_BODY:true para segurança extra
-             - FIX-AUDIT-CLI3 🔴: capTtl() — helper que clamp TTL [0..max] em todos os relays
-               Previne relay amplificado por TTL injetado por peer malicioso
-             - FIX-AUDIT-CLI4 🟠: pex handler não infla groupSize via peers P2P
-               groupSize só é atualizado para cima por mensagens do servidor central
-               Peers P2P com dados stale não corrompem mais a contagem local
 ═══ -->
 <!DOCTYPE html>
 <html lang="en">
@@ -95,7 +56,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V25</title>
+<title>Chat K10 — V23</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -698,7 +659,7 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 <body>
 <noscript>
   <div style="padding:40px;font-family:system-ui,-apple-system,sans-serif;text-align:center;max-width:560px;margin:60px auto;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);">
-    <h1 style="color:#1e40af;margin-top:0;">Chat K10 V25</h1>
+    <h1 style="color:#1e40af;margin-top:0;">Chat K10 V7</h1>
     <p style="color:#1e293b;font-size:16px;line-height:1.6;">
       <strong>JavaScript is required.</strong><br>
       This peer-to-peer encrypted chat needs JavaScript to establish secure connections between browsers.
@@ -787,12 +748,10 @@ const sanitizeHTML = (dirtyHtml) => {
 
     return window.DOMPurify.sanitize(dirtyHtml, {
         ALLOWED_TAGS: ['p', 'br', 'b', 'i', 'em', 'strong', 'u', 'a', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'pre', 'code', 'blockquote', 'span', 'img'],
-        // FIX-AUDIT-CLI2: removido 'style' — previne CSS injection (position:fixed, background-image:url tracker, etc.)
-        ALLOWED_ATTR: ['href', 'target', 'rel', 'src', 'alt', 'title', 'class'],
+        ALLOWED_ATTR: ['href', 'target', 'rel', 'src', 'alt', 'title', 'class', 'style'],
         FORBID_TAGS: ['script', 'iframe', 'object', 'embed', 'form', 'input'],
-        FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'style'],
+        FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus'],
         ADD_ATTR: ['target'],
-        FORCE_BODY: true,
         USE_PROFILES: { html: true }
     });
 };
@@ -1615,22 +1574,6 @@ const K10_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz012345678
 const K10_GID_LEN = 4;
 const K10_SUFFIX_LEN = 2;
 const K10_TOTAL_LEN = K10_PREFIX.length + K10_GID_LEN + K10_SUFFIX_LEN; // 9
-
-// ── V25: Lista de 1800 posições fixas — idêntica em TODOS os nós ──────────
-// Posição 1→'AA', Posição 2→'AB', ..., Posição 1800→'dB'
-// Gravada no código: ninguém precisa transmitir a lista, só o sufixo/count
-const K10_MAX_GROUP = 1800;
-const K10_POSITION_LIST = (() => {
-  const list = [];
-  for (let i = 0; i < K10_CHARS.length; i++) {
-    for (let j = 0; j < K10_CHARS.length; j++) {
-      if (list.length >= K10_MAX_GROUP) break;
-      list.push(K10_CHARS[i] + K10_CHARS[j]);
-    }
-    if (list.length >= K10_MAX_GROUP) break;
-  }
-  return list; // ['AA','AB','AC',...,'dB'] — exatamente 1800 entradas
-})();
 
 // Verifica se um peerId tem formato K10 válido
 const isK10Id = (id) => typeof id === 'string' && id.length === K10_TOTAL_LEN && id.startsWith(K10_PREFIX);
@@ -3522,6 +3465,7 @@ const YOUTUBE_LINKS_LIST = {
 const StreamRenderer = ({ targetId, peerId, streamType, userYoutubeStreams, userRadios, localVideoRef, videoRefs }) => {
 if ((!streamType || streamType === 'radio') && userRadios && userRadios[targetId]) {
   const wrUrl = userRadios[targetId].url;
+  console.log('StreamRenderer: Attempting to play World Radio:', userRadios[targetId].name, wrUrl);
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', alignItems: 'center', justifyContent: 'center', background: '#0f172a' }}>
       <img src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?ixlib=rb-1.2.1&auto=format&fit=crop&w=500&q=60" style={{ width: '80px', height: '80px', borderRadius: '50%', marginBottom: '20px', objectFit: 'cover' }} alt="radio" />
@@ -3530,6 +3474,8 @@ if ((!streamType || streamType === 'radio') && userRadios && userRadios[targetId
         controls 
         autoPlay 
         src={wrUrl} 
+        onPlay={() => console.log('StreamRenderer: Audio play started')}
+        onError={(e) => console.error('StreamRenderer: Audio error', e)}
         style={{ width: '80%' }}></audio>
     </div>
   );
@@ -4302,9 +4248,6 @@ const [showEmojiPanel, setShowEmojiPanel] = useState(false);
 const [selectedContact, setSelectedContact] = useState(null);
 const [isPeerInitialized, setIsPeerInitialized] = useState(false);
 const [centralServerId, setCentralServerId] = useState(null);
-// FIX-AUDIT-CLI1: ref sincronizada para uso seguro dentro de closures (evita stale closure)
-const centralServerIdRef = useRef(null);
-useEffect(() => { centralServerIdRef.current = centralServerId; }, [centralServerId]);
 const [cooldownRemaining, setCooldownRemaining] = useState(0);
 const [networkSize, setNetworkSize] = useState(1);
 const [isSuperNode, _setIsSuperNodeRaw] = useState(false);
@@ -4503,7 +4446,7 @@ const sendQuizHandoff = () => {
     lastQuizTime: lastQuizTimeRef.current,        // Sincroniza cooldown global
     senderName: userNameRef.current || 'Quiz Master', // FIX BUG-3: ref evita stale closure
   };
-  try { conn.send(handoff); } catch(e) {} // handoff enviado ao servidor
+  try { conn.send(handoff); console.log('🎯 Quiz handoff enviado ao servidor', handoff); } catch(e) {}
 };
 
 const sendBotMessage = (text) => {
@@ -4960,9 +4903,6 @@ const CHUNK_SIZE = 16 * 1024;
 // ── HYDRA FASE-2/3: Estado distribuído de grupos ─────────────────────────────
 // groupId deste nó (null até receber peer-list do servidor ou bootstrap P2P)
 const myGroupIdRef = useRef(localStorage.getItem('myGroupId') || null);
-// V25: posição (0-indexed) deste nó na K10_POSITION_LIST do seu grupo
-// -1 = não atribuída ainda; posIdx+1 = posição humana (1-based)
-const myPositionIdxRef = useRef(-1);
 // Diretório global: { [groupId]: { reservados: string[], groupSize: number } }
 const directoryGlobalRef = useRef({});
 // FASE-3/Caso2: locks de operações em andamento { [groupId]: expiryTimestamp }
@@ -5010,11 +4950,12 @@ useEffect(() => {
   const lowMem = (navigator.deviceMemory ?? 4) < 4;
   const lowCPU = (navigator.hardwareConcurrency ?? 4) < 4;
   canBeReservadoRef.current = !isMobile && !lowMem && !lowCPU;
-  // canBeReservado calculado (dados de hardware não logados)
+  console.log(`[HYDRA-V6 P3] canBeReservado=${canBeReservadoRef.current}`,
+              { isIOS, isAndroid, lowMem, lowCPU });
 
   const onVis = () => {
     isPageVisibleRef.current = !document.hidden;
-    // visibilidade atualizada
+    console.log(`[HYDRA-V6 P3] visibility=${!document.hidden ? 'visible' : 'hidden'}`);
   };
   document.addEventListener('visibilitychange', onVis);
   return () => document.removeEventListener('visibilitychange', onVis);
@@ -5118,10 +5059,6 @@ const toDelete = [...s].slice(0, 1000);
 toDelete.forEach(k => s.delete(k));
 }
 };
-
-// FIX-AUDIT-CLI3: helper para clamp de TTL — previne relay amplificado por TTL injetado
-// Qualquer peer malicioso que envia TTL=9999 causaria relay indefinido sem este cap
-const capTtl = (raw, max = 15) => Math.min(Math.max(0, parseInt(raw) || 0), max);
 
 
 const handleIncomingData = (data, pId) => {
@@ -5237,7 +5174,7 @@ return;
 
 
 if (data.type === 'migrate-to-p2p' && Array.isArray(data.peers)) {
-// Servidor migrou para P2P — conectando aos peers
+console.log("Servidor migrou para P2P! Conectando aos peers...");
 if (peerInstance.current) {
 data.peers.forEach(newPId => {
 const activeCount = Object.keys(peerInstance.current.connections).length;
@@ -5295,19 +5232,15 @@ return;
 
 
 if (data.type === 'peer-list') {
-  // ── V25 C-19: peer-list comprimido K10 ──────────────────────────────
-  // Servidor envia V25: { gid, user, count }
-  //   'user'  = sufixo atribuído a ESTE peer (K10_POSITION_LIST[posIdx])
-  //   'count' = total de membros no grupo agora
-  //   → Para saber quem são: K10_POSITION_LIST[0..count-1] — lista pré-definida!
-  // Servidor envia V24 compat: { gid, suffix, users:[2chars] }
+  // ── V23 S-10: peer-list comprimido K10 ──────────────────────────────
+  // Servidor envia: { gid, suffix, users:[2chars] }
+  // K10 é implícito — nunca transmitido
   // Mantém compatibilidade com formato antigo { peers:[], groupId }
 
   if (data.gid) {
-    // ── Formato V25/V24: recebe GID e sufixo/user atribuído ──
+    // ── Formato V23: recebe GID e sufixo atribuído ──
     const newGid = data.gid;
-    // V25: 'user' é o sufixo atribuído; V24: 'suffix'
-    const assignedSuffix = data.user || data.suffix;
+    const assignedSuffix = data.suffix;
 
     // Atualiza GID do nó se necessário
     const savedGroupId = localStorage.getItem('myGroupId');
@@ -5319,59 +5252,48 @@ if (data.type === 'peer-list') {
     // Se o servidor atribuiu um sufixo, reconstrói e persiste o peerId completo
     if (assignedSuffix && assignedSuffix.length === K10_SUFFIX_LEN) {
       const newPeerId = k10BuildPeerId(newGid, assignedSuffix);
-      // V25: atualiza posição própria na lista
-      const posIdx = K10_POSITION_LIST.indexOf(assignedSuffix);
-      if (posIdx >= 0) myPositionIdxRef.current = posIdx;
-
       if (newPeerId !== peerIdRef.current) {
-        // V25: verifica colisão contra a lista de count posições
-        const count = data.count !== undefined ? data.count : (Array.isArray(data.users) ? data.users.length : 0);
-        const usedSuffixes = Array.isArray(data.users)
-          ? data.users
-          : K10_POSITION_LIST.slice(0, count);
+        // Verifica colisão na lista recebida antes de aceitar
+        const usedSuffixes = Array.isArray(data.users) ? data.users : [];
         const collision = usedSuffixes.filter(s => s !== assignedSuffix).includes(assignedSuffix);
         if (!collision) {
           localStorage.setItem(PEER_ID_STORAGE_KEY, newPeerId);
           setPeerId(newPeerId);
-          addAudit(`[K10-V25] ID atribuído: ${newPeerId} (grupo ${newGid}, pos ${posIdx+1})`, 'sys');
+          addAudit(`[K10] ID atribuído: ${newPeerId} (grupo ${newGid})`, 'sys');
         } else {
+          // Colisão: busca sufixo livre na lista e gera novo
           const freeSuffix = k10FindFreeSuffix(usedSuffixes);
           if (freeSuffix) {
             const safePeerId = k10BuildPeerId(newGid, freeSuffix);
             localStorage.setItem(PEER_ID_STORAGE_KEY, safePeerId);
             setPeerId(safePeerId);
-            const safeIdx = K10_POSITION_LIST.indexOf(freeSuffix);
-            if (safeIdx >= 0) myPositionIdxRef.current = safeIdx;
-            addAudit(`[K10-V25] Colisão detectada — novo ID: ${safePeerId}`, 'warn');
+            addAudit(`[K10] Colisão detectada — novo ID: ${safePeerId}`, 'warn');
           }
         }
       }
     }
 
-    // V25: conecta aos peers do grupo usando K10_POSITION_LIST[0..count-1]
-    // Não precisa de lista de sufixos — a lista pré-definida é suficiente!
-    const count = data.count !== undefined ? data.count
-      : (Array.isArray(data.users) ? data.users.length : 0);
+    // Atualiza diretório global com membros do grupo (reconstrói IDs completos)
+    if (Array.isArray(data.users)) {
+      if (!directoryGlobalRef.current[newGid]) {
+        directoryGlobalRef.current[newGid] = { reservados: [], groupSize: 0 };
+      }
+      directoryGlobalRef.current[newGid].groupSize = data.users.length;
 
-    if (!directoryGlobalRef.current[newGid]) {
-      directoryGlobalRef.current[newGid] = { reservados: [], groupSize: 0 };
-    }
-    directoryGlobalRef.current[newGid].groupSize = count;
-
-    if (peerInstance.current && count > 0) {
-      const maxConns = isSuperNodeRef.current ? 50 : 15;
-      // V25: itera as posições 0..count-1 da lista pré-definida
-      for (let i = 0; i < count; i++) {
-        const suffix = K10_POSITION_LIST[i];
-        if (!suffix) break;
-        const fullPeerId = k10BuildPeerId(newGid, suffix);
-        if (fullPeerId === peerIdRef.current) continue; // não conecta a si mesmo
-        const activeCount = Object.keys(peerInstance.current.connections).length;
-        if (activeCount < maxConns
-            && !peerInstance.current.connections[fullPeerId]
-            && !bannedPeersRef.current.has(fullPeerId)) {
-          setTimeout(() => connectToPeer(fullPeerId), Math.random() * 3000);
-        }
+      // Conecta aos peers do grupo (reconstrói peerIds completos para PeerJS)
+      if (peerInstance.current) {
+        const maxConns = isSuperNodeRef.current ? 50 : 15;
+        data.users.forEach(suffix => {
+          if (typeof suffix !== 'string' || suffix.length !== K10_SUFFIX_LEN) return;
+          const fullPeerId = k10BuildPeerId(newGid, suffix);
+          if (fullPeerId === peerIdRef.current) return; // não conecta a si mesmo
+          const activeCount = Object.keys(peerInstance.current.connections).length;
+          if (activeCount < maxConns
+              && !peerInstance.current.connections[fullPeerId]
+              && !bannedPeersRef.current.has(fullPeerId)) {
+            setTimeout(() => connectToPeer(fullPeerId), Math.random() * 3000);
+          }
+        });
       }
     }
 
@@ -5408,33 +5330,18 @@ if (gid) {
   if (!directoryGlobalRef.current[gid]) {
     directoryGlobalRef.current[gid] = { reservados: [], groupSize: 0 };
   }
-  // FIX-AUDIT-CLI4: groupSize só é inflado por count (campo autoritativo V25) ou pelo servidor central
-  // Peers P2P com dados stale podem ter groupSize desatualizado — usamos apenas para conectar, não para inflar
-  const fromServer = isCentralServer(pId);
-  // V25: campo 'count' = autoritativo (vem do servidor junto com peer-list/pex)
-  if (typeof data.count === 'number' && data.count > 0) {
-    const safe = Math.min(data.count, K10_MAX_GROUP);
-    if (fromServer || safe > (directoryGlobalRef.current[gid].groupSize || 0)) {
-      directoryGlobalRef.current[gid].groupSize = safe;
-    }
-  }
-  // Formato V23: lista comprimida (tamanho real da lista)
+  // Formato V23: lista comprimida
   if (Array.isArray(data.users)) {
-    // Só inflamos se vier do servidor; de peers P2P aceita apenas se maior pelo número real de entradas
-    const listLen = data.users.length;
-    if (fromServer) {
-      directoryGlobalRef.current[gid].groupSize = Math.max(directoryGlobalRef.current[gid].groupSize || 0, listLen);
-    }
+    directoryGlobalRef.current[gid].groupSize = Math.max(directoryGlobalRef.current[gid].groupSize || 0, data.users.length);
     if (data.isReservado && data.suffix) {
       const set = new Set(directoryGlobalRef.current[gid].reservados);
       set.add(k10BuildPeerId(gid, data.suffix));
       directoryGlobalRef.current[gid].reservados = [...set].slice(0, 10);
     }
   }
-  // Formato legado: groupSize scalar — só do servidor para evitar inflação P2P
-  if (data.groupSize !== undefined && fromServer) {
-    const safeGs = Math.min(Math.max(0, parseInt(data.groupSize) || 0), K10_MAX_GROUP);
-    directoryGlobalRef.current[gid].groupSize = Math.max(directoryGlobalRef.current[gid].groupSize || 0, safeGs);
+  // Formato legado: groupSize + peerId
+  if (data.groupSize !== undefined) {
+    directoryGlobalRef.current[gid].groupSize = Math.max(directoryGlobalRef.current[gid].groupSize || 0, data.groupSize);
   }
   if (data.isReservado && data.peerId) {
     const set = new Set(directoryGlobalRef.current[gid].reservados);
@@ -5470,61 +5377,6 @@ return;
 }
 
 
-// ── V25: pex-update — broadcast compacto de saída de peer ───────────────────
-// Recebe: { type:'pex-update', gid, user, ttl, msgId }
-// 'user' = sufixo da ÚLTIMA posição do grupo que "saiu" (lógica de swap)
-// K10_POSITION_LIST.indexOf(user) = nova contagem do grupo
-if (data.type === 'pex-update') {
-  const upMsgId = data.msgId || (pId + '_pexupd_' + Date.now());
-  if (isDuplicate(upMsgId)) return;
-  if (data.gid && data.user) {
-    // Calcula nova contagem: o índice (0-based) do sufixo anunciado = nova contagem
-    // Ex: user='AB' (índice 1) → grupo tinha 2 membros, agora tem 1
-    const newCount = K10_POSITION_LIST.indexOf(data.user);
-    if (newCount >= 0) {
-      if (!directoryGlobalRef.current[data.gid]) {
-        directoryGlobalRef.current[data.gid] = { reservados: [], groupSize: 0 };
-      }
-      // Atualiza groupSize apenas se for uma redução (nunca inflamos por pex-update)
-      const cur = directoryGlobalRef.current[data.gid].groupSize || 0;
-      directoryGlobalRef.current[data.gid].groupSize = cur > newCount ? newCount : cur;
-      addAudit(`[K10-V25] pex-update: grupo ${data.gid} → ${newCount} usuários`, 'sys');
-    }
-  }
-  // FIX-AUDIT-CLI3: TTL clampado [0..6] — previne relay amplificado por TTL injetado
-  const safeTtlUpd = Math.min(Math.max(0, parseInt(data.ttl) || 0), 6);
-  if (safeTtlUpd > 0) {
-    const relay = { ...data, ttl: safeTtlUpd - 1, msgId: upMsgId };
-    connectionsRef.current.forEach(c => {
-      if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {}
-    });
-  }
-  return;
-}
-
-// ── V25: position-update — servidor atualizou minha posição (swap interno) ──
-// Recebe: { type:'position-update', gid, user }
-// 'user' = meu novo sufixo após swap; meu peerId muda para K10+gid+user
-// FIX-AUDIT-CLI1: SEGURANÇA — só aceita position-update do servidor central
-// Um peer P2P malicioso poderia enviar position-update para trocar nosso peerId
-if (data.type === 'position-update') {
-  if (!data.gid || !data.user) return;
-  if (data.gid !== myGroupIdRef.current) return; // não é para mim
-  // Valida que a mensagem veio do servidor central (sufixo -CENTRAL ou ref)
-  if (!isCentralServer(pId) && pId !== centralServerIdRef.current) return; // FIX-AUDIT-CLI1
-  const newSuffix = data.user;
-  const newPeerId = k10BuildPeerId(data.gid, newSuffix);
-  if (newPeerId !== peerIdRef.current) {
-    const newPosIdx = K10_POSITION_LIST.indexOf(newSuffix);
-    if (newPosIdx >= 0) myPositionIdxRef.current = newPosIdx;
-    localStorage.setItem(PEER_ID_STORAGE_KEY, newPeerId);
-    setPeerId(newPeerId);
-    addAudit(`[K10-V25] Posição atualizada: ${newPeerId} (pos ${newPosIdx+1})`, 'sys');
-  }
-  return;
-}
-
-
 // ── V24: pex-family — lista delta comprimida para família de grupos ──────────
 if (data.type === 'pex-family') {
   const { prefix, base, branches } = data;
@@ -5556,7 +5408,7 @@ if (data.type === 'pex-family') {
   });
   // Relay com TTL decrementado
   if ((data.ttl || 0) > 0) {
-    const relay = { ...data, ttl: capTtl(data.ttl) - 1 };
+    const relay = { ...data, ttl: data.ttl - 1 };
     connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
   }
   return;
@@ -5589,7 +5441,7 @@ if (data.type === 'gid-promote') {
   }
   // Relay com TTL decrementado
   if ((data.ttl || 0) > 0) {
-    const relay = { ...data, ttl: capTtl(data.ttl) - 1 };
+    const relay = { ...data, ttl: data.ttl - 1 };
     connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
   }
   return;
@@ -5625,7 +5477,7 @@ if (data.type === 'group-operation-lock') {
   if (data.msgId) seenMsgIdsRef.current.set(data.msgId, Date.now() + 300000);
   lockedGroupsRef.current[data.groupId] = data.expiry;
   if (data.ttl !== undefined && data.ttl > 0) {
-    const relayLock = { ...data, ttl: capTtl(data.ttl) - 1 };
+    const relayLock = { ...data, ttl: data.ttl - 1 };
     connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relayLock); } catch(e) {} });
   }
   return;
@@ -5693,7 +5545,7 @@ if (data.type === 'group-split') {
   }
   // V4 FIX BUG#5: dedup já feito no início; aqui só relay.
   if (data.ttl !== undefined && data.ttl > 0) {
-    const relay = { ...data, ttl: capTtl(data.ttl) - 1 };
+    const relay = { ...data, ttl: data.ttl - 1 };
     connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
   }
   return;
@@ -5732,7 +5584,7 @@ if (data.type === 'group-merge') {
     delete directoryGlobalRef.current[absorbedGroupId];
   }
   if (data.ttl !== undefined && data.ttl > 0) {
-    const relay = { ...data, ttl: capTtl(data.ttl) - 1 };
+    const relay = { ...data, ttl: data.ttl - 1 };
     connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
   }
   return;
@@ -5752,7 +5604,7 @@ if (data.type === 'p2p-heartbeat') {
   }
   // relay
   if (data.ttl !== undefined && data.ttl > 0) {
-    const relay = { ...data, ttl: capTtl(data.ttl) - 1 };
+    const relay = { ...data, ttl: data.ttl - 1 };
     connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
   }
   return;
@@ -5774,7 +5626,7 @@ if (data.type === 'directory-announce') {
       lastUpdate: Date.now()
     };
   }
-  const ttl = capTtl(data.ttl) - 1;
+  const ttl = (data.ttl ?? 0) - 1;
   if (ttl > 0) {
     const relay = { ...data, ttl };
     connectionsRef.current.forEach(c => {
@@ -5804,7 +5656,7 @@ if (data.type === 'update-peer') {
     }
   }
   // Relay com TTL decrementado (TTL=5 para mensagens de topologia)
-  const ttl = capTtl(data.ttl !== undefined ? data.ttl : 5);
+  const ttl = data.ttl !== undefined ? data.ttl : 5;
   if (ttl > 0) {
     const relay = { ...data, ttl: ttl - 1 };
     connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
@@ -5858,7 +5710,7 @@ if (data.type === 'radio-youtube-start') {
 if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
 pruneSeenMessages();
-let ttl = capTtl(data.ttl !== undefined ? data.ttl : 8); // FIX-AUDIT-CLI3a: capTtl em todos os relay de mídia
+let ttl = data.ttl !== undefined ? data.ttl : 8;
 if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
 
 
@@ -5891,7 +5743,7 @@ if (data.type === 'radio-youtube-stop') {
 if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
 pruneSeenMessages();
-let ttl = capTtl(data.ttl !== undefined ? data.ttl : 8); // FIX-AUDIT-CLI3b
+let ttl = data.ttl !== undefined ? data.ttl : 8;
 if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
 
 
@@ -5904,14 +5756,16 @@ return;
 }
 
 if (data.type === 'radio-world-start') {
+console.log('Received World Radio Start:', data);
 if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
 pruneSeenMessages();
-let ttl = capTtl(data.ttl !== undefined ? data.ttl : 8); // FIX-AUDIT-CLI3c
+let ttl = data.ttl !== undefined ? data.ttl : 8;
 if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
 
 setUserRadios(prev => {
 const next = { ...prev, [data.sender]: { url: data.streamUrl, name: data.fileName, radioId: data.radioId, senderName: data.senderName } };
+console.log('Updated userRadios:', next);
 if (Object.keys(next).length > 10) delete next[Object.keys(next)[0]];
 return next;
 });
@@ -5919,15 +5773,17 @@ return;
 }
 
 if (data.type === 'radio-world-stop') {
+console.log('Received World Radio Stop:', data.sender);
 if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
 pruneSeenMessages();
-let ttl = capTtl(data.ttl !== undefined ? data.ttl : 8); // FIX-AUDIT-CLI3d
+let ttl = data.ttl !== undefined ? data.ttl : 8;
 if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
 
 setUserRadios(prev => {
 const next = { ...prev };
 delete next[data.sender];
+console.log('Updated userRadios after stop:', next);
 return next;
 });
 return;
@@ -5941,7 +5797,7 @@ if (data.type === 'radio-stream-start' && radioStateRef.current.status !== 'idle
 if (data.type === 'radio-chunk' && radioStateRef.current.status === 'idle' && !pendingRadioFiles.current[data.radioId]) return;
 seenMessagesRef.current.add(data.id);
 pruneSeenMessages();
-let ttl = capTtl(data.ttl !== undefined ? data.ttl : 8); // FIX-AUDIT-CLI3e
+let ttl = data.ttl !== undefined ? data.ttl : 8;
 if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
 if (data.type === 'radio-start') {
 if (typeof data.fileSize !== 'number' || data.fileSize <= 0 || data.fileSize > 50*1024*1024) { console.warn('[V7] radio-start rejeitado'); return; }
@@ -5958,12 +5814,9 @@ if (!(chunk instanceof Uint8Array) || chunk.length === 0 || chunk.length > 256*1
 if (typeof data.offset !== 'number' || !Number.isInteger(data.offset) || data.offset < 0 || data.offset + chunk.length > fd.totalSize) { console.warn('[V8] radio-chunk offset OOB'); return; }
 fd.chunks.set(chunk, data.offset); fd.receivedBytes += chunk.length;
 if (fd.receivedBytes === fd.totalSize) {
-  // FIX-AUDIT-CLI-BLOB: revogar URL antiga antes de criar nova (previne memory leak)
-  if (window.__v8CurrentBlobUrl) {
-    try { URL.revokeObjectURL(window.__v8CurrentBlobUrl); } catch(e) {}
-  }
   const url = URL.createObjectURL(new Blob([fd.chunks], { type: 'audio/mpeg' }));
-  window.__v8CurrentBlobUrl = url; // rastreia URL atual para revogação posterior
+  if (!window.__v8BlobUrls) window.__v8BlobUrls = new Map();
+  window.__v8BlobUrls.set(url, Date.now()); // V8-LEAK#17
   setRadioState(prev => ({ ...prev, audioUrl: url }));
   delete pendingRadioFiles.current[data.radioId];
 }
@@ -5978,7 +5831,7 @@ if (seenMessagesRef.current.has(data.id)) return;
 seenMessagesRef.current.add(data.id);
 pruneSeenMessages();
 if (youtubeChatIdRef.current) return;
-let ttl = capTtl(data.ttl !== undefined ? data.ttl : 8); // FIX-AUDIT-CLI3f
+let ttl = data.ttl !== undefined ? data.ttl : 8;
 if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
 setYoutubeChatId(data.youtubeId);
 return;
@@ -6126,7 +5979,7 @@ let messageToAdd = null;
 
 
 if (data.type === 'message') {
-if (data.text && data.text.length > 2000) { return; } // mensagem acima de 2000 chars descartada
+if (data.text && data.text.length > 2000) { console.log("Mensagem muito longa ignorada no cliente."); return; }
 if (data.text === '#$%') {
 if (radioStateRef.current.status === 'idle') setRadioState({ status: 'playing', startTime: Date.now(), duration: 300, audioUrl: null, fileName: t(lang, 'radioGlobal'), sender: data.senderName || 'Server' });
 return;
@@ -6312,7 +6165,7 @@ if (fd.receivedBytes === fd.totalSize) {
 }
 return;
 } else if (data.type === 'audio-start') {
-if (data.audioSize > 2 * 1024 * 1024) { return; } // áudio acima de 2MB descartado
+if (data.audioSize > 2 * 1024 * 1024) { console.log("Áudio muito longo ignorado no cliente."); return; }
 pendingFiles.current[data.audioId] = { chunks: new Uint8Array(data.audioSize), receivedBytes: 0, totalSize: data.audioSize };
 messageToAdd = { ...baseMessage, audioId: data.audioId, type: 'audio', receiving: true, progress: 0 };
 } else if (data.type === 'audio-chunk') {
@@ -6571,7 +6424,7 @@ setMessages(prev => [...prev, { text: `System: PeerJS Error (${err.type})`, send
 
 peer.on('disconnected', () => {
 setIsPeerInitialized(false);
-// peer desconectado — reconectando
+console.log("Peer disconnected. Attempting to reconnect...");
 
 
 if (reconnectTimeout) clearTimeout(reconnectTimeout);
@@ -6584,7 +6437,7 @@ reconnectAttempts++;
 
 reconnectTimeout = setTimeout(() => {
 if (peerInstance.current && !peerInstance.current.destroyed) {
-// tentativa de reconexão agendada
+console.log(`Reconnecting attempt ${reconnectAttempts} after ${delay}ms...`);
 peerInstance.current.reconnect();
 }
 }, delay);
@@ -6617,37 +6470,7 @@ conn.on('close', () => {
   setSelectedContact(curr => curr === conn.peer ? null : curr); 
   endCall(conn.peer, 'video'); 
   endCall(conn.peer, 'voice'); 
-  setTimeout(checkAndAssumeQuizMaster, 1000);
-  // V25: em modo P2P (sem servidor), broadcast pex-update quando peer do meu grupo sai
-  // Só anunciamos se o peer que saiu pertence ao nosso grupo
-  const myGidNow = myGroupIdRef.current;
-  const departedGid = k10ExtractGid(conn.peer);
-  if (myGidNow && departedGid === myGidNow) {
-    const mySize = directoryGlobalRef.current[myGidNow]?.groupSize || 0;
-    if (mySize > 0) {
-      // Decrementa localmente
-      directoryGlobalRef.current[myGidNow].groupSize = Math.max(0, mySize - 1);
-      // Broadcast compacto: anuncia que a última posição "saiu"
-      const newSize = directoryGlobalRef.current[myGidNow].groupSize;
-      const lastSuffix = K10_POSITION_LIST[mySize - 1]; // sufixo da posição que "saiu"
-      if (lastSuffix) {
-        // FIX V25-BUG2: msgId DETERMINÍSTICO por (gid+sufixo+bucket 5s)
-        // Sem isso, cada peer gera msgId único → deduplicação falha → groupSize decrementado N× em vez de 1×
-        const timeBucket = Math.floor(Date.now() / 5000);
-        const pexUpd = {
-          type: 'pex-update',
-          gid: myGidNow,
-          user: lastSuffix,
-          ttl: 5,
-          msgId: `pexupd_${myGidNow}_${lastSuffix}_${timeBucket}`
-        };
-        connectionsRef.current.forEach(c => {
-          if (c.peer !== conn.peer && c.open) try { c.send(pexUpd); } catch(e) {}
-        });
-        addAudit(`[K10-V25] P2P pex-update: grupo ${myGidNow} → ${newSize} usuários`, 'sys');
-      }
-    }
-  }
+  setTimeout(checkAndAssumeQuizMaster, 1000); 
 });
 conn.on('error', (e) => { 
   addAudit(`[P2P] Erro na conexão com ${conn.peer}: ${e?.message || '?' }`, 'error');
@@ -6715,6 +6538,7 @@ const ghostGcIv = setInterval(() => {
 
 
 const handleOnline = () => {
+console.log("Network back online. Forcing reconnect...");
 reconnectAttempts = 0;
 if (peerInstance.current && peerInstance.current.disconnected && !peerInstance.current.destroyed) {
 peerInstance.current.reconnect();
@@ -6816,10 +6640,8 @@ const iv = setInterval(() => {
 // FIX N-7 V20: era connections (stale closure dentro de setInterval) → connectionsRef.current; deps [] evita recriar o interval a cada nova conexão
 const conns = connectionsRef.current;
 if (conns.length > 0) {
-// V25 C-19: PEX comprimido — envia {gid, user, count} em vez de {gid, users:[N sufixos]}
-// 'user' = sufixo da ÚLTIMA posição ocupada do grupo (K10_POSITION_LIST[groupSize-1])
-// 'count' = total de membros — receptor reconstrói quem são via K10_POSITION_LIST[0..count-1]
-// FIX V25-BANDA: removido users:[] — economiza ~83% de bytes no PEX periódico
+// V23 S-10: PEX comprimido — envia {gid, users:[2chars], suffix} em vez de IDs completos
+// K10 é implícito (todos sabem), GID transmitido no campo gid, só sufixos na lista users
 const myGroupId = myGroupIdRef.current;
 const myPeerIdNow = peerIdRef.current;
 const mySuffix = k10ExtractSuffix(myPeerIdNow);
@@ -6827,27 +6649,30 @@ const myGroupSize = myGroupId && directoryGlobalRef.current[myGroupId]
   ? directoryGlobalRef.current[myGroupId].groupSize
   : conns.length + 1;
 
-// Sufixo da última posição = K10_POSITION_LIST[groupSize-1]
-const lastPositionSuffix = myGroupSize > 0 && myGroupSize <= K10_MAX_GROUP
-  ? K10_POSITION_LIST[myGroupSize - 1]
-  : mySuffix;
+// Monta lista comprimida: sufixos (2 chars) dos peers do mesmo grupo
+const groupPeers = conns
+  .filter(c => {
+    const cGid = k10ExtractGid(c.peer);
+    return cGid && cGid === myGroupId;
+  })
+  .map(c => k10ExtractSuffix(c.peer))
+  .filter(Boolean);
+
+// Inclui o próprio sufixo na lista
+if (mySuffix && !groupPeers.includes(mySuffix)) groupPeers.push(mySuffix);
 
 conns.forEach(conn => {
 if (conn.open) try {
   conn.send({
     type: 'pex',
-    // V25: campos compactos (receptor reconstrói lista via K10_POSITION_LIST)
-    gid: myGroupId || undefined,
-    user: lastPositionSuffix || undefined,  // V25: sufixo da última posição
-    count: myGroupSize,                      // V25: contagem total
-    isReservado: isSuperNodeRef.current,
-    // Compat mínima V24/V23 (scalars, custo negligenciável):
-    suffix: mySuffix || undefined,
+    gid: myGroupId || undefined,          // V23: GID em campo dedicado
+    suffix: mySuffix || undefined,         // V23: sufixo do remetente
+    users: groupPeers.sort(() => 0.5 - Math.random()).slice(0, isSuperNode ? 100 : 50), // V23: lista comprimida
     groupSize: myGroupSize,
+    isReservado: isSuperNodeRef.current,
+    // Mantém compatibilidade legada:
     groupId: myGroupId || undefined,
     peerId: myPeerIdNow
-    // REMOVIDO: users:[N sufixos] — V25 usa K10_POSITION_LIST[0..count-1]
-    // Economia: ~83% menos bytes no PEX a cada 30s por conexão
   });
 } catch(e) {}
 });
@@ -7340,11 +7165,6 @@ if (current.type === 'file') {
 const endTime = current.startTime + current.duration * 1000;
 if (now >= endTime) {
 if (radioAudioRef.current) { radioAudioRef.current.pause(); radioAudioRef.current.src = ''; }
-// FIX-AUDIT-CLI-BLOB: revogar Blob URL ao fim natural da reprodução
-if (window.__v8CurrentBlobUrl) {
-  try { URL.revokeObjectURL(window.__v8CurrentBlobUrl); } catch(e) {}
-  window.__v8CurrentBlobUrl = null;
-}
 return { status: 'idle', type: 'file', startTime: 0, duration: 0, audioUrl: null, youtubeId: null, fileName: '', sender: '', showVideo: false, videoSize: 'medium' };
 }
 if (current.status === 'buffering') {
@@ -7500,11 +7320,6 @@ if (radioAudioRef.current) { radioAudioRef.current.pause(); radioAudioRef.curren
 if (youtubePlayerRef.current) {
 try { youtubePlayerRef.current.destroy(); } catch(e) {}
 youtubePlayerRef.current = null;
-}
-// FIX-AUDIT-CLI-BLOB: revogar Blob URL ao parar rádio — previne memory leak
-if (window.__v8CurrentBlobUrl) {
-  try { URL.revokeObjectURL(window.__v8CurrentBlobUrl); } catch(e) {}
-  window.__v8CurrentBlobUrl = null;
 }
 setRadioState({ status: 'idle', type: 'file', startTime: 0, duration: 0, audioUrl: null, youtubeId: null, fileName: '', sender: '', showVideo: false, videoSize: 'medium' });
 };
