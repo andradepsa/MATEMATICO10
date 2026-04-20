@@ -1,4 +1,4 @@
-<!-- ═══ Chat K10 V9 — Auditoria Completa V24 (19/abr/2026) ═══
+<!-- ═══ Chat K10 V9 — Auditoria Completa V23 (19/abr/2026) ═══
      Correções aplicadas:
      C-1..4  File/Audio/Voice/Video: stale connections → connectionsRef.current
      C-5     getInputStatus: cooldown verificado primeiro (modo geral)
@@ -20,10 +20,6 @@
              - peer-list V23: recebe {gid, suffix, users:[2chars]}
              - PEX V23 comprimido: envia {gid, suffix, users} — K10 implícito
              - Compatibilidade legada mantida (formato antigo aceito)
-     C-18    K10 V24: GID Hierárquico + Lista Delta + Dominância Dinâmica ← NOVO V24
-             - Handler pex-family: processa lista base+delta de grupos irmãos
-             - Handler gid-promote: troca GID local quando dominância muda
-             - Atualização automática de peerId e directoryGlobalRef após promoção
 ═══ -->
 <!DOCTYPE html>
 <html lang="en">
@@ -5374,77 +5370,6 @@ if (activeCount < maxConnections) {
 }
 }
 return;
-}
-
-
-// ── V24: pex-family — lista delta comprimida para família de grupos ──────────
-if (data.type === 'pex-family') {
-  const { prefix, base, branches } = data;
-  if (!prefix || typeof prefix !== 'string' || !Array.isArray(base) || !Array.isArray(branches)) return;
-  branches.forEach(({ ext, delta }) => {
-    if (!ext || !Array.isArray(delta)) return;
-    const gid = prefix + ext;
-    const allSuffixes = [...base, ...delta];
-    if (!directoryGlobalRef.current[gid]) {
-      directoryGlobalRef.current[gid] = { reservados: [], groupSize: 0 };
-    }
-    directoryGlobalRef.current[gid].groupSize = Math.max(
-      directoryGlobalRef.current[gid].groupSize || 0,
-      allSuffixes.length
-    );
-    // Conecta aos peers do MEU grupo usando a lista comprimida
-    if (myGroupIdRef.current === gid && peerInstance.current) {
-      const maxConns = isSuperNodeRef.current ? 50 : 15;
-      allSuffixes.forEach(suffix => {
-        if (typeof suffix !== 'string' || suffix.length !== K10_SUFFIX_LEN) return;
-        const fullId = k10BuildPeerId(gid, suffix);
-        if (fullId === peerIdRef.current) return;
-        const active = Object.keys(peerInstance.current.connections).length;
-        if (active < maxConns && !peerInstance.current.connections[fullId] && !bannedPeersRef.current.has(fullId)) {
-          setTimeout(() => connectToPeer(fullId), Math.random() * 3000);
-        }
-      });
-    }
-  });
-  // Relay com TTL decrementado
-  if ((data.ttl || 0) > 0) {
-    const relay = { ...data, ttl: data.ttl - 1 };
-    connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
-  }
-  return;
-}
-
-// ── V24: gid-promote — troca de GID por dominância dinâmica ─────────────────
-if (data.type === 'gid-promote') {
-  if (data.msgId && isDuplicate(data.msgId)) return;
-  const { formerDominantGid, formerRecessiveGid } = data;
-  if (!formerDominantGid || !formerRecessiveGid) return;
-  const myGid = myGroupIdRef.current;
-  if (myGid === formerDominantGid || myGid === formerRecessiveGid) {
-    // Meu grupo está na troca — calculo o novo GID
-    const newGid = myGid === formerDominantGid ? formerRecessiveGid : formerDominantGid;
-    myGroupIdRef.current = newGid;
-    localStorage.setItem('myGroupId', newGid);
-    // Reconstrói o peerId mantendo o mesmo sufixo (só o GID muda)
-    const mySuffix = k10ExtractSuffix(peerIdRef.current);
-    if (mySuffix) {
-      const newPeerId = k10BuildPeerId(newGid, mySuffix);
-      localStorage.setItem(PEER_ID_STORAGE_KEY, newPeerId);
-      setPeerId(newPeerId);
-      addAudit(`[K10-V24] Promoção de GID: ${myGid} → ${newGid} | novo ID: ${newPeerId}`, 'sys');
-    }
-    // Atualiza diretório: move membros do GID antigo para o novo
-    if (directoryGlobalRef.current[myGid]) {
-      directoryGlobalRef.current[newGid] = directoryGlobalRef.current[myGid];
-      delete directoryGlobalRef.current[myGid];
-    }
-  }
-  // Relay com TTL decrementado
-  if ((data.ttl || 0) > 0) {
-    const relay = { ...data, ttl: data.ttl - 1 };
-    connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
-  }
-  return;
 }
 
 
