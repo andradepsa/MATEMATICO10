@@ -1,4 +1,4 @@
-<!-- ═══ Chat K10 V9 — Auditoria Completa V23 (19/abr/2026) ═══
+<!-- ═══ Chat K10 V9 — Auditoria Completa V21 (19/abr/2026) ═══
      Correções aplicadas:
      C-1..4  File/Audio/Voice/Video: stale connections → connectionsRef.current
      C-5     getInputStatus: cooldown verificado primeiro (modo geral)
@@ -13,13 +13,6 @@
      C-14    connectToPeer: langRef.current em timeout e catch ← NOVO V19
      C-15    sendDirectMessage: sender:peerId adicionado ao broadcast geral ← NOVO V19
      C-16    endCall: activeCallsRef corrigido (ver C-10)
-     C-17    Sistema K10 ID: K10(3)+GID(4)+sufixo(2)=9 chars ← NOVO V23
-             - generateId: 62 chars case-sensitive (A-Z a-z 0-9)
-             - isK10Id / k10ExtractGid / k10ExtractSuffix / k10BuildPeerId
-             - k10FindFreeSuffix: auto-busca sufixo livre (sem colisão)
-             - peer-list V23: recebe {gid, suffix, users:[2chars]}
-             - PEX V23 comprimido: envia {gid, suffix, users} — K10 implícito
-             - Compatibilidade legada mantida (formato antigo aceito)
 ═══ -->
 <!DOCTYPE html>
 <html lang="en">
@@ -52,7 +45,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V23</title>
+<title>Chat K10 — V22</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -1557,72 +1550,20 @@ return this.props.children;
 const PEER_ID_STORAGE_KEY = 'p2pChatClientId';
 const MESSAGES_STORAGE_KEY = 'p2pChatMessages';
 
-// ═══════════════════════════════════════════════════════════════════
-// V23 S-10: Sistema K10 ID
-// Estrutura: K10(3) + GID(4) + sufixo(2) = 9 chars total
-// K10 = prefixo implícito — NUNCA transmitido na rede
-// GID = identificador do grupo — 4 chars, recebido do servidor 1×
-// sufixo = identificador do usuário no grupo — 2 chars
-// Charset: 62 chars case-sensitive (A-Z a-z 0-9)
-// ═══════════════════════════════════════════════════════════════════
-const K10_PREFIX = 'K10';
-const K10_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-const K10_GID_LEN = 4;
-const K10_SUFFIX_LEN = 2;
-const K10_TOTAL_LEN = K10_PREFIX.length + K10_GID_LEN + K10_SUFFIX_LEN; // 9
 
-// Verifica se um peerId tem formato K10 válido
-const isK10Id = (id) => typeof id === 'string' && id.length === K10_TOTAL_LEN && id.startsWith(K10_PREFIX);
-
-// Extrai GID (4 chars) de um peerId completo K10GGGGXX
-const k10ExtractGid = (peerId) => isK10Id(peerId) ? peerId.slice(K10_PREFIX.length, K10_PREFIX.length + K10_GID_LEN) : null;
-
-// Extrai sufixo (2 chars) de um peerId completo K10GGGGXX
-const k10ExtractSuffix = (peerId) => isK10Id(peerId) ? peerId.slice(K10_PREFIX.length + K10_GID_LEN) : null;
-
-// Reconstrói peerId completo a partir de GID + sufixo
-const k10BuildPeerId = (gid, suffix) => K10_PREFIX + gid + suffix;
-
-// Gera um sufixo de 2 chars aleatório (usado apenas como fallback)
-const k10RandomSuffix = () => {
-  const buf = new Uint8Array(K10_SUFFIX_LEN);
-  crypto.getRandomValues(buf);
-  return Array.from(buf).map(b => K10_CHARS[b % K10_CHARS.length]).join('');
-};
-
-// Encontra próximo sufixo livre dado uma lista de sufixos já ocupados
-const k10FindFreeSuffix = (usedSuffixes) => {
-  const used = new Set(usedSuffixes);
-  for (let i = 0; i < K10_CHARS.length; i++) {
-    for (let j = 0; j < K10_CHARS.length; j++) {
-      const candidate = K10_CHARS[i] + K10_CHARS[j];
-      if (!used.has(candidate)) return candidate;
-    }
-  }
-  return null; // grupo cheio (3844 usuários)
-};
-
-// generateId V23: gera peerId K10 completo com sufixo aleatório
-// O GID será substituído quando o servidor responder com peer-list
-// Usa 'AAAA' como GID temporário até o servidor atribuir o definitivo
 const generateId = () => {
-  const tempGid = 'AAAA'; // GID temporário — servidor vai corrigir
-  const suffix = k10RandomSuffix();
-  return k10BuildPeerId(tempGid, suffix); // ex: "K10AAAAaB"
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const buffer = new Uint8Array(9);
+  crypto.getRandomValues(buffer);
+  return Array.from(buffer).map(b => chars[b % chars.length]).join('');
 };
 
 const usePersistentId = () => {
   const [peerId, setPeerId] = useState('');
   useEffect(() => {
     const savedId = localStorage.getItem(PEER_ID_STORAGE_KEY);
-    if (savedId && isK10Id(savedId)) {
-      setPeerId(savedId);
-    } else {
-      // ID antigo (formato legado) ou ausente: gera novo K10 ID
-      const newId = generateId();
-      localStorage.setItem(PEER_ID_STORAGE_KEY, newId);
-      setPeerId(newId);
-    }
+    if (savedId) { setPeerId(savedId); }
+    else { const newId = generateId(); localStorage.setItem(PEER_ID_STORAGE_KEY, newId); setPeerId(newId); }
   }, []);
   return [peerId, setPeerId];
 };
@@ -5227,146 +5168,54 @@ return;
 }
 
 
-if (data.type === 'peer-list') {
-  // ── V23 S-10: peer-list comprimido K10 ──────────────────────────────
-  // Servidor envia: { gid, suffix, users:[2chars] }
-  // K10 é implícito — nunca transmitido
-  // Mantém compatibilidade com formato antigo { peers:[], groupId }
-
-  if (data.gid) {
-    // ── Formato V23: recebe GID e sufixo atribuído ──
-    const newGid = data.gid;
-    const assignedSuffix = data.suffix;
-
-    // Atualiza GID do nó se necessário
+if (data.type === 'peer-list' && Array.isArray(data.peers)) {
+  // FASE-1/M3: conecta aos peers recebidos no bootstrap
+  if (peerInstance.current) {
+    const maxConns = isSuperNodeRef.current ? 50 : 15;
+    data.peers.forEach(newPId => {
+      const activeCount = Object.keys(peerInstance.current.connections).length;
+      if (activeCount < maxConns
+          && newPId !== peerId
+          && !peerInstance.current.connections[newPId]
+          && !bannedPeersRef.current.has(newPId)) {
+        setTimeout(() => connectToPeer(newPId), Math.random() * 3000);
+      }
+    });
+  }
+  // FASE-2: armazena groupId atribuído pelo servidor
+  if (data.groupId) {
+    // FASE-3/Caso4: se groupId salvo não existe mais no diretório, ignora e usa o novo
     const savedGroupId = localStorage.getItem('myGroupId');
-    if (!savedGroupId || !directoryGlobalRef.current[savedGroupId] || savedGroupId === newGid) {
-      myGroupIdRef.current = newGid;
-      localStorage.setItem('myGroupId', newGid);
-    }
-
-    // Se o servidor atribuiu um sufixo, reconstrói e persiste o peerId completo
-    if (assignedSuffix && assignedSuffix.length === K10_SUFFIX_LEN) {
-      const newPeerId = k10BuildPeerId(newGid, assignedSuffix);
-      if (newPeerId !== peerIdRef.current) {
-        // Verifica colisão na lista recebida antes de aceitar
-        const usedSuffixes = Array.isArray(data.users) ? data.users : [];
-        const collision = usedSuffixes.filter(s => s !== assignedSuffix).includes(assignedSuffix);
-        if (!collision) {
-          localStorage.setItem(PEER_ID_STORAGE_KEY, newPeerId);
-          setPeerId(newPeerId);
-          addAudit(`[K10] ID atribuído: ${newPeerId} (grupo ${newGid})`, 'sys');
-        } else {
-          // Colisão: busca sufixo livre na lista e gera novo
-          const freeSuffix = k10FindFreeSuffix(usedSuffixes);
-          if (freeSuffix) {
-            const safePeerId = k10BuildPeerId(newGid, freeSuffix);
-            localStorage.setItem(PEER_ID_STORAGE_KEY, safePeerId);
-            setPeerId(safePeerId);
-            addAudit(`[K10] Colisão detectada — novo ID: ${safePeerId}`, 'warn');
-          }
-        }
-      }
-    }
-
-    // Atualiza diretório global com membros do grupo (reconstrói IDs completos)
-    if (Array.isArray(data.users)) {
-      if (!directoryGlobalRef.current[newGid]) {
-        directoryGlobalRef.current[newGid] = { reservados: [], groupSize: 0 };
-      }
-      directoryGlobalRef.current[newGid].groupSize = data.users.length;
-
-      // Conecta aos peers do grupo (reconstrói peerIds completos para PeerJS)
-      if (peerInstance.current) {
-        const maxConns = isSuperNodeRef.current ? 50 : 15;
-        data.users.forEach(suffix => {
-          if (typeof suffix !== 'string' || suffix.length !== K10_SUFFIX_LEN) return;
-          const fullPeerId = k10BuildPeerId(newGid, suffix);
-          if (fullPeerId === peerIdRef.current) return; // não conecta a si mesmo
-          const activeCount = Object.keys(peerInstance.current.connections).length;
-          if (activeCount < maxConns
-              && !peerInstance.current.connections[fullPeerId]
-              && !bannedPeersRef.current.has(fullPeerId)) {
-            setTimeout(() => connectToPeer(fullPeerId), Math.random() * 3000);
-          }
-        });
-      }
-    }
-
-  } else if (Array.isArray(data.peers)) {
-    // ── Formato legado (compatibilidade): peers com IDs completos ──
-    if (peerInstance.current) {
-      const maxConns = isSuperNodeRef.current ? 50 : 15;
-      data.peers.forEach(newPId => {
-        const activeCount = Object.keys(peerInstance.current.connections).length;
-        if (activeCount < maxConns
-            && newPId !== peerId
-            && !peerInstance.current.connections[newPId]
-            && !bannedPeersRef.current.has(newPId)) {
-          setTimeout(() => connectToPeer(newPId), Math.random() * 3000);
-        }
-      });
-    }
-    if (data.groupId) {
-      const savedGroupId = localStorage.getItem('myGroupId');
-      if (!savedGroupId || !directoryGlobalRef.current[savedGroupId] || savedGroupId === data.groupId) {
-        myGroupIdRef.current = data.groupId;
-        localStorage.setItem('myGroupId', data.groupId);
-      }
+    if (!savedGroupId || !directoryGlobalRef.current[savedGroupId] || savedGroupId === data.groupId) {
+      myGroupIdRef.current = data.groupId;
+      localStorage.setItem('myGroupId', data.groupId);
     }
   }
   return;
 }
 
 
-if (data.type === 'pex') {
-// V23 S-10: PEX comprimido — suporta {gid, users:[2chars]} e formato legado {peers, groupId}
-const gid = data.gid || data.groupId;
-if (gid) {
-  if (!directoryGlobalRef.current[gid]) {
-    directoryGlobalRef.current[gid] = { reservados: [], groupSize: 0 };
+if (data.type === 'pex' && Array.isArray(data.peers)) {
+// FASE-2: atualiza diretório global ao receber PEX enriquecido
+if (data.groupId && data.groupSize !== undefined) {
+  if (!directoryGlobalRef.current[data.groupId]) {
+    directoryGlobalRef.current[data.groupId] = { reservados: [], groupSize: 0 };
   }
-  // Formato V23: lista comprimida
-  if (Array.isArray(data.users)) {
-    directoryGlobalRef.current[gid].groupSize = Math.max(directoryGlobalRef.current[gid].groupSize || 0, data.users.length);
-    if (data.isReservado && data.suffix) {
-      const set = new Set(directoryGlobalRef.current[gid].reservados);
-      set.add(k10BuildPeerId(gid, data.suffix));
-      directoryGlobalRef.current[gid].reservados = [...set].slice(0, 10);
-    }
-  }
-  // Formato legado: groupSize + peerId
-  if (data.groupSize !== undefined) {
-    directoryGlobalRef.current[gid].groupSize = Math.max(directoryGlobalRef.current[gid].groupSize || 0, data.groupSize);
-  }
+  directoryGlobalRef.current[data.groupId].groupSize = data.groupSize;
   if (data.isReservado && data.peerId) {
-    const set = new Set(directoryGlobalRef.current[gid].reservados);
+    const set = new Set(directoryGlobalRef.current[data.groupId].reservados);
     set.add(data.peerId);
-    directoryGlobalRef.current[gid].reservados = [...set].slice(0, 10);
+    directoryGlobalRef.current[data.groupId].reservados = [...set].slice(0, 10); // PATCH-B: V6=10
   }
 }
-// Conecta a peers da lista (formato V23 ou legado)
 if (peerInstance.current) {
 const activeCount = Object.keys(peerInstance.current.connections).length;
 if (activeCount < maxConnections) {
-  // Formato V23: reconstrói peerIds a partir dos sufixos
-  if (gid && Array.isArray(data.users)) {
-    data.users.forEach(suffix => {
-      if (typeof suffix !== 'string' || suffix.length !== K10_SUFFIX_LEN) return;
-      const fullPeerId = k10BuildPeerId(gid, suffix);
-      if (fullPeerId !== peerId && !peerInstance.current.connections[fullPeerId] && !bannedPeersRef.current.has(fullPeerId)) {
-        setTimeout(() => connectToPeer(fullPeerId), 2000);
-      }
-    });
-  }
-  // Formato legado
-  if (Array.isArray(data.peers)) {
-    data.peers.forEach(newPId => {
-      if (newPId !== peerId && !peerInstance.current.connections[newPId] && !bannedPeersRef.current.has(newPId)) {
-        setTimeout(() => connectToPeer(newPId), 2000);
-      }
-    });
-  }
+data.peers.forEach(newPId => {
+if (newPId !== peerId && !peerInstance.current.connections[newPId] && !bannedPeersRef.current.has(newPId)) {
+setTimeout(() => connectToPeer(newPId), 2000);
+}
+});
 }
 }
 return;
@@ -6565,39 +6414,21 @@ const iv = setInterval(() => {
 // FIX N-7 V20: era connections (stale closure dentro de setInterval) → connectionsRef.current; deps [] evita recriar o interval a cada nova conexão
 const conns = connectionsRef.current;
 if (conns.length > 0) {
-// V23 S-10: PEX comprimido — envia {gid, users:[2chars], suffix} em vez de IDs completos
-// K10 é implícito (todos sabem), GID transmitido no campo gid, só sufixos na lista users
+const allKnown = Array.from(new Set([...conns.map(c => c.peer), ...Array.from(knownUsersRef.current)]));
+// FASE-2: PEX enriquecido com groupId, groupSize e isReservado para diretório global
 const myGroupId = myGroupIdRef.current;
-const myPeerIdNow = peerIdRef.current;
-const mySuffix = k10ExtractSuffix(myPeerIdNow);
 const myGroupSize = myGroupId && directoryGlobalRef.current[myGroupId]
   ? directoryGlobalRef.current[myGroupId].groupSize
   : conns.length + 1;
-
-// Monta lista comprimida: sufixos (2 chars) dos peers do mesmo grupo
-const groupPeers = conns
-  .filter(c => {
-    const cGid = k10ExtractGid(c.peer);
-    return cGid && cGid === myGroupId;
-  })
-  .map(c => k10ExtractSuffix(c.peer))
-  .filter(Boolean);
-
-// Inclui o próprio sufixo na lista
-if (mySuffix && !groupPeers.includes(mySuffix)) groupPeers.push(mySuffix);
-
 conns.forEach(conn => {
 if (conn.open) try {
   conn.send({
     type: 'pex',
-    gid: myGroupId || undefined,          // V23: GID em campo dedicado
-    suffix: mySuffix || undefined,         // V23: sufixo do remetente
-    users: groupPeers.sort(() => 0.5 - Math.random()).slice(0, isSuperNode ? 100 : 50), // V23: lista comprimida
+    peers: [...allKnown].sort(() => 0.5 - Math.random()).slice(0, isSuperNode ? 100 : 50),
+    groupId: myGroupId || undefined,
     groupSize: myGroupSize,
     isReservado: isSuperNodeRef.current,
-    // Mantém compatibilidade legada:
-    groupId: myGroupId || undefined,
-    peerId: myPeerIdNow
+    peerId: peerId
   });
 } catch(e) {}
 });
@@ -6654,13 +6485,10 @@ useEffect(() => {
     const myGroupId = myGroupIdRef.current;
     if (!myGroupId || connectionsRef.current.length === 0) return; // FIX O-4 V21: era connections.length (stale)
     const myGroupSize = directoryGlobalRef.current[myGroupId]?.groupSize ?? connectionsRef.current.length + 1; // FIX O-4 V21
-    const myPeerIdNow = peerIdRef.current;
     const msg = {
-      type: 'update-peer', msgId: 'up_'+myPeerIdNow+'_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),
-      peerId: myPeerIdNow,
-      gid: myGroupId,              // V23: campo gid explícito
-      suffix: k10ExtractSuffix(myPeerIdNow) || undefined, // V23: sufixo do peer
-      groupId: myGroupId,          // compatibilidade legada
+      type: 'update-peer', msgId: 'up_'+peerId+'_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),
+      peerId: peerId,
+      groupId: myGroupId,
       groupSize: myGroupSize,
       isReservado: isSuperNodeRef.current,
       ttl: 5
@@ -6843,35 +6671,24 @@ useEffect(() => {
 // // FASE-3: Loops de detecção de split e fusão (apenas SuperNodes)
 // ════════════════════════════════════════════════════════════════════
 useEffect(() => {
-  // V23 S-10: geração de novo GID no formato K10 (4 chars, 62-charset)
-  // Substitui o simpleHash legado 'G'+0000 que não era compatível com o novo sistema
-  const generateNewGid = (baseStr) => {
-    // Usa hash determinístico do baseStr para gerar 4 chars do charset K10
+  // V6 (P4): hash determinístico com salt incremental para resolver colisao.
+  // Se 'G' + hash ja existe no diretorio, incrementa salt ate achar slot livre.
+  const simpleHash = (str, salt) => {
+    const s = salt || 0;
+    const input = str + '#' + s;
     let h = 5381;
-    const input = String(baseStr);
     for (let i = 0; i < input.length; i++) h = ((h << 5) + h) ^ input.charCodeAt(i);
-    let abs = Math.abs(h);
-    let gid = '';
-    for (let i = 0; i < K10_GID_LEN; i++) {
-      gid = K10_CHARS[abs % K10_CHARS.length] + gid;
-      abs = Math.floor(abs / K10_CHARS.length);
-    }
-    // Evita colisão com GIDs existentes no diretório
-    let salt = 0;
-    let candidate = gid;
-    while (directoryGlobalRef.current[candidate] && salt < 100) {
-      salt++;
-      let h2 = h ^ salt;
-      let abs2 = Math.abs(h2);
-      candidate = '';
-      for (let i = 0; i < K10_GID_LEN; i++) {
-        candidate = K10_CHARS[abs2 % K10_CHARS.length] + candidate;
-        abs2 = Math.floor(abs2 / K10_CHARS.length);
-      }
-    }
-    return candidate;
+    const abs = Math.abs(h) % 5000;
+    return 'G' + String(abs).padStart(4, '0');
   };
-  const hashWithCollisionAvoidance = generateNewGid;
+  const hashWithCollisionAvoidance = (str) => {
+    for (let salt = 0; salt < 100; salt++) {
+      const id = simpleHash(str, salt);
+      if (!directoryGlobalRef.current[id]) return id;
+    }
+    // fallback: usa salt timestamp
+    return simpleHash(str, Date.now());
+  };
 
   // V6: broadcastToAll usa floodMessage (TTL+dedup) em vez de hop unico.
   // V4 FIX BUG#8: aborta se msgId já visto (idempotente em re-render).
