@@ -1698,6 +1698,10 @@ class K10BinaryProtocolClient {
   }
   getIdx(gid) { return this._gidToIdx.has(gid) ? this._gidToIdx.get(gid) : -1; }
   getGid(idx) { return this._idxToGid.get(idx) || null; }
+  getOrRegisterIdx(gid) {
+    const idx = this.getIdx(gid);
+    return idx >= 0 ? idx : this.registerGid(gid);
+  }
   // ── Dedup ────────────────────────────────────────────────────────────────────
   nextSeq(gidIdx) {
     const next = ((this._seqCounters.get(gidIdx) || 0) + 1) & K10B_SEQ_MASK_CLI;
@@ -1755,6 +1759,17 @@ class K10BinaryProtocolClient {
           type: 'position-update', gid,
           user: K10_POSITION_LIST[pkt.paramB] || null,
           _binary: true,
+        };
+      }
+      case K10B_TYPE_CLI.JOIN_UPDATE: {
+        const gid = this.getGid(pkt.paramA);
+        if (!gid) return null;
+        const newCount = pkt.paramB;
+        return {
+          type: 'join-update', gid,
+          user: newCount > 0 ? (K10_POSITION_LIST[newCount - 1] || null) : null,
+          newCount,
+          ttl: pkt.ttl, _seq: pkt.seq, _gidIdx: pkt.paramA, _binary: true,
         };
       }
       case K10B_TYPE_CLI.GID_PROMOTE: {
@@ -2698,8 +2713,14 @@ pendingTorrentRequests, setPendingTorrentRequests, handleTorrentDirectSeed,
 youtubeChatId, disconnectPeer,
 showWhiteboard, setShowWhiteboard,
 avatars,
-currentQuizQuestionRef
+currentQuizQuestionRef,
+connectionsRef: connectionsRefProp
 }) => {
+// FIX: usa connectionsRef recebido via prop (do App) para evitar stale closure no sendDirectMessage
+// Se não recebeu a prop (compatibilidade), cria um ref local sincronizado com connections
+const _localConnRef = useRef(connections);
+useEffect(() => { _localConnRef.current = connections; }, [connections]);
+const connectionsRef = connectionsRefProp || _localConnRef;
 const messagesEndRef = useRef(null);
 const messagesContainerRef = useRef(null);
 const [showSendSecretModal, setShowSendSecretModal] = useState(false);
@@ -5095,6 +5116,8 @@ const myGroupIdRef = useRef(localStorage.getItem('myGroupId') || null);
 const myPositionIdxRef = useRef(-1);
 // Diretório global: { [groupId]: { reservados: string[], groupSize: number } }
 const directoryGlobalRef = useRef({});
+// V26 binário: mapa de presença por grupo (1800 bits = 225 bytes)
+const groupPresenceBitsRef = useRef({});
 // FASE-3/Caso2: locks de operações em andamento { [groupId]: expiryTimestamp }
 const lockedGroupsRef = useRef({});
 // FASE-3/Caso2: flag local de operação em andamento
@@ -5253,6 +5276,48 @@ toDelete.forEach(k => s.delete(k));
 // Qualquer peer malicioso que envia TTL=9999 causaria relay indefinido sem este cap
 const capTtl = (raw, max = 15) => Math.min(Math.max(0, parseInt(raw) || 0), max);
 
+const ensureGroupPresenceBits = (gid) => {
+if (!gid) return null;
+if (!groupPresenceBitsRef.current[gid]) {
+  groupPresenceBitsRef.current[gid] = new Uint8Array(Math.ceil(K10_MAX_GROUP / 8));
+}
+return groupPresenceBitsRef.current[gid];
+};
+
+const fillGroupPresenceBits = (gid, count) => {
+const bits = ensureGroupPresenceBits(gid);
+if (!bits) return null;
+const safeCount = Math.min(Math.max(0, parseInt(count) || 0), K10_MAX_GROUP);
+bits.fill(0);
+for (let i = 0; i < safeCount; i++) bits[i >> 3] |= (1 << (i & 7));
+return bits;
+};
+
+const setGroupPresenceBit = (gid, index, online = true) => {
+const bits = ensureGroupPresenceBits(gid);
+if (!bits) return;
+if (typeof index !== 'number' || index < 0 || index >= K10_MAX_GROUP) return;
+const byte = index >> 3;
+const mask = 1 << (index & 7);
+if (online) bits[byte] |= mask;
+else bits[byte] &= (~mask) & 0xFF;
+};
+
+const sendBinaryGroupPacket = (type, gid, paramB, ttl = 5, exceptPeer = null) => {
+if (!gid) return false;
+const gidIdx = k10bin.getOrRegisterIdx(gid);
+if (gidIdx < 0) return false;
+const pkt = k10bin.encode(type, gidIdx, Math.min(Math.max(0, parseInt(paramB) || 0), K10_MAX_GROUP), ttl);
+if (!pkt) return false;
+const buf = pkt.buffer.slice(pkt.byteOffset, pkt.byteOffset + pkt.byteLength);
+let sent = false;
+connectionsRef.current.forEach(c => {
+  if (c.peer !== exceptPeer && c.open) {
+    try { c.send(buf); sent = true; } catch(e) {}
+  }
+});
+return sent;
+};
 
 const handleIncomingData = (data, pId) => {
 const maxConnections = isSuperNode ? 50 : 15;
@@ -5507,6 +5572,7 @@ if (data.type === 'peer-list') {
       directoryGlobalRef.current[newGid] = { reservados: [], groupSize: 0 };
     }
     directoryGlobalRef.current[newGid].groupSize = count;
+    fillGroupPresenceBits(newGid, count);
 
     if (peerInstance.current && count > 0) {
       const maxConns = isSuperNodeRef.current ? 50 : 15;
@@ -5567,6 +5633,7 @@ if (gid) {
     if (fromServer || safe > (directoryGlobalRef.current[gid].groupSize || 0)) {
       directoryGlobalRef.current[gid].groupSize = safe;
     }
+    fillGroupPresenceBits(gid, directoryGlobalRef.current[gid].groupSize || safe);
   }
   // Formato V23: lista comprimida (tamanho real da lista)
   if (Array.isArray(data.users)) {
@@ -5620,6 +5687,38 @@ return;
 }
 
 
+// ── V26: join-update — broadcast compacto de entrada/contagem de grupo ───────
+if (data.type === 'join-update') {
+  const newCount = typeof data.newCount === 'number'
+    ? Math.min(Math.max(0, data.newCount), K10_MAX_GROUP)
+    : -1;
+
+  if (data.gid && newCount >= 0) {
+    if (!directoryGlobalRef.current[data.gid]) {
+      directoryGlobalRef.current[data.gid] = { reservados: [], groupSize: 0 };
+    }
+    const cur = directoryGlobalRef.current[data.gid].groupSize || 0;
+    directoryGlobalRef.current[data.gid].groupSize = Math.max(cur, newCount);
+    fillGroupPresenceBits(data.gid, newCount);
+    addAudit(`[K10-V26] join-update binário: grupo ${data.gid} → ${newCount} usuários`, 'sys');
+
+    if (myGroupIdRef.current === data.gid && peerInstance.current && newCount > cur) {
+      const maxConns = isSuperNodeRef.current ? 50 : 15;
+      for (let i = cur; i < newCount; i++) {
+        const suffix = K10_POSITION_LIST[i];
+        if (!suffix) break;
+        const fullPeerId = k10BuildPeerId(data.gid, suffix);
+        if (fullPeerId === peerIdRef.current) continue;
+        const activeCount = Object.keys(peerInstance.current.connections).length;
+        if (activeCount < maxConns && !peerInstance.current.connections[fullPeerId] && !bannedPeersRef.current.has(fullPeerId)) {
+          setTimeout(() => connectToPeer(fullPeerId), Math.random() * 1500);
+        }
+      }
+    }
+  }
+  return;
+}
+
 // ── V25/V26: pex-update — broadcast compacto de saída de peer ────────────────
 // V26 binário: relay já foi feito no interceptor acima; só processa estado local
 // V25 JSON:    relay normal com TTL decrementado
@@ -5636,6 +5735,7 @@ if (data.type === 'pex-update') {
     // Atualiza groupSize apenas se for redução (nunca inflamos por pex-update)
     const cur = directoryGlobalRef.current[data.gid].groupSize || 0;
     directoryGlobalRef.current[data.gid].groupSize = cur > newCount ? newCount : cur;
+    fillGroupPresenceBits(data.gid, newCount);
     const tag = data._binary ? '[K10-V26] pex-update binário' : '[K10-V25] pex-update';
     addAudit(`${tag}: grupo ${data.gid} → ${newCount} usuários`, 'sys');
   }
@@ -5668,7 +5768,10 @@ if (data.type === 'position-update') {
   // Atualiza posição se sufixo informado
   if (data.user) {
     const newPosIdx = K10_POSITION_LIST.indexOf(data.user);
-    if (newPosIdx >= 0) myPositionIdxRef.current = newPosIdx;
+    if (newPosIdx >= 0) {
+      myPositionIdxRef.current = newPosIdx;
+      setGroupPresenceBit(data.gid, newPosIdx, true);
+    }
   }
   addAudit(`[Hydra] position-update recebido do servidor: novo GID = ${data.gid}`, 'sys');
   return;
@@ -6789,7 +6892,11 @@ conn.on('close', () => {
       directoryGlobalRef.current[myGidNow].groupSize = Math.max(0, mySize - 1);
       // Broadcast compacto: anuncia que a última posição "saiu"
       const newSize = directoryGlobalRef.current[myGidNow].groupSize;
+      fillGroupPresenceBits(myGidNow, newSize);
       const lastSuffix = K10_POSITION_LIST[mySize - 1]; // sufixo da posição que "saiu"
+      // V26-FIX: envia binário como otimização, mas NÃO suprime o JSON pex-update
+// que é necessário para peers que ainda não aprenderam este GID.
+sendBinaryGroupPacket(K10B_TYPE_CLI.PEX_UPDATE, myGidNow, newSize, 5, conn.peer);
       if (lastSuffix) {
         // FIX V25-BUG2: msgId DETERMINÍSTICO por (gid+sufixo+bucket 5s)
         // Sem isso, cada peer gera msgId único → deduplicação falha → groupSize decrementado N× em vez de 1×
@@ -6805,6 +6912,8 @@ conn.on('close', () => {
           if (c.peer !== conn.peer && c.open) try { c.send(pexUpd); } catch(e) {}
         });
         addAudit(`[K10-V25] P2P pex-update: grupo ${myGidNow} → ${newSize} usuários`, 'sys');
+      } else if (sentBinary) {
+        addAudit(`[K10-V26] P2P pex-update binário: grupo ${myGidNow} → ${newSize} usuários`, 'sys');
       }
     }
   }
@@ -6991,23 +7100,31 @@ const lastPositionSuffix = myGroupSize > 0 && myGroupSize <= K10_MAX_GROUP
   ? K10_POSITION_LIST[myGroupSize - 1]
   : undefined;
 
+if (myGroupId) fillGroupPresenceBits(myGroupId, myGroupSize);
+// V26-FIX: binário é otimização ADICIONAL — JSON PEX SEMPRE é enviado
+// pois carrega gidIdx/peer-list necessários para peers aprenderem o GID.
+// Suprimir o JSON quebra a propagação para peers recém-conectados (mensagens não chegam).
+if (myGroupId) sendBinaryGroupPacket(K10B_TYPE_CLI.JOIN_UPDATE, myGroupId, myGroupSize, 5, null);
+
 conns.forEach(conn => {
 if (conn.open) try {
-  conn.send({
-    type: 'pex',
-    // V25: campos compactos (receptor reconstrói lista via K10_POSITION_LIST)
-    gid: myGroupId || undefined,
-    user: lastPositionSuffix || undefined,  // V25: sufixo da última posição
-    count: myGroupSize,                      // V25: contagem total
-    isReservado: isSuperNodeRef.current,
-    // Compat mínima V24/V23 (scalars, custo negligenciável):
-    // FIX V26→V23: peer ID simples, sem sufixo K10
-    groupSize: myGroupSize,
-    groupId: myGroupId || undefined,
-    peerId: myPeerIdNow
-    // REMOVIDO: users:[N sufixos] — V25 usa K10_POSITION_LIST[0..count-1]
-    // Economia: ~83% menos bytes no PEX a cada 30s por conexão
-  });
+  if (true) {
+    conn.send({
+      type: 'pex',
+      // V25: campos compactos (receptor reconstrói lista via K10_POSITION_LIST)
+      gid: myGroupId || undefined,
+      user: lastPositionSuffix || undefined,  // V25: sufixo da última posição
+      count: myGroupSize,                      // V25: contagem total
+      isReservado: isSuperNodeRef.current,
+      // Compat mínima V24/V23 (scalars, custo negligenciável):
+      // FIX V26→V23: peer ID simples, sem sufixo K10
+      groupSize: myGroupSize,
+      groupId: myGroupId || undefined,
+      peerId: myPeerIdNow
+      // REMOVIDO: users:[N sufixos] — V25 usa K10_POSITION_LIST[0..count-1]
+      // Economia: ~83% menos bytes no PEX a cada 30s por conexão
+    });
+  }
 } catch(e) {}
 });
 }
@@ -8604,6 +8721,7 @@ showWhiteboard={showWhiteboard}
 setShowWhiteboard={setShowWhiteboard}
 avatars={avatars}
 currentQuizQuestionRef={currentQuizQuestionRef}
+connectionsRef={connectionsRef}
 />
 )}
 
