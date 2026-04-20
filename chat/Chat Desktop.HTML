@@ -1,5 +1,79 @@
-<!-- ═══ Chat K10 V26 — Auditoria Completa V26 (19/abr/2026) ═══
-     Correções aplicadas:
+<!-- ═══ Chat K10 V27 — Protocolo de Mitose e Fusão de Grupos (20/abr/2026) ═══
+     Correções anteriores (V26 e anteriores) mantidas integralmente.
+     NOVO V27 — PROTOCOLO HOMEOSTÁTICO DE GRUPOS (Mitose + Tutela + Fusão):
+     ══════════════════════════════════════════════════════════════════════
+     CONSTANTES DO PROTOCOLO:
+       K10_SPLIT_THRESHOLD   = 1800  — dispara mitose ao atingir (já existia como MAX)
+       K10_TRANSFER_SIZE     = 180   — 10% dos usuários mais recentes vão para o Filho
+       K10_TUTOR_TARGET      = 1700  — Filho considerado "adulto" (fim da Tutela)
+       K10_ALERT_LOW         = 1600  — alerta amarelo (começa a recusar novos entrantes)
+       K10_CRITICAL_LOW      = 1400  — alerta vermelho (irmão doa usuários ativamente)
+       K10_MERGE_THRESHOLD   = 1700  — fusão se Pai+Filho ≤ este valor
+       K10_MERGE_DEBOUNCE_MS = 300000 — 5min de janela estável antes de fundir
+       K10_COMPENSATE_DELTA  = 100   — usuários trocados por ciclo de compensação
+
+     REGRA 1 — MITOSE (Divisão do Grupo):
+       - Quando groupSize do Pai atinge K10_SPLIT_THRESHOLD (1800), o servidor
+         envia 'group-split' ao cliente com {parentGid, childGid, transferCount}.
+       - O cliente handler 'group-split' atualiza o directoryGlobalRef:
+         Pai: groupSize → 1620, Filho: groupSize → 181 (transferCount+1).
+       - PEER ID do usuário NUNCA é alterado. Apenas o myGroupIdRef muda se
+         o usuário for um dos 180 transferidos.
+       - O Filho nasce com massa crítica (181 usuários) — nunca inicia vazio.
+
+     REGRA 2 — FASE DE TUTELA (Roteamento ponderado ao Filho):
+       - Enquanto childGroupSize < K10_TUTOR_TARGET (1700), o servidor prioriza
+         novos entrantes para o Filho via roteamento ponderado (ver tabela abaixo).
+       - Cliente recebe 'group-tutor-status' com {childGid, childSize} e armazena
+         em groupTutorStateRef para exibir badge "⚕️ Em Tutela".
+       - Tabela de peso de roteamento (usada pelo servidor):
+           < 500   → 95% dos novos vão ao Filho
+           500–999 → 80%
+           1000–1499 → 60%
+           1500–1699 → 30%
+           ≥ 1700  → 0% (Filho adulto, fase terminada)
+
+     REGRA 3 — FASE ADULTA + COMPENSAÇÃO MÚTUA (Irmãos Simbióticos):
+       - Quando ambos ≥ K10_TUTOR_TARGET: tornam-se irmãos simbióticos.
+       - Se diferença > K10_COMPENSATE_DELTA E um deles < K10_CRITICAL_LOW (1400):
+           O irmão mais cheio emite 'group-compensate' → move delta usuários.
+       - Se um deles entra em K10_ALERT_LOW (1600): para de aceitar novos e avisa
+         o irmão via 'group-alert' para iniciar compensação preventiva.
+       - Invariante: após compensação, ambos ficam com ≈ (total/2) usuários.
+
+     REGRA 4 — FUSÃO (Entropia Reversa):
+       - Critério: parentSize + childSize ≤ K10_MERGE_THRESHOLD (1700)
+       - Janela: esta soma deve permanecer ≤ limiar por K10_MERGE_DEBOUNCE_MS (5min)
+       - O servidor envia 'group-merge' com {survivorGid, dissolvedGid}.
+       - Handler cliente 'group-merge':
+           1. Move todos os peers do dissolvedGid para survivorGid no diretório local.
+           2. Se myGroupIdRef === dissolvedGid, atualiza para survivorGid.
+           3. Peers do grupo dissolvido recebem 'reroute' e reconectam.
+           4. PEER ID permanece intocado — só o GID muda.
+       - Resultado: rede não acumula "grupos fantasmas" com poucos usuários.
+
+     REGRA 5 — ORFANATO (Resiliência a falha de servidor):
+       - Se servidor do Filho cair, o Pai detecta via timeout de heartbeat (30s).
+       - Pai emite 'group-orphan-rescue' → absorve os usuários órfãos.
+       - groupPresenceBitsRef é atualizado para refletir a nova topologia.
+       - Sem perda de Peer ID dos usuários reabsorvidos.
+
+     NOVOS HANDLERS DE MENSAGEM:
+       'group-split'          — inicia mitose (servidor → cliente)
+       'group-merge'          — inicia fusão   (servidor → cliente)
+       'group-tutor-status'   — atualiza status de tutela
+       'group-alert'          — alerta de grupo em nível crítico/alarme
+       'group-compensate'     — transferência de usuários entre irmãos
+       'group-orphan-rescue'  — absorção de órfãos após queda do Filho
+
+     GARANTIAS LÓGICAS:
+       ✅ Peer ID NUNCA é alterado em nenhum dos handlers acima.
+       ✅ Apenas myGroupIdRef e directoryGlobalRef são modificados.
+       ✅ Deduplicação por msgId em todos os handlers para evitar loops.
+       ✅ Janela de debounce (5min) evita fusão/divisão frenética.
+       ✅ Fusão só ocorre se soma ≤ 1700 (grupo resultante tem folga de 100).
+     ══════════════════════════════════════════════════════════════════════
+     Correções anteriores (V26 e anteriores):
      C-1..4  File/Audio/Voice/Video: stale connections → connectionsRef.current
      C-5     getInputStatus: cooldown verificado primeiro (modo geral)
      C-6     stopTorrent: const t renomeado para torrent (shadowing da fn t())
@@ -43,26 +117,12 @@
              - FIX-AUDIT-CLI-TITLE: título da página corrigido V23→V25
              - FIX-AUDIT-CLI-NOSCRIPT: versão no noscript corrigida V7→V25
              - FIX-AUDIT-CLI3a..f 🔴: capTtl() aplicado em TODOS os relay de mídia
-               radio-youtube-start, radio-youtube-stop, radio-world-start,
-               radio-world-stop, radio-start/chunk/stream, youtube-chat-start
-               Previne amplificação de TTL por peer malicioso injetando ttl:99999
-             - FIX-AUDIT-CLI-BLOB 🟠: URL.revokeObjectURL() chamado ao criar nova
-               Blob URL, ao fim natural da reprodução e no stopRadio()
-               Previne memory leak progressivo em sessões longas com rádio
-             - FIX-AUDIT-CLI-LOG 🟠: console.log removidos de StreamRenderer,
-               radio-world-start/stop handlers e handleOnline
-               Previne exposição de URLs privadas e metadados de rede no DevTools
+             - FIX-AUDIT-CLI-BLOB 🟠: URL.revokeObjectURL() no revokeObjectURL
+             - FIX-AUDIT-CLI-LOG 🟠: console.log removidos de handlers sensíveis
              - FIX-AUDIT-CLI1 🔴: position-update só aceito do servidor central
-               Peer P2P malicioso não consegue mais trocar peerId da vítima
-               Implementado via centralServerIdRef (evita stale closure)
              - FIX-AUDIT-CLI2 🔴: 'style' removido de ALLOWED_ATTR no DOMPurify
-               Previne CSS injection (position:fixed, background-image tracker, etc.)
-               Adicionado FORCE_BODY:true para segurança extra
-             - FIX-AUDIT-CLI3 🔴: capTtl() — helper que clamp TTL [0..max] em todos os relays
-               Previne relay amplificado por TTL injetado por peer malicioso
+             - FIX-AUDIT-CLI3 🔴: capTtl() — clamp TTL em todos os relays
              - FIX-AUDIT-CLI4 🟠: pex handler não infla groupSize via peers P2P
-               groupSize só é atualizado para cima por mensagens do servidor central
-               Peers P2P com dados stale não corrompem mais a contagem local
 ═══ -->
 <!DOCTYPE html>
 <html lang="en">
@@ -95,7 +155,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V25</title>
+<title>Chat K10 — V27</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -698,7 +758,7 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 <body>
 <noscript>
   <div style="padding:40px;font-family:system-ui,-apple-system,sans-serif;text-align:center;max-width:560px;margin:60px auto;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);">
-    <h1 style="color:#1e40af;margin-top:0;">Chat K10 V25</h1>
+    <h1 style="color:#1e40af;margin-top:0;">Chat K10 V27</h1>
     <p style="color:#1e293b;font-size:16px;line-height:1.6;">
       <strong>JavaScript is required.</strong><br>
       This peer-to-peer encrypted chat needs JavaScript to establish secure connections between browsers.
@@ -1631,6 +1691,21 @@ const K10_POSITION_LIST = (() => {
   }
   return list; // ['AA','AB','AC',...,'dB'] — exatamente 1800 entradas
 })();
+
+// ══════════════════════════════════════════════════════════════════════════════
+// V27: PROTOCOLO HOMEOSTÁTICO DE GRUPOS — Constantes
+// Estas constantes governam Mitose, Tutela, Compensação e Fusão de grupos.
+// O Peer ID do usuário NUNCA é alterado por nenhuma dessas operações.
+// Apenas myGroupIdRef (GID) e directoryGlobalRef são modificados.
+// ══════════════════════════════════════════════════════════════════════════════
+const K10_SPLIT_THRESHOLD   = 1800;  // dispara mitose (= K10_MAX_GROUP)
+const K10_TRANSFER_SIZE     = 180;   // 10% dos usuários mais recentes → Filho
+const K10_TUTOR_TARGET      = 1700;  // Filho "adulto" — fim da fase de tutela
+const K10_ALERT_LOW         = 1600;  // alerta amarelo — grupo próximo do mínimo seguro
+const K10_CRITICAL_LOW      = 1400;  // alerta vermelho — irmão doa usuários ativamente
+const K10_MERGE_THRESHOLD   = 1700;  // fusão se Pai+Filho ≤ este valor
+const K10_MERGE_DEBOUNCE_MS = 300000; // 5 min estável antes de fundir (evita fusões frenéticas)
+const K10_COMPENSATE_DELTA  = 100;   // usuários transferidos por ciclo de compensação
 
 // Verifica se um peerId tem formato K10 válido
 const isK10Id = (id) => typeof id === 'string' && id.length === K10_TOTAL_LEN && id.startsWith(K10_PREFIX);
@@ -5146,6 +5221,69 @@ useEffect(() => {
 // P4: salt de colisao para retry de groupId
 const groupSaltRef = useRef(0);
 
+// ══════════════════════════════════════════════════════════════════════════════
+// V27: REFS HOMEOSTÁTICOS — Mitose, Tutela, Compensação, Fusão
+// INVARIANTE: peerIdRef.current NUNCA é modificado por estas operações.
+// Apenas myGroupIdRef e directoryGlobalRef são afetados.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// Estado de tutela do grupo filho { childGid, childSize, parentGid } | null
+const groupTutorStateRef = useRef(null);
+
+// Debounce de fusão: { gid1, gid2, since } — guarda o instante em que
+// a soma Pai+Filho desceu abaixo do limiar. Fusão só ocorre após K10_MERGE_DEBOUNCE_MS.
+const groupMergeDebounceRef = useRef(null);
+
+// Timer do debounce de fusão (clearTimeout antes de qualquer nova avaliação)
+const groupMergeTimerRef = useRef(null);
+
+// Registro de operações de grupo já processadas (deduplicação por msgId)
+const groupOpSeenRef = useRef(new Set());
+
+// ── Função auxiliar: verifica se um msgId de operação de grupo é duplicado ──
+const isGroupOpDuplicate = (msgId) => {
+  if (!msgId) return false;
+  if (groupOpSeenRef.current.has(msgId)) return true;
+  groupOpSeenRef.current.add(msgId);
+  // Limita o set a 256 entradas para evitar vazamento de memória
+  if (groupOpSeenRef.current.size > 256) {
+    const iter = groupOpSeenRef.current.values();
+    groupOpSeenRef.current.delete(iter.next().value);
+  }
+  return false;
+};
+
+// ── Função auxiliar: retorna o tamanho atual de um grupo no diretório ──
+const getGroupSize = (gid) => {
+  if (!gid || !directoryGlobalRef.current[gid]) return 0;
+  return directoryGlobalRef.current[gid].groupSize || 0;
+};
+
+// ── Função auxiliar: define o tamanho de um grupo no diretório (clamped) ──
+const setGroupSize = (gid, size) => {
+  const safe = Math.max(0, Math.min(K10_MAX_GROUP, size));
+  if (!directoryGlobalRef.current[gid]) {
+    directoryGlobalRef.current[gid] = { reservados: [], groupSize: 0 };
+  }
+  directoryGlobalRef.current[gid].groupSize = safe;
+  fillGroupPresenceBits(gid, safe);
+  return safe;
+};
+
+// ── Função auxiliar: emite mensagem de sistema no chat ──
+const addGroupSystemMsg = (text) => {
+  setMessages(prev => [...prev, {
+    type: 'text',
+    sender: '__system__',
+    senderName: '⚗️ K10 Grupo',
+    time: new Date().toLocaleTimeString(),
+    timestamp: Date.now(),
+    recipient: 'general',
+    text,
+    direct: false,
+  }].slice(-500));
+};
+
 // ─── HYDRA V6 PATCH-3: capacidade do device + Visibility API ─────────────────
 // iOS, Android low-end e tabs com pouca RAM nunca devem virar reservados:
 // drenam bateria, perdem heartbeats em background e desestabilizam consenso.
@@ -5816,6 +5954,397 @@ if (data.type === 'pex-family') {
   }
   return;
 }
+
+// ══════════════════════════════════════════════════════════════════════════════
+// V27: HANDLERS HOMEOSTÁTICOS DE GRUPO
+// INVARIANTE ABSOLUTA: peerIdRef.current NUNCA é alterado aqui.
+//   Apenas myGroupIdRef.current e directoryGlobalRef.current são modificados.
+// Todos os handlers fazem deduplicação por msgId antes de processar.
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ── Handler 1: group-split — Mitose (servidor → cliente) ─────────────────────
+// Payload: { parentGid, childGid, parentSize, childSize, msgId }
+// Semântica: o grupo parentGid se dividiu. childGid nasce com childSize usuários.
+//   Se myGroupIdRef === parentGid E o servidor enviou transferência, muda para childGid.
+//   Se transferência não se aplica a este peer, mantém parentGid.
+//   Em ambos os casos: peerIdRef.current permanece intocado.
+if (data.type === 'group-split') {
+  if (isGroupOpDuplicate(data.msgId)) return;
+  // Aceita apenas do servidor central — peers P2P não podem iniciar mitose
+  if (!isCentralServer(pId) && pId !== centralServerIdRef.current) return;
+  const { parentGid, childGid, parentSize, childSize, iAmTransferred } = data;
+  if (!parentGid || !childGid) return;
+  const safeParentSize = Math.max(0, Math.min(K10_MAX_GROUP, parseInt(parentSize) || 0));
+  const safeChildSize  = Math.max(0, Math.min(K10_MAX_GROUP, parseInt(childSize)  || 0));
+  // Atualiza diretório: Pai com novo tamanho (≈1620), Filho nasce (≈181)
+  setGroupSize(parentGid, safeParentSize);
+  setGroupSize(childGid,  safeChildSize);
+  // Registra o Filho no registry binário K10 para receber eventos futuros
+  k10bin.registerGid(childGid);
+  // Se este peer foi selecionado para transferência → muda apenas o GID
+  // Peer ID permanece INTOCADO
+  if (iAmTransferred === true) {
+    const oldGid = myGroupIdRef.current;
+    myGroupIdRef.current = childGid;
+    localStorage.setItem('myGroupId', childGid);
+    addAudit(
+      `[K10-V27 MITOSE] Transferido do grupo ${oldGid} → ${childGid}. ` +
+      `Pai: ${safeParentSize} usuários | Filho: ${safeChildSize} usuários. ` +
+      `Peer ID mantido: ${peerIdRef.current}`,
+      'success'
+    );
+    addGroupSystemMsg(
+      `⚗️ Seu grupo se dividiu! Você foi movido para o novo grupo ${childGid} ` +
+      `(${safeChildSize} usuários). Seu ID pessoal não mudou.`
+    );
+  } else {
+    // Permanece no Pai — apenas registra o evento
+    addAudit(
+      `[K10-V27 MITOSE] Grupo ${parentGid} se dividiu → Filho: ${childGid}. ` +
+      `Pai: ${safeParentSize} | Filho: ${safeChildSize}. Permaneci no Pai.`,
+      'success'
+    );
+    addGroupSystemMsg(
+      `⚗️ Grupo dividido! Novo grupo ${childGid} criado com ${safeChildSize} usuários. ` +
+      `Você permanece em ${parentGid}.`
+    );
+  }
+  return;
+}
+
+// ── Handler 2: group-tutor-status — Atualiza estado de tutela ────────────────
+// Payload: { childGid, childSize, parentGid, active, msgId }
+// Semântica: informa se o Filho ainda está em fase de tutela.
+//   'active' = true  → Filho ainda não atingiu K10_TUTOR_TARGET.
+//   'active' = false → Filho é adulto; irmandade simbiótica iniciada.
+if (data.type === 'group-tutor-status') {
+  if (isGroupOpDuplicate(data.msgId)) return;
+  if (!isCentralServer(pId) && pId !== centralServerIdRef.current) return;
+  const { childGid, childSize, parentGid, active } = data;
+  if (!childGid) return;
+  const safeSize = Math.max(0, Math.min(K10_MAX_GROUP, parseInt(childSize) || 0));
+  // Atualiza diretório do Filho com tamanho mais recente
+  setGroupSize(childGid, safeSize);
+  // Atualiza ref de tutela (usado para exibir badge de status)
+  if (active) {
+    groupTutorStateRef.current = { childGid, parentGid, childSize: safeSize };
+    // Calcula a faixa de roteamento ponderado para o log
+    let routingPct = 0;
+    if (safeSize < 500)        routingPct = 95;
+    else if (safeSize < 1000)  routingPct = 80;
+    else if (safeSize < 1500)  routingPct = 60;
+    else if (safeSize < 1700)  routingPct = 30;
+    addAudit(
+      `[K10-V27 TUTELA] Filho ${childGid}: ${safeSize}/${K10_TUTOR_TARGET} usuários. ` +
+      `Roteamento: ${routingPct}% de novos entrantes → Filho.`,
+      'info'
+    );
+  } else {
+    // Tutela encerrada — ambos os grupos são adultos
+    groupTutorStateRef.current = null;
+    addAudit(
+      `[K10-V27 TUTELA] Grupo ${childGid} atingiu ${K10_TUTOR_TARGET} usuários. ` +
+      `Fase adulta iniciada. Irmandade simbiótica com ${parentGid}.`,
+      'success'
+    );
+    addGroupSystemMsg(`✅ Grupo ${childGid} atingiu autonomia. Irmandade simbiótica ativada.`);
+  }
+  return;
+}
+
+// ── Handler 3: group-alert — Alerta de nível crítico/alarme ─────────────────
+// Payload: { gid, size, level, siblingGid, msgId }
+// level: 'yellow' (< K10_ALERT_LOW) | 'red' (< K10_CRITICAL_LOW) | 'ok'
+// Semântica: notifica peers do grupo sobre nível de ocupação para que
+//   a UI possa exibir indicador de saúde e o servidor ajuste roteamento.
+if (data.type === 'group-alert') {
+  if (isGroupOpDuplicate(data.msgId)) return;
+  if (!isCentralServer(pId) && pId !== centralServerIdRef.current) return;
+  const { gid, size, level, siblingGid } = data;
+  if (!gid) return;
+  const safeSize = Math.max(0, Math.min(K10_MAX_GROUP, parseInt(size) || 0));
+  setGroupSize(gid, safeSize);
+  if (level === 'red') {
+    addAudit(
+      `[K10-V27 ALERTA 🔴] Grupo ${gid}: ${safeSize} usuários (< ${K10_CRITICAL_LOW}). ` +
+      `Irmão ${siblingGid || '?'} iniciará compensação ativa.`,
+      'error'
+    );
+    if (myGroupIdRef.current === gid) {
+      addGroupSystemMsg(
+        `🔴 Grupo crítico: ${safeSize} usuários. Compensação automática em andamento.`
+      );
+    }
+  } else if (level === 'yellow') {
+    addAudit(
+      `[K10-V27 ALERTA 🟡] Grupo ${gid}: ${safeSize} usuários (< ${K10_ALERT_LOW}). ` +
+      `Novos entrantes redirecionados. Monitorando irmão ${siblingGid || '?'}.`,
+      'warn'
+    );
+  } else {
+    // level === 'ok': grupo voltou ao normal
+    addAudit(
+      `[K10-V27 ALERTA ✅] Grupo ${gid}: ${safeSize} usuários. Nível normalizado.`,
+      'success'
+    );
+  }
+  return;
+}
+
+// ── Handler 4: group-compensate — Transferência de usuários entre irmãos ─────
+// Payload: { donorGid, receiverGid, donorNewSize, receiverNewSize, msgId }
+// Semântica: o grupo donorGid doou K10_COMPENSATE_DELTA usuários ao receiverGid.
+//   Se myGroupIdRef === donorGid E iAmTransferred === true → migra para receiverGid.
+//   Caso contrário: atualiza apenas os tamanhos no diretório.
+//   Peer ID permanece INTOCADO em qualquer caso.
+if (data.type === 'group-compensate') {
+  if (isGroupOpDuplicate(data.msgId)) return;
+  if (!isCentralServer(pId) && pId !== centralServerIdRef.current) return;
+  const { donorGid, receiverGid, donorNewSize, receiverNewSize, iAmTransferred } = data;
+  if (!donorGid || !receiverGid) return;
+  const safeDonorSize    = Math.max(0, Math.min(K10_MAX_GROUP, parseInt(donorNewSize)    || 0));
+  const safeReceiverSize = Math.max(0, Math.min(K10_MAX_GROUP, parseInt(receiverNewSize) || 0));
+  // Atualiza tamanhos no diretório local
+  setGroupSize(donorGid,    safeDonorSize);
+  setGroupSize(receiverGid, safeReceiverSize);
+  // Garante que o GID do receptor está registrado no registry binário
+  k10bin.registerGid(receiverGid);
+  if (iAmTransferred === true) {
+    // Este peer é um dos transferidos do doador para o receptor
+    // INVARIANTE: peerIdRef.current permanece intocado
+    const oldGid = myGroupIdRef.current;
+    myGroupIdRef.current = receiverGid;
+    localStorage.setItem('myGroupId', receiverGid);
+    addAudit(
+      `[K10-V27 COMPENSAÇÃO] Movido de ${oldGid} (${safeDonorSize}) → ` +
+      `${receiverGid} (${safeReceiverSize}). Peer ID mantido: ${peerIdRef.current}`,
+      'success'
+    );
+    addGroupSystemMsg(
+      `⚖️ Compensação de grupo: você foi movido para ${receiverGid} ` +
+      `(${safeReceiverSize} usuários). Seu ID pessoal não mudou.`
+    );
+  } else {
+    addAudit(
+      `[K10-V27 COMPENSAÇÃO] Doador ${donorGid} → ${safeDonorSize} | ` +
+      `Receptor ${receiverGid} → ${safeReceiverSize}. Não transferido.`,
+      'info'
+    );
+  }
+  return;
+}
+
+// ── Handler 5: group-merge — Fusão de grupos (Entropia Reversa) ──────────────
+// Payload: { survivorGid, dissolvedGid, survivorNewSize, msgId }
+// Critério de fusão: parentSize + childSize ≤ K10_MERGE_THRESHOLD (1700)
+//   durante pelo menos K10_MERGE_DEBOUNCE_MS (5 min) — sem oscilações.
+// Semântica: dissolvedGid é encerrado. Seus usuários migram para survivorGid.
+//   Se myGroupIdRef === dissolvedGid → atualiza para survivorGid.
+//   Diretório local: remove entrada do dissolvedGid, atualiza survivorGid.
+//   Peer ID permanece INTOCADO em qualquer caso.
+if (data.type === 'group-merge') {
+  if (isGroupOpDuplicate(data.msgId)) return;
+  if (!isCentralServer(pId) && pId !== centralServerIdRef.current) return;
+  const { survivorGid, dissolvedGid, survivorNewSize } = data;
+  if (!survivorGid || !dissolvedGid) return;
+  const safeSurvivorSize = Math.max(0, Math.min(K10_MAX_GROUP, parseInt(survivorNewSize) || 0));
+  // 1. Garante que survivorGid existe no diretório
+  if (!directoryGlobalRef.current[survivorGid]) {
+    directoryGlobalRef.current[survivorGid] = { reservados: [], groupSize: 0 };
+  }
+  // 2. Mescla reservados do grupo dissolvido no sobrevivente
+  if (directoryGlobalRef.current[dissolvedGid]) {
+    const dissolved = directoryGlobalRef.current[dissolvedGid];
+    const survivor  = directoryGlobalRef.current[survivorGid];
+    const mergedReservados = new Set([...survivor.reservados, ...dissolved.reservados]);
+    survivor.reservados = [...mergedReservados].slice(0, 10);
+    // Remove entrada do grupo dissolvido
+    delete directoryGlobalRef.current[dissolvedGid];
+  }
+  // 3. Define tamanho do sobrevivente
+  setGroupSize(survivorGid, safeSurvivorSize);
+  // 4. Cancela qualquer debounce de fusão pendente (já executamos)
+  if (groupMergeTimerRef.current) {
+    clearTimeout(groupMergeTimerRef.current);
+    groupMergeTimerRef.current = null;
+  }
+  groupMergeDebounceRef.current = null;
+  // 5. Se este peer pertencia ao grupo dissolvido → migra para o sobrevivente
+  //    INVARIANTE: peerIdRef.current permanece intocado
+  if (myGroupIdRef.current === dissolvedGid) {
+    myGroupIdRef.current = survivorGid;
+    localStorage.setItem('myGroupId', survivorGid);
+    // Conecta aos peers do grupo sobrevivente que ainda não conhecemos
+    if (peerInstance.current && safeSurvivorSize > 0) {
+      const maxConns = isSuperNodeRef.current ? 50 : 15;
+      for (let i = 0; i < safeSurvivorSize; i++) {
+        const suffix = K10_POSITION_LIST[i];
+        if (!suffix) break;
+        const fullPeerId = k10BuildPeerId(survivorGid, suffix);
+        if (fullPeerId === peerIdRef.current) continue;
+        const activeCount = Object.keys(peerInstance.current.connections).length;
+        if (activeCount < maxConns
+            && !peerInstance.current.connections[fullPeerId]
+            && !bannedPeersRef.current.has(fullPeerId)) {
+          setTimeout(() => connectToPeer(fullPeerId), Math.random() * 3000);
+        }
+      }
+    }
+    addAudit(
+      `[K10-V27 FUSÃO] Grupo ${dissolvedGid} dissolvido → migrado para ${survivorGid} ` +
+      `(${safeSurvivorSize} usuários). Peer ID mantido: ${peerIdRef.current}`,
+      'success'
+    );
+    addGroupSystemMsg(
+      `🔀 Fusão de grupos! Grupo ${dissolvedGid} foi integrado a ${survivorGid} ` +
+      `(${safeSurvivorSize} usuários). Seu ID pessoal não mudou.`
+    );
+  } else if (myGroupIdRef.current === survivorGid) {
+    addAudit(
+      `[K10-V27 FUSÃO] Grupo ${dissolvedGid} absorvido pelo meu grupo ${survivorGid} ` +
+      `→ ${safeSurvivorSize} usuários. Permaneci no sobrevivente.`,
+      'success'
+    );
+    addGroupSystemMsg(
+      `🔀 Grupo ${dissolvedGid} fundido aqui. Agora somos ${safeSurvivorSize} usuários.`
+    );
+  } else {
+    // Peer não pertence a nenhum dos grupos — apenas atualiza diretório
+    addAudit(
+      `[K10-V27 FUSÃO] ${dissolvedGid} → ${survivorGid} (${safeSurvivorSize}). Não afetado.`,
+      'info'
+    );
+  }
+  return;
+}
+
+// ── Handler 6: group-orphan-rescue — Resgate de órfãos após queda ────────────
+// Payload: { rescuerGid, orphanGid, rescuerNewSize, msgId }
+// Semântica: o servidor do grupo orphanGid caiu. O grupo rescuerGid absorve
+//   os usuários órfãos. Se myGroupIdRef === orphanGid → migra para rescuerGid.
+//   Peer ID permanece INTOCADO.
+if (data.type === 'group-orphan-rescue') {
+  if (isGroupOpDuplicate(data.msgId)) return;
+  if (!isCentralServer(pId) && pId !== centralServerIdRef.current) return;
+  const { rescuerGid, orphanGid, rescuerNewSize } = data;
+  if (!rescuerGid || !orphanGid) return;
+  const safeRescuerSize = Math.max(0, Math.min(K10_MAX_GROUP, parseInt(rescuerNewSize) || 0));
+  // Remove o grupo órfão do diretório
+  delete directoryGlobalRef.current[orphanGid];
+  // Atualiza o grupo resgatador
+  setGroupSize(rescuerGid, safeRescuerSize);
+  k10bin.registerGid(rescuerGid);
+  // Se este peer era do grupo órfão → migra para o resgatador
+  // Peer ID permanece INTOCADO
+  if (myGroupIdRef.current === orphanGid) {
+    myGroupIdRef.current = rescuerGid;
+    localStorage.setItem('myGroupId', rescuerGid);
+    // Reconecta aos peers do resgatador
+    if (peerInstance.current && safeRescuerSize > 0) {
+      const maxConns = isSuperNodeRef.current ? 50 : 15;
+      for (let i = 0; i < safeRescuerSize; i++) {
+        const suffix = K10_POSITION_LIST[i];
+        if (!suffix) break;
+        const fullPeerId = k10BuildPeerId(rescuerGid, suffix);
+        if (fullPeerId === peerIdRef.current) continue;
+        const activeCount = Object.keys(peerInstance.current.connections).length;
+        if (activeCount < maxConns
+            && !peerInstance.current.connections[fullPeerId]
+            && !bannedPeersRef.current.has(fullPeerId)) {
+          setTimeout(() => connectToPeer(fullPeerId), Math.random() * 2000);
+        }
+      }
+    }
+    addAudit(
+      `[K10-V27 ORFANATO] Servidor do grupo ${orphanGid} caiu. ` +
+      `Reabsorvido por ${rescuerGid} (${safeRescuerSize} usuários). ` +
+      `Peer ID mantido: ${peerIdRef.current}`,
+      'warn'
+    );
+    addGroupSystemMsg(
+      `🆘 Servidor do seu grupo caiu. Você foi resgatado e movido para ${rescuerGid} ` +
+      `(${safeRescuerSize} usuários). Seu ID pessoal não mudou.`
+    );
+  } else {
+    addAudit(
+      `[K10-V27 ORFANATO] Grupo ${orphanGid} resgatado por ${rescuerGid} ` +
+      `(${safeRescuerSize}). Não afetado.`,
+      'info'
+    );
+  }
+  return;
+}
+
+// ── V27: Lógica de Debounce de Fusão (avaliação periódica P2P) ───────────────
+// Esta lógica é executada localmente como monitor de saúde, mas a fusão real
+// só ocorre quando o servidor envia 'group-merge'. Esta função avalia se as
+// condições de fusão estão presentes e registra no audit para o servidor agir.
+// NÃO executa fusão diretamente — apenas monitora e reporta.
+if (data.type === 'group-size-report') {
+  // Mensagem enviada pelo servidor para sincronizar tamanhos de grupos irmãos
+  if (!isCentralServer(pId) && pId !== centralServerIdRef.current) return;
+  const { groups } = data; // Array de { gid, size }
+  if (!Array.isArray(groups)) return;
+  groups.forEach(({ gid, size }) => {
+    if (!gid || typeof size !== 'number') return;
+    setGroupSize(gid, size);
+  });
+  // Avalia condição de fusão para pares de grupos
+  // Encontra pares (Pai, Filho) onde soma ≤ K10_MERGE_THRESHOLD
+  const gids = groups.map(g => g.gid);
+  for (let i = 0; i < gids.length; i++) {
+    for (let j = i + 1; j < gids.length; j++) {
+      const gA = gids[i], gB = gids[j];
+      const sumAB = getGroupSize(gA) + getGroupSize(gB);
+      if (sumAB <= K10_MERGE_THRESHOLD) {
+        const debounce = groupMergeDebounceRef.current;
+        const now = Date.now();
+        if (!debounce || debounce.gid1 !== gA || debounce.gid2 !== gB) {
+          // Nova condição de fusão — inicia debounce
+          if (groupMergeTimerRef.current) clearTimeout(groupMergeTimerRef.current);
+          groupMergeDebounceRef.current = { gid1: gA, gid2: gB, since: now, sum: sumAB };
+          groupMergeTimerRef.current = setTimeout(() => {
+            // Após K10_MERGE_DEBOUNCE_MS: condição estável → audita para o servidor
+            // O servidor tomará a decisão final e enviará 'group-merge'
+            const cur = groupMergeDebounceRef.current;
+            if (cur && cur.gid1 === gA && cur.gid2 === gB) {
+              addAudit(
+                `[K10-V27 FUSÃO-DEBOUNCE] Condição de fusão estável por 5min: ` +
+                `${gA}(${getGroupSize(gA)}) + ${gB}(${getGroupSize(gB)}) = ${getGroupSize(gA)+getGroupSize(gB)} ≤ ${K10_MERGE_THRESHOLD}. ` +
+                `Aguardando confirmação do servidor para executar fusão.`,
+                'warn'
+              );
+            }
+            groupMergeDebounceRef.current = null;
+            groupMergeTimerRef.current = null;
+          }, K10_MERGE_DEBOUNCE_MS);
+          addAudit(
+            `[K10-V27 FUSÃO] Condição detectada: ${gA}+${gB}=${sumAB} ≤ ${K10_MERGE_THRESHOLD}. ` +
+            `Aguardando ${K10_MERGE_DEBOUNCE_MS/60000}min sem oscilação.`,
+            'info'
+          );
+        }
+        // else: mesma condição, debounce já em andamento — não reinicia
+      } else {
+        // Condição de fusão não atendida — cancela debounce se existia
+        const debounce = groupMergeDebounceRef.current;
+        if (debounce && debounce.gid1 === gA && debounce.gid2 === gB) {
+          if (groupMergeTimerRef.current) clearTimeout(groupMergeTimerRef.current);
+          groupMergeDebounceRef.current = null;
+          groupMergeTimerRef.current = null;
+          addAudit(
+            `[K10-V27 FUSÃO] Condição cancelada: ${gA}+${gB}=${sumAB} > ${K10_MERGE_THRESHOLD}. Debounce resetado.`,
+            'info'
+          );
+        }
+      }
+    }
+  }
+  return;
+}
+// ══════════════════════════════════════════════════════════════════════════════
+// FIM DOS HANDLERS V27 HOMEOSTÁTICOS
+// ══════════════════════════════════════════════════════════════════════════════
 
 // ── V24: gid-promote — troca de GID por dominância dinâmica ─────────────────
 if (data.type === 'gid-promote') {
@@ -6999,6 +7528,9 @@ clearInterval(ghostGcIv);
 window.removeEventListener('online', handleOnline);
 if (reconnectTimeout) clearTimeout(reconnectTimeout);
 if (peerInstance.current) { peerInstance.current.destroy(); peerInstance.current = null; }
+// V27: limpa timer de debounce de fusão ao destruir o peer
+if (groupMergeTimerRef.current) { clearTimeout(groupMergeTimerRef.current); groupMergeTimerRef.current = null; }
+groupMergeDebounceRef.current = null;
 localStreamsRef.current.forEach(s => s.getTracks().forEach(tr => tr.stop()));
 localStreamsRef.current.clear();
 setActiveCalls([]); setRemoteStreams([]); setIsLocalVideoVisible(false);
