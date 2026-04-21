@@ -2922,7 +2922,12 @@ youtubeChatId, disconnectPeer,
 showWhiteboard, setShowWhiteboard,
 avatars,
 currentQuizQuestionRef,
-connectionsRef: connectionsRefProp
+  connectionsRef: connectionsRefProp,
+  bootstrapStatus,
+  bootstrapRetryCount,
+  manualBootstrapPeerId,
+  setManualBootstrapPeerId,
+  startBootstrapConnection
 }) => {
 // FIX: usa connectionsRef recebido via prop (do App) para evitar stale closure no sendDirectMessage
 // Se não recebeu a prop (compatibilidade), cria um ref local sincronizado com connections
@@ -3648,6 +3653,43 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
 
 <>
 <div className="chat-messages" ref={messagesContainerRef}>
+{sidebarTab === 'general' && (bootstrapStatus === 'connecting' || bootstrapStatus === 'retrying' || bootstrapStatus === 'failed') && (
+<div style={{ margin: '14px 14px 0', padding: '12px 14px', border: '1px solid var(--border)', background: 'var(--surface)', borderRadius: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+    <span style={{ fontSize: '16px' }}>{bootstrapStatus === 'failed' ? '⚠️' : '🌐'}</span>
+    <strong style={{ fontSize: '13px', color: 'var(--text-main)' }}>
+      {bootstrapStatus === 'failed' ? 'Servidor público offline ou inacessível' : 'Conectando ao Modo Geral Público'}
+    </strong>
+    {bootstrapRetryCount > 0 && bootstrapStatus !== 'failed' && (
+      <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>tentativa {bootstrapRetryCount}</span>
+    )}
+  </div>
+  <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+    {bootstrapStatus === 'failed'
+      ? 'O peer central não respondeu. Você pode tentar novamente ou conectar manualmente por Peer ID/link.'
+      : 'Aguardando resposta do peer central. Se ele estiver fechado em outra aba/dispositivo, o chat geral não abre.'}
+  </div>
+  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+    <input
+      value={manualBootstrapPeerId}
+      onChange={(e) => setManualBootstrapPeerId(e.target.value.toUpperCase())}
+      placeholder="Peer ID do servidor"
+      style={{ flex: '1 1 220px', minWidth: '180px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-main)', borderRadius: '8px', padding: '9px 11px', outline: 'none' }}
+    />
+    <button onClick={() => startBootstrapConnection((manualBootstrapPeerId || '').trim(), { manual: true })} style={{ border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-main)', borderRadius: '8px', padding: '9px 12px', cursor: 'pointer', fontWeight: 600 }}>
+      Conectar peer
+    </button>
+  </div>
+  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+    <button onClick={() => startBootstrapConnection('K10-CENTRAL', { manual: true })} style={{ border: 'none', background: 'var(--primary)', color: 'white', borderRadius: '8px', padding: '9px 12px', cursor: 'pointer', fontWeight: 700 }}>
+      Tentar K10-CENTRAL
+    </button>
+    <a href="https://andradepsa.github.io/MATEMATICO10/chat/Chat%20Desktop.HTML?portas=K10-CENTRAL" style={{ fontSize: '12px', color: 'var(--primary)', fontWeight: 700, textDecoration: 'underline', alignSelf: 'center' }}>
+      Abrir link direto do central
+    </a>
+  </div>
+</div>
+)}
 {filteredMessages.length === 0 && (
 <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px', marginTop: '40px' }}>
 {selectedContact ? t(lang, 'noMessages') : (connections.length === 0 ? t(lang, 'noConnectionsGeneral') : t(lang, 'generalChatWelcome'))}
@@ -4830,6 +4872,110 @@ const [showEmojiPanel, setShowEmojiPanel] = useState(false);
 const [selectedContact, setSelectedContact] = useState(null);
 const [isPeerInitialized, setIsPeerInitialized] = useState(false);
 const [centralServerId, setCentralServerId] = useState(null);
+const [bootstrapStatus, setBootstrapStatus] = useState('idle');
+const [bootstrapRetryCount, setBootstrapRetryCount] = useState(0);
+const [manualBootstrapPeerId, setManualBootstrapPeerId] = useState('K10-CENTRAL');
+const bootstrapTimeoutRef = useRef(null);
+const bootstrapRetryTimeoutRef = useRef(null);
+const bootstrapConnRef = useRef(null);
+const bootstrapAttemptRef = useRef(0);
+const clearBootstrapTimers = () => {
+  if (bootstrapTimeoutRef.current) {
+    clearTimeout(bootstrapTimeoutRef.current);
+    bootstrapTimeoutRef.current = null;
+  }
+  if (bootstrapRetryTimeoutRef.current) {
+    clearTimeout(bootstrapRetryTimeoutRef.current);
+    bootstrapRetryTimeoutRef.current = null;
+  }
+};
+const resetBootstrapState = () => {
+  clearBootstrapTimers();
+  bootstrapAttemptRef.current = 0;
+  bootstrapConnRef.current = null;
+  setBootstrapRetryCount(0);
+  setBootstrapStatus('idle');
+};
+const startBootstrapConnection = (targetId = null, options = {}) => {
+  const chosenId = (targetId || manualBootstrapPeerId || 'K10-CENTRAL').trim();
+  const { manual = false } = options;
+  if (!chosenId || !peerInstance.current || peerInstance.current.destroyed || !isPeerInitialized) return;
+
+  clearBootstrapTimers();
+  bootstrapAttemptRef.current = manual ? 0 : bootstrapAttemptRef.current + 1;
+  setBootstrapRetryCount(bootstrapAttemptRef.current);
+  setBootstrapStatus('connecting');
+  setManualBootstrapPeerId(chosenId);
+  setCentralServerId(chosenId);
+  addAudit(`[Grupo 0] 🚀 Bootstrap ${manual ? 'manual' : 'automático'} → conectando a ${chosenId} (tentativa ${manual ? 1 : bootstrapAttemptRef.current})`, 'info');
+
+  let bConn = null;
+  try {
+    bConn = peerInstance.current.connect(chosenId, { reliable: true });
+  } catch (e) {
+    addAudit(`[Grupo 0] ❌ Falha ao iniciar bootstrap em ${chosenId}: ${e?.message || '?'}`, 'error');
+    setBootstrapStatus('failed');
+    return;
+  }
+  if (!bConn) {
+    setBootstrapStatus('failed');
+    return;
+  }
+
+  bootstrapConnRef.current = bConn;
+  bootstrapTimeoutRef.current = setTimeout(() => {
+    if (bootstrapConnRef.current === bConn && !bConn.open) {
+      try { bConn.close(); } catch(e) {}
+      addAudit(`[Grupo 0] ⏳ Timeout no bootstrap ${chosenId}`, 'warn');
+      if (!manual && bootstrapAttemptRef.current < 5) {
+        const delay = Math.min(30000, 1000 * Math.pow(2, bootstrapAttemptRef.current - 1 || 0));
+        setBootstrapStatus('retrying');
+        addAudit(`[Grupo 0] 🔁 Novo retry em ${Math.round(delay/1000)}s para ${chosenId}`, 'info');
+        bootstrapRetryTimeoutRef.current = setTimeout(() => startBootstrapConnection(chosenId), delay);
+      } else {
+        setBootstrapStatus('failed');
+      }
+    }
+  }, 8000);
+
+  bConn.on('open', () => {
+    clearBootstrapTimers();
+    bootstrapConnRef.current = bConn;
+    setBootstrapStatus('connected');
+    setBootstrapRetryCount(bootstrapAttemptRef.current);
+    setCentralServerId(chosenId);
+    addAudit(`[Grupo 0] ✅ Bootstrap conectado: ${chosenId}`, 'success');
+    try { bConn.send({ type: 'group0-request' }); } catch(e) {}
+    addAudit(`[Grupo 0] ↗️ group0-request enviado (${manual ? 'manual' : 'bootstrap automático'})`, 'info');
+  });
+  bConn.on('data', data => handleIncomingData(data, chosenId));
+  bConn.on('close', () => {
+    if (bootstrapConnRef.current === bConn) bootstrapConnRef.current = null;
+    addAudit(`[Grupo 0] Conexão bootstrap encerrada: ${chosenId}`, 'warn');
+    setConnections(prev => prev.filter(c => c.peer !== chosenId));
+    if (!group0WelcomeReceivedRef.current) {
+      if (!manual && bootstrapAttemptRef.current < 5) {
+        const delay = Math.min(30000, 1000 * Math.pow(2, bootstrapAttemptRef.current - 1 || 0));
+        setBootstrapStatus('retrying');
+        bootstrapRetryTimeoutRef.current = setTimeout(() => startBootstrapConnection(chosenId), delay);
+      } else {
+        setBootstrapStatus('failed');
+      }
+    }
+  });
+  bConn.on('error', (e) => {
+    addAudit(`[Grupo 0] ⚠️ Erro bootstrap ${chosenId}: ${e?.message || '?'}`, 'error');
+    if (!group0WelcomeReceivedRef.current) {
+      if (!manual && bootstrapAttemptRef.current < 5) {
+        const delay = Math.min(30000, 1000 * Math.pow(2, bootstrapAttemptRef.current - 1 || 0));
+        setBootstrapStatus('retrying');
+        bootstrapRetryTimeoutRef.current = setTimeout(() => startBootstrapConnection(chosenId), delay);
+      } else {
+        setBootstrapStatus('failed');
+      }
+    }
+  });
+};
 // FIX-AUDIT-CLI1: ref sincronizada para uso seguro dentro de closures (evita stale closure)
 const centralServerIdRef = useRef(null);
 useEffect(() => { centralServerIdRef.current = centralServerId; }, [centralServerId]);
@@ -5959,6 +6105,8 @@ if (data.type === 'handshake') {
 if (data.type === 'group0-welcome') {
   // ── K10 V29: seta flag anti-loop — impede reenvio de group0-request
   group0WelcomeReceivedRef.current = true;
+  clearBootstrapTimers();
+  setBootstrapStatus('connected');
 
   // V29: indexa grupos recebidos no diretório local antes de redirecionar
   if (Array.isArray(data.groups) && data.groups.length > 0) {
@@ -7833,36 +7981,10 @@ conn.on('error', (e) => {
 });
 }, 1000);
 } else {
-// ── V31 BOOTSTRAP AUTOMÁTICO: sem ?portas= → conecta ao Group 0 padrão ──
-// Permite entrada direta sem URL params: abre o chat → entra no Grupo 0 →
-// Modo Geral ativado → servidor atribui grupo → conversa imediata.
-// FIX V32: removido !myGroupIdRef.current — localStorage não deve bloquear bootstrap.
-// Limpa myGroupId stale para receber atribuição fresca do servidor.
 if (!group0WelcomeReceivedRef.current) {
 myGroupIdRef.current = null;
 localStorage.removeItem('myGroupId');
-const bootstrapId = 'K10-CENTRAL';
-addAudit(`[Grupo 0] 🚀 Bootstrap automático → conectando a ${bootstrapId}`, 'info');
-setTimeout(() => {
-const bConn = peer.connect(bootstrapId, { reliable: true });
-if (bConn) {
-bConn.on('open', () => {
-  setCentralServerId(bootstrapId);
-  addAudit(`[Grupo 0] ✅ Bootstrap conectado: ${bootstrapId}`, 'success');
-  try { bConn.send({ type: 'group0-request' }); } catch(e) {}
-  addAudit('[Grupo 0] ↗️ group0-request enviado (bootstrap automático)', 'info');
-  // aguarda group0-welcome — não envia handshake ainda
-});
-bConn.on('data', data => handleIncomingData(data, bootstrapId));
-bConn.on('close', () => {
-  addAudit(`[Grupo 0] Conexão bootstrap encerrada: ${bootstrapId}`, 'warn');
-  setConnections(prev => prev.filter(c => c.peer !== bootstrapId));
-});
-bConn.on('error', (e) => {
-  addAudit(`[Grupo 0] ⚠️ Erro bootstrap ${bootstrapId}: ${e?.message || '?'}`, 'error');
-});
-}
-}, 1000);
+setTimeout(() => startBootstrapConnection('K10-CENTRAL'), 1000);
 }
 }
 });
@@ -9781,6 +9903,11 @@ setShowWhiteboard={setShowWhiteboard}
 avatars={avatars}
 currentQuizQuestionRef={currentQuizQuestionRef}
 connectionsRef={connectionsRef}
+bootstrapStatus={bootstrapStatus}
+bootstrapRetryCount={bootstrapRetryCount}
+manualBootstrapPeerId={manualBootstrapPeerId}
+setManualBootstrapPeerId={setManualBootstrapPeerId}
+startBootstrapConnection={startBootstrapConnection}
 />
 )}
 
