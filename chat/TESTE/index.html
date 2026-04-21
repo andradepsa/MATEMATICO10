@@ -947,35 +947,160 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 </style>
 </head>
 <body>
-<!-- ⚡ CARREGAMENTO SEGURO DO SERVIDOR K10-CENTRAL (externo + fallback) -->
-<script type="module">
-  const SERVIDOR_URL = 'https://raw.githubusercontent.com/andradepsa/MATEMATICO10/main/chat/servidor.js';
 
-  import(SERVIDOR_URL)
-    .then(() => console.log('✅ Servidor K10-CENTRAL carregado via link externo'))
-    .catch((err) => {
-      console.warn('⚠️ Falha ao carregar servidor externo, usando fallback local', err);
-      const fallbackCode = `(function() {
-        if(window.__k10CentralLoaded) return;
-        window.__k10CentralLoaded=true;
-        const PEER_ID='K10-CENTRAL';
-        const MAX_PEERS=5000;
-        const connections=new Map();
-        let totalUsersHint=0;
-        const peer=new Peer(PEER_ID,{host:'0.peerjs.com',port:443,secure:true,debug:0});
-        peer.on('open',()=>console.log('✅ Servidor Grupo 0 online'));
-        peer.on('connection',(conn)=>{
-          if(connections.size>=MAX_PEERS){conn.close();return;}
-          connections.set(conn.peer,{conn,lastSeen:Date.now()});
-          conn.on('open',()=>{try{conn.send({type:'group0-welcome',totalUsers:totalUsersHint+connections.size,servers:[]});}catch(e){}});
-          conn.on('data',(data)=>{if(data&&data.type==='group0-request'){try{conn.send({type:'group0-welcome',totalUsers:totalUsersHint+connections.size,servers:[]});}catch(e){}}});
-          conn.on('close',()=>connections.delete(conn.peer));
-        });
-        setInterval(()=>{totalUsersHint=connections.size;},10000);
-      })();`;
-      eval(fallbackCode);
+
+<script>
+  (function() {
+    if (window.__k10CentralLoaded) return;
+    window.__k10CentralLoaded = true;
+
+    console.log('[K10] Iniciando servidor completo K10-CENTRAL...');
+    const PEER_ID = 'K10-CENTRAL';
+    const MAX_PEERS = 5000;
+    const connections = new Map(); // peerId -> { conn, lastSeen }
+    let totalUsersHint = 0;
+
+    const peer = new Peer(PEER_ID, {
+      host: '0.peerjs.com',
+      port: 443,
+      secure: true,
+      debug: 0
     });
+
+    peer.on('open', () => {
+      console.log('✅ Servidor K10-CENTRAL online (com relay e peer-list)');
+    });
+
+    peer.on('error', (err) => {
+      if (err.type === 'unavailable-id') {
+        console.warn('⚠️ ID K10-CENTRAL já em uso. Outro servidor já está rodando.');
+      }
+    });
+
+    // Retransmite mensagens para todos os peers (exceto o remetente)
+    function relayMessage(conn, data, senderId) {
+      if (!data || typeof data !== 'object') return;
+      if (data.type !== 'message') return;
+      if (data.direct === true) return; // mensagem privada não é relay
+
+      // Evita loop (deduplicação simples)
+      if (data._relayed) return;
+      data._relayed = true;
+
+      for (const [pid, target] of connections.entries()) {
+        if (pid === senderId) continue;
+        if (target.conn && target.conn.open) {
+          try {
+            target.conn.send(data);
+          } catch(e) {}
+        }
+      }
+    }
+
+    // Envia lista de peers para um novo cliente (peer-list)
+    function sendPeerList(conn) {
+      const peerIds = Array.from(connections.keys()).filter(id => id !== conn.peer);
+      if (peerIds.length === 0) return;
+      try {
+        conn.send({
+          type: 'peer-list',
+          peers: peerIds,
+          groupId: 'AAAA'
+        });
+        console.log(`📋 Enviada lista de ${peerIds.length} peers para ${conn.peer}`);
+      } catch(e) {}
+    }
+
+    peer.on('connection', (conn) => {
+      if (connections.size >= MAX_PEERS) {
+        conn.close();
+        return;
+      }
+      const peerId = conn.peer;
+      connections.set(peerId, { conn, lastSeen: Date.now() });
+      console.log(`🔗 Conectado: ${peerId} (${connections.size})`);
+
+      conn.on('open', () => {
+        // Envia group0-welcome
+        try {
+          conn.send({
+            type: 'group0-welcome',
+            totalUsers: totalUsersHint + connections.size,
+            servers: []
+          });
+        } catch(e) {}
+        // Envia lista de peers já conectados (após pequeno delay)
+        setTimeout(() => sendPeerList(conn), 500);
+      });
+
+      conn.on('data', (data) => {
+        const entry = connections.get(peerId);
+        if (entry) entry.lastSeen = Date.now();
+
+        // Responde a group0-request
+        if (data && data.type === 'group0-request') {
+          try {
+            conn.send({
+              type: 'group0-welcome',
+              totalUsers: totalUsersHint + connections.size,
+              servers: []
+            });
+          } catch(e) {}
+          return;
+        }
+
+        // Relay de mensagens
+        relayMessage(conn, data, peerId);
+      });
+
+      conn.on('close', () => {
+        connections.delete(peerId);
+        console.log(`🔌 Desconectado: ${peerId} (${connections.size})`);
+        // Avisa os outros que esse peer saiu
+        const leaveMsg = {
+          type: 'pex-update',
+          gid: 'AAAA',
+          user: peerId,
+          ttl: 5
+        };
+        for (const [pid, target] of connections.entries()) {
+          if (target.conn && target.conn.open) {
+            try { target.conn.send(leaveMsg); } catch(e) {}
+          }
+        }
+      });
+    });
+
+    setInterval(() => {
+      totalUsersHint = connections.size;
+    }, 10000);
+
+    // A cada 30s, envia atualização de peers para todos
+    setInterval(() => {
+      const peerIds = Array.from(connections.keys());
+      if (peerIds.length === 0) return;
+      for (const [pid, target] of connections.entries()) {
+        if (target.conn && target.conn.open) {
+          try {
+            target.conn.send({
+              type: 'pex',
+              peers: peerIds.filter(id => id !== pid),
+              groupId: 'AAAA',
+              groupSize: connections.size
+            });
+          } catch(e) {}
+        }
+      }
+    }, 30000);
+  })();
 </script>
+
+
+
+
+
+
+     
 <noscript>
   <div style="padding:40px;font-family:system-ui,-apple-system,sans-serif;text-align:center;max-width:560px;margin:60px auto;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);">
     <h1 style="color:#1e40af;margin-top:0;">Chat K10 V27</h1>
