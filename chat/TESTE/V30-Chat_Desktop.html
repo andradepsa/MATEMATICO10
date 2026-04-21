@@ -1,4 +1,43 @@
-<!-- ═══ Chat K10 V32 — Fix Bootstrap + Reconexão Permanente (21/abr/2026) ═══
+<!-- ═══ Chat K10 V34 — Fix: Aba Privado sem servidor + Mensagens Geral via relay (21/abr/2026) ═══
+     NOVO V34 — CORREÇÕES DE ROTEAMENTO DE MENSAGENS E ABAS
+     ══════════════════════════════════════════════════════════════════════
+     FIX V34-PRIVATE-TAB: Aba Privado NÃO mostra mais o servidor central
+          - Bug: connections incluía centralServerId (termina em -CENTRAL)
+            → servidor aparecia na lista de chats privados ao entrar no Modo Geral
+          - Fix: aba Privado filtra com !isCentralServer(c.peer) antes de renderizar
+          - Resultado: ao entrar em Modo Geral, aba Privado começa 100% vazia ✅
+
+     FIX V34-GENERAL-RELAY: Mensagens do Modo Geral retransmitidas pelo servidor
+          agora chegam com recipient='general' em vez de recipient=serverId
+          - Bug: handleIncomingData usava (isFromSrv ? pId : 'general')
+            → mensagem geral que passava pelo servidor como relay recebia
+              recipient = serverPeerId → não aparecia no chat geral,
+              aparecia como mensagem privada do servidor
+          - Fix: recipient = data.direct ? 'you' : 'general'
+            (server relay não muda a natureza da mensagem — se não é direta, é geral)
+          - Corrigido em 2 pontos: mensagens normais (baseMessage) + polls (pollMsg)
+     ══════════════════════════════════════════════════════════════════════
+     Correções anteriores V33/V32/V31/V30 mantidas integralmente.
+     ══════════════════════════════════════════════════════════════════════
+     FEAT V33-TABS: Sidebar de conversas dividida em 3 abas
+          - Aba "💬 Privado": lista de peers conectados (User↔User e User↔Server)
+            Ao entrar via Modo Geral, esta aba começa VAZIA (nenhum contato direto)
+            O usuário só vê alguém aqui quando estabelece conexão privada
+          - Aba "🌐 Geral": chat público do grupo/rede P2P
+            Mensagens com recipient='general' — sempre acessível
+            Placeholder explica que está no Modo Geral da rede
+          - Aba "▶️ YouTube": chat sincronizado com vídeo YouTube
+            Só aparece quando youtubeChatId está ativo
+            Mantém iframe YouTube + chat nativo lado a lado
+          - Estado inicial: aba 'geral' ativa ao entrar sem contatos
+            Troca para 'privado' automaticamente ao selecionar um contato
+          - Indicador de mensagens não lidas por aba (badge numérico)
+
+     FIX V33-PEERLIST: peer-list agora usa peers[] reais do servidor
+          (ver ServidorChatK10 V33 para detalhes)
+     ══════════════════════════════════════════════════════════════════════
+     Correções anteriores V32/V31/V30 mantidas integralmente.
+     ══════════════════════════════════════════════════════════════════════
      NOVO V32 — CORREÇÕES CRÍTICAS BOOTSTRAP E MODO GERAL
      ══════════════════════════════════════════════════════════════════════
      FIX V32-BOOTSTRAP: Remove !myGroupIdRef.current do bootstrap automático
@@ -326,12 +365,32 @@ text-shadow: 0 0 8px rgba(74, 222, 128, 0.3);
 
 /* CHAT LAYOUT */
 .chat-main-container { display: flex; gap: 14px; height: calc(100vh - 280px); min-height: 400px; }
-.conversations-list { width: 280px; min-width: 220px; background: var(--surface); border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); overflow-y: auto; display: flex; flex-direction: column; }
+.conversations-list { width: 280px; min-width: 220px; background: var(--surface); border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); overflow: hidden; display: flex; flex-direction: column; }
 .conversations-list h4 { padding: 14px 16px 10px; margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); border-bottom: 1px solid var(--border); }
 .conversation-item { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.15s; position: relative; }
 .conversation-item:hover { background: #f8fafc; }
 .conversation-item.selected { background: #eff6ff; border-left: 3px solid var(--primary); }
 .conversation-item.central-server { border-left: 3px solid var(--warning) !important; }
+
+/* ── V33: Abas da sidebar ── */
+.sidebar-tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); border-radius: 12px 12px 0 0; flex-shrink: 0; }
+.sidebar-tab { flex: 1; padding: 9px 4px 8px; border: none; background: transparent; cursor: pointer; font-size: 11px; font-weight: 600; color: var(--text-muted); border-bottom: 2px solid transparent; transition: all 0.15s; position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.sidebar-tab:first-child { border-radius: 12px 0 0 0; }
+.sidebar-tab:last-child { border-radius: 0 12px 0 0; }
+.sidebar-tab.active-private  { color: #3b82f6; border-bottom-color: #3b82f6; background: #eff6ff; }
+.sidebar-tab.active-general  { color: #10b981; border-bottom-color: #10b981; background: #f0fdf4; }
+.sidebar-tab.active-youtube  { color: #ef4444; border-bottom-color: #ef4444; background: #fef2f2; }
+.sidebar-tab:hover:not(.active-private):not(.active-general):not(.active-youtube) { background: #f8fafc; color: #475569; }
+.sidebar-tab-icon { font-size: 15px; }
+.sidebar-tab-badge { position: absolute; top: 4px; right: 6px; background: #ef4444; color: white; font-size: 9px; font-weight: 700; border-radius: 10px; padding: 1px 5px; min-width: 16px; text-align: center; }
+.sidebar-tab-content { flex: 1; overflow-y: auto; }
+/* painel geral vazio */
+.general-empty-panel { padding: 24px 16px; text-align: center; color: var(--text-muted); font-size: 13px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.general-empty-panel .big-icon { font-size: 36px; }
+/* dark mode */
+.dark-mode .sidebar-tab.active-private { background: #1e3a5f; }
+.dark-mode .sidebar-tab.active-general { background: #052e16; }
+.dark-mode .sidebar-tab.active-youtube { background: #450a0a; }
 .conversation-name { font-weight: 600; color: var(--text); font-size: 14px; }
 .conversation-peer-id { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
 
@@ -963,7 +1022,7 @@ waitCooldown: "Wait {s}s...",
 privateMsg: "🔒 Private message to {name}...",
 groupMsg: "🛡️ Group encrypted message to {name}...",
 regularMsg: "Message to {name}...",
-generalMsg: "Message to General Web...",
+generalMsg: "🌐 Message to General Chat...",
 generalChatWelcome: "Welcome to the General Web! 🌐 All messages here are public and retransmitted via the P2P network to everyone connected.",
 noConnectionsGeneral: "Waiting for connections to join the General Web...",
 generalMode: "General Mode",
@@ -1157,7 +1216,7 @@ waitCooldown: "Aguarde {s}s...",
 privateMsg: "🔒 Mensagem privada para {name}...",
 groupMsg: "🛡️ Mensagem criptografada no grupo {name}...",
 regularMsg: "Mensagem para {name}...",
-generalMsg: "Mensagem para a Teia Geral...",
+generalMsg: "🌐 Mensagem para o Chat Geral...",
 generalChatWelcome: "Bem-vindo à Teia Geral! 🌐 Todas as mensagens aqui são públicas e retransmitidas pela rede P2P para todos os conectados.",
 noConnectionsGeneral: "Aguardando conexões para entrar na Teia Geral...",
 generalMode: "Modo Geral",
@@ -2876,6 +2935,12 @@ const [showSendSecretModal, setShowSendSecretModal] = useState(false);
 const [showServerE2EEModal, setShowServerE2EEModal] = useState(false);
 const [hiddenMessages, setHiddenMessages] = useState(new Set());
 const [activeChatTab, setActiveChatTab] = useState('native');
+// V33: aba ativa na sidebar ('private' | 'general' | 'youtube')
+const [sidebarTab, setSidebarTab] = useState('general');
+// V33: contador de não-lidas por aba
+const [unreadGeneral, setUnreadGeneral] = useState(0);
+const [unreadPrivate, setUnreadPrivate] = useState(0);
+const lastSeenMsgCountRef = useRef({ general: 0, private: 0 });
 
 
 const handleVote = (pollId, optionIndex) => {
@@ -2957,6 +3022,39 @@ const handleQuizAnswer = (quizId, optionIndex) => {
 useEffect(() => {
 if (!youtubeChatId) setActiveChatTab('native');
 }, [youtubeChatId]);
+
+// V33: ao selecionar contato → vai para aba privada; ao desselecionar → vai para geral
+useEffect(() => {
+  if (selectedContact) {
+    setSidebarTab('private');
+    setUnreadPrivate(0);
+  } else {
+    setSidebarTab('general');
+    setUnreadGeneral(0);
+  }
+}, [selectedContact]);
+
+// V33: contagem de não-lidas nas abas que não estão ativas
+useEffect(() => {
+  const generalCount = messages.filter(m => !m.recipient || m.recipient === 'general').length;
+  const privateCount = messages.filter(m => m.sender !== '__system__' && (m.recipient === 'you' || (m.sender === 'you' && m.recipient && m.recipient !== 'general'))).length;
+  if (sidebarTab !== 'general') {
+    const prev = lastSeenMsgCountRef.current.general;
+    if (generalCount > prev) setUnreadGeneral(g => g + (generalCount - prev));
+    lastSeenMsgCountRef.current.general = generalCount;
+  } else {
+    lastSeenMsgCountRef.current.general = generalCount;
+    setUnreadGeneral(0);
+  }
+  if (sidebarTab !== 'private') {
+    const prev = lastSeenMsgCountRef.current.private;
+    if (privateCount > prev) setUnreadPrivate(p => p + (privateCount - prev));
+    lastSeenMsgCountRef.current.private = privateCount;
+  } else {
+    lastSeenMsgCountRef.current.private = privateCount;
+    setUnreadPrivate(0);
+  }
+}, [messages, sidebarTab]);
 
 
 const [isSending, setIsSending] = useState(false);
@@ -3315,109 +3413,183 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
 
 
 <div className="chat-main-container">
-<div className="conversations-list">
-<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-<h4 style={{ margin: 0 }}>{t(lang, 'conversations')}</h4>
-<button className="icon-btn" onClick={() => setShowTorrentManager(true)} title={t(lang, 'torrentManager')} style={{ padding: '4px' }}>
-<i className="fas fa-magnet"></i>
-</button>
-</div>
-{connections.length === 0 && <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center' }}>{t(lang, 'noConnectionsGeneral')}</div>}
-{connections.map((conn, i) => {
-const isSelected = selectedContact === conn.peer;
-const hasVoice = activeCalls.some(c => c.peerId === conn.peer && c.type === 'voice');
-const hasVideo = activeCalls.some(c => c.peerId === conn.peer && c.type === 'video' && c.localStream);
-const e2ee = e2eeState[conn.peer];
-const hasMine = !!e2ee?.mySecret, hasTheirs = !!e2ee?.contactSecret;
-const isServer = isCentralServer(conn.peer);
-const srvGrpActive = isServer && serverE2EE[conn.peer]?.active;
-return (
-<div key={i} className={`conversation-item${isSelected ? ' selected' : ''}${conn.peer === centralServerId ? ' central-server' : ''}`}
-onClick={() => setSelectedContact(isSelected ? null : conn.peer)}>
-<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-<div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-<Avatar peerId={conn.peer} name={getContactName(conn.peer)} avatars={avatars} size="medium" />
-<div>
-<div className="conversation-name">
-{!isServer && hasMine && hasTheirs && <span title="Full E2EE active" style={{ marginRight: '4px' }}>🔒</span>}
-{!isServer && hasMine && !hasTheirs && <span title="Sending encrypted" style={{ marginRight: '4px' }}>📤</span>}
-{!isServer && !hasMine && hasTheirs && <span title="Receiving encrypted" style={{ marginRight: '4px' }}>📥</span>}
-{isServer && srvGrpActive && <span title="Group encryption active" style={{ marginRight: '4px' }}>🛡️</span>}
-{getContactName(conn.peer)}
-</div>
-<div className="conversation-peer-id">{conn.peer}</div>
-</div>
-</div>
-<div style={{ display: 'flex', gap: '8px', position: 'relative' }}>
-<div className="sidebar-icon-btn" style={{ color: '#94a3b8' }} onClick={e => { e.stopPropagation(); deleteMessagesByContact(conn.peer); }} title={t(lang, 'deleteMessages')}>
-<i className="fas fa-trash"></i>
-</div>
-<div className="sidebar-icon-btn" style={{ color: '#ef4444' }} onClick={e => { e.stopPropagation(); if(confirm(t(lang, 'confirmRemoveFriend', { name: getContactName(conn.peer) }))) { disconnectPeer(conn.peer); deleteMessagesByContact(conn.peer); } }} title={t(lang, 'removeFriend')}>
-<i className="fas fa-user-minus"></i>
-</div>
-</div>
-</div>
-<div style={{ display: 'flex', gap: '5px', marginTop: '7px', flexWrap: 'wrap' }}>
-{!isServer && (hasVoice
-? <button onClick={e => { e.stopPropagation(); endCall(conn.peer, 'voice'); }} className="call-btn" style={{ background: '#ef4444' }} title={t(lang, 'endVoiceCall')}><i className="fas fa-phone-slash"></i></button>
-: <button onClick={e => { e.stopPropagation(); startVoiceCall(conn.peer); }} className="call-btn" style={{ background: '#22c55e' }} title={t(lang, 'voiceCall')}><i className="fas fa-phone"></i></button>)}
-{!isServer && (
-<button onClick={e => { e.stopPropagation(); toggleVideoCall(conn.peer); }} className="call-btn" style={{ background: hasVideo ? '#ef4444' : '#22c55e' }} title={hasVideo ? t(lang, 'stopCamera') : t(lang, 'camera')}>
-<i className={`fas ${hasVideo ? 'fa-video-slash' : 'fa-video'}`}></i>
-</button>
-)}
-{isServer && (
-<button className={`server-e2ee-btn ${srvGrpActive ? 'active' : 'inactive'}`}
-onClick={e => { e.stopPropagation(); setSelectedContact(conn.peer); setShowServerE2EEModal(true); }}
-title={srvGrpActive ? 'Group encryption ACTIVE — click to manage' : 'Click to activate group encryption on server'}>
-🛡️
-</button>
-)}
-{!isServer && (
-<button onClick={e => { e.stopPropagation(); const input = document.createElement('input'); input.type = 'file'; input.onchange = (ev) => handleTorrentDirectSeed(ev.target.files[0], conn.peer); input.click(); }} className="call-btn" style={{ background: '#8b5cf6' }} title={t(lang, 'sendTorrent')}>
-<i className="fas fa-magnet"></i>
-</button>
-)}
-</div>
-{pendingTorrentRequests[conn.peer] && (
-<div style={{ marginTop: '8px', padding: '8px', background: '#fff7ed', borderRadius: '6px', border: '1px solid #ffedd5', fontSize: '11px' }}>
-<div style={{ fontWeight: '600', color: '#9a3412', marginBottom: '4px' }}>🧲 Torrent: {pendingTorrentRequests[conn.peer].fileName}</div>
-<div style={{ display: 'flex', gap: '4px' }}>
-<button
-onClick={(e) => { e.stopPropagation(); handleTorrentDownload(pendingTorrentRequests[conn.peer].magnet); setPendingTorrentRequests(prev => { const u = {...prev}; delete u[conn.peer]; return u; }); }}
-style={{ flex: 1, background: '#22c55e', color: 'white', border: 'none', padding: '4px', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}
->ACEITAR</button>
-<button
-onClick={(e) => { e.stopPropagation(); setPendingTorrentRequests(prev => { const u = {...prev}; delete u[conn.peer]; return u; }); }}
-style={{ flex: 1, background: '#ef4444', color: 'white', border: 'none', padding: '4px', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}
->RECUSAR</button>
-</div>
-</div>
-)}
-</div>
-);
-})}
+<div className="conversations-list" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+{/* V33: Abas da sidebar — Privado | Geral | YouTube */}
+<div className="sidebar-tabs">
+  <button
+    className={`sidebar-tab${sidebarTab === 'private' ? ' active-private' : ''}`}
+    onClick={() => { setSidebarTab('private'); setUnreadPrivate(0); }}
+  >
+    <span className="sidebar-tab-icon">🔒</span>
+    <span>Privado</span>
+    {unreadPrivate > 0 && <span className="sidebar-tab-badge">{unreadPrivate > 99 ? '99+' : unreadPrivate}</span>}
+  </button>
+  <button
+    className={`sidebar-tab${sidebarTab === 'general' ? ' active-general' : ''}`}
+    onClick={() => { setSidebarTab('general'); setUnreadGeneral(0); setSelectedContact(null); }}
+  >
+    <span className="sidebar-tab-icon">🌐</span>
+    <span>Geral</span>
+    {unreadGeneral > 0 && <span className="sidebar-tab-badge">{unreadGeneral > 99 ? '99+' : unreadGeneral}</span>}
+  </button>
+  {youtubeChatId && (
+  <button
+    className={`sidebar-tab${sidebarTab === 'youtube' ? ' active-youtube' : ''}`}
+    onClick={() => { setSidebarTab('youtube'); setActiveChatTab('youtube'); }}
+  >
+    <span className="sidebar-tab-icon">▶️</span>
+    <span>YouTube</span>
+  </button>
+  )}
 </div>
 
+{/* ── Aba PRIVADO ── */}
+{sidebarTab === 'private' && (
+<div className="sidebar-tab-content">
+  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px 6px' }}>
+    <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600 }}>Chats Privados</span>
+    <button className="icon-btn" onClick={() => setShowTorrentManager(true)} title={t(lang, 'torrentManager')} style={{ padding: '4px' }}>
+      <i className="fas fa-magnet"></i>
+    </button>
+  </div>
+  {/* V34-FIX: só mostra peers reais — servidor central NÃO aparece aqui */}
+  {connections.filter(c => !isCentralServer(c.peer)).length === 0 ? (
+    <div className="general-empty-panel">
+      <span className="big-icon">🔒</span>
+      <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>Sem chats privados</div>
+      <div style={{ fontSize: '12px' }}>Conecte-se a um usuário ou servidor para iniciar uma conversa privada.</div>
+    </div>
+  ) : (
+    connections.filter(c => !isCentralServer(c.peer)).map((conn, i) => {
+      const isSelected = selectedContact === conn.peer;
+      const hasVoice = activeCalls.some(c => c.peerId === conn.peer && c.type === 'voice');
+      const hasVideo = activeCalls.some(c => c.peerId === conn.peer && c.type === 'video' && c.localStream);
+      const e2ee = e2eeState[conn.peer];
+      const hasMine = !!e2ee?.mySecret, hasTheirs = !!e2ee?.contactSecret;
+      const isServer = isCentralServer(conn.peer);
+      const srvGrpActive = isServer && serverE2EE[conn.peer]?.active;
+      return (
+        <div key={i} className={`conversation-item${isSelected ? ' selected' : ''}${conn.peer === centralServerId ? ' central-server' : ''}`}
+          onClick={() => setSelectedContact(isSelected ? null : conn.peer)}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <Avatar peerId={conn.peer} name={getContactName(conn.peer)} avatars={avatars} size="medium" />
+              <div>
+                <div className="conversation-name">
+                  {!isServer && hasMine && hasTheirs && <span title="Full E2EE active" style={{ marginRight: '4px' }}>🔒</span>}
+                  {!isServer && hasMine && !hasTheirs && <span title="Sending encrypted" style={{ marginRight: '4px' }}>📤</span>}
+                  {!isServer && !hasMine && hasTheirs && <span title="Receiving encrypted" style={{ marginRight: '4px' }}>📥</span>}
+                  {isServer && srvGrpActive && <span title="Group encryption active" style={{ marginRight: '4px' }}>🛡️</span>}
+                  {getContactName(conn.peer)}
+                </div>
+                <div className="conversation-peer-id">{conn.peer}</div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '8px', position: 'relative' }}>
+              <div className="sidebar-icon-btn" style={{ color: '#94a3b8' }} onClick={e => { e.stopPropagation(); deleteMessagesByContact(conn.peer); }} title={t(lang, 'deleteMessages')}>
+                <i className="fas fa-trash"></i>
+              </div>
+              <div className="sidebar-icon-btn" style={{ color: '#ef4444' }} onClick={e => { e.stopPropagation(); if(confirm(t(lang, 'confirmRemoveFriend', { name: getContactName(conn.peer) }))) { disconnectPeer(conn.peer); deleteMessagesByContact(conn.peer); } }} title={t(lang, 'removeFriend')}>
+                <i className="fas fa-user-minus"></i>
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '5px', marginTop: '7px', flexWrap: 'wrap' }}>
+            {!isServer && (hasVoice
+              ? <button onClick={e => { e.stopPropagation(); endCall(conn.peer, 'voice'); }} className="call-btn" style={{ background: '#ef4444' }} title={t(lang, 'endVoiceCall')}><i className="fas fa-phone-slash"></i></button>
+              : <button onClick={e => { e.stopPropagation(); startVoiceCall(conn.peer); }} className="call-btn" style={{ background: '#22c55e' }} title={t(lang, 'voiceCall')}><i className="fas fa-phone"></i></button>)}
+            {!isServer && (
+              <button onClick={e => { e.stopPropagation(); toggleVideoCall(conn.peer); }} className="call-btn" style={{ background: hasVideo ? '#ef4444' : '#22c55e' }} title={hasVideo ? t(lang, 'stopCamera') : t(lang, 'camera')}>
+                <i className={`fas ${hasVideo ? 'fa-video-slash' : 'fa-video'}`}></i>
+              </button>
+            )}
+            {isServer && (
+              <button className={`server-e2ee-btn ${srvGrpActive ? 'active' : 'inactive'}`}
+                onClick={e => { e.stopPropagation(); setSelectedContact(conn.peer); setShowServerE2EEModal(true); }}
+                title={srvGrpActive ? 'Group encryption ACTIVE — click to manage' : 'Click to activate group encryption on server'}>
+                🛡️
+              </button>
+            )}
+            {!isServer && (
+              <button onClick={e => { e.stopPropagation(); const input = document.createElement('input'); input.type = 'file'; input.onchange = (ev) => handleTorrentDirectSeed(ev.target.files[0], conn.peer); input.click(); }} className="call-btn" style={{ background: '#8b5cf6' }} title={t(lang, 'sendTorrent')}>
+                <i className="fas fa-magnet"></i>
+              </button>
+            )}
+          </div>
+          {pendingTorrentRequests[conn.peer] && (
+            <div style={{ marginTop: '8px', padding: '8px', background: '#fff7ed', borderRadius: '6px', border: '1px solid #ffedd5', fontSize: '11px' }}>
+              <div style={{ fontWeight: '600', color: '#9a3412', marginBottom: '4px' }}>🧲 Torrent: {pendingTorrentRequests[conn.peer].fileName}</div>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                <button onClick={(e) => { e.stopPropagation(); handleTorrentDownload(pendingTorrentRequests[conn.peer].magnet); setPendingTorrentRequests(prev => { const u = {...prev}; delete u[conn.peer]; return u; }); }} style={{ flex: 1, background: '#22c55e', color: 'white', border: 'none', padding: '4px', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}>ACEITAR</button>
+                <button onClick={(e) => { e.stopPropagation(); setPendingTorrentRequests(prev => { const u = {...prev}; delete u[conn.peer]; return u; }); }} style={{ flex: 1, background: '#ef4444', color: 'white', border: 'none', padding: '4px', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}>RECUSAR</button>
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    })
+  )}
+</div>
+)}
+
+{/* ── Aba GERAL ── */}
+{sidebarTab === 'general' && (
+<div className="sidebar-tab-content">
+  <div style={{ padding: '10px 14px 6px' }}>
+    <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600 }}>Modo Geral</span>
+  </div>
+  <div className="general-empty-panel">
+    <span className="big-icon">🌐</span>
+    <div style={{ fontWeight: 700, fontSize: '14px', color: '#10b981' }}>Modo Geral Ativo</div>
+    <div style={{ fontSize: '12px', lineHeight: '1.6' }}>
+      Você está no chat público da rede P2P.<br/>
+      Mensagens aqui chegam a <strong>todos</strong> os usuários conectados ao grupo.
+    </div>
+    <div style={{ fontSize: '11px', color: 'var(--text-muted)', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 12px', marginTop: '4px', lineHeight: '1.6' }}>
+      👤 Para conversar em <strong>privado</strong>, clique na aba <strong>🔒 Privado</strong> e selecione um contato.
+    </div>
+    {connections.length > 0 && (
+      <div style={{ fontSize: '11px', color: '#059669', fontWeight: 600 }}>
+        👥 {connections.length} peer(s) conectado(s)
+      </div>
+    )}
+  </div>
+</div>
+)}
+
+{/* ── Aba YOUTUBE ── */}
+{sidebarTab === 'youtube' && youtubeChatId && (
+<div className="sidebar-tab-content">
+  <div style={{ padding: '10px 14px 6px' }}>
+    <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600 }}>YouTube Ativo</span>
+  </div>
+  <div className="general-empty-panel">
+    <span className="big-icon">▶️</span>
+    <div style={{ fontWeight: 700, fontSize: '14px', color: '#ef4444' }}>Chat YouTube</div>
+    <div style={{ fontSize: '12px', lineHeight: '1.5' }}>
+      Vídeo sincronizado com a rede.<br/>
+      ID: <strong>{youtubeChatId}</strong>
+    </div>
+  </div>
+</div>
+)}
+</div>
 
 <div className="chat-messages-container">
-{youtubeChatId && (
-<div style={{ display: 'flex', background: '#f1f5f9', borderBottom: '1px solid var(--border)' }}>
-<button
-onClick={() => setActiveChatTab('native')}
-style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'native' ? 'white' : 'transparent', borderBottom: activeChatTab === 'native' ? '2px solid #3b82f6' : '2px solid transparent', fontWeight: activeChatTab === 'native' ? 'bold' : 'normal', cursor: 'pointer', color: activeChatTab === 'native' ? '#3b82f6' : '#64748b' }}
->
-Chat Nativo
-</button>
-<button
-onClick={() => setActiveChatTab('youtube')}
-style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'youtube' ? 'white' : 'transparent', borderBottom: activeChatTab === 'youtube' ? '2px solid #ef4444' : '2px solid transparent', fontWeight: activeChatTab === 'youtube' ? 'bold' : 'normal', cursor: 'pointer', color: activeChatTab === 'youtube' ? '#ef4444' : '#64748b' }}
->
-<i className="fab fa-youtube"></i> Chat YouTube
-</button>
+{/* V33: barra de contexto */}
+<div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 14px', background: sidebarTab === 'youtube' ? '#fef2f2' : sidebarTab === 'general' ? '#f0fdf4' : '#eff6ff', borderBottom: '1px solid var(--border)', minHeight: '38px', flexShrink: 0 }}>
+  {sidebarTab === 'general' && <><span style={{ fontSize: '15px' }}>🌐</span><span style={{ fontSize: '12px', fontWeight: 700, color: '#10b981' }}>Chat Geral</span><span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '4px' }}>— Modo P2P Público</span></>}
+  {sidebarTab === 'private' && !selectedContact && <><span style={{ fontSize: '15px' }}>🔒</span><span style={{ fontSize: '12px', fontWeight: 700, color: '#3b82f6' }}>Chat Privado</span><span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '4px' }}>— Selecione um contato</span></>}
+  {sidebarTab === 'private' && selectedContact && <><span style={{ fontSize: '15px' }}>🔒</span><span style={{ fontSize: '12px', fontWeight: 700, color: '#3b82f6' }}>Privado</span><span style={{ fontSize: '11px', color: '#475569', marginLeft: '6px' }}>{getContactName(selectedContact)}</span><span style={{ fontSize: '10px', color: '#94a3b8', marginLeft: '4px' }}>({selectedContact})</span></>}
+  {sidebarTab === 'youtube' && <><span style={{ fontSize: '15px' }}>▶️</span><span style={{ fontSize: '12px', fontWeight: 700, color: '#ef4444' }}>Chat YouTube</span><span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '4px' }}>{youtubeChatId}</span></>}
+  {sidebarTab === 'youtube' && (
+    <button onClick={() => setActiveChatTab(activeChatTab === 'native' ? 'youtube' : 'native')} style={{ marginLeft: 'auto', fontSize: '11px', padding: '3px 8px', background: activeChatTab === 'youtube' ? '#ef4444' : '#f1f5f9', color: activeChatTab === 'youtube' ? 'white' : '#64748b', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+      {activeChatTab === 'youtube' ? 'Ver Chat' : 'Ver Vídeo'}
+    </button>
+  )}
 </div>
-)}
 {activeChatTab === 'native' ? (
+
 <>
 <div className="chat-messages" ref={messagesContainerRef}>
 {filteredMessages.length === 0 && (
@@ -5834,9 +6006,11 @@ if (data.type === 'group0-welcome') {
     addAudit(`[Grupo 0] 🔗 Sem peers/servidores → conectando permanentemente a ${pId}`, 'info');
     setTimeout(() => {
       if (peerInstance.current && !peerInstance.current.destroyed) {
+        // FIX V32-HEARTBEAT: delay de 6s garante que o heartbeat inicial (5s) já disparou
+        // e encontrou a conexão pendente — evita race condition entre os dois.
         connectToPeer(pId); // pId = K10-CENTRAL — será membro regular do grupo
       }
-    }, 700);
+    }, 6000);
   }
   // ── FIM FIX V32 ────────────────────────────────────────────────────────────
 
@@ -7044,7 +7218,6 @@ if (data.type === 'poll-create') {
   
   const timestamp = data.timestamp || Date.now();
   const messageTime = data.time || formatTime(new Date(timestamp));
-  const isFromSrv = isCentralServer(pId);
   const pollMsg = {
     ...data,
     sender: pId,
@@ -7052,7 +7225,7 @@ if (data.type === 'poll-create') {
     time: messageTime,
     direct: data.direct || false,
     timestamp,
-    recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general')
+    recipient: data.direct ? 'you' : 'general'
   };
   setMessages(prev => [...prev, pollMsg].slice(-500));
   return;
@@ -7150,14 +7323,13 @@ if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via 
 
 const timestamp = data.timestamp || Date.now();
 const messageTime = data.time || formatTime(new Date(timestamp));
-const isFromSrv = isCentralServer(pId);
 const baseMessage = {
 sender: pId,
 senderName: data.senderName || getContactName(pId),
 time: messageTime,
 direct: data.direct || false,
 timestamp,
-recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general')
+recipient: data.direct ? 'you' : 'general'
 };
 let messageToAdd = null;
 
@@ -7256,7 +7428,7 @@ if (data.text === '__QUIZ__' && data.quizPayload) {
     time: messageTime,
     timestamp,
     direct: data.direct || false,
-    recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general'),
+    recipient: data.direct ? 'you' : 'general',
     quizId: qd.quizId,
     quizQuestion: qd.quizQuestion,
     quizOptions: qd.quizOptions,
@@ -7883,16 +8055,10 @@ const serverConn = connectionsRef.current.find(c => c.peer === centralServerId &
 if (serverConn) {
 try { serverConn.send(heartbeatMsg); } catch(e) {}
 } else {
-// If not connected, try a quick connection just for heartbeat
-const tempConn = peerInstance.current.connect(centralServerId, { reliable: true });
-if (tempConn) {
-tempConn.on('error', () => { try { tempConn.close(); } catch(e){} });
-setTimeout(() => { try { tempConn.close(); } catch(e){} }, 5000); // V7-B22 timeout total
-tempConn.on('open', () => {
-try { tempConn.send(heartbeatMsg); } catch(e) {}
-setTimeout(() => tempConn.close(), 2000);
-});
-}
+// FIX V32-HEARTBEAT: era raw peer.connect() com tempConn.close() após 2s.
+// Isso criava uma conexão paralela que ao fechar derrubava a conexão permanente.
+// Solução: usa connectToPeer → rastreado em connectionsRef → sem duplicatas → sem fechamento forçado.
+try { connectToPeer(centralServerId); } catch(e) {}
 }
 }
 };
