@@ -9916,105 +9916,91 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 <!-- Carregar PeerJS primeiro (se já não tiver carregado em outro lugar) -->
 <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
 
-<!-- Script do servidor K10-CENTRAL (agora com PeerJS disponível) -->
+
+
+
+
+<!-- 1º CARREGAR O PEERJS (sempre primeiro) -->
+<script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
+
+<!-- 2º SCRIPT DO SERVIDOR (AGUARDA O PEERJS CARREGAR) -->
 <script>
   (function() {
-    if (window.__k10CentralLoaded) return;
-    window.__k10CentralLoaded = true;
-
-    console.log('[K10] Iniciando servidor central K10-CENTRAL (todos no mesmo grupo)...');
-
-    const PEER_ID = 'K10-CENTRAL';
-    const MAX_PEERS = 5000;
-    const connections = new Map();
-    const GROUP_ID = 'AAAA';
-    let totalUsersHint = 0;
-
-    // Aguarda o PeerJS estar disponível (fallback)
-    if (typeof Peer === 'undefined') {
-      console.error('❌ PeerJS não carregado! Verifique a rede.');
-      return;
-    }
-
-    const peer = new Peer(PEER_ID, {
-      host: '0.peerjs.com',
-      port: 443,
-      secure: true,
-      debug: 0
-    });
-
-    peer.on('open', () => {
-      console.log('✅ Servidor K10-CENTRAL online (modo grupo único)');
-    });
-
-    peer.on('error', (err) => {
-      if (err.type === 'unavailable-id') {
-        console.warn('⚠️ ID K10-CENTRAL já em uso. Outro servidor já está rodando.');
-      } else {
-        console.error('Erro no servidor:', err);
-      }
-    });
-
-    // Retransmite mensagens para todos os peers (exceto o remetente)
-    function relayMessage(conn, data, senderId) {
-      if (!data || typeof data !== 'object') return;
-      if (data.type !== 'message') return;
-      if (data.direct === true) return;
-      if (data._relayed) return;
-      data._relayed = true;
-
-      for (const [pid, target] of connections.entries()) {
-        if (pid === senderId) continue;
-        if (target.conn && target.conn.open) {
-          try {
-            target.conn.send(data);
-          } catch(e) {}
-        }
-      }
-    }
-
-    // Envia lista de peers para um cliente recém-conectado
-    function sendPeerList(conn) {
-      const peerIds = Array.from(connections.keys()).filter(id => id !== conn.peer);
-      if (peerIds.length === 0) return;
-      try {
-        conn.send({
-          type: 'peer-list',
-          peers: peerIds,
-          groupId: GROUP_ID
-        });
-        console.log(`📋 Enviada lista de ${peerIds.length} peers para ${conn.peer}`);
-      } catch(e) {}
-    }
-
-    peer.on('connection', (conn) => {
-      if (connections.size >= MAX_PEERS) {
-        console.warn(`❌ Conexão recusada: limite ${MAX_PEERS} atingido`);
-        conn.close();
+    // Aguarda o PeerJS estar disponível antes de tentar usar 'Peer'
+    function initServer() {
+      if (typeof Peer === 'undefined') {
+        console.warn('PeerJS ainda não carregado, tentando novamente em 500ms...');
+        setTimeout(initServer, 500);
         return;
       }
+      if (window.__k10CentralLoaded) return;
+      window.__k10CentralLoaded = true;
 
-      const peerId = conn.peer;
-      connections.set(peerId, { conn, lastSeen: Date.now() });
-      console.log(`🔗 Conectado: ${peerId} (total: ${connections.size})`);
+      console.log('[K10] Iniciando servidor central K10-CENTRAL...');
 
-      conn.on('open', () => {
-        try {
-          conn.send({
-            type: 'group0-welcome',
-            totalUsers: 0,  // força grupo 'AAAA'
-            servers: []
-          });
-        } catch(e) {}
+      const PEER_ID = 'K10-CENTRAL';
+      const MAX_PEERS = 5000;
+      const connections = new Map();
+      const GROUP_ID = 'AAAA';
+      let totalUsersHint = 0;
 
-        setTimeout(() => sendPeerList(conn), 500);
+      const peer = new Peer(PEER_ID, {
+        host: '0.peerjs.com',
+        port: 443,
+        secure: true,
+        debug: 0
       });
 
-      conn.on('data', (data) => {
-        const entry = connections.get(peerId);
-        if (entry) entry.lastSeen = Date.now();
+      peer.on('open', () => {
+        console.log('✅ Servidor K10-CENTRAL online (todos no mesmo grupo)');
+      });
 
-        if (data && data.type === 'group0-request') {
+      peer.on('error', (err) => {
+        if (err.type === 'unavailable-id') {
+          console.warn('⚠️ ID K10-CENTRAL já em uso. Outro servidor já está rodando.');
+        } else {
+          console.error('Erro no servidor:', err);
+        }
+      });
+
+      function relayMessage(conn, data, senderId) {
+        if (!data || typeof data !== 'object') return;
+        if (data.type !== 'message') return;
+        if (data.direct === true) return;
+        if (data._relayed) return;
+        data._relayed = true;
+
+        for (const [pid, target] of connections.entries()) {
+          if (pid === senderId) continue;
+          if (target.conn && target.conn.open) {
+            try { target.conn.send(data); } catch(e) {}
+          }
+        }
+      }
+
+      function sendPeerList(conn) {
+        const peerIds = Array.from(connections.keys()).filter(id => id !== conn.peer);
+        if (peerIds.length === 0) return;
+        try {
+          conn.send({
+            type: 'peer-list',
+            peers: peerIds,
+            groupId: GROUP_ID
+          });
+          console.log(`📋 Enviada lista de ${peerIds.length} peers para ${conn.peer}`);
+        } catch(e) {}
+      }
+
+      peer.on('connection', (conn) => {
+        if (connections.size >= MAX_PEERS) {
+          conn.close();
+          return;
+        }
+        const peerId = conn.peer;
+        connections.set(peerId, { conn, lastSeen: Date.now() });
+        console.log(`🔗 Conectado: ${peerId} (total: ${connections.size})`);
+
+        conn.on('open', () => {
           try {
             conn.send({
               type: 'group0-welcome',
@@ -10022,51 +10008,64 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
               servers: []
             });
           } catch(e) {}
-          return;
-        }
+          setTimeout(() => sendPeerList(conn), 500);
+        });
 
-        relayMessage(conn, data, peerId);
+        conn.on('data', (data) => {
+          const entry = connections.get(peerId);
+          if (entry) entry.lastSeen = Date.now();
+          if (data && data.type === 'group0-request') {
+            try {
+              conn.send({
+                type: 'group0-welcome',
+                totalUsers: 0,
+                servers: []
+              });
+            } catch(e) {}
+            return;
+          }
+          relayMessage(conn, data, peerId);
+        });
+
+        conn.on('close', () => {
+          connections.delete(peerId);
+          console.log(`🔌 Desconectado: ${peerId} (restam: ${connections.size})`);
+          const leaveMsg = { type: 'pex-update', gid: GROUP_ID, user: peerId, ttl: 5 };
+          for (const [pid, target] of connections.entries()) {
+            if (target.conn && target.conn.open) try { target.conn.send(leaveMsg); } catch(e) {}
+          }
+        });
       });
 
-      conn.on('close', () => {
-        connections.delete(peerId);
-        console.log(`🔌 Desconectado: ${peerId} (restam: ${connections.size})`);
-
-        const leaveMsg = {
-          type: 'pex-update',
-          gid: GROUP_ID,
-          user: peerId,
-          ttl: 5
-        };
+      setInterval(() => { totalUsersHint = connections.size; }, 10000);
+      setInterval(() => {
+        const peerIds = Array.from(connections.keys());
+        if (peerIds.length === 0) return;
         for (const [pid, target] of connections.entries()) {
           if (target.conn && target.conn.open) {
-            try { target.conn.send(leaveMsg); } catch(e) {}
+            try {
+              target.conn.send({
+                type: 'pex',
+                peers: peerIds.filter(id => id !== pid),
+                groupId: GROUP_ID,
+                groupSize: connections.size
+              });
+            } catch(e) {}
           }
         }
-      });
-    });
+      }, 30000);
+    }
 
-    setInterval(() => {
-      totalUsersHint = connections.size;
-    }, 10000);
-
-    setInterval(() => {
-      const peerIds = Array.from(connections.keys());
-      if (peerIds.length === 0) return;
-      for (const [pid, target] of connections.entries()) {
-        if (target.conn && target.conn.open) {
-          try {
-            target.conn.send({
-              type: 'pex',
-              peers: peerIds.filter(id => id !== pid),
-              groupId: GROUP_ID,
-              groupSize: connections.size
-            });
-          } catch(e) {}
-        }
-      }
-    }, 30000);
+    // Inicia o servidor assim que possível
+    initServer();
   })();
 </script>
+
+
+
+
+
+
+     
 </body>
 </html>
