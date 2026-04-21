@@ -1,30 +1,20 @@
-<!-- ═══ Chat K10 V31 — Bootstrap Automático: Entrada Direta sem URL params (21/abr/2026) ═══
-     NOVO V31 — BOOTSTRAP AUTOMÁTICO GROUP 0
+<!-- ═══ Chat K10 V32 — Fix Bootstrap + Reconexão Permanente (21/abr/2026) ═══
+     NOVO V32 — CORREÇÕES CRÍTICAS BOOTSTRAP E MODO GERAL
      ══════════════════════════════════════════════════════════════════════
-     PROBLEMA RESOLVIDO:
-       Sem ?portas= na URL, o cliente ficava isolado — initPeer() inicializava
-       o PeerJS mas não conectava a nenhum servidor. Modo Geral ativo mas
-       sem conexões: "Aguardando conexões para entrar na Tela Geral..."
+     FIX V32-BOOTSTRAP: Remove !myGroupIdRef.current do bootstrap automático
+          - Bug: se localStorage tinha myGroupId salvo de sessão anterior,
+            o bootstrap era bloqueado e cliente ficava isolado ao abrir sem ?portas=
+          - Fix: condição mudou para !group0WelcomeReceivedRef.current apenas
+          - Bônus: limpa myGroupId do localStorage para receber atribuição fresca
 
-     SOLUÇÃO V31 — Bootstrap automático em peer.on('open'):
-       1. Se URL não tem ?portas= E cliente sem grupo E sem welcome recebido
-       2. Cliente conecta automaticamente a 'K10-CENTRAL' (servidor Group 0)
-       3. Envia group0-request → recebe group0-welcome com peers[] reais
-       4. Conecta aos peers → Modo Geral ativo com pessoas imediatamente
-       5. Usuário entra no grupo, conversa sem precisar selecionar contato
-
-     FLUXO COMPLETO (entrada direta):
-       Abre URL → peer inicializa → bootstrap K10-CENTRAL →
-       group0-request → group0-welcome + peers[] →
-       conecta peers → Modo Geral ativo → conversa!
-
-     COMPATIBILIDADE:
-       - Entrada com ?portas=: fluxo original V30 mantido intacto
-       - Entrada sem ?portas=: novo bootstrap automático V31
-       - Servidores V30 existentes: totalmente compatíveis
+     FIX V32-FALLBACK: Quando group0-welcome sem peers[] E sem servers[]
+          - Bug: cliente recebia welcome vazio → connections.length===0 →
+            "Aguardando conexões para entrar na Tela Geral..." para sempre
+          - Fix: detecta peers e servers vazios → chama connectToPeer(pId)
+            para conectar permanentemente ao servidor de origem como membro regular
+          - Resultado: servidor atribui grupo, cliente entra no Modo Geral ✅
      ══════════════════════════════════════════════════════════════════════
-
-     NOVO V30 — GRUPO 0 MESH: MODO GERAL ATIVO NA ENTRADA
+     Correções anteriores V31/V30 mantidas integralmente.
      ══════════════════════════════════════════════════════════════════════
      PROBLEMA RESOLVIDO:
        Ao entrar no chat, o usuário estava em Modo Geral mas sem peers —
@@ -5834,6 +5824,22 @@ if (data.type === 'group0-welcome') {
     );
   }
 
+  // ── FIX V32: sem peers[] E sem servers[] → conecta permanentemente ao servidor de origem ──
+  // Sem isso, o cliente fica com connections.length===0 e Modo Geral mostra
+  // "Aguardando conexões..." para sempre. O servidor de origem (pId = K10-CENTRAL)
+  // já conhece o cliente e vai incluí-lo no grupo — conexão permanente, não heartbeat.
+  const hasValidPeers = Array.isArray(data.peers) && data.peers.length > 0;
+  const hasValidServers = candidates.length > 0;
+  if (!hasValidPeers && !hasValidServers) {
+    addAudit(`[Grupo 0] 🔗 Sem peers/servidores → conectando permanentemente a ${pId}`, 'info');
+    setTimeout(() => {
+      if (peerInstance.current && !peerInstance.current.destroyed) {
+        connectToPeer(pId); // pId = K10-CENTRAL — será membro regular do grupo
+      }
+    }, 700);
+  }
+  // ── FIM FIX V32 ────────────────────────────────────────────────────────────
+
   // ── V30: Conecta diretamente aos peers[] → Modo Geral ativo imediatamente ──
   // O servidor Group 0 agora inclui uma lista de peers reais da rede (locais + mesh).
   // O cliente conecta a eles em paralelo com o redirecionamento ao servidor real.
@@ -7602,7 +7608,11 @@ conn.on('error', (e) => {
 // ── V31 BOOTSTRAP AUTOMÁTICO: sem ?portas= → conecta ao Group 0 padrão ──
 // Permite entrada direta sem URL params: abre o chat → entra no Grupo 0 →
 // Modo Geral ativado → servidor atribui grupo → conversa imediata.
-if (!group0WelcomeReceivedRef.current && !myGroupIdRef.current) {
+// FIX V32: removido !myGroupIdRef.current — localStorage não deve bloquear bootstrap.
+// Limpa myGroupId stale para receber atribuição fresca do servidor.
+if (!group0WelcomeReceivedRef.current) {
+myGroupIdRef.current = null;
+localStorage.removeItem('myGroupId');
 const bootstrapId = 'K10-CENTRAL';
 addAudit(`[Grupo 0] 🚀 Bootstrap automático → conectando a ${bootstrapId}`, 'info');
 setTimeout(() => {
