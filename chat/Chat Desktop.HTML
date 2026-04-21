@@ -9318,6 +9318,33 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     }
   })();
 </script>
-
+<script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
+<script>
+  (function() {
+    if (window.__k10CentralLoaded) return;
+    window.__k10CentralLoaded = true;
+    console.log('[K10] Iniciando servidor interno...');
+    const PEER_ID = 'K10-CENTRAL';
+    const MAX_PEERS = 5000;
+    const connections = new Map();
+    let totalUsersHint = 0;
+    const peer = new Peer(PEER_ID, { host: '0.peerjs.com', port: 443, secure: true, debug: 0 });
+    peer.on('open', () => console.log('✅ Servidor Grupo 0 online'));
+    peer.on('connection', (conn) => {
+      if (connections.size >= MAX_PEERS) { conn.close(); return; }
+      connections.set(conn.peer, { conn, lastSeen: Date.now() });
+      conn.on('open', () => {
+        try { conn.send({ type: 'group0-welcome', totalUsers: totalUsersHint + connections.size, servers: [] }); } catch(e) {}
+      });
+      conn.on('data', (data) => {
+        if (data && data.type === 'group0-request') {
+          try { conn.send({ type: 'group0-welcome', totalUsers: totalUsersHint + connections.size, servers: [] }); } catch(e) {}
+        }
+      });
+      conn.on('close', () => connections.delete(conn.peer));
+    });
+    setInterval(() => { totalUsersHint = connections.size; }, 10000);
+  })();
+</script>
 </body>
 </html>
