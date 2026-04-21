@@ -1,6 +1,19 @@
-<!-- ═══ ServidorChatK10 V30 — Grupo 0 Mesh: Modo Geral Unificado (20/abr/2026) ═══
-     Todas as correções V29 mantidas integralmente.
-     NOVO V30 — GRUPO 0 MESH: MODO GERAL UNIFICADO
+<!-- ═══ ServidorChatK10 V32 — Fix Ghost Peers + peers[] Ativos (21/abr/2026) ═══
+     NOVO V32 — CORREÇÕES CRÍTICAS GROUP 0
+     ══════════════════════════════════════════════════════════════════════
+     FIX V32-GHOST-1: Remove peer de positions[] ao receber group0-request
+          - Bug: conn.on('open') atribuía posição ANTES de saber que era peer group0
+          - Resultado: ghost ficava em g.positions por até 30s (até o GC rodar)
+          - Fix: ao identificar group0-request, executa swap-on-remove imediatamente
+          - Impacto: peers[] em group0-welcome nunca mais inclui IDs de fantasmas
+
+     FIX V32-GHOST-2: peers[] filtrado por activeConnectionsRef (só peers vivos)
+          - Bug: allLocalPeers usava g.positions sem checar se peer ainda estava ativo
+          - Resultado: clientes recebiam IDs mortos → connectToPeer falha → sem Modo Geral
+          - Fix: .filter(p => activeConnectionsRef.current.has(p))
+          - Impacto: todo ID em peers[] é garantidamente uma conexão aberta agora
+     ══════════════════════════════════════════════════════════════════════
+     Correções anteriores V30 mantidas integralmente.
      ══════════════════════════════════════════════════════════════════════
      S-17 K10 V30: Grupo 0 Mesh — Modo Geral Ativo na Entrada
           - group0-welcome agora inclui peers[] (até 20 peer IDs reais)
@@ -2355,6 +2368,30 @@
             // Marca como peer grupo0 para evitar que handleIncomingData o processe depois
             conn._isGroup0Peer = true;
 
+            // ── FIX V32-GHOST: remove peer de positions[] imediatamente ──────────
+            // O conn.on('open') já atribuiu uma posição antes de sabermos que era
+            // um peer group0. Precisamos removê-lo agora para evitar ghost na lista
+            // que seria enviada como peers[] no group0-welcome.
+            const g0Gid = peerGroupMapRef.current.get(conn.peer);
+            if (g0Gid && activeGroupsRef.current[g0Gid]) {
+              const g0Group = activeGroupsRef.current[g0Gid];
+              const g0PosIdx = g0Group.positions ? g0Group.positions.indexOf(conn.peer) : -1;
+              if (g0PosIdx !== -1) {
+                // swap-on-remove: troca com o último e faz pop (mantém lista contígua)
+                const lastPeer = g0Group.positions[g0Group.positions.length - 1];
+                g0Group.positions[g0PosIdx] = lastPeer;
+                g0Group.positions.pop();
+                g0Group.size = g0Group.positions.length;
+                // atualiza posIdx do peer que foi movido
+                if (lastPeer && lastPeer !== conn.peer && peerPositionMapRef.current.has(lastPeer)) {
+                  const lastEntry = peerPositionMapRef.current.get(lastPeer);
+                  peerPositionMapRef.current.set(lastPeer, { ...lastEntry, posIdx: g0PosIdx });
+                }
+              }
+              if (g0Group.members) g0Group.members.delete(conn.peer);
+            }
+            // ── FIM FIX V32-GHOST ─────────────────────────────────────────────────
+
             // totalUsers = max(soma posições de todos os grupos, heartbeats ativos)
             // Usando o maior valor disponível garante estimativa mais conservadora (segura)
             const totalFromGroups = Object.values(activeGroupsRef.current)
@@ -2370,11 +2407,12 @@
 
             addAudit(`[Grupo 0] ▶ group0-request de ${conn.peer} → totalUsers=${totalUsers} grupos=${groupsList.length}`, 'info');
 
-            // ── V30: peers[] — lista de peers reais para Modo Geral imediato ──
+            // ── V30: peers[] — apenas peers ATIVOS (FIX V32: exclui ghosts) ──
             // Combina peers locais do grupo mais populoso + peers do mesh (outros servidores)
+            // FIX V32-GHOST: filtra por activeConnectionsRef.current — só envia peers vivos
             const allLocalPeers = Object.values(activeGroupsRef.current)
               .flatMap(g => Array.isArray(g.positions) ? g.positions : [])
-              .filter(p => p && p !== conn.peer);
+              .filter(p => p && p !== conn.peer && activeConnectionsRef.current.has(p));
             const localSample = allLocalPeers
               .sort(() => Math.random() - 0.5)
               .slice(0, 15);
@@ -3049,8 +3087,6 @@
         </div>
       );
     };
-
-       
 
     ReactDOM.createRoot(document.getElementById('root')).render(<DistributorApp />);
   </script>
