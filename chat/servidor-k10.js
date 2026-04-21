@@ -1,30 +1,25 @@
-// servidor-k10.js
-// Servidor K10-CENTRAL ultra-leve – apenas Grupo 0 (encaminhador)
-
+// servidor-k10.js - K10-CENTRAL com deduplicação e relay
 (function() {
-  // Evita múltiplas inicializações
   if (window.__k10CentralLoaded) return;
   window.__k10CentralLoaded = true;
 
+  console.log('[K10] Iniciando servidor central...');
+
   const PEER_ID = 'K10-CENTRAL';
   const MAX_PEERS = 5000;
-  const connections = new Map(); // peerId -> { conn, lastSeen }
+  const connections = new Map();
+  const GROUP_ID = 'AAAA';
+  const seenMessages = new Map(); // msgId -> expiry
 
-  // Limpeza de conexões mortas a cada 30s
-  setInterval(() => {
+  function isDuplicate(msgId) {
+    if (!msgId) return false;
     const now = Date.now();
-    for (const [pid, data] of connections.entries()) {
-      const conn = data.conn;
-      const isClosed = !conn || conn.close || (conn.peerConnection && conn.peerConnection.connectionState === 'closed');
-      if (isClosed || (now - data.lastSeen) > 90000) {
-        try { conn && conn.close(); } catch(e) {}
-        connections.delete(pid);
-      }
-    }
-    if (window.__k10UpdateCount) window.__k10UpdateCount(connections.size);
-  }, 30000);
+    for (let [id, exp] of seenMessages.entries()) if (exp < now) seenMessages.delete(id);
+    if (seenMessages.has(msgId)) return true;
+    seenMessages.set(msgId, now + 60000);
+    return false;
+  }
 
-  // Inicializa PeerJS
   const peer = new Peer(PEER_ID, {
     host: '0.peerjs.com',
     port: 443,
@@ -32,61 +27,92 @@
     debug: 0
   });
 
-  peer.on('open', () => {
-    console.log('[K10-CENTRAL] Servidor Grupo 0 online');
-    if (window.__k10StatusCb) window.__k10StatusCb('online');
+  peer.on('open', () => console.log('✅ K10-CENTRAL online (grupo fixo ' + GROUP_ID + ')'));
+  peer.on('error', (err) => {
+    if (err.type === 'unavailable-id') console.warn('⚠️ ID já em uso – outro servidor ativo');
+    else console.error(err);
   });
 
-  peer.on('connection', (conn) => {
-    const peerId = conn.peer;
-    if (connections.size >= MAX_PEERS) {
-      try { conn.close(); } catch(e) {}
-      return;
+  function relayMessage(conn, data, senderId) {
+    if (!data || data.type !== 'message') return;
+    if (data.direct === true) return;
+    if (data._relayed) return;
+    if (isDuplicate(data.id)) return;
+    data._relayed = true;
+    let count = 0;
+    for (const [pid, target] of connections.entries()) {
+      if (pid === senderId) continue;
+      if (target.conn?.open) try { target.conn.send(data); count++; } catch(e) {}
     }
+    if (count) console.log(`🔄 Relay ${data.id} -> ${count} peers`);
+  }
 
+  function sendPeerList(conn) {
+    const peerIds = Array.from(connections.keys()).filter(id => id !== conn.peer);
+    if (peerIds.length === 0) return;
+    try {
+      conn.send({ type: 'peer-list', peers: peerIds, groupId: GROUP_ID });
+      console.log(`📋 Peer-list (${peerIds.length}) enviada para ${conn.peer}`);
+    } catch(e) {}
+  }
+
+  peer.on('connection', (conn) => {
+    if (connections.size >= MAX_PEERS) { conn.close(); return; }
+    const peerId = conn.peer;
     connections.set(peerId, { conn, lastSeen: Date.now() });
-    if (window.__k10UpdateCount) window.__k10UpdateCount(connections.size);
+    console.log(`🔗 Conectado: ${peerId} (total: ${connections.size})`);
 
     conn.on('open', () => {
-      try {
-        // Envia o welcome com totalUsers estimado
-        conn.send({
-          type: 'group0-welcome',
-          totalUsers: connections.size,
-          servers: []  // cliente usará fallback para se conectar ao próprio servidor (funciona)
-        });
-      } catch(e) {}
+      try { conn.send({ type: 'group0-welcome', totalUsers: 0, servers: [] }); } catch(e) {}
+      setTimeout(() => sendPeerList(conn), 500);
     });
 
     conn.on('data', (data) => {
       const entry = connections.get(peerId);
       if (entry) entry.lastSeen = Date.now();
-      // Responde novamente se receber group0-request
-      if (data && data.type === 'group0-request') {
-        try {
-          conn.send({
-            type: 'group0-welcome',
-            totalUsers: connections.size,
-            servers: []
-          });
-        } catch(e) {}
+      if (data?.type === 'group0-request') {
+        try { conn.send({ type: 'group0-welcome', totalUsers: 0, servers: [] }); } catch(e) {}
+        return;
       }
-      // Não faz relay de mais nada
+      relayMessage(conn, data, peerId);
     });
 
     conn.on('close', () => {
       connections.delete(peerId);
-      if (window.__k10UpdateCount) window.__k10UpdateCount(connections.size);
+      console.log(`🔌 Desconectado: ${peerId} (restam: ${connections.size})`);
+      const leaveMsg = { type: 'pex-update', gid: GROUP_ID, user: peerId, ttl: 5 };
+      for (const [pid, target] of connections.entries()) {
+        if (target.conn?.open) try { target.conn.send(leaveMsg); } catch(e) {}
+      }
     });
   });
 
-  peer.on('error', (err) => {
-    if (err.type === 'unavailable-id') {
-      console.error('[K10-CENTRAL] ID já em uso! Outro servidor está rodando?');
-      if (window.__k10StatusCb) window.__k10StatusCb('erro: id em uso');
+  // Manutenção
+  setInterval(() => {
+    const now = Date.now();
+    for (const [pid, data] of connections.entries()) {
+      if (now - data.lastSeen > 90000) {
+        console.log(`🧹 Removendo inativo: ${pid}`);
+        try { data.conn.close(); } catch(e) {}
+        connections.delete(pid);
+      }
     }
-  });
+  }, 60000);
 
-  // Expõe contadores para possível UI (opcional)
-  window.__k10Central = { getCount: () => connections.size };
+  setInterval(() => {
+    const peerIds = Array.from(connections.keys());
+    if (peerIds.length === 0) return;
+    for (const [pid, target] of connections.entries()) {
+      if (target.conn?.open) {
+        try {
+          target.conn.send({
+            type: 'pex',
+            peers: peerIds.filter(id => id !== pid),
+            groupId: GROUP_ID,
+            groupSize: connections.size
+          });
+        } catch(e) {}
+      }
+    }
+  }, 30000);
 })();
