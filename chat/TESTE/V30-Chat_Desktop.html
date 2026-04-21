@@ -1,4 +1,29 @@
-<!-- ═══ Chat K10 V30 — Grupo 0 Mesh: Modo Geral Unificado (20/abr/2026) ═══
+<!-- ═══ Chat K10 V31 — Bootstrap Automático: Entrada Direta sem URL params (21/abr/2026) ═══
+     NOVO V31 — BOOTSTRAP AUTOMÁTICO GROUP 0
+     ══════════════════════════════════════════════════════════════════════
+     PROBLEMA RESOLVIDO:
+       Sem ?portas= na URL, o cliente ficava isolado — initPeer() inicializava
+       o PeerJS mas não conectava a nenhum servidor. Modo Geral ativo mas
+       sem conexões: "Aguardando conexões para entrar na Tela Geral..."
+
+     SOLUÇÃO V31 — Bootstrap automático em peer.on('open'):
+       1. Se URL não tem ?portas= E cliente sem grupo E sem welcome recebido
+       2. Cliente conecta automaticamente a 'K10-CENTRAL' (servidor Group 0)
+       3. Envia group0-request → recebe group0-welcome com peers[] reais
+       4. Conecta aos peers → Modo Geral ativo com pessoas imediatamente
+       5. Usuário entra no grupo, conversa sem precisar selecionar contato
+
+     FLUXO COMPLETO (entrada direta):
+       Abre URL → peer inicializa → bootstrap K10-CENTRAL →
+       group0-request → group0-welcome + peers[] →
+       conecta peers → Modo Geral ativo → conversa!
+
+     COMPATIBILIDADE:
+       - Entrada com ?portas=: fluxo original V30 mantido intacto
+       - Entrada sem ?portas=: novo bootstrap automático V31
+       - Servidores V30 existentes: totalmente compatíveis
+     ══════════════════════════════════════════════════════════════════════
+
      NOVO V30 — GRUPO 0 MESH: MODO GERAL ATIVO NA ENTRADA
      ══════════════════════════════════════════════════════════════════════
      PROBLEMA RESOLVIDO:
@@ -7573,6 +7598,34 @@ conn.on('error', (e) => {
 }
 });
 }, 1000);
+} else {
+// ── V31 BOOTSTRAP AUTOMÁTICO: sem ?portas= → conecta ao Group 0 padrão ──
+// Permite entrada direta sem URL params: abre o chat → entra no Grupo 0 →
+// Modo Geral ativado → servidor atribui grupo → conversa imediata.
+if (!group0WelcomeReceivedRef.current && !myGroupIdRef.current) {
+const bootstrapId = 'K10-CENTRAL';
+addAudit(`[Grupo 0] 🚀 Bootstrap automático → conectando a ${bootstrapId}`, 'info');
+setTimeout(() => {
+const bConn = peer.connect(bootstrapId, { reliable: true });
+if (bConn) {
+bConn.on('open', () => {
+  setCentralServerId(bootstrapId);
+  addAudit(`[Grupo 0] ✅ Bootstrap conectado: ${bootstrapId}`, 'success');
+  try { bConn.send({ type: 'group0-request' }); } catch(e) {}
+  addAudit('[Grupo 0] ↗️ group0-request enviado (bootstrap automático)', 'info');
+  // aguarda group0-welcome — não envia handshake ainda
+});
+bConn.on('data', data => handleIncomingData(data, bootstrapId));
+bConn.on('close', () => {
+  addAudit(`[Grupo 0] Conexão bootstrap encerrada: ${bootstrapId}`, 'warn');
+  setConnections(prev => prev.filter(c => c.peer !== bootstrapId));
+});
+bConn.on('error', (e) => {
+  addAudit(`[Grupo 0] ⚠️ Erro bootstrap ${bootstrapId}: ${e?.message || '?'}`, 'error');
+});
+}
+}, 1000);
+}
 }
 });
 
