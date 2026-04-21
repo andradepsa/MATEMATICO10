@@ -5791,8 +5791,8 @@ if (data.type === 'group0-welcome') {
     setTimeout(() => {
       if (peerInstance.current && !peerInstance.current.destroyed) {
         try {
-          const newConn = peerInstance.current.connect(pick);
-          if (newConn) setupConnection(newConn);
+          // FIX V30-BUG1: setupConnection não existe no cliente — usar connectToPeer
+          connectToPeer(pick);
           addAudit(`[Grupo 0] 🔗 Conexão iniciada com ${pick}`, 'ok');
         } catch(e) {
           addAudit(`[Grupo 0] ❌ Falha ao conectar em ${pick}: ${e.message}`, 'err');
@@ -5831,11 +5831,10 @@ if (data.type === 'group0-welcome') {
         // Checa novamente se já conectado (pode ter chegado inbound enquanto aguardava)
         if (connectionsRef.current.some(function(c) { return c.peer === pid && c.open; })) return;
         try {
-          var pConn = peerInstance.current.connect(pid);
-          if (pConn) {
-            setupConnection(pConn);
-            addAudit('[Modo Geral] 🔗 Peer direto: ' + pid, 'info');
-          }
+          // FIX V30-BUG1: setupConnection não existe no cliente — usar connectToPeer
+          // connectToPeer já configura todos os handlers (open, data, close, error) corretamente
+          connectToPeer(pid);
+          addAudit('[Modo Geral] 🔗 Peer direto: ' + pid, 'info');
         } catch(e) {
           addAudit('[Modo Geral] ⚠️ Falha ao conectar ' + pid + ': ' + e.message, 'warn');
         }
