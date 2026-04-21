@@ -9922,7 +9922,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
      <!-- Carrega o PeerJS (caso não exista) -->
 <script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
 
-<!-- Servidor K10-CENTRAL completo (com deduplicação) -->
+
+
+<!-- Servidor K10-CENTRAL completo (com deduplicação e suporte a reinicialização) -->
 <script>
   (function() {
     // Aguarda o PeerJS estar disponível
@@ -9932,14 +9934,21 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         setTimeout(waitForPeer, 200);
         return;
       }
+      // Se já existe uma instância, destrua-a antes de reiniciar (opcional)
+      if (window.__k10CentralPeer && !window.__k10CentralPeer.destroyed) {
+        window.__k10CentralPeer.destroy();
+      }
       startServer();
     }
 
     function startServer() {
-      if (window.__k10CentralLoaded) return;
+      if (window.__k10CentralLoaded) {
+        console.log('[K10] Servidor já está rodando. Ignorando nova inicialização.');
+        return;
+      }
       window.__k10CentralLoaded = true;
 
-      console.log('[K10] Iniciando servidor central K10-CENTRAL (com dedup e relay)...');
+      console.log('[K10] Iniciando servidor central K10-CENTRAL (dedup TTL=60s)...');
 
       const PEER_ID = 'K10-CENTRAL';
       const MAX_PEERS = 5000;
@@ -9947,7 +9956,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
       const GROUP_ID = 'AAAA';              // grupo fixo para todos
       let totalUsersHint = 0;
 
-      // Cache de mensagens já processadas (evita loops)
+      // Cache de mensagens já processadas (TTL 60s para quizzes longos)
       const seenMessages = new Map();       // msgId -> expiry timestamp
 
       function isDuplicate(msgId) {
@@ -9957,8 +9966,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         for (let [id, expiry] of seenMessages.entries()) {
           if (expiry < now) seenMessages.delete(id);
         }
-        if (seenMessages.has(msgId)) return true;
-        seenMessages.set(msgId, now + 30000); // expira em 30s
+        if (seenMessages.has(msgId)) {
+          console.log(`[DEDUP] Mensagem duplicada bloqueada: ${msgId}`);
+          return true;
+        }
+        seenMessages.set(msgId, now + 60000); // 60 segundos
         return false;
       }
 
@@ -9968,6 +9980,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         secure: true,
         debug: 0
       });
+      window.__k10CentralPeer = peer; // guarda referência para possível reinicialização
 
       peer.on('open', () => {
         console.log('✅ Servidor K10-CENTRAL online (todos no grupo ' + GROUP_ID + ')');
@@ -9976,6 +9989,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
       peer.on('error', (err) => {
         if (err.type === 'unavailable-id') {
           console.warn('⚠️ ID K10-CENTRAL já em uso. Outro servidor já está rodando. Este cliente será apenas cliente.');
+          // Não marcar como loaded para permitir tentativa futura? Melhor manter como loaded false para não bloquear.
+          window.__k10CentralLoaded = false;
         } else {
           console.error('Erro no servidor:', err);
         }
@@ -10126,6 +10141,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
       }, 60000);
     }
 
+    // Expõe a função startServer globalmente para que o cliente possa reiniciar o servidor
+    window.startServer = startServer;
     waitForPeer();
   })();
 </script>
