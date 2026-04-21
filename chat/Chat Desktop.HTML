@@ -1,175 +1,4 @@
-<!-- ═══ Chat K10 V38 — Fix Mensagens Relay via K10-CENTRAL sumindo do Chat Geral (21/abr/2026) ═══
-     CORREÇÕES V38 — 1 FIX CRÍTICO DE ROTEAMENTO DE MENSAGENS
-     ══════════════════════════════════════════════════════════════════════
-     FIX V38-BUG: Mensagens de outros usuários não apareciam no Chat Geral
-          - Causa: quando K10-CENTRAL retransmite (relay) uma mensagem de outro peer,
-            o handler definia recipient = pId = 'K10-CENTRAL' (isFromSrv=true)
-            em vez de recipient = 'general'
-          - filteredMessages filtra: msg.recipient === 'general'
-            → mensagens relay ficavam invisíveis para o destinatário!
-          - Causa secundária: sender = pId = 'K10-CENTRAL' em vez de data.sender
-            → nome do remetente mostrava o servidor em vez do usuário original
-          - Fix 1 (mensagens normais): recipient sempre 'general' para data.direct=false
-          - Fix 2 (mensagens poll): mesma correção no baseMessage de enquetes
-          - Fix 3 (mensagens quiz): mesma correção no baseQuizMsg
-          - Fix geral: sender = data.sender || pId (usa remetente original do payload)
-          - Resultado: mensagens de todos os peers aparecem corretamente no Chat Geral
-            mesmo quando roteadas via K10-CENTRAL ✅
-     NOTA DESIGN: K10-CENTRAL é o Portal Grupo 0 (sempre ativo) E o servidor do grupo
-          em setups com servidor único — o FIX V32 (connectToPeer permanente) é correto
-          para este caso. O bug era apenas no roteamento de mensagens relay.
-     ══════════════════════════════════════════════════════════════════════
-     FIX V36-BUG1: Contato selecionado não aparecia na lista da aba Privado
-          - Causa 1: filtro usava c.id mas objeto contato usa c.peerId → NUNCA encontrava
-          - Causa 2: conexão ainda não estabelecida quando o usuário chega na aba Privado
-            (connectToPeer é assíncrono — leva ~1-2s para abrir a conexão)
-          - Fix: corrigido c.id → c.peerId no filtro de connections
-          - Fix: adicionada entrada pendente para selectedContact quando está em contacts
-            mas ainda não aparece em connections (pendingEntry)
-          - Resultado: ao clicar num contato → vai para aba Privado com o contato visível
-            imediatamente, mesmo antes da conexão PeerJS ser estabelecida
-
-     FIX V36-BUG2: Servidor do Grupo 0 / Modo Geral aparecia na aba Privado
-          - Causa: isCentralServer(conn.peer) no filtro incluía QUALQUER peer com '-CENTRAL'
-            inclusive o servidor bootstrap do Grupo 0 com quem o cliente nunca quis conversar
-          - Fix: removido isCentralServer do filtro da aba Privado
-          - Regra agora: aba Privado exibe SOMENTE peers que o usuário adicionou à lista
-            de contatos (contacts[].peerId) OU que fizeram conexão direta (incoming).
-          - Resultado: aba Privado começa 100% limpa ao entrar no Modo Geral ✅
-
-     FIX V36-BUG3: Chat não logava se servidor ficasse online depois dos 8 retries
-          - Causa: V35 tinha 8 retries com backoff (~103s total). Após esgotar,
-            NUNCA mais tentava → se servidor subisse depois de 2min, cliente ficava
-            preso para sempre sem recarregar a página
-          - Fix 1: após 8 retries rápidos → inicia polling lento (a cada 30s, indefinido)
-            que continua tentando até o servidor ficar online — mesmo horas depois
-          - Fix 2: retryConn.on('open') e rConn.on('open') não chamavam setCentralServerId
-            → servidor não era reconhecido nos retries subsequentes. Corrigido.
-          - Resultado: cliente conecta automaticamente assim que servidor fica online,
-            sem necessidade de recarregar a página ✅
-     ══════════════════════════════════════════════════════════════════════
-     CORREÇÕES V35 — 3 FIXES CIRÚRGICOS (sem breaking change)
-     ══════════════════════════════════════════════════════════════════════
-     FIX V35-BOOTSTRAP: handleIncomingDataRef + retry backoff no bootstrap
-          - Bug 1 (stale closure): event handlers em initPeer() capturavam versão
-            antiga de handleIncomingData → connectToPeer retornava cedo
-            Fix: handleIncomingDataRef atualizado a cada render; 4 handlers usam .current
-          - Bug 2 (sem retry): bootstrap falhava com peer-unavailable (servidor não
-            online ainda) e NUNCA retentava → Modo Geral ficava morto para sempre
-            Fix: bConn.on('error') agora retenta até 8x com backoff (3s, 6s, 9s...)
-            usando peerInstance.current e handleIncomingDataRef.current (sem stale closure)
-          - Resultado: Modo Geral inicia mesmo que o servidor suba depois do cliente
-
-     FIX V35-PRIVATE-TAB: aba Privado só exibe contatos explícitos
-          - Bug: peers auto-conectados via Modo Geral (data.peers do group0-welcome)
-            eram adicionados a connections[] e apareciam na aba Privado ao iniciar
-          - Fix: Private tab filtra connections para exibir apenas peers que estão
-            no array contacts[] do usuário OU são servidores (isCentralServer)
-          - Resultado: aba Privado começa vazia; só aparece contato se o usuário
-            selecionar explicitamente da lista de contatos
-
-     FIX V35-BADGE: badge vermelho da aba Privado não aparece mais ao iniciar
-          - Bug: mensagens de sistema (sender:'__system__') têm recipient:'you'
-            e eram contadas como mensagens privadas → badge vermelho na aba Privado
-            toda vez que Modo Geral iniciava e enviava mensagens de status
-          - Fix: privateCount exclui mensagens com sender==='__system__'
-          - Resultado: zero badge falso na aba Privado ao entrar no Modo Geral
-     ══════════════════════════════════════════════════════════════════════
-     NOVO V33 — 3 ABAS NA SIDEBAR DE CONVERSAS
-     ══════════════════════════════════════════════════════════════════════
-     FEAT V33-TABS: Sidebar de conversas dividida em 3 abas
-          - Aba "💬 Privado": lista de peers conectados (User↔User e User↔Server)
-            Ao entrar via Modo Geral, esta aba começa VAZIA (nenhum contato direto)
-            O usuário só vê alguém aqui quando estabelece conexão privada
-          - Aba "🌐 Geral": chat público do grupo/rede P2P
-            Mensagens com recipient='general' — sempre acessível
-            Placeholder explica que está no Modo Geral da rede
-          - Aba "▶️ YouTube": chat sincronizado com vídeo YouTube
-            Só aparece quando youtubeChatId está ativo
-            Mantém iframe YouTube + chat nativo lado a lado
-          - Estado inicial: aba 'geral' ativa ao entrar sem contatos
-            Troca para 'privado' automaticamente ao selecionar um contato
-          - Indicador de mensagens não lidas por aba (badge numérico)
-
-     FIX V33-PEERLIST: peer-list agora usa peers[] reais do servidor
-          (ver ServidorChatK10 V33 para detalhes)
-     ══════════════════════════════════════════════════════════════════════
-     Correções anteriores V32/V31/V30 mantidas integralmente.
-     ══════════════════════════════════════════════════════════════════════
-     NOVO V32 — CORREÇÕES CRÍTICAS BOOTSTRAP E MODO GERAL
-     ══════════════════════════════════════════════════════════════════════
-     FIX V32-BOOTSTRAP: Remove !myGroupIdRef.current do bootstrap automático
-          - Bug: se localStorage tinha myGroupId salvo de sessão anterior,
-            o bootstrap era bloqueado e cliente ficava isolado ao abrir sem ?portas=
-          - Fix: condição mudou para !group0WelcomeReceivedRef.current apenas
-          - Bônus: limpa myGroupId do localStorage para receber atribuição fresca
-
-     FIX V32-FALLBACK: Quando group0-welcome sem peers[] E sem servers[]
-          - Bug: cliente recebia welcome vazio → connections.length===0 →
-            "Aguardando conexões para entrar na Tela Geral..." para sempre
-          - Fix: detecta peers e servers vazios → chama connectToPeer(pId)
-            para conectar permanentemente ao servidor de origem como membro regular
-          - Resultado: servidor atribui grupo, cliente entra no Modo Geral ✅
-     ══════════════════════════════════════════════════════════════════════
-     Correções anteriores V31/V30 mantidas integralmente.
-     ══════════════════════════════════════════════════════════════════════
-     PROBLEMA RESOLVIDO:
-       Ao entrar no chat, o usuário estava em Modo Geral mas sem peers —
-       precisava aguardar grupo ser atribuído, receber peer-list, e só então
-       conectar aos peers do grupo. Modo Geral "vazio" na entrada.
-
-     SOLUÇÃO V30 — group0-welcome inclui peers[] reais:
-       1. Servidor responde ao group0-request com peers[] (até 20 IDs)
-          Fontes: peers locais do grupo mais populoso + meshPeers (outros servidores)
-       2. Cliente conecta diretamente a esses peers em paralelo
-       3. Resultado: Modo Geral já tem pessoas ao entrar — sem esperar servidor
-
-     PROTOCOLO server-mesh-update (SERVIDOR→SERVIDOR):
-       - A cada 30s, cada servidor envia sua lista de peers aos vizinhos conhecidos
-       - Vizinhos armazenam em meshPeersRef (cap 200)
-       - No próximo group0-request, meshPeers são incluídos em peers[]
-       - Com N servidores em mesh: qualquer um representa a rede global
-
-     GARANTIAS:
-       - Anti-flood: cliente conecta com delay escalonado (1s + 200ms/peer + jitter)
-       - Anti-duplicate: checa connectionsRef antes de cada conexão
-       - Tolerante a falha: peers offline silenciosamente ignorados (PeerJS timeout)
-       - Sem breaking change: clientes V29 sem data.peers funcionam normalmente
-     ══════════════════════════════════════════════════════════════════════
-
-     NOVO V29 — GRUPO 0: ALWAYS-ON + ANTI-FLOOD
-     ══════════════════════════════════════════════════════════════════════
-     PROBLEMA RESOLVIDO:
-       Com milhões de servidores, precisávamos de um ponto de entrada que
-       não causasse flood na rede ao anunciar grupos disponíveis.
-
-     SOLUÇÃO — 1 mensagem, cálculo local:
-       1. Cliente conecta ao servidor Grupo 0 (modo portal)
-       2. Servidor envia APENAS: { type:'group0-welcome', totalUsers, servers:[] }
-       3. Cliente calcula LOCALMENTE: groupIdx = floor(totalUsers / 1800)
-       4. GID alvo = base62(groupIdx) com K10_CHARS — idêntico ao servidor
-       5. Cliente conecta ao servidor real da lista → fim do processo
-
-     GARANTIA DE CONVERGÊNCIA:
-       O servidor preenche grupos sequencialmente: AAAA → AAAB → AAAC...
-       O cliente replica o mesmo cálculo e chega ao MESMO grupo sem
-       perguntar nada à rede. Zero flood. Zero coordenação.
-
-     EXEMPLOS:
-       totalUsers=0      → GID='AAAA'  (índice 0)
-       totalUsers=1800   → GID='AAAB'  (índice 1)
-       totalUsers=3600   → GID='AAAC'  (índice 2)
-       totalUsers=111600 → GID='AABA'  (índice 62)
-
-     NOVO HANDLER:
-       'group0-welcome'  — recebe totalUsers, calcula GID, redireciona
-
-     MUDANÇAS NO CÓDIGO:
-       Servidor: group0Mode toggle + lógica em setupConnection (return early)
-       Cliente:  handler 'group0-welcome' + função deterministicGid inline
-       Arquivos:  ServidorChatK10_V28.html + Chat_Desktop_V28.html
-     ══════════════════════════════════════════════════════════════════════
-
+<!-- ═══ Chat K10 V27 — Protocolo de Mitose e Fusão de Grupos (20/abr/2026) ═══
      Correções anteriores (V26 e anteriores) mantidas integralmente.
      NOVO V27 — PROTOCOLO HOMEOSTÁTICO DE GRUPOS (Mitose + Tutela + Fusão):
      ══════════════════════════════════════════════════════════════════════
@@ -326,7 +155,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V35</title>
+<title>Chat K10 — V27</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -423,32 +252,12 @@ text-shadow: 0 0 8px rgba(74, 222, 128, 0.3);
 
 /* CHAT LAYOUT */
 .chat-main-container { display: flex; gap: 14px; height: calc(100vh - 280px); min-height: 400px; }
-.conversations-list { width: 280px; min-width: 220px; background: var(--surface); border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); overflow: hidden; display: flex; flex-direction: column; }
+.conversations-list { width: 280px; min-width: 220px; background: var(--surface); border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); overflow-y: auto; display: flex; flex-direction: column; }
 .conversations-list h4 { padding: 14px 16px 10px; margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); border-bottom: 1px solid var(--border); }
 .conversation-item { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: background 0.15s; position: relative; }
 .conversation-item:hover { background: #f8fafc; }
 .conversation-item.selected { background: #eff6ff; border-left: 3px solid var(--primary); }
 .conversation-item.central-server { border-left: 3px solid var(--warning) !important; }
-
-/* ── V33: Abas da sidebar ── */
-.sidebar-tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); border-radius: 12px 12px 0 0; flex-shrink: 0; }
-.sidebar-tab { flex: 1; padding: 9px 4px 8px; border: none; background: transparent; cursor: pointer; font-size: 11px; font-weight: 600; color: var(--text-muted); border-bottom: 2px solid transparent; transition: all 0.15s; position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; }
-.sidebar-tab:first-child { border-radius: 12px 0 0 0; }
-.sidebar-tab:last-child { border-radius: 0 12px 0 0; }
-.sidebar-tab.active-private  { color: #3b82f6; border-bottom-color: #3b82f6; background: #eff6ff; }
-.sidebar-tab.active-general  { color: #10b981; border-bottom-color: #10b981; background: #f0fdf4; }
-.sidebar-tab.active-youtube  { color: #ef4444; border-bottom-color: #ef4444; background: #fef2f2; }
-.sidebar-tab:hover:not(.active-private):not(.active-general):not(.active-youtube) { background: #f8fafc; color: #475569; }
-.sidebar-tab-icon { font-size: 15px; }
-.sidebar-tab-badge { position: absolute; top: 4px; right: 6px; background: #ef4444; color: white; font-size: 9px; font-weight: 700; border-radius: 10px; padding: 1px 5px; min-width: 16px; text-align: center; }
-.sidebar-tab-content { flex: 1; overflow-y: auto; }
-/* painel geral vazio */
-.general-empty-panel { padding: 24px 16px; text-align: center; color: var(--text-muted); font-size: 13px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
-.general-empty-panel .big-icon { font-size: 36px; }
-/* dark mode */
-.dark-mode .sidebar-tab.active-private { background: #1e3a5f; }
-.dark-mode .sidebar-tab.active-general { background: #052e16; }
-.dark-mode .sidebar-tab.active-youtube { background: #450a0a; }
 .conversation-name { font-weight: 600; color: var(--text); font-size: 14px; }
 .conversation-peer-id { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
 
@@ -947,11 +756,6 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 </style>
 </head>
 <body>
-
-
-
-
-     
 <noscript>
   <div style="padding:40px;font-family:system-ui,-apple-system,sans-serif;text-align:center;max-width:560px;margin:60px auto;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);">
     <h1 style="color:#1e40af;margin-top:0;">Chat K10 V27</h1>
@@ -1085,7 +889,7 @@ waitCooldown: "Wait {s}s...",
 privateMsg: "🔒 Private message to {name}...",
 groupMsg: "🛡️ Group encrypted message to {name}...",
 regularMsg: "Message to {name}...",
-generalMsg: "🌐 Message to General Chat...",
+generalMsg: "Message to General Web...",
 generalChatWelcome: "Welcome to the General Web! 🌐 All messages here are public and retransmitted via the P2P network to everyone connected.",
 noConnectionsGeneral: "Waiting for connections to join the General Web...",
 generalMode: "General Mode",
@@ -1279,7 +1083,7 @@ waitCooldown: "Aguarde {s}s...",
 privateMsg: "🔒 Mensagem privada para {name}...",
 groupMsg: "🛡️ Mensagem criptografada no grupo {name}...",
 regularMsg: "Mensagem para {name}...",
-generalMsg: "🌐 Mensagem para o Chat Geral...",
+generalMsg: "Mensagem para a Teia Geral...",
 generalChatWelcome: "Bem-vindo à Teia Geral! 🌐 Todas as mensagens aqui são públicas e retransmitidas pela rede P2P para todos os conectados.",
 noConnectionsGeneral: "Aguardando conexões para entrar na Teia Geral...",
 generalMode: "Modo Geral",
@@ -2985,8 +2789,7 @@ youtubeChatId, disconnectPeer,
 showWhiteboard, setShowWhiteboard,
 avatars,
 currentQuizQuestionRef,
-connectionsRef: connectionsRefProp,
-directPeersRef
+connectionsRef: connectionsRefProp
 }) => {
 // FIX: usa connectionsRef recebido via prop (do App) para evitar stale closure no sendDirectMessage
 // Se não recebeu a prop (compatibilidade), cria um ref local sincronizado com connections
@@ -2999,12 +2802,6 @@ const [showSendSecretModal, setShowSendSecretModal] = useState(false);
 const [showServerE2EEModal, setShowServerE2EEModal] = useState(false);
 const [hiddenMessages, setHiddenMessages] = useState(new Set());
 const [activeChatTab, setActiveChatTab] = useState('native');
-// V33: aba ativa na sidebar ('private' | 'general' | 'youtube')
-const [sidebarTab, setSidebarTab] = useState('general');
-// V33: contador de não-lidas por aba
-const [unreadGeneral, setUnreadGeneral] = useState(0);
-const [unreadPrivate, setUnreadPrivate] = useState(0);
-const lastSeenMsgCountRef = useRef({ general: 0, private: 0 });
 
 
 const handleVote = (pollId, optionIndex) => {
@@ -3086,44 +2883,6 @@ const handleQuizAnswer = (quizId, optionIndex) => {
 useEffect(() => {
 if (!youtubeChatId) setActiveChatTab('native');
 }, [youtubeChatId]);
-
-// V33: ao selecionar contato → vai para aba privada; ao desselecionar → vai para geral
-// V37-FIX: resetar activeChatTab='native' ao trocar de aba (YouTube nao deve vazar)
-useEffect(() => {
-  if (selectedContact) {
-    setSidebarTab('private');
-    setUnreadPrivate(0);
-    setActiveChatTab('native');
-  } else {
-    setSidebarTab('general');
-    setUnreadGeneral(0);
-    setActiveChatTab('native');
-  }
-}, [selectedContact]);
-
-// V33: contagem de não-lidas nas abas que não estão ativas
-useEffect(() => {
-  const generalCount = messages.filter(m => !m.recipient || m.recipient === 'general').length;
-  // V35: exclui mensagens de sistema (__system__) — evita badge falso na aba Privado
-  // ao iniciar Modo Geral (mensagens de sistema têm recipient:'you' mas não são privadas)
-  const privateCount = messages.filter(m => m.sender !== '__system__' && (m.recipient === 'you' || (m.sender === 'you' && m.recipient && m.recipient !== 'general'))).length;
-  if (sidebarTab !== 'general') {
-    const prev = lastSeenMsgCountRef.current.general;
-    if (generalCount > prev) setUnreadGeneral(g => g + (generalCount - prev));
-    lastSeenMsgCountRef.current.general = generalCount;
-  } else {
-    lastSeenMsgCountRef.current.general = generalCount;
-    setUnreadGeneral(0);
-  }
-  if (sidebarTab !== 'private') {
-    const prev = lastSeenMsgCountRef.current.private;
-    if (privateCount > prev) setUnreadPrivate(p => p + (privateCount - prev));
-    lastSeenMsgCountRef.current.private = privateCount;
-  } else {
-    lastSeenMsgCountRef.current.private = privateCount;
-    setUnreadPrivate(0);
-  }
-}, [messages, sidebarTab]);
 
 
 const [isSending, setIsSending] = useState(false);
@@ -3482,199 +3241,109 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
 
 
 <div className="chat-main-container">
-<div className="conversations-list" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-{/* V33: Abas da sidebar — Privado | Geral | YouTube */}
-<div className="sidebar-tabs">
-  <button
-    className={`sidebar-tab${sidebarTab === 'private' ? ' active-private' : ''}`}
-    onClick={() => { setSidebarTab('private'); setUnreadPrivate(0); setActiveChatTab('native'); }}
-  >
-    <span className="sidebar-tab-icon">🔒</span>
-    <span>Privado</span>
-    {unreadPrivate > 0 && <span className="sidebar-tab-badge">{unreadPrivate > 99 ? '99+' : unreadPrivate}</span>}
-  </button>
-  <button
-    className={`sidebar-tab${sidebarTab === 'general' ? ' active-general' : ''}`}
-    onClick={() => { setSidebarTab('general'); setUnreadGeneral(0); setSelectedContact(null); setActiveChatTab('native'); }}
-  >
-    <span className="sidebar-tab-icon">🌐</span>
-    <span>Geral</span>
-    {unreadGeneral > 0 && <span className="sidebar-tab-badge">{unreadGeneral > 99 ? '99+' : unreadGeneral}</span>}
-  </button>
-  {youtubeChatId && (
-  <button
-    className={`sidebar-tab${sidebarTab === 'youtube' ? ' active-youtube' : ''}`}
-    onClick={() => { setSidebarTab('youtube'); setActiveChatTab('youtube'); }}
-  >
-    <span className="sidebar-tab-icon">▶️</span>
-    <span>YouTube</span>
-  </button>
-  )}
+<div className="conversations-list">
+<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
+<h4 style={{ margin: 0 }}>{t(lang, 'conversations')}</h4>
+<button className="icon-btn" onClick={() => setShowTorrentManager(true)} title={t(lang, 'torrentManager')} style={{ padding: '4px' }}>
+<i className="fas fa-magnet"></i>
+</button>
 </div>
-
-{/* ── Aba PRIVADO ── */}
-{sidebarTab === 'private' && (
-<div className="sidebar-tab-content">
-  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px 6px' }}>
-    <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600 }}>Chats Privados</span>
-    <button className="icon-btn" onClick={() => setShowTorrentManager(true)} title={t(lang, 'torrentManager')} style={{ padding: '4px' }}>
-      <i className="fas fa-magnet"></i>
-    </button>
-  </div>
-  {/* V36: filtra apenas contatos explícitos — peers do Modo Geral e servidores Group0 NÃO aparecem aqui */}
-  {/* FIX V36-BUG1: era c.id (incorreto) → corrigido para c.peerId (campo real do objeto contato)  */}
-  {/* FIX V36-BUG2: removido isCentralServer — servidor Group0 não deve aparecer na aba Privado    */}
-  {(() => {
-    const connList = connections.filter(conn =>
-      contacts.some(c => c.peerId === conn.peer) ||
-      (directPeersRef && directPeersRef.current.has(conn.peer))
-    );
-    // FIX V36: se selectedContact é um contato mas ainda não conectou (connectToPeer em andamento),
-    // insere entrada pendente para que o contato apareça imediatamente na lista ao selecionar
-    const selectedInContacts = selectedContact && contacts.some(c => c.peerId === selectedContact);
-    const selectedInList = connList.some(c => c.peer === selectedContact);
-    const pendingEntry = (selectedInContacts && !selectedInList)
-      ? [{ peer: selectedContact, open: false, _pending: true }]
-      : [];
-    const privateConns = [...pendingEntry, ...connList];
-  return privateConns.length === 0 ? (
-    <div className="general-empty-panel">
-      <span className="big-icon">🔒</span>
-      <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>Sem chats privados</div>
-      <div style={{ fontSize: '12px' }}>Conecte-se a um usuário ou servidor para iniciar uma conversa privada.</div>
-    </div>
-  ) : (
-    privateConns.map((conn, i) => {
-      const isSelected = selectedContact === conn.peer;
-      const hasVoice = activeCalls.some(c => c.peerId === conn.peer && c.type === 'voice');
-      const hasVideo = activeCalls.some(c => c.peerId === conn.peer && c.type === 'video' && c.localStream);
-      const e2ee = e2eeState[conn.peer];
-      const hasMine = !!e2ee?.mySecret, hasTheirs = !!e2ee?.contactSecret;
-      const isServer = isCentralServer(conn.peer);
-      const srvGrpActive = isServer && serverE2EE[conn.peer]?.active;
-      return (
-        <div key={i} className={`conversation-item${isSelected ? ' selected' : ''}${conn.peer === centralServerId ? ' central-server' : ''}`}
-          onClick={() => setSelectedContact(isSelected ? null : conn.peer)}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <Avatar peerId={conn.peer} name={getContactName(conn.peer)} avatars={avatars} size="medium" />
-              <div>
-                <div className="conversation-name">
-                  {!isServer && hasMine && hasTheirs && <span title="Full E2EE active" style={{ marginRight: '4px' }}>🔒</span>}
-                  {!isServer && hasMine && !hasTheirs && <span title="Sending encrypted" style={{ marginRight: '4px' }}>📤</span>}
-                  {!isServer && !hasMine && hasTheirs && <span title="Receiving encrypted" style={{ marginRight: '4px' }}>📥</span>}
-                  {isServer && srvGrpActive && <span title="Group encryption active" style={{ marginRight: '4px' }}>🛡️</span>}
-                  {getContactName(conn.peer)}
-                </div>
-                <div className="conversation-peer-id">{conn.peer}</div>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: '8px', position: 'relative' }}>
-              <div className="sidebar-icon-btn" style={{ color: '#94a3b8' }} onClick={e => { e.stopPropagation(); deleteMessagesByContact(conn.peer); }} title={t(lang, 'deleteMessages')}>
-                <i className="fas fa-trash"></i>
-              </div>
-              <div className="sidebar-icon-btn" style={{ color: '#ef4444' }} onClick={e => { e.stopPropagation(); if(confirm(t(lang, 'confirmRemoveFriend', { name: getContactName(conn.peer) }))) { disconnectPeer(conn.peer); deleteMessagesByContact(conn.peer); } }} title={t(lang, 'removeFriend')}>
-                <i className="fas fa-user-minus"></i>
-              </div>
-            </div>
-          </div>
-          <div style={{ display: 'flex', gap: '5px', marginTop: '7px', flexWrap: 'wrap' }}>
-            {!isServer && (hasVoice
-              ? <button onClick={e => { e.stopPropagation(); endCall(conn.peer, 'voice'); }} className="call-btn" style={{ background: '#ef4444' }} title={t(lang, 'endVoiceCall')}><i className="fas fa-phone-slash"></i></button>
-              : <button onClick={e => { e.stopPropagation(); startVoiceCall(conn.peer); }} className="call-btn" style={{ background: '#22c55e' }} title={t(lang, 'voiceCall')}><i className="fas fa-phone"></i></button>)}
-            {!isServer && (
-              <button onClick={e => { e.stopPropagation(); toggleVideoCall(conn.peer); }} className="call-btn" style={{ background: hasVideo ? '#ef4444' : '#22c55e' }} title={hasVideo ? t(lang, 'stopCamera') : t(lang, 'camera')}>
-                <i className={`fas ${hasVideo ? 'fa-video-slash' : 'fa-video'}`}></i>
-              </button>
-            )}
-            {isServer && (
-              <button className={`server-e2ee-btn ${srvGrpActive ? 'active' : 'inactive'}`}
-                onClick={e => { e.stopPropagation(); setSelectedContact(conn.peer); setShowServerE2EEModal(true); }}
-                title={srvGrpActive ? 'Group encryption ACTIVE — click to manage' : 'Click to activate group encryption on server'}>
-                🛡️
-              </button>
-            )}
-            {!isServer && (
-              <button onClick={e => { e.stopPropagation(); const input = document.createElement('input'); input.type = 'file'; input.onchange = (ev) => handleTorrentDirectSeed(ev.target.files[0], conn.peer); input.click(); }} className="call-btn" style={{ background: '#8b5cf6' }} title={t(lang, 'sendTorrent')}>
-                <i className="fas fa-magnet"></i>
-              </button>
-            )}
-          </div>
-          {pendingTorrentRequests[conn.peer] && (
-            <div style={{ marginTop: '8px', padding: '8px', background: '#fff7ed', borderRadius: '6px', border: '1px solid #ffedd5', fontSize: '11px' }}>
-              <div style={{ fontWeight: '600', color: '#9a3412', marginBottom: '4px' }}>🧲 Torrent: {pendingTorrentRequests[conn.peer].fileName}</div>
-              <div style={{ display: 'flex', gap: '4px' }}>
-                <button onClick={(e) => { e.stopPropagation(); handleTorrentDownload(pendingTorrentRequests[conn.peer].magnet); setPendingTorrentRequests(prev => { const u = {...prev}; delete u[conn.peer]; return u; }); }} style={{ flex: 1, background: '#22c55e', color: 'white', border: 'none', padding: '4px', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}>ACEITAR</button>
-                <button onClick={(e) => { e.stopPropagation(); setPendingTorrentRequests(prev => { const u = {...prev}; delete u[conn.peer]; return u; }); }} style={{ flex: 1, background: '#ef4444', color: 'white', border: 'none', padding: '4px', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}>RECUSAR</button>
-              </div>
-            </div>
-          )}
-        </div>
-      );
-    })
-  );
-  })()}
+{connections.length === 0 && <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center' }}>{t(lang, 'noConnectionsGeneral')}</div>}
+{connections.map((conn, i) => {
+const isSelected = selectedContact === conn.peer;
+const hasVoice = activeCalls.some(c => c.peerId === conn.peer && c.type === 'voice');
+const hasVideo = activeCalls.some(c => c.peerId === conn.peer && c.type === 'video' && c.localStream);
+const e2ee = e2eeState[conn.peer];
+const hasMine = !!e2ee?.mySecret, hasTheirs = !!e2ee?.contactSecret;
+const isServer = isCentralServer(conn.peer);
+const srvGrpActive = isServer && serverE2EE[conn.peer]?.active;
+return (
+<div key={i} className={`conversation-item${isSelected ? ' selected' : ''}${conn.peer === centralServerId ? ' central-server' : ''}`}
+onClick={() => setSelectedContact(isSelected ? null : conn.peer)}>
+<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+<div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+<Avatar peerId={conn.peer} name={getContactName(conn.peer)} avatars={avatars} size="medium" />
+<div>
+<div className="conversation-name">
+{!isServer && hasMine && hasTheirs && <span title="Full E2EE active" style={{ marginRight: '4px' }}>🔒</span>}
+{!isServer && hasMine && !hasTheirs && <span title="Sending encrypted" style={{ marginRight: '4px' }}>📤</span>}
+{!isServer && !hasMine && hasTheirs && <span title="Receiving encrypted" style={{ marginRight: '4px' }}>📥</span>}
+{isServer && srvGrpActive && <span title="Group encryption active" style={{ marginRight: '4px' }}>🛡️</span>}
+{getContactName(conn.peer)}
 </div>
+<div className="conversation-peer-id">{conn.peer}</div>
+</div>
+</div>
+<div style={{ display: 'flex', gap: '8px', position: 'relative' }}>
+<div className="sidebar-icon-btn" style={{ color: '#94a3b8' }} onClick={e => { e.stopPropagation(); deleteMessagesByContact(conn.peer); }} title={t(lang, 'deleteMessages')}>
+<i className="fas fa-trash"></i>
+</div>
+<div className="sidebar-icon-btn" style={{ color: '#ef4444' }} onClick={e => { e.stopPropagation(); if(confirm(t(lang, 'confirmRemoveFriend', { name: getContactName(conn.peer) }))) { disconnectPeer(conn.peer); deleteMessagesByContact(conn.peer); } }} title={t(lang, 'removeFriend')}>
+<i className="fas fa-user-minus"></i>
+</div>
+</div>
+</div>
+<div style={{ display: 'flex', gap: '5px', marginTop: '7px', flexWrap: 'wrap' }}>
+{!isServer && (hasVoice
+? <button onClick={e => { e.stopPropagation(); endCall(conn.peer, 'voice'); }} className="call-btn" style={{ background: '#ef4444' }} title={t(lang, 'endVoiceCall')}><i className="fas fa-phone-slash"></i></button>
+: <button onClick={e => { e.stopPropagation(); startVoiceCall(conn.peer); }} className="call-btn" style={{ background: '#22c55e' }} title={t(lang, 'voiceCall')}><i className="fas fa-phone"></i></button>)}
+{!isServer && (
+<button onClick={e => { e.stopPropagation(); toggleVideoCall(conn.peer); }} className="call-btn" style={{ background: hasVideo ? '#ef4444' : '#22c55e' }} title={hasVideo ? t(lang, 'stopCamera') : t(lang, 'camera')}>
+<i className={`fas ${hasVideo ? 'fa-video-slash' : 'fa-video'}`}></i>
+</button>
 )}
-
-{/* ── Aba GERAL ── */}
-{sidebarTab === 'general' && (
-<div className="sidebar-tab-content">
-  <div style={{ padding: '10px 14px 6px' }}>
-    <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600 }}>Modo Geral</span>
-  </div>
-  <div className="general-empty-panel">
-    <span className="big-icon">🌐</span>
-    <div style={{ fontWeight: 700, fontSize: '14px', color: '#10b981' }}>Modo Geral Ativo</div>
-    <div style={{ fontSize: '12px', lineHeight: '1.6' }}>
-      Você está no chat público da rede P2P.<br/>
-      Mensagens aqui chegam a <strong>todos</strong> os usuários conectados ao grupo.
-    </div>
-    <div style={{ fontSize: '11px', color: 'var(--text-muted)', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '8px 12px', marginTop: '4px', lineHeight: '1.6' }}>
-      👤 Para conversar em <strong>privado</strong>, clique na aba <strong>🔒 Privado</strong> e selecione um contato.
-    </div>
-    {connections.length > 0 && (
-      <div style={{ fontSize: '11px', color: '#059669', fontWeight: 600 }}>
-        👥 {connections.length} peer(s) conectado(s)
-      </div>
-    )}
-  </div>
-</div>
+{isServer && (
+<button className={`server-e2ee-btn ${srvGrpActive ? 'active' : 'inactive'}`}
+onClick={e => { e.stopPropagation(); setSelectedContact(conn.peer); setShowServerE2EEModal(true); }}
+title={srvGrpActive ? 'Group encryption ACTIVE — click to manage' : 'Click to activate group encryption on server'}>
+🛡️
+</button>
 )}
-
-{/* ── Aba YOUTUBE ── */}
-{sidebarTab === 'youtube' && youtubeChatId && (
-<div className="sidebar-tab-content">
-  <div style={{ padding: '10px 14px 6px' }}>
-    <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600 }}>YouTube Ativo</span>
-  </div>
-  <div className="general-empty-panel">
-    <span className="big-icon">▶️</span>
-    <div style={{ fontWeight: 700, fontSize: '14px', color: '#ef4444' }}>Chat YouTube</div>
-    <div style={{ fontSize: '12px', lineHeight: '1.5' }}>
-      Vídeo sincronizado com a rede.<br/>
-      ID: <strong>{youtubeChatId}</strong>
-    </div>
-  </div>
+{!isServer && (
+<button onClick={e => { e.stopPropagation(); const input = document.createElement('input'); input.type = 'file'; input.onchange = (ev) => handleTorrentDirectSeed(ev.target.files[0], conn.peer); input.click(); }} className="call-btn" style={{ background: '#8b5cf6' }} title={t(lang, 'sendTorrent')}>
+<i className="fas fa-magnet"></i>
+</button>
+)}
+</div>
+{pendingTorrentRequests[conn.peer] && (
+<div style={{ marginTop: '8px', padding: '8px', background: '#fff7ed', borderRadius: '6px', border: '1px solid #ffedd5', fontSize: '11px' }}>
+<div style={{ fontWeight: '600', color: '#9a3412', marginBottom: '4px' }}>🧲 Torrent: {pendingTorrentRequests[conn.peer].fileName}</div>
+<div style={{ display: 'flex', gap: '4px' }}>
+<button
+onClick={(e) => { e.stopPropagation(); handleTorrentDownload(pendingTorrentRequests[conn.peer].magnet); setPendingTorrentRequests(prev => { const u = {...prev}; delete u[conn.peer]; return u; }); }}
+style={{ flex: 1, background: '#22c55e', color: 'white', border: 'none', padding: '4px', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}
+>ACEITAR</button>
+<button
+onClick={(e) => { e.stopPropagation(); setPendingTorrentRequests(prev => { const u = {...prev}; delete u[conn.peer]; return u; }); }}
+style={{ flex: 1, background: '#ef4444', color: 'white', border: 'none', padding: '4px', borderRadius: '4px', cursor: 'pointer', fontWeight: '600' }}
+>RECUSAR</button>
+</div>
 </div>
 )}
 </div>
+);
+})}
+</div>
+
 
 <div className="chat-messages-container">
-{/* V33: barra de contexto */}
-<div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 14px', background: sidebarTab === 'youtube' ? '#fef2f2' : sidebarTab === 'general' ? '#f0fdf4' : '#eff6ff', borderBottom: '1px solid var(--border)', minHeight: '38px', flexShrink: 0 }}>
-  {sidebarTab === 'general' && <><span style={{ fontSize: '15px' }}>🌐</span><span style={{ fontSize: '12px', fontWeight: 700, color: '#10b981' }}>Chat Geral</span><span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '4px' }}>— Modo P2P Público</span></>}
-  {sidebarTab === 'private' && !selectedContact && <><span style={{ fontSize: '15px' }}>🔒</span><span style={{ fontSize: '12px', fontWeight: 700, color: '#3b82f6' }}>Chat Privado</span><span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '4px' }}>— Selecione um contato</span></>}
-  {sidebarTab === 'private' && selectedContact && <><span style={{ fontSize: '15px' }}>🔒</span><span style={{ fontSize: '12px', fontWeight: 700, color: '#3b82f6' }}>Privado</span><span style={{ fontSize: '11px', color: '#475569', marginLeft: '6px' }}>{getContactName(selectedContact)}</span><span style={{ fontSize: '10px', color: '#94a3b8', marginLeft: '4px' }}>({selectedContact})</span></>}
-  {sidebarTab === 'youtube' && <><span style={{ fontSize: '15px' }}>▶️</span><span style={{ fontSize: '12px', fontWeight: 700, color: '#ef4444' }}>Chat YouTube</span><span style={{ fontSize: '11px', color: '#6b7280', marginLeft: '4px' }}>{youtubeChatId}</span></>}
-  {sidebarTab === 'youtube' && (
-    <button onClick={() => setActiveChatTab(activeChatTab === 'native' ? 'youtube' : 'native')} style={{ marginLeft: 'auto', fontSize: '11px', padding: '3px 8px', background: activeChatTab === 'youtube' ? '#ef4444' : '#f1f5f9', color: activeChatTab === 'youtube' ? 'white' : '#64748b', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-      {activeChatTab === 'youtube' ? 'Ver Chat' : 'Ver Vídeo'}
-    </button>
-  )}
+{youtubeChatId && (
+<div style={{ display: 'flex', background: '#f1f5f9', borderBottom: '1px solid var(--border)' }}>
+<button
+onClick={() => setActiveChatTab('native')}
+style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'native' ? 'white' : 'transparent', borderBottom: activeChatTab === 'native' ? '2px solid #3b82f6' : '2px solid transparent', fontWeight: activeChatTab === 'native' ? 'bold' : 'normal', cursor: 'pointer', color: activeChatTab === 'native' ? '#3b82f6' : '#64748b' }}
+>
+Chat Nativo
+</button>
+<button
+onClick={() => setActiveChatTab('youtube')}
+style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'youtube' ? 'white' : 'transparent', borderBottom: activeChatTab === 'youtube' ? '2px solid #ef4444' : '2px solid transparent', fontWeight: activeChatTab === 'youtube' ? 'bold' : 'normal', cursor: 'pointer', color: activeChatTab === 'youtube' ? '#ef4444' : '#64748b' }}
+>
+<i className="fab fa-youtube"></i> Chat YouTube
+</button>
 </div>
+)}
 {activeChatTab === 'native' ? (
-
 <>
 <div className="chat-messages" ref={messagesContainerRef}>
 {filteredMessages.length === 0 && (
@@ -4841,8 +4510,6 @@ const [connections, setConnections] = useState([]);
 // — safe to read inside effects and event handlers without stale-closure risk
 const connectionsRef = useRef([]);
 useEffect(() => { connectionsRef.current = connections; }, [connections]);
-// V36: peers que iniciaram conexão DIRETA (incoming) — aparecem na aba Privado
-const directPeersRef = useRef(new Set());
 const [messages, setMessages] = useState([]);
 const [newMessage, setNewMessage] = useState('');
 const [showContacts, setShowContacts] = useState(false);
@@ -4879,14 +4546,6 @@ const setIsSuperNode = (v) => {
 // FIX BUG-2: refs always hold the latest value, solving stale-closure inside useEffect([peerId])
 const isSuperNodeRef = useRef(false);
 useEffect(() => { isSuperNodeRef.current = isSuperNode; }, [isSuperNode]);
-// K10 V29 FIX: flag anti-loop group0-request — declarada como ref para ser acessível
-// em handleIncomingData (escopo externo) E dentro de initPeer/connectToPeer
-const group0WelcomeReceivedRef = useRef(false);
-// V35 FIX-BOOTSTRAP: ref sempre atualizada para a versão mais recente de handleIncomingData
-// Resolve stale closure: event handlers registrados em initPeer() capturavam a versão
-// antiga de handleIncomingData (com isPeerInitialized=false), fazendo connectToPeer retornar
-// antes de conectar os peers do Modo Geral. Com o ref, sempre usamos a versão fresca.
-const handleIncomingDataRef = useRef(null);
 const [pendingTorrentRequests, setPendingTorrentRequests] = useState({});
 const [radioState, setRadioState] = useState({
 status: 'idle',
@@ -5972,177 +5631,6 @@ if (data.type === 'handshake') {
   }
   return; 
 }
-
-// ── K10 V28: GRUPO 0 — Recebe totalUsers e calcula GID alvo localmente ─────
-// O servidor Group 0 envia apenas 1 mensagem: { type:'group0-welcome', totalUsers, servers:[] }
-// O cliente calcula LOCALMENTE o grupo destino — zero flood, zero coordenação.
-//
-// ALGORITMO DETERMINÍSTICO (idêntico ao nextSequentialGid() do servidor):
-//   Charset: K10_CHARS base62 = 'A'-'Z' + 'a'-'z' + '0'-'9'
-//   groupIdx = Math.floor(totalUsers / K10_MAX_GROUP)  (= floor(N / 1800))
-//   GID = K10_CHARS base62 de groupIdx, padding 4 chars
-//
-// EXEMPLOS:
-//   totalUsers=0      → groupIdx=0   → GID='AAAA' (primeiro grupo)
-//   totalUsers=1800   → groupIdx=1   → GID='AAAB' (segundo grupo)
-//   totalUsers=3600   → groupIdx=2   → GID='AAAC'
-//   totalUsers=111600 → groupIdx=62  → GID='AABA'
-//   totalUsers=1M+    → groupIdx=555 → qualquer GID base62
-//
-// GARANTIA: este cálculo converge com o servidor porque o servidor preenche
-// grupos sequencialmente (AAAA → AAAB → AAAC...) via nextSequentialGid().
-// ─────────────────────────────────────────────────────────────────────────────
-if (data.type === 'group0-welcome') {
-  // ── K10 V29: seta flag anti-loop — impede reenvio de group0-request
-  group0WelcomeReceivedRef.current = true;
-
-  // V29: indexa grupos recebidos no diretório local antes de redirecionar
-  if (Array.isArray(data.groups) && data.groups.length > 0) {
-    data.groups.forEach(function(g) {
-      var gid = g.gid; var sz = g.size;
-      if (gid && typeof sz === 'number') {
-        if (!directoryGlobalRef.current[gid]) {
-          directoryGlobalRef.current[gid] = { reservados: [], groupSize: 0 };
-        }
-        if (sz > (directoryGlobalRef.current[gid].groupSize || 0)) {
-          directoryGlobalRef.current[gid].groupSize = sz;
-        }
-      }
-    });
-    addAudit('[Grupo 0] 🗂️ ' + data.groups.length + ' grupos indexados no diretório', 'info');
-  }
-
-  // Valida totalUsers — rejeita valores absurdos
-  const rawTotal = data.totalUsers;
-  if (typeof rawTotal !== 'number' || rawTotal < 0 || rawTotal > 1e9) {
-    addAudit(`[Grupo 0] ⚠️ totalUsers inválido recebido: ${rawTotal}`, 'warn');
-    return;
-  }
-
-  const totalUsers = Math.floor(rawTotal);
-  const groupIdx   = Math.floor(totalUsers / K10_MAX_GROUP);
-
-  // ── Cálculo determinístico do GID alvo ──────────────────────────────────
-  // Exatamente o mesmo algoritmo de nextSequentialGid() no servidor:
-  //   n=0 → 'AAAA', n=1 → 'AAAB', n=62 → 'AABA', etc.
-  let n = groupIdx;
-  let targetGid = '';
-  for (let i = 0; i < K10_GID_LEN; i++) {
-    targetGid = K10_CHARS[n % K10_CHARS.length] + targetGid;
-    n = Math.floor(n / K10_CHARS.length);
-  }
-  // ─────────────────────────────────────────────────────────────────────────
-
-  addAudit(
-    `[Grupo 0] ✅ Recebido: totalUsers=${totalUsers.toLocaleString()} ` +
-    `→ índice=${groupIdx} → GID alvo: ${targetGid}`,
-    'ok'
-  );
-
-  // Informa o usuário no chat (mensagem de sistema)
-  setMessages(prev => [...prev, {
-    type: 'text',
-    sender: '__system__',
-    senderName: '🚪 Grupo 0',
-    time: new Date().toLocaleTimeString(),
-    timestamp: Date.now(),
-    recipient: 'you',
-    direct: true,
-    text: `🌐 Rede com ${totalUsers.toLocaleString()} usuário(s) → Seu grupo destino: ${targetGid} (índice ${groupIdx})`
-  }].slice(-500));
-
-  // ── Redirecionamento: conecta a um servidor real da lista ─────────────
-  // O servidor Grupo 0 envia sua lista de vizinhos conhecidos.
-  // O cliente escolhe um aleatoriamente para distribuir a carga.
-  const servers = Array.isArray(data.servers) ? data.servers : [];
-  const candidates = servers.filter(s =>
-    s && typeof s === 'string' &&
-    s !== peerIdRef.current &&
-    // Não conecta a um servidor ao qual já está conectado
-    !connectionsRef.current.some(c => c.peer === s && c.open)
-  );
-
-  if (candidates.length > 0) {
-    // Escolhe servidor aleatório (distribui carga)
-    const pick = candidates[Math.floor(Math.random() * candidates.length)];
-    addAudit(`[Grupo 0] 🔀 Redirecionando para servidor real: ${pick}`, 'info');
-
-    setTimeout(() => {
-      if (peerInstance.current && !peerInstance.current.destroyed) {
-        try {
-          // FIX V30-BUG1: setupConnection não existe no cliente — usar connectToPeer
-          connectToPeer(pick);
-          addAudit(`[Grupo 0] 🔗 Conexão iniciada com ${pick}`, 'ok');
-        } catch(e) {
-          addAudit(`[Grupo 0] ❌ Falha ao conectar em ${pick}: ${e.message}`, 'err');
-        }
-      }
-    }, 600); // 600ms: tempo para o peer-close do Grupo 0 completar
-
-  } else {
-    // Sem servidores na lista — usuário ainda está conectado ao Grupo 0,
-    // que funcionará como servidor normal até que ele encontre outro.
-    addAudit(
-      `[Grupo 0] ℹ️ Nenhum servidor alternativo disponível — permanecendo conectado.`,
-      'info'
-    );
-  }
-
-  // ── FIX V32: sem peers[] E sem servers[] → conecta permanentemente ao servidor de origem ──
-  // Sem isso, o cliente fica com connections.length===0 e Modo Geral mostra
-  // "Aguardando conexões..." para sempre. O servidor de origem (pId = K10-CENTRAL)
-  // já conhece o cliente e vai incluí-lo no grupo — conexão permanente, não heartbeat.
-  const hasValidPeers = Array.isArray(data.peers) && data.peers.length > 0;
-  const hasValidServers = candidates.length > 0;
-  if (!hasValidPeers && !hasValidServers) {
-    addAudit(`[Grupo 0] 🔗 Sem peers/servidores → conectando permanentemente a ${pId}`, 'info');
-    setTimeout(() => {
-      if (peerInstance.current && !peerInstance.current.destroyed) {
-        // FIX V32-HEARTBEAT: delay de 6s garante que o heartbeat inicial (5s) já disparou
-        // e encontrou a conexão pendente — evita race condition entre os dois.
-        connectToPeer(pId); // pId = K10-CENTRAL — será membro regular do grupo
-      }
-    }, 6000);
-  }
-  // ── FIM FIX V32 ────────────────────────────────────────────────────────────
-
-  // ── V30: Conecta diretamente aos peers[] → Modo Geral ativo imediatamente ──
-  // O servidor Group 0 agora inclui uma lista de peers reais da rede (locais + mesh).
-  // O cliente conecta a eles em paralelo com o redirecionamento ao servidor real.
-  // Resultado: ao entrar no chat, o Modo Geral já tem pessoas para conversar —
-  // sem esperar o servidor atribuir grupo → receber peer-list → conectar peers.
-  if (Array.isArray(data.peers) && data.peers.length > 0) {
-    addAudit(
-      `[Grupo 0] 🌐 ${data.peers.length} peer(s) recebidos — conectando Modo Geral...`,
-      'ok'
-    );
-    data.peers.forEach(function(pid, i) {
-      if (!pid || pid === peerIdRef.current) return;
-      // Evita duplicatas com conexões já abertas
-      if (connectionsRef.current.some(function(c) { return c.peer === pid && c.open; })) return;
-      // Escalonamento: 1s base + 200ms por peer + jitter aleatório
-      // Evita flood de conexões simultâneas no PeerJS
-      var delay = 1000 + i * 200 + Math.random() * 300;
-      setTimeout(function() {
-        if (!peerInstance.current || peerInstance.current.destroyed) return;
-        // Checa novamente se já conectado (pode ter chegado inbound enquanto aguardava)
-        if (connectionsRef.current.some(function(c) { return c.peer === pid && c.open; })) return;
-        try {
-          // FIX V30-BUG1: setupConnection não existe no cliente — usar connectToPeer
-          // connectToPeer já configura todos os handlers (open, data, close, error) corretamente
-          connectToPeer(pid);
-          addAudit('[Modo Geral] 🔗 Peer direto: ' + pid, 'info');
-        } catch(e) {
-          addAudit('[Modo Geral] ⚠️ Falha ao conectar ' + pid + ': ' + e.message, 'warn');
-        }
-      }, delay);
-    });
-  }
-  // ── FIM V30: conexão direta a peers ──────────────────────────────────────
-
-  return;
-}
-// ── FIM K10 V28: GRUPO 0 ───────────────────────────────────────────────────
 
 if (data.type === 'avatar-update' && data.avatar) {
   setAvatars(prev => ({ ...prev, [pId]: data.avatar }));
@@ -7313,12 +6801,12 @@ if (data.type === 'poll-create') {
   const isFromSrv = isCentralServer(pId);
   const pollMsg = {
     ...data,
-    sender: data.sender || pId,
-    senderName: data.senderName || getContactName(data.sender || pId),
+    sender: pId,
+    senderName: data.senderName || getContactName(pId),
     time: messageTime,
     direct: data.direct || false,
     timestamp,
-    recipient: data.direct ? 'you' : 'general'
+    recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general')
   };
   setMessages(prev => [...prev, pollMsg].slice(-500));
   return;
@@ -7417,15 +6905,13 @@ if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via 
 const timestamp = data.timestamp || Date.now();
 const messageTime = data.time || formatTime(new Date(timestamp));
 const isFromSrv = isCentralServer(pId);
-// V38-FIX: sender usa data.sender (remetente original) quando servidor retransmite;
-// recipient sempre 'general' para nao-diretas — evita filteredMessages sumir mensagens relay
 const baseMessage = {
-sender: data.sender || pId,
-senderName: data.senderName || getContactName(data.sender || pId),
+sender: pId,
+senderName: data.senderName || getContactName(pId),
 time: messageTime,
 direct: data.direct || false,
 timestamp,
-recipient: data.direct ? 'you' : 'general'
+recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general')
 };
 let messageToAdd = null;
 
@@ -7519,12 +7005,12 @@ if (data.text === '__QUIZ__' && data.quizPayload) {
 
   const baseQuizMsg = {
     type: 'quiz-question',
-    sender: data.sender || pId,
+    sender: pId,
     senderName: data.senderName || '🤖 Quiz Bot',
     time: messageTime,
     timestamp,
     direct: data.direct || false,
-    recipient: data.direct ? 'you' : 'general',
+    recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general'),
     quizId: qd.quizId,
     quizQuestion: qd.quizQuestion,
     quizOptions: qd.quizOptions,
@@ -7650,8 +7136,6 @@ return updated;
 });
 }
 };
-// V35: mantém ref sempre apontando para a versão mais recente (sem stale closure)
-handleIncomingDataRef.current = handleIncomingData;
 
 
 const sendRadioSync = (conn) => {
@@ -7738,14 +7222,6 @@ setMessages(prev => [...prev, { text: `⚠️ ${t(langRef.current, 'connectFaile
 conn.on('open', () => {
 clearTimeout(timeoutId);
 addAudit(`[P2P] Conexão estabelecida com ${peerIdToConnect}`, 'success');
-
-// V29: se ainda sem grupo e sem welcome recebido → envia group0-request
-if (!group0WelcomeReceivedRef.current && !myGroupIdRef.current) {
-  try { conn.send({ type: 'group0-request' }); } catch(e) {}
-  addAudit('[Grupo 0] ↗️ group0-request enviado a ' + peerIdToConnect, 'info');
-  // Não envia handshake agora — aguarda group0-welcome (servidor fecha a conexão)
-  return;
-}
 setConnections(prev => [...prev.filter(c => c.peer !== peerIdToConnect), conn]);
 sendHandshake(conn);
 sendRadioSync(conn);
@@ -7785,7 +7261,7 @@ conn.on('close', () => {
   // V8-BUG#9: reset contador em close limpo
   if (window.__v8ReconAttempts) window.__v8ReconAttempts.delete(peerIdToConnect);
 });
-conn.on('data', data => handleIncomingDataRef.current(data, peerIdToConnect));
+conn.on('data', data => handleIncomingData(data, peerIdToConnect));
 } catch (err) { alert(t(langRef.current, 'connectError') + err.message); } // FIX C-14: langRef.current evita stale closure no catch
 };
 
@@ -7820,12 +7296,6 @@ debug: 1
 });
 
 
-// ══ K10 V29: flag anti-loop group0-request ═══════════════════════════
-// group0WelcomeReceivedRef declarado como useRef no nível do componente
-// (escopo compartilhado com handleIncomingData)
-// Reset automático apenas em nova sessão do peer (page reload).
-// ══ FIM flag anti-loop ═══════════════════════════════
-
 peer.on('open', (id) => {
 setIsPeerInitialized(true);
 addAudit(`[Rede] Peer inicializado com ID: ${id}`, 'success');
@@ -7845,18 +7315,12 @@ const conn = peer.connect(porta, { reliable: true });
 if (conn) {
 conn.on('open', () => { 
   addAudit(`[P2P] Conexão estabelecida com: ${porta}`, 'success');
-  // V29: sem grupo e sem welcome → envia group0-request (anti-loop: só 1 vez)
-  if (!group0WelcomeReceivedRef.current && !myGroupIdRef.current) {
-    try { conn.send({ type: 'group0-request' }); } catch(e) {}
-    addAudit('[Grupo 0] ↗️ group0-request enviado a ' + porta, 'info');
-    return; // aguarda group0-welcome; servidor fecha a conexão após responder
-  }
   setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]);
   sendHandshake(conn); // FIX BUG-B: peer remoto precisa saber nossa identidade
   sendRadioSync(conn); 
   try { conn.send({ type: 'radio-request-sync' }); } catch(e){} 
 });
-conn.on('data', data => handleIncomingDataRef.current(data, porta));
+conn.on('data', data => handleIncomingData(data, porta));
 conn.on('close', () => { 
   addAudit(`[P2P] Conexão encerrada com: ${porta}`, 'warn');
   worldQuizSubscribersRef.current.delete(porta); 
@@ -7874,41 +7338,6 @@ conn.on('error', (e) => {
 }
 });
 }, 1000);
-} else {
-// ── V31 BOOTSTRAP AUTOMÁTICO: sem ?portas= → conecta ao Group 0 padrão ──
-// Permite entrada direta sem URL params: abre o chat → entra no Grupo 0 →
-// Modo Geral ativado → servidor atribui grupo → conversa imediata.
-// FIX V32: removido !myGroupIdRef.current — localStorage não deve bloquear bootstrap.
-// Limpa myGroupId stale para receber atribuição fresca do servidor.
-if (!group0WelcomeReceivedRef.current) {
-myGroupIdRef.current = null;
-localStorage.removeItem('myGroupId');
-const bootstrapId = 'K10-CENTRAL';
-addAudit(`[Grupo 0] 🚀 Bootstrap automático → conectando a ${bootstrapId}`, 'info');
-setTimeout(() => {
-const bConn = peer.connect(bootstrapId, { reliable: true });
-if (bConn) {
-bConn.on('open', () => {
-  setCentralServerId(bootstrapId);
-  window.__k10BootAttempts = 0; // V35: reset contador de retry ao conectar
-  addAudit(`[Grupo 0] ✅ Bootstrap conectado: ${bootstrapId}`, 'success');
-  try { bConn.send({ type: 'group0-request' }); } catch(e) {}
-  addAudit('[Grupo 0] ↗️ group0-request enviado (bootstrap automático)', 'info');
-  // aguarda group0-welcome — não envia handshake ainda
-});
-bConn.on('data', data => handleIncomingDataRef.current(data, bootstrapId));
-bConn.on('close', () => {
-  addAudit(`[Grupo 0] Conexão bootstrap encerrada: ${bootstrapId}`, 'warn');
-  setConnections(prev => prev.filter(c => c.peer !== bootstrapId));
-});
-bConn.on('error', (e) => {
-  // V36-REAL-FIX: peer-unavailable dispara no objeto peer, não na DataConnection
-  // Este handler raramente executa para peer-unavailable — o retry real está em peer.on('error')
-  addAudit(`[Grupo 0] ⚠️ bConn erro (DataConn): ${e?.message || '?'}`, 'warn');
-});
-}
-}, 1000);
-}
 }
 });
 
@@ -7924,63 +7353,7 @@ window.location.reload();
 } else if (['socket-error', 'network', 'socket-closed'].includes(err.type)) {
 // Network errors should trigger reconnection, not a white screen
 console.log("Network error detected, will attempt reconnect...");
-} else if (err.type === 'peer-unavailable') {
-  // ══════════════════════════════════════════════════════════════════════════
-  // V36-REAL-FIX: peer-unavailable SEMPRE dispara aqui (objeto Peer), nunca na
-  // DataConnection. O retry do V35 em bConn.on('error') era CÓDIGO MORTO.
-  // ══════════════════════════════════════════════════════════════════════════
-  if (!group0WelcomeReceivedRef.current) {
-    const bootstrapId = 'K10-CENTRAL';
-    window.__k10BootAttempts = (window.__k10BootAttempts || 0) + 1;
-    const n = window.__k10BootAttempts;
-    addAudit(`[Grupo 0] ⚠️ ${bootstrapId} offline (tentativa ${n})`, 'error');
-
-    const scheduleRetry = (attempt, delay) => {
-      addAudit(`[Grupo 0] 🔄 Retry ${attempt}/8 em ${Math.round(delay/1000)}s...`, 'info');
-      setTimeout(() => {
-        if (group0WelcomeReceivedRef.current || !peerInstance.current || peerInstance.current.destroyed) return;
-        if (window.__k10SlowPollInterval) return; // slow poll já ativo
-        const rc = peerInstance.current.connect(bootstrapId, { reliable: true });
-        if (!rc) return;
-        rc.on('open', () => {
-          setCentralServerId(bootstrapId);
-          addAudit(`[Grupo 0] ✅ Retry ${attempt} conectou! Enviando group0-request...`, 'success');
-          try { rc.send({ type: 'group0-request' }); } catch(ep) {}
-        });
-        rc.on('data', d => handleIncomingDataRef.current(d, bootstrapId));
-        rc.on('close', () => { setConnections(prev => prev.filter(c => c.peer !== bootstrapId)); });
-        // retry errors → peer.on('error') continua incrementando __k10BootAttempts
-      }, delay);
-    };
-
-    if (n <= 8) {
-      const delay = Math.min(20000, 3000 * n) + Math.random() * 500;
-      scheduleRetry(n, delay);
-    } else if (!window.__k10SlowPollInterval) {
-      // ── POLLING LENTO: após 8 retries, tenta a cada 30s indefinidamente ──
-      // Garante que o cliente conecta quando o servidor ficar online, mesmo horas depois
-      addAudit('[Grupo 0] ❌ 8 retries rápidos esgotados — iniciando polling lento (30s)', 'warn');
-      window.__k10SlowPollInterval = setInterval(() => {
-        if (group0WelcomeReceivedRef.current || !peerInstance.current || peerInstance.current.destroyed) {
-          clearInterval(window.__k10SlowPollInterval);
-          return;
-        }
-        addAudit('[Grupo 0] 🔄 Polling lento — tentando K10-CENTRAL...', 'info');
-        const pc = peerInstance.current.connect(bootstrapId, { reliable: true });
-        if (!pc) return;
-        pc.on('open', () => {
-          clearInterval(window.__k10SlowPollInterval);
-          setCentralServerId(bootstrapId);
-          addAudit('[Grupo 0] ✅ Polling lento conectou! Servidor online.', 'success');
-          try { pc.send({ type: 'group0-request' }); } catch(ep) {}
-        });
-        pc.on('data', d => handleIncomingDataRef.current(d, bootstrapId));
-        pc.on('close', () => { setConnections(prev => prev.filter(c => c.peer !== bootstrapId)); });
-        pc.on('error', () => {}); // silencioso — peer.on('error') já incrementa __k10BootAttempts
-      }, 30000);
-    }
-  }
-} else {
+} else if (err.type !== 'peer-unavailable') {
 // Non-critical errors as system messages
 setMessages(prev => [...prev, { text: `System: PeerJS Error (${err.type})`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500));
 }
@@ -8018,8 +7391,6 @@ if (connectionsRef.current.length >= maxConns) { setTimeout(() => conn.close(), 
 conn.on('open', () => {
 addAudit(`[P2P] Conexão de entrada aberta: ${conn.peer}`, 'success');
 setConnections(prev => [...prev.filter(c => c.peer !== conn.peer), conn]);
-// V36: marca como peer direto — aparece na aba Privado mesmo sem estar nos contatos
-directPeersRef.current.add(conn.peer);
 sendHandshake(conn);
 sendRadioSync(conn);
 try { conn.send({ type: 'radio-request-sync' }); } catch(e){}
@@ -8029,7 +7400,7 @@ knownUsersRef.current.add(conn.peer);
 setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
 }
 });
-conn.on('data', data => handleIncomingDataRef.current(data, conn.peer));
+conn.on('data', data => handleIncomingData(data, conn.peer));
 conn.on('close', () => { 
   addAudit(`[P2P] Conexão encerrada: ${conn.peer}`, 'warn');
   worldQuizSubscribersRef.current.delete(conn.peer); 
@@ -8214,10 +7585,16 @@ const serverConn = connectionsRef.current.find(c => c.peer === centralServerId &
 if (serverConn) {
 try { serverConn.send(heartbeatMsg); } catch(e) {}
 } else {
-// FIX V32-HEARTBEAT: era raw peer.connect() com tempConn.close() após 2s.
-// Isso criava uma conexão paralela que ao fechar derrubava a conexão permanente.
-// Solução: usa connectToPeer → rastreado em connectionsRef → sem duplicatas → sem fechamento forçado.
-try { connectToPeer(centralServerId); } catch(e) {}
+// If not connected, try a quick connection just for heartbeat
+const tempConn = peerInstance.current.connect(centralServerId, { reliable: true });
+if (tempConn) {
+tempConn.on('error', () => { try { tempConn.close(); } catch(e){} });
+setTimeout(() => { try { tempConn.close(); } catch(e){} }, 5000); // V7-B22 timeout total
+tempConn.on('open', () => {
+try { tempConn.send(heartbeatMsg); } catch(e) {}
+setTimeout(() => tempConn.close(), 2000);
+});
+}
 }
 }
 };
@@ -9877,7 +9254,6 @@ setShowWhiteboard={setShowWhiteboard}
 avatars={avatars}
 currentQuizQuestionRef={currentQuizQuestionRef}
 connectionsRef={connectionsRef}
-directPeersRef={directPeersRef}
 />
 )}
 
@@ -9913,242 +9289,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     }
   })();
 </script>
-<!-- Carregar PeerJS primeiro (se já não tiver carregado em outro lugar) -->
-<script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
 
-
-
-
-     <!-- Carrega o PeerJS (caso não exista) -->
-<script src="https://unpkg.com/peerjs@1.5.1/dist/peerjs.min.js"></script>
-
-
-
-<!-- Servidor K10-CENTRAL completo (com deduplicação e suporte a reinicialização) -->
-<script>
-  (function() {
-    // Aguarda o PeerJS estar disponível
-    function waitForPeer() {
-      if (typeof Peer === 'undefined') {
-        console.warn('[K10] Aguardando PeerJS carregar...');
-        setTimeout(waitForPeer, 200);
-        return;
-      }
-      // Se já existe uma instância, destrua-a antes de reiniciar (opcional)
-      if (window.__k10CentralPeer && !window.__k10CentralPeer.destroyed) {
-        window.__k10CentralPeer.destroy();
-      }
-      startServer();
-    }
-
-    function startServer() {
-      if (window.__k10CentralLoaded) {
-        console.log('[K10] Servidor já está rodando. Ignorando nova inicialização.');
-        return;
-      }
-      window.__k10CentralLoaded = true;
-
-      console.log('[K10] Iniciando servidor central K10-CENTRAL (dedup TTL=60s)...');
-
-      const PEER_ID = 'K10-CENTRAL';
-      const MAX_PEERS = 5000;
-      const connections = new Map();        // peerId -> { conn, lastSeen }
-      const GROUP_ID = 'AAAA';              // grupo fixo para todos
-      let totalUsersHint = 0;
-
-      // Cache de mensagens já processadas (TTL 60s para quizzes longos)
-      const seenMessages = new Map();       // msgId -> expiry timestamp
-
-      function isDuplicate(msgId) {
-        if (!msgId) return false;
-        const now = Date.now();
-        // Limpeza de entradas expiradas
-        for (let [id, expiry] of seenMessages.entries()) {
-          if (expiry < now) seenMessages.delete(id);
-        }
-        if (seenMessages.has(msgId)) {
-          console.log(`[DEDUP] Mensagem duplicada bloqueada: ${msgId}`);
-          return true;
-        }
-        seenMessages.set(msgId, now + 60000); // 60 segundos
-        return false;
-      }
-
-      const peer = new Peer(PEER_ID, {
-        host: '0.peerjs.com',
-        port: 443,
-        secure: true,
-        debug: 0
-      });
-      window.__k10CentralPeer = peer; // guarda referência para possível reinicialização
-
-      peer.on('open', () => {
-        console.log('✅ Servidor K10-CENTRAL online (todos no grupo ' + GROUP_ID + ')');
-      });
-
-      peer.on('error', (err) => {
-        if (err.type === 'unavailable-id') {
-          console.warn('⚠️ ID K10-CENTRAL já em uso. Outro servidor já está rodando. Este cliente será apenas cliente.');
-          // Não marcar como loaded para permitir tentativa futura? Melhor manter como loaded false para não bloquear.
-          window.__k10CentralLoaded = false;
-        } else {
-          console.error('Erro no servidor:', err);
-        }
-      });
-
-      // Retransmite mensagens para todos os outros peers (exceto remetente)
-      function relayMessage(conn, data, senderId) {
-        if (!data || typeof data !== 'object') return;
-        if (data.type !== 'message') return;
-        if (data.direct === true) return;        // mensagem privada não é relay
-        if (data._relayed) return;               // evita loop (marcador)
-        if (isDuplicate(data.id)) return;        // deduplicação por ID
-
-        data._relayed = true;
-        let relayCount = 0;
-
-        for (const [pid, target] of connections.entries()) {
-          if (pid === senderId) continue;
-          if (target.conn && target.conn.open) {
-            try {
-              target.conn.send(data);
-              relayCount++;
-            } catch(e) {}
-          }
-        }
-        if (relayCount > 0) {
-          console.log(`🔄 Relay de msg ${data.id} para ${relayCount} peers`);
-        }
-      }
-
-      // Envia lista de peers para um cliente recém-conectado
-      function sendPeerList(conn) {
-        const peerIds = Array.from(connections.keys()).filter(id => id !== conn.peer);
-        if (peerIds.length === 0) return;
-        try {
-          conn.send({
-            type: 'peer-list',
-            peers: peerIds,
-            groupId: GROUP_ID
-          });
-          console.log(`📋 Enviada lista de ${peerIds.length} peers para ${conn.peer}`);
-        } catch(e) {}
-      }
-
-      // Trata nova conexão
-      peer.on('connection', (conn) => {
-        if (connections.size >= MAX_PEERS) {
-          console.warn(`❌ Conexão recusada: limite ${MAX_PEERS} atingido`);
-          conn.close();
-          return;
-        }
-
-        const peerId = conn.peer;
-        connections.set(peerId, { conn, lastSeen: Date.now() });
-        console.log(`🔗 Conectado: ${peerId} (total: ${connections.size})`);
-
-        conn.on('open', () => {
-          // Envia group0-welcome (força grupo AAAA)
-          try {
-            conn.send({
-              type: 'group0-welcome',
-              totalUsers: 0,        // índice 0 -> GID 'AAAA'
-              servers: []
-            });
-          } catch(e) {}
-
-          // Envia lista de peers já conectados
-          setTimeout(() => sendPeerList(conn), 500);
-        });
-
-        conn.on('data', (data) => {
-          const entry = connections.get(peerId);
-          if (entry) entry.lastSeen = Date.now();
-
-          // Responde a group0-request (caso o cliente reenvie)
-          if (data && data.type === 'group0-request') {
-            try {
-              conn.send({
-                type: 'group0-welcome',
-                totalUsers: 0,
-                servers: []
-              });
-            } catch(e) {}
-            return;
-          }
-
-          // Relay de mensagens
-          relayMessage(conn, data, peerId);
-        });
-
-        conn.on('close', () => {
-          connections.delete(peerId);
-          console.log(`🔌 Desconectado: ${peerId} (restam: ${connections.size})`);
-
-          // Anuncia a saída para os demais peers
-          const leaveMsg = {
-            type: 'pex-update',
-            gid: GROUP_ID,
-            user: peerId,
-            ttl: 5
-          };
-          for (const [pid, target] of connections.entries()) {
-            if (target.conn && target.conn.open) {
-              try { target.conn.send(leaveMsg); } catch(e) {}
-            }
-          }
-        });
-
-        conn.on('error', (err) => {
-          console.warn(`⚠️ Erro na conexão com ${peerId}: ${err.message}`);
-          connections.delete(peerId);
-        });
-      });
-
-      // Atualiza totalUsersHint (não usado diretamente, mas mantido)
-      setInterval(() => {
-        totalUsersHint = connections.size;
-      }, 10000);
-
-      // A cada 30 segundos, envia atualização da lista de peers para todos (pex)
-      setInterval(() => {
-        const peerIds = Array.from(connections.keys());
-        if (peerIds.length === 0) return;
-        for (const [pid, target] of connections.entries()) {
-          if (target.conn && target.conn.open) {
-            try {
-              target.conn.send({
-                type: 'pex',
-                peers: peerIds.filter(id => id !== pid),
-                groupId: GROUP_ID,
-                groupSize: connections.size
-              });
-            } catch(e) {}
-          }
-        }
-      }, 30000);
-
-      // Limpeza de conexões inativas (90s sem atividade)
-      setInterval(() => {
-        const now = Date.now();
-        for (const [pid, data] of connections.entries()) {
-          if (now - data.lastSeen > 90000) {
-            console.log(`🧹 Desconectando peer inativo: ${pid}`);
-            try { data.conn.close(); } catch(e) {}
-            connections.delete(pid);
-          }
-        }
-      }, 60000);
-    }
-
-    // Expõe a função startServer globalmente para que o cliente possa reiniciar o servidor
-    window.startServer = startServer;
-    waitForPeer();
-  })();
-</script>
-
-
-
-     
 </body>
 </html>
