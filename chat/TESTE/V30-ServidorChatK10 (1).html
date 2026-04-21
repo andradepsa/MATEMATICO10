@@ -1,4 +1,18 @@
-<!-- ═══ ServidorChatK10 V32 — Fix Ghost Peers + peers[] Ativos (21/abr/2026) ═══
+<!-- ═══ ServidorChatK10 V33 — peer-list com peers[] reais (21/abr/2026) ═══
+     NOVO V33 — FIX CRÍTICO: CONEXÃO P2P ENTRE PEERS DO GRUPO
+     ══════════════════════════════════════════════════════════════════════
+     FIX V33-PEERLIST: peer-list agora inclui peers[] com IDs reais do grupo
+          - Bug: peer-list V25 só enviava {gid, user, count} — sem IDs reais
+          - Cliente reconstruía IDs K10 (K10AAAAAA) mas esses IDs não existem
+            como peers PeerJS registrados (peer IDs reais são aleatórios)
+          - connectToPeer('K10AAAAAA') falhava silenciosamente → sem P2P
+          - Resultado: clientes só se comunicavam via relay do servidor,
+            nunca estabeleciam conexão direta entre si
+          - Fix: peer-list agora inclui peers:[...positions reais] (até 20)
+            excluindo o próprio peer receptor
+          - Cliente V33: ao receber peer-list com peers[], usa esses IDs reais
+            para conectar diretamente (código legado já existente reaproveitado)
+     ══════════════════════════════════════════════════════════════════════
      NOVO V32 — CORREÇÕES CRÍTICAS GROUP 0
      ══════════════════════════════════════════════════════════════════════
      FIX V32-GHOST-1: Remove peer de positions[] ao receber group0-request
@@ -115,7 +129,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- HYDRA V7 server --><title>Servidor K10 - V30</title>
+  <!-- HYDRA V7 server --><title>Servidor K10 - V33</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <style>
     body {
@@ -2226,26 +2240,28 @@
           peerGroupMapRef.current.set(conn.peer, assignedGid);
           peerPositionMapRef.current.set(conn.peer, { gid: assignedGid, posIdx });
 
-          // V25: peer-list compacto — {gid, user, count}
-          // 'user' = sufixo atribuído ao novo peer (K10_POSITION_LIST[posIdx])
-          // 'count' = total de membros no grupo
-          // O cliente reconstrói quem conectar: K10 + gid + K10_POSITION_LIST[0..count-1]
-          // FIX V25-BANDA: removido users:[] — V24 compat mantém só 'suffix' (scalar, não array)
-          // V26: gidIdx adicionado — cliente aprende o índice binário do GID nesta mensagem
+          // V33: peer-list agora inclui peers[] com IDs PeerJS reais do grupo.
+          // Bug V25: cliente reconstruía IDs K10 (K10AAAAAA) mas esses não são
+          // peer IDs PeerJS reais (IDs reais são aleatórios ex: QYTPF8YAM).
+          // Fix V33: enviamos positions[] filtrado por conexões ativas, cap 20.
+          // V25: 'user'/'count' mantidos para compatibilidade e UI.
           const groupCount = activeGroupsRef.current[assignedGid].positions.length;
           const gidIdx = k10bin.getIdx(assignedGid); // V26: índice uint16 do GID
+          // FIX V33: IDs reais dos peers do grupo (vivos, excluindo o novo peer)
+          const realPeers = activeGroupsRef.current[assignedGid].positions
+            .filter(p => p !== conn.peer && activeConnectionsRef.current.has(p))
+            .slice(0, 20);
           try {
             conn.send({
               type: 'peer-list',
               gid: assignedGid,            // 4 chars — ID do grupo (texto, para UI)
               gidIdx,                      // V26: índice binário do GID (uint16)
               user: assignedSuffix,         // V25: sufixo atribuído (posição do novo peer)
-              count: groupCount,            // V25: total de membros (substitui users:[])
+              count: groupCount,            // V25: total de membros
               suffix: assignedSuffix,       // compat V24 mínima (scalar, sem custo)
-              // REMOVIDO: users:[N sufixos] — V25 usa K10_POSITION_LIST[0..count-1]
-              // Economia total V26: peer-list enviado 1×; eventos seguintes em 7 bytes binários
+              peers: realPeers,             // FIX V33: IDs PeerJS reais dos membros do grupo
             });
-          } catch(e) { console.warn('[K10-V26] Erro ao enviar peer-list:', e); }
+          } catch(e) { console.warn('[K10-V33] Erro ao enviar peer-list:', e); }
 
           addAudit(`[K10-V25] Peer ${conn.peer} → grupo ${assignedGid} posição ${posIdx+1}/${groupCount}`, 'ok');
 
