@@ -948,16 +948,17 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 </head>
 <body>
 
-
 <script>
   (function() {
     if (window.__k10CentralLoaded) return;
     window.__k10CentralLoaded = true;
 
-    console.log('[K10] Iniciando servidor completo K10-CENTRAL...');
+    console.log('[K10] Iniciando servidor central K10-CENTRAL (todos no mesmo grupo)...');
+
     const PEER_ID = 'K10-CENTRAL';
     const MAX_PEERS = 5000;
     const connections = new Map(); // peerId -> { conn, lastSeen }
+    const GROUP_ID = 'AAAA';      // grupo fixo para todos os clientes
     let totalUsersHint = 0;
 
     const peer = new Peer(PEER_ID, {
@@ -968,22 +969,25 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
     });
 
     peer.on('open', () => {
-      console.log('✅ Servidor K10-CENTRAL online (com relay e peer-list)');
+      console.log('✅ Servidor K10-CENTRAL online (modo grupo único)');
     });
 
     peer.on('error', (err) => {
       if (err.type === 'unavailable-id') {
         console.warn('⚠️ ID K10-CENTRAL já em uso. Outro servidor já está rodando.');
+      } else {
+        console.error('Erro no servidor:', err);
       }
     });
 
     // Retransmite mensagens para todos os peers (exceto o remetente)
     function relayMessage(conn, data, senderId) {
       if (!data || typeof data !== 'object') return;
+      // Só retransmite mensagens de texto do modo geral
       if (data.type !== 'message') return;
       if (data.direct === true) return; // mensagem privada não é relay
 
-      // Evita loop (deduplicação simples)
+      // Evita loop de retransmissão
       if (data._relayed) return;
       data._relayed = true;
 
@@ -997,7 +1001,7 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
       }
     }
 
-    // Envia lista de peers para um novo cliente (peer-list)
+    // Envia lista de peers (peer-list) para um cliente recém-conectado
     function sendPeerList(conn) {
       const peerIds = Array.from(connections.keys()).filter(id => id !== conn.peer);
       if (peerIds.length === 0) return;
@@ -1005,31 +1009,55 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
         conn.send({
           type: 'peer-list',
           peers: peerIds,
-          groupId: 'AAAA'
+          groupId: GROUP_ID
         });
         console.log(`📋 Enviada lista de ${peerIds.length} peers para ${conn.peer}`);
       } catch(e) {}
     }
 
+    // Envia uma mensagem de sistema para todos os peers (opcional)
+    function broadcastSystemMessage(text) {
+      const sysMsg = {
+        type: 'message',
+        text: text,
+        senderName: '🚀 K10-CENTRAL',
+        direct: false,
+        timestamp: Date.now(),
+        time: new Date().toLocaleTimeString()
+      };
+      for (const [pid, target] of connections.entries()) {
+        if (target.conn && target.conn.open) {
+          try { target.conn.send(sysMsg); } catch(e) {}
+        }
+      }
+    }
+
     peer.on('connection', (conn) => {
       if (connections.size >= MAX_PEERS) {
+        console.warn(`❌ Conexão recusada: limite ${MAX_PEERS} atingido`);
         conn.close();
         return;
       }
+
       const peerId = conn.peer;
       connections.set(peerId, { conn, lastSeen: Date.now() });
-      console.log(`🔗 Conectado: ${peerId} (${connections.size})`);
+      console.log(`🔗 Conectado: ${peerId} (total: ${connections.size})`);
 
       conn.on('open', () => {
-        // Envia group0-welcome
+        // 1. Envia group0-welcome (para compatibilidade com o cliente V38)
+        //    - totalUsers é usado pelo cliente para calcular o grupo.
+        //    - Como queremos todos no mesmo grupo, forçamos totalUsers
+        //      a um valor que resulte no GROUP_ID desejado.
+        //    - Vamos usar totalUsers = 0 → índice 0 → GID 'AAAA'.
         try {
           conn.send({
             type: 'group0-welcome',
-            totalUsers: totalUsersHint + connections.size,
-            servers: []
+            totalUsers: 0,  // força índice 0 -> GID 'AAAA'
+            servers: []     // sem servidores externos
           });
         } catch(e) {}
-        // Envia lista de peers já conectados (após pequeno delay)
+
+        // 2. Envia a lista de peers já conectados (após um pequeno delay)
         setTimeout(() => sendPeerList(conn), 500);
       });
 
@@ -1037,29 +1065,30 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
         const entry = connections.get(peerId);
         if (entry) entry.lastSeen = Date.now();
 
-        // Responde a group0-request
+        // Responde a group0-request (caso o cliente reenvie)
         if (data && data.type === 'group0-request') {
           try {
             conn.send({
               type: 'group0-welcome',
-              totalUsers: totalUsersHint + connections.size,
+              totalUsers: 0,
               servers: []
             });
           } catch(e) {}
           return;
         }
 
-        // Relay de mensagens
+        // Relay de mensagens (modo geral)
         relayMessage(conn, data, peerId);
       });
 
       conn.on('close', () => {
         connections.delete(peerId);
-        console.log(`🔌 Desconectado: ${peerId} (${connections.size})`);
-        // Avisa os outros que esse peer saiu
+        console.log(`🔌 Desconectado: ${peerId} (restam: ${connections.size})`);
+
+        // Anuncia a saída para os demais peers (pex-update)
         const leaveMsg = {
           type: 'pex-update',
-          gid: 'AAAA',
+          gid: GROUP_ID,
           user: peerId,
           ttl: 5
         };
@@ -1069,13 +1098,19 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
           }
         }
       });
+
+      conn.on('error', (err) => {
+        console.warn(`⚠️ Erro na conexão com ${peerId}: ${err.message}`);
+        connections.delete(peerId);
+      });
     });
 
+    // Atualiza a estimativa de usuários (não usado, mas mantido)
     setInterval(() => {
       totalUsersHint = connections.size;
     }, 10000);
 
-    // A cada 30s, envia atualização de peers para todos
+    // A cada 30 segundos, envia uma atualização da lista de peers para todos (pex)
     setInterval(() => {
       const peerIds = Array.from(connections.keys());
       if (peerIds.length === 0) return;
@@ -1085,13 +1120,18 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
             target.conn.send({
               type: 'pex',
               peers: peerIds.filter(id => id !== pid),
-              groupId: 'AAAA',
+              groupId: GROUP_ID,
               groupSize: connections.size
             });
           } catch(e) {}
         }
       }
     }, 30000);
+
+    // Opcional: envia uma mensagem de boas-vindas quando o servidor inicia
+    setTimeout(() => {
+      broadcastSystemMessage('🎉 Servidor K10-CENTRAL ativo! Todos os usuários estão no mesmo grupo.');
+    }, 2000);
   })();
 </script>
 
