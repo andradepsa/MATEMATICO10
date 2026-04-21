@@ -1,31 +1,23 @@
-<!-- ═══ Chat K10 V38 — Fix MiniServer Mesh (21/abr/2026) ═══
-     CORREÇÕES V38 — 3 BUGS CRÍTICOS NO MINISERVER
+<!-- ═══ Chat K10 V38 — Fix Mensagens Relay via K10-CENTRAL sumindo do Chat Geral (21/abr/2026) ═══
+     CORREÇÕES V38 — 1 FIX CRÍTICO DE ROTEAMENTO DE MENSAGENS
      ══════════════════════════════════════════════════════════════════════
-     BUG1 FIX: relay servidor→servidor entregava para o vácuo
-          - Causa: _onData(fromSrv) fazia this._groups[data.gid] onde data.gid é
-            um K10 gid real ('AAAA') enquanto grupos internos são 'MS0','MS1'...
-            → condição sempre falsa → mensagem sumia silenciosamente
-          - Fix: fromSrv agora usa _bcastAll() → entrega a TODOS os clientes locais
-     BUG2 FIX: peer-list com gid='MS0' corrompía o myGroupId do cliente
-          - Causa: MiniServer enviava { type:'peer-list', gid:'MS0', count } ao cliente
-            → cliente fazia myGroupId='MS0' e k10BuildPeerId('MS0','AA')='K10MS0AA'
-            (formato inválido) sobrescrevendo o grupo K10 real do servidor principal
-          - Fix: MiniServer NÃO envia mais peer-list — só rastreia internamente
-     BUG3 FIX: group0-welcome sempre mandava peers:[] → Modo Geral vazio
-          - Causa: peers hardcoded como [] em vez de listar clientes reais conectados
-          - Fix: _localPeers(exceptId) retorna até 20 peers reais conectados
-     ══════════════════════════════════════════════════════════════════════
-     CORREÇÕES V37 — 1 FIX CIRÚRGICO (mantidas)
-     ══════════════════════════════════════════════════════════════════════
-     FIX V37-BUG: Aba YouTube influenciando as abas Geral e Privado
-          - Causa: ao clicar em YouTube → setActiveChatTab('youtube') era chamado,
-            mas ao trocar para Geral ou Privado o activeChatTab permanecia 'youtube'
-            → iframe do YouTube era renderizado no lugar do chat nativo em TODAS as abas
-          - Fix 1: onClick da aba Geral agora chama setActiveChatTab('native')
-          - Fix 2: onClick da aba Privado agora chama setActiveChatTab('native')
-          - Fix 3: useEffect do selectedContact agora chama setActiveChatTab('native')
-            em ambos os ramos (contato selecionado e desselecionado)
-          - Resultado: cada aba é 100% independente; YouTube só aparece na aba YouTube ✅
+     FIX V38-BUG: Mensagens de outros usuários não apareciam no Chat Geral
+          - Causa: quando K10-CENTRAL retransmite (relay) uma mensagem de outro peer,
+            o handler definia recipient = pId = 'K10-CENTRAL' (isFromSrv=true)
+            em vez de recipient = 'general'
+          - filteredMessages filtra: msg.recipient === 'general'
+            → mensagens relay ficavam invisíveis para o destinatário!
+          - Causa secundária: sender = pId = 'K10-CENTRAL' em vez de data.sender
+            → nome do remetente mostrava o servidor em vez do usuário original
+          - Fix 1 (mensagens normais): recipient sempre 'general' para data.direct=false
+          - Fix 2 (mensagens poll): mesma correção no baseMessage de enquetes
+          - Fix 3 (mensagens quiz): mesma correção no baseQuizMsg
+          - Fix geral: sender = data.sender || pId (usa remetente original do payload)
+          - Resultado: mensagens de todos os peers aparecem corretamente no Chat Geral
+            mesmo quando roteadas via K10-CENTRAL ✅
+     NOTA DESIGN: K10-CENTRAL é o Portal Grupo 0 (sempre ativo) E o servidor do grupo
+          em setups com servidor único — o FIX V32 (connectToPeer permanente) é correto
+          para este caso. O bug era apenas no roteamento de mensagens relay.
      ══════════════════════════════════════════════════════════════════════
      FIX V36-BUG1: Contato selecionado não aparecia na lista da aba Privado
           - Causa 1: filtro usava c.id mas objeto contato usa c.peerId → NUNCA encontrava
@@ -1905,260 +1897,6 @@ const K10_CRITICAL_LOW      = 1400;  // alerta vermelho — irmão doa usuários
 const K10_MERGE_THRESHOLD   = 1700;  // fusão se Pai+Filho ≤ este valor
 const K10_MERGE_DEBOUNCE_MS = 300000; // 5 min estável antes de fundir (evita fusões frenéticas)
 const K10_COMPENSATE_DELTA  = 100;   // usuários transferidos por ciclo de compensação
-
-// ════════════════════════════════════════════════════
-//  K10 MINI-SERVER — IDs predefinidos (determinísticos)
-//  Posição 0→K10-CENTRAL, 1→K10-S1, 2→K10-S2, ...
-//  Quantos forem necessários: K10-S0 a K10-S99 etc.
-// ════════════════════════════════════════════════════
-const K10_MINI_SERVER_IDS = ['K10-CENTRAL','K10-S1','K10-S2','K10-S3','K10-S4',
-  'K10-S5','K10-S6','K10-S7','K10-S8','K10-S9',
-  'K10-S10','K10-S11','K10-S12','K10-S13','K10-S14',
-  'K10-S15','K10-S16','K10-S17','K10-S18','K10-S19'];
-
-// ── MiniServer V38 — 3 BUGS CORRIGIDOS ──────────────────────────────────────
-// BUG1 FIX: relay servidor→servidor não entregava — _groups[data.gid] nunca
-//           encontrava nada porque data.gid é K10 gid real ('AAAA') mas os
-//           grupos internos do MiniServer são 'MS0','MS1'... → mensagem sumia.
-//           Fix: fromSrv agora faz _bcastAll (todos os clientes locais).
-// BUG2 FIX: peer-list com gid='MS0' corrompía o myGroupId do cliente.
-//           O cliente tentava k10BuildPeerId('MS0', suffix) = 'K10MS0AA' inválido
-//           e sobrescrevia o grupo K10 real atribuído pelo servidor principal.
-//           Fix: MiniServer NÃO envia mais peer-list — apenas rastreia internamente.
-// BUG3 FIX: group0-welcome sempre mandava peers:[] → Modo Geral começava vazio.
-//           Fix: inclui peers locais reais em peers[] (até 20).
-// ────────────────────────────────────────────────────────────────────────────
-class MiniServer {
-  constructor(serverId) {
-    this._id       = serverId;
-    this._peer     = null;
-    this._conns    = {};   // peerId → DataConnection (clientes + servidores)
-    this._srvConns = {};   // serverId → DataConnection (servidores amigos)
-    this._isSrv    = {};   // peerId → bool
-    this._pGid     = {};
-    this._pPos     = {};
-    this._groups   = {};   // gid interno → positions[] (só para rastreio local)
-    this._active   = false;
-    this._watchdogTimer = null;
-    this._meshTimer     = null;
-    this._seen = new Set(); // _mid já vistos (anti-loop)
-  }
-
-  start() { if (this._active) return; this._active = true; this._boot(); }
-
-  stop() {
-    this._active = false;
-    clearTimeout(this._watchdogTimer);
-    clearInterval(this._meshTimer);
-    try { if (this._peer && !this._peer.destroyed) this._peer.destroy(); } catch(e){}
-    this._peer = null;
-  }
-
-  _boot() {
-    if (!this._active) return;
-    this._peer = new Peer(this._id, { debug: 0 });
-
-    this._peer.on('open', () => {
-      console.log(`[MiniSrv] ${this._id} online`);
-      this._ensureGroup();
-      setTimeout(() => this._meshConnect(), 2000);
-      this._meshTimer = setInterval(() => this._meshConnect(), 90000);
-    });
-
-    this._peer.on('connection', conn => {
-      conn.on('open', () => {
-        this._conns[conn.peer] = conn;
-        conn.send({ type: 'srv-hello', id: this._id });
-      });
-      conn.on('data', d => this._onData(conn.peer, d));
-      conn.on('close', () => this._dropConn(conn.peer));
-      conn.on('error', () => this._dropConn(conn.peer));
-    });
-
-    this._peer.on('error', err => {
-      if (err.type === 'unavailable-id') {
-        console.log(`[MiniSrv] ${this._id} ocupado — watchdog`);
-        this._peer.destroy(); this._peer = null;
-        this._watchdog();
-      } else {
-        setTimeout(() => this._active && this._boot(), 20000);
-      }
-    });
-
-    this._peer.on('disconnected', () => { try { this._peer.reconnect(); } catch(e){} });
-  }
-
-  // Conecta a todos os servidores amigos ainda não conectados
-  _meshConnect() {
-    if (!this._peer || !this._active) return;
-    for (const sid of K10_MINI_SERVER_IDS) {
-      if (sid === this._id) continue;
-      if (this._srvConns[sid] && this._srvConns[sid].open) continue;
-      try {
-        const c = this._peer.connect(sid, { reliable: true });
-        c.on('open', () => {
-          this._srvConns[sid] = c;
-          this._conns[sid]    = c;
-          this._isSrv[sid]    = true;
-          c.send({ type: 'srv-hello', id: this._id });
-          console.log(`[MiniSrv] ${this._id} ↔ ${sid}`);
-        });
-        c.on('data', d => this._onData(sid, d));
-        c.on('close', () => { delete this._srvConns[sid]; delete this._conns[sid]; delete this._isSrv[sid]; });
-        c.on('error', () => { delete this._srvConns[sid]; delete this._conns[sid]; delete this._isSrv[sid]; });
-      } catch(e){}
-    }
-  }
-
-  _watchdog() {
-    if (!this._active) return;
-    this._watchdogTimer = setTimeout(() => {
-      if (!this._active) return;
-      const probe = new Peer({ debug: 0 });
-      probe.on('open', () => {
-        const c = probe.connect(this._id);
-        const t = setTimeout(() => {
-          try { probe.destroy(); } catch(e){}
-          console.log(`[MiniSrv] ${this._id} caiu — assumindo`);
-          this._boot();
-        }, 8000);
-        c.on('open', () => { clearTimeout(t); try { probe.destroy(); } catch(e){} this._watchdog(); });
-        c.on('error', () => { clearTimeout(t); try { probe.destroy(); } catch(e){} this._boot(); });
-      });
-      probe.on('error', () => { try { probe.destroy(); } catch(e){} this._watchdog(); });
-    }, 60000);
-  }
-
-  _ensureGroup() {
-    for (const [gid, g] of Object.entries(this._groups))
-      if (g.filter(Boolean).length < 1800) return gid;
-    const gid = 'MS' + Object.keys(this._groups).length;
-    this._groups[gid] = [];
-    return gid;
-  }
-
-  _assignPeer(pid) {
-    const gid = this._ensureGroup(), g = this._groups[gid];
-    let pos = g.indexOf(null);
-    if (pos === -1) { pos = g.length; g.push(pid); } else { g[pos] = pid; }
-    this._pGid[pid] = gid; this._pPos[pid] = pos;
-    return { gid, pos };
-  }
-
-  _dropConn(pid) {
-    if (this._isSrv[pid]) {
-      const sid = Object.keys(this._srvConns).find(k => this._srvConns[k] === this._conns[pid]);
-      if (sid) delete this._srvConns[sid];
-      delete this._conns[pid]; delete this._isSrv[pid]; return;
-    }
-    const gid = this._pGid[pid]; if (!gid) { delete this._conns[pid]; return; }
-    const g = this._groups[gid], pos = this._pPos[pid];
-    g[pos] = null;
-    const last = g.length - 1;
-    if (pos !== last && g[last]) {
-      const moved = g[last];
-      g[pos] = moved; g[last] = null; g.length = last;
-      this._pPos[moved] = pos;
-    } else { while (g.length && g[g.length-1] === null) g.pop(); }
-    delete this._pGid[pid]; delete this._pPos[pid];
-    delete this._conns[pid];
-  }
-
-  _send(pid, data) {
-    const c = this._conns[pid];
-    if (c && c.open) try { c.send(data); } catch(e){}
-  }
-
-  // BUG1 FIX: broadcast para TODOS os clientes locais (sem filtrar por gid interno)
-  // Os clientes locais são todos que estão no pool de grupos internos 'MS0','MS1'...
-  // mas a mensagem que chega pode ter qualquer data.gid (K10 real ou undefined).
-  _bcastAll(data, exceptId) {
-    for (const [, g] of Object.entries(this._groups)) {
-      if (g) for (const p of g) if (p && p !== exceptId) this._send(p, data);
-    }
-  }
-
-  // Relay para servidores amigos com anti-loop por _mid
-  _relayToSrvs(data, exceptId) {
-    if (!data._mid) return;
-    if (this._seen.has(data._mid)) return;
-    this._seen.add(data._mid);
-    if (this._seen.size > 3000) this._seen.clear();
-    for (const [sid, sc] of Object.entries(this._srvConns)) {
-      if (sid !== exceptId && sc && sc.open)
-        try { sc.send({ ...data, _srvRelay: true }); } catch(e){}
-    }
-  }
-
-  _totalLocal() {
-    return Object.values(this._groups).reduce((s,g) => s+g.filter(Boolean).length, 0);
-  }
-
-  // BUG3 FIX: retorna peers locais reais (exceto o solicitante) para group0-welcome
-  _localPeers(exceptId) {
-    const peers = [];
-    for (const [, g] of Object.entries(this._groups)) {
-      for (const p of g) if (p && p !== exceptId) peers.push(p);
-      if (peers.length >= 20) break;
-    }
-    return peers.slice(0, 20);
-  }
-
-  _onData(pid, data) {
-    if (!data || !data.type) return;
-
-    // Handshake de servidor amigo
-    if (data.type === 'srv-hello') {
-      this._isSrv[pid] = true;
-      if (data.id) this._srvConns[data.id] = this._conns[pid];
-      console.log(`[MiniSrv] ${this._id} amigo: ${data.id||pid}`);
-      return;
-    }
-
-    const fromSrv = !!this._isSrv[pid];
-
-    // Bootstrap — responde com info da rede
-    if (data.type === 'group0-request') {
-      const friends = Object.keys(this._srvConns).filter(s => this._srvConns[s]?.open);
-      this._send(pid, {
-        type: 'group0-welcome',
-        totalUsers: this._totalLocal(),
-        groups: Object.entries(this._groups).map(([g2,g]) => ({ gid: `${this._id}/${g2}`, size: g.filter(Boolean).length })),
-        servers: friends,
-        peers: this._localPeers(pid)  // BUG3 FIX: peers reais em vez de []
-      });
-      return;
-    }
-
-    // BUG1 FIX: mensagem de servidor amigo → entrega a TODOS os clientes locais
-    // (antes filtrava por data.gid que é K10 gid real, nunca igual ao gid interno 'MS0')
-    if (fromSrv) {
-      if (data._mid) {
-        if (this._seen.has(data._mid)) return; // anti-loop
-        this._seen.add(data._mid);
-        if (this._seen.size > 3000) this._seen.clear();
-      }
-      this._bcastAll(data, null);
-      return;
-    }
-
-    // BUG2 FIX: cliente sem grupo → rastreia internamente SEM enviar peer-list
-    // (antes enviava peer-list com gid='MS0' que corrompía o myGroupId do cliente
-    // e quebrava k10BuildPeerId gerando IDs inválidos como 'K10MS0AA')
-    if (!this._pGid[pid]) this._assignPeer(pid);
-
-    const gid = this._pGid[pid]; if (!gid) return;
-    if (typeof data.ttl === 'number' && data.ttl <= 0) return;
-
-    // Garante _mid para anti-loop entre servidores
-    const mid = data._mid || (`${this._id}_${Date.now()}_${Math.random().toString(36).slice(2)}`);
-    const fwd = { ...data, ttl: Math.min((data.ttl||5)-1, 14), _mid: mid };
-
-    // Broadcast para clientes locais + relay para servidores amigos
-    this._bcastAll(fwd, pid);
-    this._relayToSrvs(fwd, pid);
-  }
-}
 
 // Verifica se um peerId tem formato K10 válido
 const isK10Id = (id) => typeof id === 'string' && id.length === K10_TOTAL_LEN && id.startsWith(K10_PREFIX);
@@ -5760,7 +5498,6 @@ const [windowTargets, setWindowTargets] = useState({}); // { windowId: peerId }
 
 
 const peerInstance = useRef(null);
-const miniServerRef = useRef(null); // K10 MiniServer ativo neste cliente
 const fileInputRef = useRef(null);
 const pendingFiles = useRef({});
 const audioRefs = useRef({});
@@ -6469,20 +6206,6 @@ if (data.type === 'peer-list') {
       const posIdx = K10_POSITION_LIST.indexOf(assignedSuffix);
       if (posIdx >= 0) myPositionIdxRef.current = posIdx;
       addAudit(`[K10] Grupo ${newGid} atribuído (pos ${posIdx+1}). Peer ID mantido: ${peerIdRef.current}`, 'sys');
-
-      // ── K10 MINI-SERVER ELECTION ──
-      // Posições 0..19 do grupo principal → cada uma responsável por 1 servidor
-      if (posIdx >= 0 && posIdx < K10_MINI_SERVER_IDS.length) {
-        const srvId = K10_MINI_SERVER_IDS[posIdx];
-        if (!miniServerRef.current || miniServerRef.current._id !== srvId) {
-          if (miniServerRef.current) miniServerRef.current.stop();
-          const ms = new MiniServer(srvId);
-          miniServerRef.current = ms;
-          // Pequeno delay para não colidir com o boot do próprio peer
-          setTimeout(() => ms.start(), 3000);
-          addAudit(`[MiniSrv] Iniciando ${srvId} (posição ${posIdx})`, 'sys');
-        }
-      }
     }
 
     // V25: conecta aos peers do grupo usando K10_POSITION_LIST[0..count-1]
@@ -7585,12 +7308,12 @@ if (data.type === 'poll-create') {
   const isFromSrv = isCentralServer(pId);
   const pollMsg = {
     ...data,
-    sender: pId,
-    senderName: data.senderName || getContactName(pId),
+    sender: data.sender || pId,
+    senderName: data.senderName || getContactName(data.sender || pId),
     time: messageTime,
     direct: data.direct || false,
     timestamp,
-    recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general')
+    recipient: data.direct ? 'you' : 'general'
   };
   setMessages(prev => [...prev, pollMsg].slice(-500));
   return;
@@ -7689,13 +7412,15 @@ if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via 
 const timestamp = data.timestamp || Date.now();
 const messageTime = data.time || formatTime(new Date(timestamp));
 const isFromSrv = isCentralServer(pId);
+// V38-FIX: sender usa data.sender (remetente original) quando servidor retransmite;
+// recipient sempre 'general' para nao-diretas — evita filteredMessages sumir mensagens relay
 const baseMessage = {
-sender: pId,
-senderName: data.senderName || getContactName(pId),
+sender: data.sender || pId,
+senderName: data.senderName || getContactName(data.sender || pId),
 time: messageTime,
 direct: data.direct || false,
 timestamp,
-recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general')
+recipient: data.direct ? 'you' : 'general'
 };
 let messageToAdd = null;
 
@@ -7789,12 +7514,12 @@ if (data.text === '__QUIZ__' && data.quizPayload) {
 
   const baseQuizMsg = {
     type: 'quiz-question',
-    sender: pId,
+    sender: data.sender || pId,
     senderName: data.senderName || '🤖 Quiz Bot',
     time: messageTime,
     timestamp,
     direct: data.direct || false,
-    recipient: data.direct ? 'you' : (isFromSrv ? pId : 'general'),
+    recipient: data.direct ? 'you' : 'general',
     quizId: qd.quizId,
     quizQuestion: qd.quizQuestion,
     quizOptions: qd.quizOptions,
@@ -8426,7 +8151,6 @@ return () => {
 clearInterval(ghostGcIv);
 window.removeEventListener('online', handleOnline);
 if (reconnectTimeout) clearTimeout(reconnectTimeout);
-if (miniServerRef.current) { miniServerRef.current.stop(); miniServerRef.current = null; }
 if (peerInstance.current) { peerInstance.current.destroy(); peerInstance.current = null; }
 // V27: limpa timer de debounce de fusão ao destruir o peer
 if (groupMergeTimerRef.current) { clearTimeout(groupMergeTimerRef.current); groupMergeTimerRef.current = null; }
