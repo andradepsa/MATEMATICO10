@@ -1,4 +1,84 @@
-<!-- ═══ ServidorChatK10 V9 — Auditoria Completa V25 (19/abr/2026) ═══
+<!-- ═══ ServidorChatK10 V35 — TTL Pre-Check Fix (22/abr/2026) ═══
+     NOVO V35 — FIX CRÍTICO: TTL=0 BLOQUEADO ANTES DO DEDUP
+     ══════════════════════════════════════════════════════════════════════
+     FIX V35-TTL-PRECHECK: mensagens com TTL=0 descartadas na entrada,
+          ANTES de serem registradas em seenMessages e ANTES de chegarem
+          a distributeMessage.
+          - Bug V34: a mensagem TTL=0 passava pelo bloco 'message' inteiro
+            (dedup, setMessages, setStats) antes de distributeMessage a
+            bloquear. Isso permitia que a mensagem fosse armazenada no
+            histórico local do servidor e que o msgId ocupasse um slot em
+            seenMessages — abrindo brecha para bypass de dedup em cenários
+            com múltiplos servidores mesh.
+          - Fix: guard `if (msgTtl <= 0) return;` inserido como PRIMEIRA
+            instrução no bloco type==='message', antes de qualquer acesso
+            a seenMessages ou setMessages.
+          - Impacto: TTL=0 é descartado silenciosamente em todos os
+            caminhos — servidor não armazena, não debita slot de dedup,
+            não distribui. Broadcasts com TTL normal continuam inalterados.
+     ══════════════════════════════════════════════════════════════════════
+     Correções anteriores V34 mantidas integralmente.
+     ══════════════════════════════════════════════════════════════════════
+     NOVO V34 — FIX CRÍTICO: ROTEAMENTO DE MENSAGENS DIRETAS
+     ══════════════════════════════════════════════════════════════════════
+     FIX V34-DIRECT-ROUTING: distributeMessage agora roteia mensagens
+          diretas (direct:true + recipient) APENAS ao destinatário.
+          - Bug V33: distributeMessage fazia broadcast de TUDO para todos os
+            peers conectados, incluindo mensagens com direct:true e recipient.
+          - Resultado: mensagens E2EE vazavam para peers não destinatários;
+            teste de carga direta, ordem, concorrência e carga sustentada
+            falhavam porque qualquer peer recebia mensagens alheias —
+            tornando impossível validar entrega seletiva.
+          - Fix: se data.direct && data.recipient existem, envia SOMENTE
+            para activeConnectionsRef.current.get(data.recipient).
+          - Impacto: mensagens diretas são privadas; broadcasts continuam
+            funcionando normalmente (sem direct/recipient = comportamento
+            anterior inalterado).
+     ══════════════════════════════════════════════════════════════════════
+     Correções anteriores V33 mantidas integralmente.
+     ══════════════════════════════════════════════════════════════════════
+     ══════════════════════════════════════════════════════════════════════
+     NOVO V32 — CORREÇÕES CRÍTICAS GROUP 0
+     ══════════════════════════════════════════════════════════════════════
+     FIX V32-GHOST-1: Remove peer de positions[] ao receber group0-request
+          - Bug: conn.on('open') atribuía posição ANTES de saber que era peer group0
+          - Resultado: ghost ficava em g.positions por até 30s (até o GC rodar)
+          - Fix: ao identificar group0-request, executa swap-on-remove imediatamente
+          - Impacto: peers[] em group0-welcome nunca mais inclui IDs de fantasmas
+
+     FIX V32-GHOST-2: peers[] filtrado por activeConnectionsRef (só peers vivos)
+          - Bug: allLocalPeers usava g.positions sem checar se peer ainda estava ativo
+          - Resultado: clientes recebiam IDs mortos → connectToPeer falha → sem Modo Geral
+          - Fix: .filter(p => activeConnectionsRef.current.has(p))
+          - Impacto: todo ID em peers[] é garantidamente uma conexão aberta agora
+     ══════════════════════════════════════════════════════════════════════
+     Correções anteriores V30 mantidas integralmente.
+     ══════════════════════════════════════════════════════════════════════
+     S-17 K10 V30: Grupo 0 Mesh — Modo Geral Ativo na Entrada
+          - group0-welcome agora inclui peers[] (até 20 peer IDs reais)
+          - meshPeersRef: cache de peers aprendidos de servidores vizinhos
+          - server-mesh-update: protocolo de troca de peers entre servidores
+            Cada servidor envia lista de peers ao vizinho a cada 30s
+          - Clientes recebem peers[] e conectam direto → Modo Geral ativo ao entrar
+          - group0-welcome = portal de entrada + rede P2P unificada em 1 passo
+     ══════════════════════════════════════════════════════════════════════
+     S-16 K10 V29: Grupo 0 Always-On — Anti-Flood Protocol
+          - Grupo 0 SEMPRE ATIVO: sem toggle, sem localStorage, sem checkbox
+          - Servidor aguarda { type:'group0-request' } do cliente no conn.on('data')
+          - Clientes normais nunca enviam group0-request -> fluxo normal inalterado
+          - ANTI-FLOOD: cada cliente fala com 1 servidor; so esse responde
+            Com 1.000.000 de servidores: cliente recebe exatamente 1 resposta
+          - REDUNDANCIA: qualquer servidor pode responder (todos sincronizados)
+          - V29+: group0-welcome inclui groups:[] com GIDs + tamanhos atuais
+          - conn._isGroup0Peer guard: peer G0 nao entra em handleIncomingData
+
+     LOGICA CLIENTE (Chat_Desktop_V29):
+          - Flag module-level group0WelcomeReceived (anti-loop garantido)
+          - conn.on('open'): envia group0-request SE !flag E !myGroupId
+          - Apos group0-welcome: flag=true, directoryGlobal atualizado
+          - Conexao ao servidor real: flag true -> handshake normal, sem loop
+     ══════════════════════════════════════════════════════════════════════
+
      Correções aplicadas:
      S-1  peerId stale no closure → peerIdRef.current
      S-2  distributeMessage: guard conn.open antes de send
@@ -74,7 +154,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- HYDRA V7 server --><title>Servidor K10 - V25</title>
+  <!-- HYDRA V7 server --><title>Servidor K10 - V34</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <style>
     body {
@@ -706,6 +786,12 @@
       useEffect(() => { youtubeChatIdRef.current = youtubeChatId; }, [youtubeChatId]);
       const radioStateRef = useRef({ status: 'idle', startTime: 0, duration: 0 });
       
+      // K10 V29: GRUPO 0 — Always-On (sem toggle, sem localStorage)
+      // O Modo Grupo 0 é parte permanente do servidor.
+      // Ativado por mensagem do cliente: { type:'group0-request' }
+      // Clientes normais nunca enviam essa mensagem → fluxo normal.
+      // Veja handler em conn.on('data') dentro de setupConnection.
+
       const peerInstance = useRef(null);
       const pendingFiles = useRef({});
       const messagesEndRef = useRef(null);
@@ -713,6 +799,10 @@
       const seenMessagesRef = useRef(new Set());
       const isHydraModeRef = useRef(false);
       const recentPeersRef = useRef([]);
+      // ── V30: Mesh de Servidores — peers aprendidos de servidores vizinhos ──
+      // Alimentado pelo protocolo server-mesh-update (a cada 30s entre servidores)
+      // Usado em group0-welcome para fornecer peers reais ao cliente na entrada
+      const meshPeersRef = useRef([]);
       const heartbeatsRef = useRef(new Map());
       const worldQuizNodesRef = useRef(new Set());
       const quizBotPeerRef = useRef(null);
@@ -1177,6 +1267,33 @@
 
       const BASE_RECONNECT_DELAY   = 2000; // 2s inicial
 
+      // ── V30: Protocolo server-mesh-update ────────────────────────────────────
+      // A cada 30s, envia os peers locais para servidores vizinhos conhecidos.
+      // Os vizinhos armazenam em meshPeersRef e os incluem no próximo group0-welcome.
+      // Resultado: qualquer servidor pode fornecer peers de toda a rede ao novo usuário.
+      useEffect(() => {
+        const meshIv = setInterval(() => {
+          // Coleta até 30 peers aleatórios dos grupos locais
+          const allLocalPeers = Object.values(activeGroupsRef.current)
+            .flatMap(g => Array.isArray(g.positions) ? g.positions : [])
+            .filter(Boolean);
+          if (allLocalPeers.length === 0) return;
+          const sample = allLocalPeers
+            .sort(() => Math.random() - 0.5)
+            .slice(0, 30);
+          const meshMsg = { type: 'server-mesh-update', peers: sample };
+          // Envia apenas para servidores conhecidos atualmente conectados
+          knownServersRef.current.forEach(sid => {
+            const sc = activeConnectionsRef.current.get(sid);
+            if (sc && sc.open) {
+              try { sc.send(meshMsg); } catch(e) {}
+            }
+          });
+        }, 30000);
+        return () => clearInterval(meshIv);
+      }, []);
+      // ── FIM V30: server-mesh-update ──────────────────────────────────────────
+
       // Backoff exponencial com jitter: 2s, 4s, 8s … até 60s
       const getBackoffDelay = (attempt) => {
         const exp = Math.min(BASE_RECONNECT_DELAY * Math.pow(2, attempt), 60000);
@@ -1579,6 +1696,23 @@
       };
 
       const handleIncomingData = (data, sourceConn) => {
+        // ── V30: server-mesh-update — recebe peers de servidor vizinho ────────
+        if (data && data.type === 'server-mesh-update') {
+          if (Array.isArray(data.peers)) {
+            const incoming = data.peers
+              .filter(p => typeof p === 'string' && p.length >= 3 && p !== peerIdRef.current)
+              .slice(0, 50);
+            const merged = [...new Set([...meshPeersRef.current, ...incoming])];
+            // Cap: mantém no máximo 200 peers no mesh cache
+            meshPeersRef.current = merged.length > 200
+              ? merged.sort(() => Math.random() - 0.5).slice(0, 200)
+              : merged;
+            addAudit(`[Mesh] +${incoming.length} peers de ${sourceConn.peer} → cache=${meshPeersRef.current.length}`, 'info');
+          }
+          return;
+        }
+        // ── FIM V30: server-mesh-update ───────────────────────────────────────
+
         // Handle Heartbeat from any user (even if not directly connected long-term)
         if (data && data.type === 'heartbeat') {
           heartbeatsRef.current.set(sourceConn.peer, Date.now());
@@ -1839,6 +1973,14 @@
         }
 
         if (data.type === 'message' || data.type === 'torrent-request') {
+          // FIX V35-TTL-PRECHECK: descartar TTL=0 ANTES de qualquer processamento.
+          // Impede que a mensagem ocupe slot em seenMessages, entre no histórico
+          // local ou chegue a distributeMessage por qualquer caminho (incluindo mesh).
+          if (data.type === 'message') {
+            const _preTtl = data.ttl !== undefined ? parseInt(data.ttl) || 0 : 8;
+            if (_preTtl <= 0) return; // descarte silencioso — não loga, não armazena
+          }
+
           if (data.id) {
             if (seenMessagesRef.current.has(data.id)) {
               return; // FIX-AUDIT-SRV: não logar anti-loop, evita spam de log
@@ -1959,6 +2101,26 @@
         }
         
         const relayData = { ...data, ttl: currentTtl - 1 };
+
+        // FIX-DIRECT-ROUTING: mensagens diretas (direct:true + recipient) são
+        // entregues APENAS ao destinatário — previne vazamento de dados E2EE
+        // e reduz tráfego desnecessário para todos os outros peers.
+        if (data.direct && data.recipient && typeof data.recipient === 'string') {
+          const recipConn = activeConnectionsRef.current.get(data.recipient);
+          if (recipConn && recipConn.open && data.recipient !== sourceId) {
+            try {
+              recipConn.send(relayData);
+              distributionCount++;
+            } catch (err) {
+              // silencioso — não expõe dados
+            }
+          }
+          setStats(prev => ({
+            ...prev,
+            messagesDistributed: prev.messagesDistributed + distributionCount
+          }));
+          return;
+        }
         
         activeConnectionsRef.current.forEach((conn, connPeerId) => {
           // BUG S-2 FIX: checa conn.open antes de enviar para evitar erros desnecessários
@@ -2064,6 +2226,14 @@
             }, 5000);
           }
           
+          // ── K10 V29: GRUPO 0 sempre ativo — aguarda 'group0-request' do cliente ──
+          // O grupo0 NÃO é mais um toggle. Está permanentemente integrado ao servidor.
+          // O servidor NÃO dispara no open — aguarda o cliente se identificar com
+          // { type: 'group0-request' }. Clientes normais nunca enviam essa mensagem
+          // e portanto recebem o fluxo normal abaixo (handshake, peer-list, etc.)
+          // Sem toggle, sem localStorage, sem flooding — veja handler em conn.on('data')
+          // ── FIM K10 V29: GRUPO 0 always-on ─────────────────────────────────────
+
           // FIX S-8 V20: cada send em try-catch individual — falha em handshake não descarta peer-list
           // Always send handshake from server so clients know it's a central server
           try { conn.send({ type: 'handshake', peerId: peerIdRef.current }); } catch(e) {}
@@ -2123,26 +2293,28 @@
           peerGroupMapRef.current.set(conn.peer, assignedGid);
           peerPositionMapRef.current.set(conn.peer, { gid: assignedGid, posIdx });
 
-          // V25: peer-list compacto — {gid, user, count}
-          // 'user' = sufixo atribuído ao novo peer (K10_POSITION_LIST[posIdx])
-          // 'count' = total de membros no grupo
-          // O cliente reconstrói quem conectar: K10 + gid + K10_POSITION_LIST[0..count-1]
-          // FIX V25-BANDA: removido users:[] — V24 compat mantém só 'suffix' (scalar, não array)
-          // V26: gidIdx adicionado — cliente aprende o índice binário do GID nesta mensagem
+          // V33: peer-list agora inclui peers[] com IDs PeerJS reais do grupo.
+          // Bug V25: cliente reconstruía IDs K10 (K10AAAAAA) mas esses não são
+          // peer IDs PeerJS reais (IDs reais são aleatórios ex: QYTPF8YAM).
+          // Fix V33: enviamos positions[] filtrado por conexões ativas, cap 20.
+          // V25: 'user'/'count' mantidos para compatibilidade e UI.
           const groupCount = activeGroupsRef.current[assignedGid].positions.length;
           const gidIdx = k10bin.getIdx(assignedGid); // V26: índice uint16 do GID
+          // FIX V33: IDs reais dos peers do grupo (vivos, excluindo o novo peer)
+          const realPeers = activeGroupsRef.current[assignedGid].positions
+            .filter(p => p !== conn.peer && activeConnectionsRef.current.has(p))
+            .slice(0, 20);
           try {
             conn.send({
               type: 'peer-list',
               gid: assignedGid,            // 4 chars — ID do grupo (texto, para UI)
               gidIdx,                      // V26: índice binário do GID (uint16)
               user: assignedSuffix,         // V25: sufixo atribuído (posição do novo peer)
-              count: groupCount,            // V25: total de membros (substitui users:[])
+              count: groupCount,            // V25: total de membros
               suffix: assignedSuffix,       // compat V24 mínima (scalar, sem custo)
-              // REMOVIDO: users:[N sufixos] — V25 usa K10_POSITION_LIST[0..count-1]
-              // Economia total V26: peer-list enviado 1×; eventos seguintes em 7 bytes binários
+              peers: realPeers,             // FIX V33: IDs PeerJS reais dos membros do grupo
             });
-          } catch(e) { console.warn('[K10-V26] Erro ao enviar peer-list:', e); }
+          } catch(e) { console.warn('[K10-V33] Erro ao enviar peer-list:', e); }
 
           addAudit(`[K10-V25] Peer ${conn.peer} → grupo ${assignedGid} posição ${posIdx+1}/${groupCount}`, 'ok');
 
@@ -2239,6 +2411,121 @@
         });
 
         conn.on('data', (data) => {
+          // ══ K10 V29: GRUPO 0 ALWAYS-ON ════════════════════════════════════════
+          // Todos os servidores respondem a 'group0-request' — sempre, sem toggle.
+          // PROTOCOLO:
+          //   1. Cliente Modo Zero conecta ao servidor (qualquer um)
+          //   2. Cliente envia { type:'group0-request' } como 1ª mensagem
+          //   3. Servidor responde UMA vez com group0-welcome e fecha
+          //   4. Clientes normais NUNCA enviam group0-request → fluxo normal abaixo
+          //
+          // ANTI-FLOOD GARANTIDO:
+          //   - O cliente conecta a UM servidor por vez
+          //   - Apenas ESSE servidor recebe e responde ao group0-request
+          //   - Os outros N servidores nunca tomam ciência deste cliente específico
+          //   - Mesmo com 1.000.000 de servidores ativos: o cliente recebe exatamente 1 resposta
+          //
+          // RESPONSABILIDADE COLETIVA SEM FLOOD:
+          //   - "Todos administram" = QUALQUER servidor pode responder (redundância)
+          //   - Os servidores já sincronizam totalUsers via heartbeats + directory-announce
+          //   - Portanto qualquer servidor representa o estado GLOBAL da rede com precisão
+          // ══════════════════════════════════════════════════════════════════════
+          if (data && data.type === 'group0-request') {
+            // Guard: só responde se ainda está registrado (evita dupla resposta)
+            if (!activeConnectionsRef.current.has(conn.peer)) return;
+
+            // Marca como peer grupo0 para evitar que handleIncomingData o processe depois
+            conn._isGroup0Peer = true;
+
+            // ── FIX V32-GHOST: remove peer de positions[] imediatamente ──────────
+            // O conn.on('open') já atribuiu uma posição antes de sabermos que era
+            // um peer group0. Precisamos removê-lo agora para evitar ghost na lista
+            // que seria enviada como peers[] no group0-welcome.
+            const g0Gid = peerGroupMapRef.current.get(conn.peer);
+            if (g0Gid && activeGroupsRef.current[g0Gid]) {
+              const g0Group = activeGroupsRef.current[g0Gid];
+              const g0PosIdx = g0Group.positions ? g0Group.positions.indexOf(conn.peer) : -1;
+              if (g0PosIdx !== -1) {
+                // swap-on-remove: troca com o último e faz pop (mantém lista contígua)
+                const lastPeer = g0Group.positions[g0Group.positions.length - 1];
+                g0Group.positions[g0PosIdx] = lastPeer;
+                g0Group.positions.pop();
+                g0Group.size = g0Group.positions.length;
+                // atualiza posIdx do peer que foi movido
+                if (lastPeer && lastPeer !== conn.peer && peerPositionMapRef.current.has(lastPeer)) {
+                  const lastEntry = peerPositionMapRef.current.get(lastPeer);
+                  peerPositionMapRef.current.set(lastPeer, { ...lastEntry, posIdx: g0PosIdx });
+                }
+              }
+              if (g0Group.members) g0Group.members.delete(conn.peer);
+            }
+            // ── FIM FIX V32-GHOST ─────────────────────────────────────────────────
+
+            // totalUsers = max(soma posições de todos os grupos, heartbeats ativos)
+            // Usando o maior valor disponível garante estimativa mais conservadora (segura)
+            const totalFromGroups = Object.values(activeGroupsRef.current)
+              .reduce((sum, g) => sum + (g.positions?.length || g.size || 0), 0);
+            const totalUsers = Math.max(totalFromGroups, heartbeatsRef.current.size);
+
+            // Lista de grupos conhecidos: GID + tamanho atual (cliente saberá qual grupo escolher)
+            // Enviados em ordem crescente de ocupação — cliente prefere o mais cheio (agrupa)
+            const groupsList = Object.entries(activeGroupsRef.current)
+              .map(([gid, g]) => ({ gid, size: g.positions?.length || g.size || 0 }))
+              .sort((a, b) => b.size - a.size)
+              .slice(0, 50); // máx 50 grupos — evita pacote enorme
+
+            addAudit(`[Grupo 0] ▶ group0-request de ${conn.peer} → totalUsers=${totalUsers} grupos=${groupsList.length}`, 'info');
+
+            // ── V30: peers[] — apenas peers ATIVOS (FIX V32: exclui ghosts) ──
+            // Combina peers locais do grupo mais populoso + peers do mesh (outros servidores)
+            // FIX V32-GHOST: filtra por activeConnectionsRef.current — só envia peers vivos
+            const allLocalPeers = Object.values(activeGroupsRef.current)
+              .flatMap(g => Array.isArray(g.positions) ? g.positions : [])
+              .filter(p => p && p !== conn.peer && activeConnectionsRef.current.has(p));
+            const localSample = allLocalPeers
+              .sort(() => Math.random() - 0.5)
+              .slice(0, 15);
+            const meshSample = meshPeersRef.current
+              .filter(p => p !== conn.peer && !localSample.includes(p))
+              .sort(() => Math.random() - 0.5)
+              .slice(0, 10);
+            const peersForClient = [...new Set([...localSample, ...meshSample])].slice(0, 20);
+            // ── FIM V30: peers[] ──────────────────────────────────────────────
+
+            try {
+              conn.send({
+                type: 'group0-welcome',
+                totalUsers,
+                groups: groupsList,   // V29: lista de grupos com tamanhos
+                peers: peersForClient, // V30: peers reais para Modo Geral imediato
+                servers: knownServersRef.current
+                  .filter(s => s !== peerIdRef.current)
+                  .slice(0, 10)       // máx 10 servidores vizinhos
+              });
+            } catch(e) {
+              addAudit(`[Grupo 0] ❌ Erro ao enviar welcome: ${e.message}`, 'err');
+            }
+
+            // Remove do mapa de conexões ativas (este peer não é membro do grupo)
+            activeConnectionsRef.current.delete(conn.peer);
+            peerGroupMapRef.current.delete(conn.peer);
+            peerPositionMapRef.current.delete(conn.peer);
+            setConnections(Array.from(activeConnectionsRef.current.keys()));
+            setStats(prev => ({ ...prev, activeConnections: activeConnectionsRef.current.size }));
+
+            // Fecha conexão após 1.5s — tempo suficiente para o send chegar
+            setTimeout(() => {
+              try { conn.close(); } catch(e) {}
+              addAudit(`[Grupo 0] ✓ Peer ${conn.peer} atendido e desconectado`, 'ok');
+            }, 1500);
+
+            return; // ← Não passa para handleIncomingData
+          }
+          // ══ FIM K10 V29: GRUPO 0 ALWAYS-ON ═══════════════════════════════════
+
+          // Guard extra: ignora mensagens de peer que já foi classificado como grupo0
+          if (conn._isGroup0Peer) return;
+
           handleIncomingData(data, conn);
         });
 
@@ -2756,6 +3043,21 @@
             </div>
           </div>
           
+          {/* ── K10 V29: GRUPO 0 — Always-On (sem toggle) ── */}
+          <div className="server-mode-container" style={{ background: '#d1fae5', border: '2px solid #10b981' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+              <strong style={{ color: '#065f46' }}>
+                🚪 MODO GRUPO 0 — Portal de Entrada
+              </strong>
+              <span style={{ background: '#10b981', color: '#fff', borderRadius: '12px', padding: '2px 10px', fontSize: '12px', fontWeight: 'bold' }}>
+                ✅ SEMPRE ATIVO
+              </span>
+              <span style={{ fontSize: '11px', color: '#065f46', fontStyle: 'italic' }}>
+                Responde a group0-request — não pode ser desativado
+              </span>
+            </div>
+          </div>
+
           <div className="server-mode-container">
             <strong>{t(lang, 'knownServers')}</strong>
             {knownServers.map(id => (
