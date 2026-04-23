@@ -472,7 +472,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V45</title>
+<title>Chat K10 — V46</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -1374,7 +1374,7 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
      
 <noscript>
   <div style="padding:40px;font-family:system-ui,-apple-system,sans-serif;text-align:center;max-width:560px;margin:60px auto;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);">
-    <h1 style="color:#1e40af;margin-top:0;">Chat K10 V45</h1>
+    <h1 style="color:#1e40af;margin-top:0;">Chat K10 V46</h1>
     <p style="color:#1e293b;font-size:16px;line-height:1.6;">
       <strong>JavaScript is required.</strong><br>
       This peer-to-peer encrypted chat needs JavaScript to establish secure connections between browsers.
@@ -8345,6 +8345,17 @@ if (!group0WelcomeReceivedRef.current && !myGroupIdRef.current) {
   // Não envia handshake agora — aguarda group0-welcome (servidor fecha a conexão)
   return;
 }
+// FIX V46-FAILOVER-SETCENTRAL: ao conectar em servidor -CENTRAL (ex: failover K10-CENTRAL → K100-CENTRAL),
+// se o centralServerId atual está morto (sem conexão aberta), atualiza imediatamente.
+// Garante que heartbeats e mensagens passem a usar o servidor de backup sem esperar o próximo ciclo.
+if (isCentralServer(peerIdToConnect)) {
+  const isCurrentCentralAlive = centralServerIdRef.current &&
+    connectionsRef.current.some(c => c.peer === centralServerIdRef.current && c.open);
+  if (!isCurrentCentralAlive) {
+    setCentralServerId(peerIdToConnect);
+    addAudit(`[Failover] ✅ Central atualizado para ${peerIdToConnect}`, 'ok');
+  }
+}
 setConnections(prev => [...prev.filter(c => c.peer !== peerIdToConnect), conn]);
 sendHandshake(conn);
 sendRadioSync(conn);
@@ -8383,6 +8394,30 @@ conn.on('close', () => {
   setTimeout(checkAndAssumeQuizMaster, 1000);
   // V8-BUG#9: reset contador em close limpo
   if (window.__v8ReconAttempts) window.__v8ReconAttempts.delete(peerIdToConnect);
+
+  // FIX V46-FAILOVER-CONNCLOSE: se o peer que fechou ERA o servidor central,
+  // tenta reconectar ao BACKUP (K100-CENTRAL) IMEDIATAMENTE — sem aguardar o
+  // heartbeat de 30s, que era a causa do FAIL de failover no teste nuclear (12s).
+  // O primário também é retentado via heartbeat, garantindo auto-heal se voltar.
+  if (peerIdToConnect === centralServerIdRef.current && group0WelcomeReceivedRef.current) {
+    const K10_SECONDARY_BOOTSTRAP = 'K100-CENTRAL';
+    const isSecondaryAlreadyConnected = connectionsRef.current.some(
+      c => c.peer === K10_SECONDARY_BOOTSTRAP && c.open
+    );
+    if (!isSecondaryAlreadyConnected) {
+      addAudit(`[Failover] ⚡ Servidor central ${peerIdToConnect} caiu — failover imediato para ${K10_SECONDARY_BOOTSTRAP}`, 'warn');
+      setTimeout(() => {
+        if (!peerInstance.current || peerInstance.current.destroyed) return;
+        if (connectionsRef.current.some(c => c.peer === K10_SECONDARY_BOOTSTRAP && c.open)) return;
+        try {
+          connectToPeer(K10_SECONDARY_BOOTSTRAP);
+          // Ao conectar, conn.on('open') em connectToPeer chama setCentralServerId via isCentralServer check
+        } catch(e) {
+          addAudit(`[Failover] ❌ Falha ao conectar ao backup: ${e.message}`, 'error');
+        }
+      }, 200); // 200ms: mínimo para o PeerJS processar o close antes de nova conexão
+    }
+  }
 });
 conn.on('data', data => handleIncomingDataRef.current(data, peerIdToConnect));
 } catch (err) { alert(t(langRef.current, 'connectError') + err.message); } // FIX C-14: langRef.current evita stale closure no catch
@@ -8535,6 +8570,8 @@ if (bConn) {
 bConn.on('open', () => {
   setCentralServerId(bootstrapId);
   window.__k10BootAttempts = 0; // V35: reset contador de retry ao conectar
+  window.__k10BackupAttempted = false; // FIX V46: permite nova tentativa de backup em próxima queda
+  if (window.__k10SlowPollInterval) { clearInterval(window.__k10SlowPollInterval); window.__k10SlowPollInterval = null; } // FIX V46: cancela polling lento se estava ativo
   addAudit(`[Grupo 0] ✅ Bootstrap conectado: ${bootstrapId}`, 'success');
   try { bConn.send({ type: 'group0-request' }); } catch(e) {}
   addAudit('[Grupo 0] ↗️ group0-request enviado (bootstrap automático)', 'info');
@@ -8572,56 +8609,84 @@ console.log("Network error detected, will attempt reconnect...");
   // ══════════════════════════════════════════════════════════════════════════
   // V36-REAL-FIX: peer-unavailable SEMPRE dispara aqui (objeto Peer), nunca na
   // DataConnection. O retry do V35 em bConn.on('error') era CÓDIGO MORTO.
+  // FIX V46-FAILOVER-BOOTSTRAP:
+  //   - Backoff reduzido de 3s×n para 1s×n (1s,2s,3s...) — permite 6 tentativas
+  //     em 12s em vez de 3, compatível com o timeout do teste de failover.
+  //   - Após 3 falhas consecutivas no primário (K10-CENTRAL), tenta IMEDIATAMENTE
+  //     o backup (K100-CENTRAL) em paralelo — sem aguardar o polling lento de 30s.
+  //   - Se K100-CENTRAL responder, cancela o retry do primário e seta centralServerId.
+  //   - Polling lento mantido como última linha de defesa (servidor pode subir depois).
   // ══════════════════════════════════════════════════════════════════════════
   if (!group0WelcomeReceivedRef.current) {
-    const bootstrapId = 'K10-CENTRAL';
+    const K10_PRIMARY_BOOTSTRAP   = 'K10-CENTRAL';
+    const K10_SECONDARY_BOOTSTRAP = 'K100-CENTRAL';
     window.__k10BootAttempts = (window.__k10BootAttempts || 0) + 1;
     const n = window.__k10BootAttempts;
-    addAudit(`[Grupo 0] ⚠️ ${bootstrapId} offline (tentativa ${n})`, 'error');
+    addAudit(`[Grupo 0] ⚠️ ${K10_PRIMARY_BOOTSTRAP} offline (tentativa ${n})`, 'error');
 
-    const scheduleRetry = (attempt, delay) => {
-      addAudit(`[Grupo 0] 🔄 Retry ${attempt}/8 em ${Math.round(delay/1000)}s...`, 'info');
+    // ── Função genérica de conexão a um bootstrap ──────────────────────────
+    const tryBootstrap = (targetId, attempt, delay, label) => {
+      addAudit(`[Grupo 0] 🔄 ${label} em ${Math.round(delay/1000)}s... → ${targetId}`, 'info');
       setTimeout(() => {
         if (group0WelcomeReceivedRef.current || !peerInstance.current || peerInstance.current.destroyed) return;
         if (window.__k10SlowPollInterval) return; // slow poll já ativo
-        const rc = peerInstance.current.connect(bootstrapId, { reliable: true });
+        const rc = peerInstance.current.connect(targetId, { reliable: true });
         if (!rc) return;
         rc.on('open', () => {
-          setCentralServerId(bootstrapId);
-          addAudit(`[Grupo 0] ✅ Retry ${attempt} conectou! Enviando group0-request...`, 'success');
+          // FIX V46: cancela polling lento se estava rodando
+          if (window.__k10SlowPollInterval) { clearInterval(window.__k10SlowPollInterval); window.__k10SlowPollInterval = null; }
+          setCentralServerId(targetId);
+          addAudit(`[Grupo 0] ✅ ${label} conectou em ${targetId}! Enviando group0-request...`, 'success');
           try { rc.send({ type: 'group0-request' }); } catch(ep) {}
         });
-        rc.on('data', d => handleIncomingDataRef.current(d, bootstrapId));
-        rc.on('close', () => { setConnections(prev => prev.filter(c => c.peer !== bootstrapId)); });
+        rc.on('data', d => handleIncomingDataRef.current(d, targetId));
+        rc.on('close', () => { setConnections(prev => prev.filter(c => c.peer !== targetId)); });
         // retry errors → peer.on('error') continua incrementando __k10BootAttempts
       }, delay);
     };
 
     if (n <= 8) {
-      const delay = Math.min(20000, 3000 * n) + Math.random() * 500;
-      scheduleRetry(n, delay);
+      // FIX V46: backoff 1s×n (era 3s×n) — cabe 6 tentativas em 6+5+4+3+2+1=21s
+      // vs 3+6+9+12+15+18=63s anterior. Permite failover dentro da janela de 12s do teste.
+      const delay = Math.min(8000, 1000 * n) + Math.random() * 300;
+      tryBootstrap(K10_PRIMARY_BOOTSTRAP, n, delay, `Retry ${n}/8`);
+
+      // FIX V46: após 3 falhas no primário → tenta backup IMEDIATAMENTE (sem aguardar n>8)
+      // Razão: se o primário está morto, não há ganho em esperar mais 5 retries antes de tentar
+      // o servidor de backup — isso causava o FAIL de failover em 12s no teste nuclear.
+      if (n === 3 && !window.__k10BackupAttempted) {
+        window.__k10BackupAttempted = true;
+        addAudit(`[Grupo 0] 🆘 3 falhas no primário → tentando backup ${K10_SECONDARY_BOOTSTRAP} imediatamente`, 'warn');
+        tryBootstrap(K10_SECONDARY_BOOTSTRAP, n, 500, 'Backup imediato');
+      }
     } else if (!window.__k10SlowPollInterval) {
-      // ── POLLING LENTO: após 8 retries, tenta a cada 30s indefinidamente ──
-      // Garante que o cliente conecta quando o servidor ficar online, mesmo horas depois
-      addAudit('[Grupo 0] ❌ 8 retries rápidos esgotados — iniciando polling lento (30s)', 'warn');
+      // ── POLLING LENTO: após 8 retries rápidos, tenta ambos os servidores a cada 15s ──
+      // FIX V46: intervalo reduzido de 30s para 15s; alterna primário e backup.
+      // Garante reconexão mesmo se o servidor subir horas depois.
+      addAudit('[Grupo 0] ❌ 8 retries rápidos esgotados — iniciando polling lento (15s, alterna primário/backup)', 'warn');
+      let _pollCycle = 0;
       window.__k10SlowPollInterval = setInterval(() => {
         if (group0WelcomeReceivedRef.current || !peerInstance.current || peerInstance.current.destroyed) {
           clearInterval(window.__k10SlowPollInterval);
+          window.__k10SlowPollInterval = null;
           return;
         }
-        addAudit('[Grupo 0] 🔄 Polling lento — tentando K10-CENTRAL...', 'info');
-        const pc = peerInstance.current.connect(bootstrapId, { reliable: true });
+        // Alterna entre primário e backup a cada ciclo para cobrir ambos
+        const pollTarget = (_pollCycle++ % 2 === 0) ? K10_PRIMARY_BOOTSTRAP : K10_SECONDARY_BOOTSTRAP;
+        addAudit(`[Grupo 0] 🔄 Polling lento → ${pollTarget}...`, 'info');
+        const pc = peerInstance.current.connect(pollTarget, { reliable: true });
         if (!pc) return;
         pc.on('open', () => {
           clearInterval(window.__k10SlowPollInterval);
-          setCentralServerId(bootstrapId);
-          addAudit('[Grupo 0] ✅ Polling lento conectou! Servidor online.', 'success');
+          window.__k10SlowPollInterval = null;
+          setCentralServerId(pollTarget);
+          addAudit(`[Grupo 0] ✅ Polling lento conectou em ${pollTarget}! Servidor online.`, 'success');
           try { pc.send({ type: 'group0-request' }); } catch(ep) {}
         });
-        pc.on('data', d => handleIncomingDataRef.current(d, bootstrapId));
-        pc.on('close', () => { setConnections(prev => prev.filter(c => c.peer !== bootstrapId)); });
+        pc.on('data', d => handleIncomingDataRef.current(d, pollTarget));
+        pc.on('close', () => { setConnections(prev => prev.filter(c => c.peer !== pollTarget)); });
         pc.on('error', () => {}); // silencioso — peer.on('error') já incrementa __k10BootAttempts
-      }, 30000);
+      }, 15000);
     }
   }
 } else {
