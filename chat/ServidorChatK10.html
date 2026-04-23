@@ -2569,6 +2569,18 @@
           // Guard extra: ignora mensagens de peer que já foi classificado como grupo0
           if (conn._isGroup0Peer) return;
 
+          // ── VIGILÂNCIA DE SEGURANÇA (FIX-AUDIT-SRV): XSS, OOM, TTL ────────────
+          if (data && typeof data === 'object') {
+            if (typeof data.senderName === 'string') {
+              data.senderName = data.senderName.replace(/[<>]/g, '').slice(0, 60);
+            }
+            if (data.ttl !== undefined) {
+              let parsedTtl = parseInt(data.ttl);
+              data.ttl = isNaN(parsedTtl) ? 15 : Math.min(Math.max(0, parsedTtl), 15);
+            }
+          }
+          // ──────────────────────────────────────────────────────────────────────
+
           handleIncomingData(data, conn);
         });
 
