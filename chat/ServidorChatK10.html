@@ -547,6 +547,7 @@
         darkMode: "Dark Mode",
         tutorial: "Tutorial",
         language: "PT",
+        maxConnections: "Max Connections:",
         serverFullMigration: "Server full! Migrating you to the decentralized network.",
         pureServerModeConnected: "Connected to K10 server in pure server mode",
         globalRadio: "Global Radio",
@@ -608,6 +609,7 @@
         darkMode: "Modo Noturno",
         tutorial: "Tutorial",
         language: "EN",
+        maxConnections: "Máximo de Conexões:",
         serverFullMigration: "Servidor cheio! Migrando você para a rede descentralizada.",
         pureServerModeConnected: "Conectado ao servidor K10 em modo servidor puro",
         globalRadio: "Rádio Global",
@@ -734,6 +736,9 @@
       const langRef = useRef(localStorage.getItem('serverLang') || 'en'); // FIX S1: evita stale closure em setupConnection/conn.on
       useEffect(() => { langRef.current = lang; }, [lang]);
       const [peerId, setPeerId] = usePersistentId();
+      const [maxConn, setMaxConn] = useState(() => parseInt(localStorage.getItem('maxConnections') || '200'));
+      const maxConnRef = useRef(parseInt(localStorage.getItem('maxConnections') || '200'));
+      useEffect(() => { maxConnRef.current = maxConn; localStorage.setItem('maxConnections', maxConn.toString()); }, [maxConn]);
       const [connections, setConnections] = useState([]);
       const [messages, setMessages] = useState([]);
       const [connectionStatus, setConnectionStatus] = useState('disconnected');
@@ -1556,8 +1561,7 @@
           // FIX-AUDIT-SRV-HYDRA: cap de conexões também no modo Hydra
           // Sem este guard, modo Hydra aceitava conexões ilimitadas → DoS por esgotamento de memória
           const MAX_HYDRA_CONNECTIONS = 500; // Hydra suporta mais pois fecha em 2s
-          const MAX_SERVER_CONNECTIONS = 200;
-
+          
           if (isHydraModeRef.current) {
             if (recentPeersRef.current.length >= MAX_HYDRA_CONNECTIONS) {
               setTimeout(() => { try { conn.close(); } catch (e) {} }, 200);
@@ -1567,7 +1571,7 @@
             return;
           }
 
-          if (activeConnectionsRef.current.size >= MAX_SERVER_CONNECTIONS) {
+          if (activeConnectionsRef.current.size >= maxConnRef.current) {
             setTimeout(() => { try { conn.close(); } catch (e) {} }, 500);
             return;
           }
@@ -3157,6 +3161,19 @@
                   <i className="fas fa-robot"></i> {t(lang, 'stopQuiz')}
                 </button>
               )}
+            </div>
+          </div>
+
+          <div className="server-mode-container">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+              <strong>{t(lang, 'maxConnections')}</strong>
+              <input 
+                type="number" 
+                min="1"
+                value={maxConn} 
+                onChange={(e) => setMaxConn(parseInt(e.target.value) || 1)} 
+                style={{ width: '80px', padding: '4px', border: '1px solid #ccc', borderRadius: '4px' }}
+              />
             </div>
           </div>
 
