@@ -1,4 +1,26 @@
-<!-- ═══ Chat K10 V41 — Relay Dedup Fix (22/abr/2026) ═══
+<!-- ═══ Chat K10 V43 — Fix Listas Privado/Geral (22/abr/2026) ═══
+     NOVO V43 — 2 FIXES CRÍTICOS: LISTAS DE CONVERSAS
+     ══════════════════════════════════════════════════════════════════════
+     FIX V43-PRIVATE-DIRECTPEERS: directPeersRef não disparava re-render na aba Privado
+          - Bug V42: directPeersRef era apenas useRef. Ao receber mensagem direta de um peer,
+            directPeersRef.current.add(pId) era chamado mas NÃO disparava re-render do React.
+            A aba Privado só atualizava na próxima renderização por outro motivo (ex: nova msg).
+          - Fix: adicionado directPeers como useState(new Set()) espelhando o ref.
+            Toda chamada add() agora atualiza REF (leitura síncrona) + STATE (re-render imediato).
+          - Impacto: ao receber mensagem direta ou ligação, o contato aparece IMEDIATAMENTE
+            na aba Privado sem precisar de outra interação.
+
+     FIX V43-GENERAL-PEERLIST: aba Geral não exibia lista de usuários/peers conectados
+          - Bug V42: aba Geral mostrava apenas servidores (isMyGroupServer) + badge de contagem.
+            NÃO havia lista dos usuários/peers não-servidores (máx 15 ou 50 para SuperNó).
+          - Fix: adicionada seção "👥 Usuários (N/max)" abaixo dos servidores, mostrando
+            todos os peers não-servidores conectados, limitados a isSuperNode ? 50 : 15.
+          - Clique num usuário da lista Geral: seleciona-o E muda para aba Privado.
+          - Badge indicador de SuperNó (roxo) quando maxPeers=50.
+          - Painel de status atualizado com contagem correcta (exclui servidores).
+     ══════════════════════════════════════════════════════════════════════
+     Correções anteriores V42/V41 mantidas integralmente.
+     ══════════════════════════════════════════════════════════════════════
      NOVO V41 — FIX CRÍTICO: DEDUP NO RELAY P2P
      ══════════════════════════════════════════════════════════════════════
      FIX V41-RELAY-DEDUP: relayMessage não deduplicava por msgId — causava
@@ -3335,6 +3357,7 @@ avatars,
 currentQuizQuestionRef,
 connectionsRef: connectionsRefProp,
 directPeersRef,
+directPeers,
 isSuperNode
 }) => {
 // FIX: usa connectionsRef recebido via prop (do App) para evitar stale closure no sendDirectMessage
@@ -3876,6 +3899,7 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
     const connList = connections.filter(conn =>
       !isCentralServer(conn.peer) && (
         contacts.some(c => c.peerId === conn.peer) ||
+        (directPeers && directPeers.has(conn.peer)) ||
         (directPeersRef && directPeersRef.current.has(conn.peer))
       )
     );
@@ -3996,6 +4020,49 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
       </div>
     );
   })}
+
+  {/* V43-FIX: Lista de USUÁRIOS/PEERS do Modo Geral (máx 15 ou 50 para SuperNó) */}
+  {(() => {
+    const maxPeers = isSuperNode ? 50 : 15;
+    const generalPeers = connections
+      .filter(c => !isMyGroupServer(c.peer) && !isCentralServer(c.peer))
+      .slice(0, maxPeers);
+    if (generalPeers.length === 0) return null;
+    return (
+      <div>
+        <div style={{ padding: '8px 14px 4px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', fontWeight: 600 }}>
+            👥 Usuários ({generalPeers.length}/{maxPeers})
+          </span>
+          {isSuperNode && <span style={{ fontSize: '10px', background: '#7c3aed', color: 'white', borderRadius: '4px', padding: '1px 6px', fontWeight: 700 }}>SuperNó</span>}
+        </div>
+        {generalPeers.map((conn, i) => {
+          const isSelected = selectedContact === conn.peer;
+          const name = getContactName(conn.peer);
+          return (
+            <div key={i}
+              className={`conversation-item${isSelected ? ' selected' : ''}`}
+              onClick={() => {
+                setSelectedContact(isSelected ? null : conn.peer);
+                if (!isSelected) setSidebarTab('private');
+              }}
+              style={{ cursor: 'pointer' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Avatar peerId={conn.peer} name={name} avatars={avatars} size="medium" />
+                <div>
+                  <div className="conversation-name" style={{ fontSize: '13px' }}>
+                    {name !== conn.peer ? name : conn.peer.slice(0, 16) + '…'}
+                  </div>
+                  <div className="conversation-peer-id">{conn.open ? '🟢 conectado' : '🔴 offline'}</div>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  })()}
+
   {/* Painel de status do modo geral */}
   <div className="general-empty-panel" style={{ marginTop: connections.filter(c => isCentralServer(c.peer)).length > 0 ? '0' : '0' }}>
     <span className="big-icon">🌐</span>
@@ -4004,13 +4071,13 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
       Você está no chat público da rede P2P.<br/>
       Mensagens chegam a <strong>todos</strong> os usuários do grupo.
     </div>
-    {connections.filter(c => !isMyGroupServer(c.peer)).length > 0 && (
+    {connections.filter(c => !isMyGroupServer(c.peer) && !isCentralServer(c.peer)).length > 0 && (
       <div style={{ fontSize: '11px', color: '#059669', fontWeight: 600, background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '6px 12px' }}>
-        👥 {connections.filter(c => !isMyGroupServer(c.peer)).length} user(s) no grupo {isSuperNode ? '· SuperNó (máx 50)' : '(máx 15)'}
+        👥 {connections.filter(c => !isMyGroupServer(c.peer) && !isCentralServer(c.peer)).length} usuário(s) conectado(s) {isSuperNode ? '· SuperNó (máx 50)' : '(máx 15)'}
       </div>
     )}
     <div style={{ fontSize: '11px', color: 'var(--text-muted)', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 12px', lineHeight: '1.6' }}>
-      🔒 Para chat <strong>privado user→user</strong>, vá à aba <strong>Privado</strong>.
+      🔒 Para chat <strong>privado user→user</strong>, clique em um usuário acima ou vá à aba <strong>Privado</strong>.
     </div>
   </div>
 </div>
@@ -5217,6 +5284,9 @@ const connectionsRef = useRef([]);
 useEffect(() => { connectionsRef.current = connections; }, [connections]);
 // V36: peers que iniciaram conexão DIRETA (incoming) — aparecem na aba Privado
 const directPeersRef = useRef(new Set());
+// V43-FIX: directPeers como STATE (além do ref) para que o React re-renderize a aba Privado
+// quando um novo peer direto é registrado. directPeersRef mantém para leituras síncronas.
+const [directPeers, setDirectPeers] = useState(new Set());
 const [messages, setMessages] = useState([]);
 const [newMessage, setNewMessage] = useState('');
 const [showContacts, setShowContacts] = useState(false);
@@ -7710,7 +7780,14 @@ if (data.type === 'poll-create') {
     recipient: data.direct ? 'you' : 'general'
   };
   // V39-FIX: poll privada → marca como peer direto
-  if (data.direct) directPeersRef.current.add(data.sender || pId);
+  // V43-FIX: atualiza REF (síncrono) + STATE (re-renderiza aba Privado)
+  if (data.direct) {
+    const dpId = data.sender || pId;
+    if (!directPeersRef.current.has(dpId)) {
+      directPeersRef.current.add(dpId);
+      setDirectPeers(prev => { const s = new Set(prev); s.add(dpId); return s; });
+    }
+  }
   setMessages(prev => [...prev, pollMsg].slice(-500));
   return;
 }
@@ -7819,7 +7896,14 @@ timestamp,
 recipient: data.direct ? 'you' : 'general'
 };
 // V39-FIX: mensagem privada direta → quem enviou aparece na aba Privado
-if (data.direct) directPeersRef.current.add(data.sender || pId);
+// V43-FIX: atualiza REF (síncrono) + STATE (re-renderiza aba Privado)
+if (data.direct) {
+  const dpId = data.sender || pId;
+  if (!directPeersRef.current.has(dpId)) {
+    directPeersRef.current.add(dpId);
+    setDirectPeers(prev => { const s = new Set(prev); s.add(dpId); return s; });
+  }
+}
 let messageToAdd = null;
 
 
@@ -8485,7 +8569,11 @@ const callType = call.metadata?.type || 'video';
 try {
 call.answer(null);
 // V39-FIX: ligação direta (voz/vídeo) → peer aparece na aba Privado
-directPeersRef.current.add(call.peer);
+// V43-FIX: atualiza REF + STATE
+if (!directPeersRef.current.has(call.peer)) {
+  directPeersRef.current.add(call.peer);
+  setDirectPeers(prev => { const s = new Set(prev); s.add(call.peer); return s; });
+}
 setActiveCalls(prev => [...prev.filter(c => !(c.peerId === call.peer && c.type === callType)), { peerId: call.peer, call, localStream: null, type: callType, direction: 'incoming', isTemporaryStream: false }]);
 call.on('stream', remoteStream => setRemoteStreams(prev => [...prev.filter(s => !(s.peerId === call.peer && s.type === callType)), { peerId: call.peer, stream: remoteStream, type: callType }]));
 call.on('close', () => endCall(call.peer, callType));
@@ -9695,7 +9783,11 @@ const startVoiceCall = async (peerIdToCall) => {
 if (!peerInstance.current || !peerIdToCall) return;
 if (activeCallsRef.current.some(c => c.peerId === peerIdToCall && c.type === 'voice')) return; // FIX N-1 V20: era activeCalls (stale closure)
 // V39-FIX: chamada user→user sainte → peer aparece na aba Privado
-directPeersRef.current.add(peerIdToCall);
+// V43-FIX: atualiza REF + STATE
+if (!directPeersRef.current.has(peerIdToCall)) {
+  directPeersRef.current.add(peerIdToCall);
+  setDirectPeers(prev => { const s = new Set(prev); s.add(peerIdToCall); return s; });
+}
 // BUG C-3 FIX: usa connectionsRef.current para evitar stale closure em event handlers
 const conn = connectionsRef.current.find(c => c.peer === peerIdToCall);
 if (!conn || !conn.open) { alert(t(lang, 'contactOffline2')); return; }
@@ -9716,7 +9808,11 @@ if (!peerInstance.current || !peerIdToCall) return;
 const existingCall = activeCallsRef.current.find(c => c.peerId === peerIdToCall && c.type === 'video'); // FIX N-2 V20: era activeCalls (stale closure)
 const isSendingVideo = existingCall && existingCall.localStream;
 // V39-FIX: chamada video user→user → peer aparece na aba Privado
-if (!isSendingVideo) directPeersRef.current.add(peerIdToCall);
+// V43-FIX: atualiza REF + STATE
+if (!isSendingVideo && !directPeersRef.current.has(peerIdToCall)) {
+  directPeersRef.current.add(peerIdToCall);
+  setDirectPeers(prev => { const s = new Set(prev); s.add(peerIdToCall); return s; });
+}
 // BUG C-4 FIX: usa connectionsRef.current para evitar stale closure
 const conn = connectionsRef.current.find(c => c.peer === peerIdToCall);
 if (isSendingVideo) {
@@ -10278,6 +10374,7 @@ avatars={avatars}
 currentQuizQuestionRef={currentQuizQuestionRef}
 connectionsRef={connectionsRef}
 directPeersRef={directPeersRef}
+directPeers={directPeers}
 isSuperNode={isSuperNode}
 />
 )}
