@@ -1,5 +1,5 @@
 <!-- ═══ Chat K10 V44 — Fix Lista Servidores Aba Geral (22/abr/2026) ═══
-     NOVO V44 — FIX: SERVIDORES NÃO APARECIAM NA ABA GERAL
+     NOVO V44 — 2 FIXES: LISTA DA ABA GERAL
      ══════════════════════════════════════════════════════════════════════
      FIX V44-GENERAL-SERVERLIST: K10-CENTRAL e servidores da lista de contatos
           não apareciam na aba Geral
@@ -14,6 +14,18 @@
             Qualquer conexão com ID terminado em -CENTRAL aparece na aba Geral,
             seja vinda do peer-list ou conectada manualmente pela lista de contatos.
           - K10-CENTRAL e servidores adicionados como contato agora sempre aparecem.
+
+     FIX V44-GENERAL-USERLIST: lista de usuários do Modo Geral sumia ao enviar mensagem
+          - Bug V43/V44: ao clicar em um servidor na aba Geral, setSelectedContact(serverId)
+            era chamado. O useEffect que observa selectedContact via `if (selectedContact)`
+            detectava o valor não-nulo e chamava setSidebarTab('private') — trocando para
+            aba Privado involuntariamente. Com sidebarTab='private', a aba Geral ficava
+            oculta, incluindo a lista de usuários. O usuário ficava com a impressão de
+            que a lista sumiu "ao enviar mensagem", mas a causa real era a troca de aba
+            disparada pelo selectedContact sendo setado para o servidor.
+          - Fix: useEffect do selectedContact agora verifica isCentralServer(selectedContact).
+            Se for servidor → permanece em sidebarTab='general'.
+            Se for usuário → troca para sidebarTab='private' (comportamento original).
      ══════════════════════════════════════════════════════════════════════
      Correções anteriores V43 mantidas integralmente.
 <!-- ═══ Chat K10 V43 — Fix Listas Privado/Geral (22/abr/2026) ═══
@@ -3479,11 +3491,18 @@ if (!youtubeChatId) setActiveChatTab('native');
 
 // V33: ao selecionar contato → vai para aba privada; ao desselecionar → vai para geral
 // V37-FIX: resetar activeChatTab='native' ao trocar de aba (YouTube nao deve vazar)
+// V44-FIX: servidor selecionado na aba Geral NAO deve trocar para aba Privado
 useEffect(() => {
   if (selectedContact) {
-    setSidebarTab('private');
-    setUnreadPrivate(0);
-    setActiveChatTab('native');
+    if (isCentralServer(selectedContact)) {
+      setSidebarTab('general');
+      setUnreadGeneral(0);
+      setActiveChatTab('native');
+    } else {
+      setSidebarTab('private');
+      setUnreadPrivate(0);
+      setActiveChatTab('native');
+    }
   } else {
     setSidebarTab('general');
     setUnreadGeneral(0);
