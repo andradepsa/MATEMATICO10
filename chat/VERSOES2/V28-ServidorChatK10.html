@@ -824,6 +824,7 @@
       // Posição 1→'AA', Posição 2→'AB', ..., Posição 1800→'dB'
       // Gravada no código: ninguém precisa transmitir a lista, só o índice/sufixo
       const K10_MAX_GROUP = 1800;
+      const K10_MAX_SERVERS_PER_GROUP = 10; // V36: máx de servidores externos por grupo
       const K10_POSITION_LIST = (() => {
         const list = [];
         for (let i = 0; i < K10_CHARS.length; i++) {
@@ -1061,7 +1062,7 @@
       // V23: GID inicial gerado dinamicamente (4 chars, 62-charset)
       const _initialGid = nextSequentialGid(); // 'AAAA' na primeira execução
       k10bin.registerGid(_initialGid); // V26: registra GID inicial no registry binário
-      const activeGroupsRef = useRef({ [_initialGid]: { size: 0, reservados: [], members: new Set(), positions: [] } });
+      const activeGroupsRef = useRef({ [_initialGid]: { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] } }); // V36: serverCount/serverPeers rastreiam servidores externos por grupo
       // FASE-2: mapeia peerId → groupId para decrementar ao desconectar
       const peerGroupMapRef = useRef(new Map());
       // V25: mapeia peerId → {gid, posIdx} para swap-on-leave eficiente
@@ -2246,30 +2247,64 @@
           const groups = Object.entries(activeGroupsRef.current);
           let assignedGid = null;
 
-          // Procura grupo com vagas; prefere o mais populoso (agrupa em vez de fragmentar)
-          const available = groups.filter(([, g]) => (g.positions || []).length < K10_MAX_GROUP);
-          if (available.length > 0) {
-            assignedGid = available.reduce((a, b) =>
-              (a[1].positions||[]).length > (b[1].positions||[]).length ? a : b
-            )[0];
+          // V36: detecta se o peer entrante é um servidor externo (-CENTRAL)
+          const isExternalServer = conn.peer.endsWith('-CENTRAL');
+
+          if (isExternalServer) {
+            // Servidores seguem a mesma regra de grupos, mas com cap de 10 por grupo
+            const available = groups.filter(([, g]) =>
+              (g.positions || []).length < K10_MAX_GROUP &&
+              (g.serverCount || 0) < K10_MAX_SERVERS_PER_GROUP
+            );
+            if (available.length > 0) {
+              // Prefere grupo mais populoso (menos fragmentação)
+              assignedGid = available.reduce((a, b) =>
+                (a[1].positions||[]).length > (b[1].positions||[]).length ? a : b
+              )[0];
+            } else {
+              // Todos os grupos atingiram o cap de servidores — deriva novo grupo
+              const allGids = Object.keys(activeGroupsRef.current);
+              const largestGid = allGids.reduce((best, g) =>
+                (activeGroupsRef.current[g]?.positions?.length || 0) > (activeGroupsRef.current[best]?.positions?.length || 0) ? g : best
+              , allGids[0]);
+              assignedGid = generateChildGid(largestGid);
+              activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] };
+              k10bin.registerGid(assignedGid);
+              addAudit(`[K10-V36] Novo grupo filho ${assignedGid} para servidor externo (cap atingido)`, 'info');
+            }
           } else {
-            // Todos cheios — deriva novo GID do grupo mais populoso (herança hierárquica)
-            const allGids = Object.keys(activeGroupsRef.current);
-            const largestGid = allGids.reduce((best, g) =>
-              (activeGroupsRef.current[g]?.positions?.length || 0) > (activeGroupsRef.current[best]?.positions?.length || 0) ? g : best
-            , allGids[0]);
-            assignedGid = generateChildGid(largestGid);
-            activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set(), positions: [] };
-            k10bin.registerGid(assignedGid); // V26: registra novo grupo no registry binário
-            addAudit(`[K10-V25] Novo grupo filho ${assignedGid} derivado de ${largestGid}`, 'info');
+            // Procura grupo com vagas; prefere o mais populoso (agrupa em vez de fragmentar)
+            const available = groups.filter(([, g]) => (g.positions || []).length < K10_MAX_GROUP);
+            if (available.length > 0) {
+              assignedGid = available.reduce((a, b) =>
+                (a[1].positions||[]).length > (b[1].positions||[]).length ? a : b
+              )[0];
+            } else {
+              // Todos cheios — deriva novo GID do grupo mais populoso (herança hierárquica)
+              const allGids = Object.keys(activeGroupsRef.current);
+              const largestGid = allGids.reduce((best, g) =>
+                (activeGroupsRef.current[g]?.positions?.length || 0) > (activeGroupsRef.current[best]?.positions?.length || 0) ? g : best
+              , allGids[0]);
+              assignedGid = generateChildGid(largestGid);
+              activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] };
+              k10bin.registerGid(assignedGid);
+              addAudit(`[K10-V25] Novo grupo filho ${assignedGid} derivado de ${largestGid}`, 'info');
+            }
           }
 
           // Garante que o grupo existe com positions[]
           if (!activeGroupsRef.current[assignedGid]) {
-            activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set(), positions: [] };
+            activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] };
           }
           if (!activeGroupsRef.current[assignedGid].positions) {
             activeGroupsRef.current[assignedGid].positions = [];
+          }
+          // V36: garante campos de servidor existem em grupos antigos
+          if (typeof activeGroupsRef.current[assignedGid].serverCount !== 'number') {
+            activeGroupsRef.current[assignedGid].serverCount = 0;
+          }
+          if (!Array.isArray(activeGroupsRef.current[assignedGid].serverPeers)) {
+            activeGroupsRef.current[assignedGid].serverPeers = [];
           }
 
           const assignedGroup = activeGroupsRef.current[assignedGid];
@@ -2279,7 +2314,7 @@
           // Fallback: posIdx fora da lista (não deveria acontecer pois verificamos vagas)
           if (!assignedSuffix) {
             const fallbackGid = generateChildGid(assignedGid);
-            activeGroupsRef.current[fallbackGid] = { size: 0, reservados: [], members: new Set(), positions: [] };
+            activeGroupsRef.current[fallbackGid] = { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] };
             k10bin.registerGid(fallbackGid); // V26
             assignedGid = fallbackGid;
             assignedSuffix = K10_POSITION_LIST[0];
@@ -2292,6 +2327,13 @@
           activeGroupsRef.current[assignedGid].size = activeGroupsRef.current[assignedGid].positions.length;
           peerGroupMapRef.current.set(conn.peer, assignedGid);
           peerPositionMapRef.current.set(conn.peer, { gid: assignedGid, posIdx });
+
+          // V36: se é servidor externo, registra em serverPeers do grupo
+          if (isExternalServer) {
+            activeGroupsRef.current[assignedGid].serverCount = (activeGroupsRef.current[assignedGid].serverCount || 0) + 1;
+            activeGroupsRef.current[assignedGid].serverPeers.push(conn.peer);
+            addAudit(`[K10-V36] Servidor ${conn.peer} → grupo ${assignedGid} (${activeGroupsRef.current[assignedGid].serverCount}/${K10_MAX_SERVERS_PER_GROUP} servidores)`, 'ok');
+          }
 
           // V33: peer-list agora inclui peers[] com IDs PeerJS reais do grupo.
           // Bug V25: cliente reconstruía IDs K10 (K10AAAAAA) mas esses não são
@@ -2313,6 +2355,7 @@
               count: groupCount,            // V25: total de membros
               suffix: assignedSuffix,       // compat V24 mínima (scalar, sem custo)
               peers: realPeers,             // FIX V33: IDs PeerJS reais dos membros do grupo
+              groupServers: (activeGroupsRef.current[assignedGid].serverPeers || []).filter(s => s !== conn.peer), // V36: servidores externos do grupo (máx 10)
             });
           } catch(e) { console.warn('[K10-V33] Erro ao enviar peer-list:', e); }
 
@@ -2595,6 +2638,19 @@
             }
           }
           peerGroupMapRef.current.delete(conn.peer);
+
+          // V36: se era servidor externo, remove de serverPeers do grupo
+          if (conn.peer.endsWith('-CENTRAL')) {
+            for (const gid in activeGroupsRef.current) {
+              const g = activeGroupsRef.current[gid];
+              if (Array.isArray(g.serverPeers) && g.serverPeers.includes(conn.peer)) {
+                g.serverPeers = g.serverPeers.filter(s => s !== conn.peer);
+                g.serverCount = Math.max(0, (g.serverCount || 1) - 1);
+                addAudit(`[K10-V36] Servidor ${conn.peer} saiu do grupo ${gid} (${g.serverCount}/${K10_MAX_SERVERS_PER_GROUP})`, 'info');
+                break;
+              }
+            }
+          }
           
           activeConnectionsRef.current.delete(conn.peer);
           
