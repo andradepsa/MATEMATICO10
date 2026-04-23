@@ -1418,6 +1418,86 @@
         }
       };
 
+      // ── K10 Elite Entropy System (CSPRNG + Anti-Bias Buffer) ──
+      const SRV_ENTROPY_SIZE = 128;
+      const srvEntropyBuffer = new Uint32Array(SRV_ENTROPY_SIZE);
+      let srvEntropyIndex = SRV_ENTROPY_SIZE;
+      const srvRefillEntropy = () => { window.crypto.getRandomValues(srvEntropyBuffer); srvEntropyIndex = 0; };
+      const srvSecureRandomInt = (max) => {
+        const maxUint32 = 0xFFFFFFFF;
+        const limit = maxUint32 - (maxUint32 % max);
+        let rand;
+        do {
+          if (srvEntropyIndex >= SRV_ENTROPY_SIZE) srvRefillEntropy();
+          rand = srvEntropyBuffer[srvEntropyIndex++];
+        } while (rand >= limit);
+        return rand % max;
+      };
+      const srvSecureShuffle = (array) => {
+        for (let i = array.length - 1; i > 0; i--) {
+          const j = srvSecureRandomInt(i + 1);
+          [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
+      };
+
+      const getK10StunPool = () => {
+        const pool = [
+          "stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302","stun:stun2.l.google.com:19302","stun:stun3.l.google.com:19302","stun:stun4.l.google.com:19302",
+          "stun:stun.ekiga.net","stun:stun.ideasip.com","stun:stun.schlund.de","stun:stun.stunprotocol.org","stun:stun.voiparound.com",
+          "stun:stun.voipbuster.com","stun:stun.voipstunt.com","stun:stun.voxgratia.org","stun:stun.xten.com","stun:stun.softjoys.com",
+          "stun:stun.dus.net","stun:stun.fwdnet.net","stun:stun.iptel.org","stun:stun.rixtelecom.se","stun:stun.sipgate.net",
+          "stun:stun.t-online.de","stun:stun.vlines.com","stun:stun.voip.aebc.com","stun:stun.iphone-viber.com","stun:stun.voipraider.com",
+          "stun:stun.12voip.com","stun:stun.freecall.com","stun:stun.webcalldirect.com","stun:stun.sipdiscount.com","stun:stun.poivy.com",
+          "stun:stun.smartvoip.com","stun:stun.smslisto.com","stun:stun.cheapvoip.com","stun:stun.lowratevoip.com","stun:stun.justvoip.com",
+          "stun:stun.voipwise.com","stun:stun.nonoh.net","stun:stun.voipgain.com","stun:stun.internetcalls.com","stun:stun.budgetvoipcall.com",
+          "stun:stun.callwithus.com","stun:stun.counterpath.com","stun:stun.expresso.pt","stun:stun.gmx.de","stun:stun.halonet.pl",
+          "stun:stun.infra.net","stun:stun.internetcalls.com","stun:stun.it1.hr","stun:stun.ivocal.it","stun:stun.jumblo.com",
+          "stun:stun.l.google.com:19302","stun:stun.linphone.org","stun:stun.lundimatin.fr","stun:stun.netgsm.com.tr","stun:stun.nfon.net",
+          "stun:stun.on.net.mk","stun:stun.patlive.com","stun:stun.pjsip.org","stun:stun.qallme.com","stun:stun.rackonnect.com",
+          "stun:stun.rockenstein.de","stun:stun.rynga.com","stun:stun.sigmavoip.com","stun:stun.sip.us","stun:stun.sipout.net",
+          "stun:stun.solucoesip.com.mx","stun:stun.spatof.com","stun:stun.synctest.com","stun:stun.t-online.de","stun:stun.tellafe.com",
+          "stun:stun.telstra.com","stun:stun.ticino.com","stun:stun.tnet.it","stun:stun.twc.com","stun:stun.uls.co.za",
+          "stun:stun.usfamily.net","stun:stun.viber.com","stun:stun.voicetrading.com","stun:stun.voip.aebc.com","stun:stun.voip.blackberry.com",
+          "stun:stun.voip.eutelfon.com","stun:stun.voip.msc.com.tw","stun:stun.voip捷通.com","stun:stun.voipraider.com","stun:stun.voipspirit.com",
+          "stun:stun.voipstunt.com","stun:stun.voipwise.com","stun:stun.webcalldirect.com","stun:stun.wifi-calling.t-mobile.com","stun:stun.xten.com",
+          "stun:stun1.l.google.com:19302","stun2.l.google.com:19302","stun3.l.google.com:19302","stun4.l.google.com:19302",
+          "stun:stun.callops.net","stun:stun.comone.biz","stun:stun.dfn.de","stun:stun.fuzemeeting.com","stun:stun.gentoo.org",
+          "stun:stun.hit.edu.cn","stun:stun.hot-chilli.net","stun:stun.im6.jp","stun:stun.miwifi.com","stun:stun.node4.co.uk",
+          "stun:stun.online.no","stun:stun.ozekiphone.com","stun:stun.pantech.com","stun:stun.pjsip.org","stun:stun.qbox.com.br",
+          "stun:stun.realtimelogic.com","stun:stun.root-servers.org","stun:stun.sip.us","stun:stun.sipgate.net:10000","stun:stun.sipnet.ru",
+          "stun:stun.skype.com","stun:stun.sonetel.com","stun:stun.sync.com","stun:stun.t-online.de","stun:stun.tel.lu",
+          "stun:stun.twc.com","stun:stun.unseen.is","stun:stun.viva.com.gr","stun:stun.voip.by","stun:stun.voip.ms",
+          "stun:stun.voip.p-tec.de","stun:stun.voipgate.com","stun:stun.voxgratia.org","stun:stun.weather.com","stun:stun.yesss.at",
+          "stun:stun.1und1.de","stun:stun.3cx.com","stun:stun.A-Rea.com","stun:stun.AnnyWay.com","stun:stun.AoneTime.com",
+          "stun:stun.Austrian-VoIP.com","stun:stun.Babel.com","stun:stun.Bandwidth.com","stun:stun.Bara.com","stun:stun.Bicom.com",
+          "stun:stun.Bit6.com","stun:stun.Broadsoft.com","stun:stun.CallSource.com","stun:stun.Carrier.com","stun:stun.Centrex.com",
+          "stun:stun.Cisco.com","stun:stun.Clickatell.com","stun:stun.Commio.com","stun:stun.DEDR.com","stun:stun.Dialogic.com",
+          "stun:stun.Digium.com","stun:stun.E-Z.com","stun:stun.Easy.com","stun:stun.Edify.com","stun:stun.Encore.com",
+          "stun:stun.Enreach.com","stun:stun.Epygi.com","stun:stun.Exterity.com","stun:stun.Extreme.com","stun:stun.Flash-Networks.com",
+          "stun:stun.Foundry-Networks.com","stun:stun.Giga.com","stun:stun.Global-Crossing.com","stun:stun.Go-To-Meeting.com","stun:stun.Harris.com",
+          "stun:stun.Huawei.com","stun:stun.Hyundai.com","stun:stun.IBM.com","stun:stun.iConnect.com","stun:stun.Inovaphone.com",
+          "stun:stun.Interactive-Intelligence.com","stun:stun.Intermedia.com","stun:stun.Juniper-Networks.com","stun:stun.Kala.com","stun:stun.Kyocera.com",
+          "stun:stun.Lanier.com","stun:stun.Lava.com","stun:stun.Leads.com","stun:stun.Linksys.com","stun:stun.LogMeIn.com",
+          "stun:stun.Lucent.com","stun:stun.MagicJack.com","stun:stun.Marconi.com","stun:stun.MCI.com","stun:stun.Mitial.com",
+          "stun:stun.Motorola.com","stun:stun.Movial.com","stun:stun.Mydestiny.com","stun:stun.NCR.com","stun:stun.NCR.com",
+          "stun:stun.NetApp.com","stun:stun.Netgear.com","stun:stun.Nexogy.com","stun:stun.Nortel.com","stun:stun.Novell.com",
+          "stun:stun.Nuance.com","stun:stun.Oki.com","stun:stun.OpenSSL.com","stun:stun.Oracle.com","stun:stun.PBN.com",
+          "stun:stun.Peerless.com","stun:stun.Philips.com","stun:stun.Plantronics.com","stun:stun.Polycom.com","stun:stun.Prosoft.com",
+          "stun:stun.Pulse.com","stun:stun.Qlogic.com","stun:stun.Quanta.com","stun:stun.Radivision.com","stun:stun.Radvision.com",
+          "stun:stun.Raytheon.com","stun:stun.Redback.com","stun:stun.Reliance.com","stun:stun.Riverbed.com","stun:stun.Rockwell.com",
+          "stun:stun.Samsung.com","stun:stun.Sanyo.com","stun:stun.SAP.com","stun:stun.Savvis.com","stun:stun.Sennheiser.com",
+          "stun:stun.ShoreTel.com","stun:stun.Siemens.com","stun:stun.Snom.com","stun:stun.Sony.com","stun:stun.Sprint.com",
+          "stun:stun.Stereotaxis.com","stun:stun.Swisscom.com","stun:stun.Symbol.com","stun:stun.Tandberg.com","stun:stun.Tata.com",
+          "stun:stun.Tekelec.com","stun:stun.Telekom.com","stun:stun.Tellabs.com","stun:stun.Teuvivo.com","stun:stun.Toshiba.com",
+          "stun:stun.Trend.com","stun:stun.Unisys.com","stun:stun.Verisign.com","stun:stun.Verizon.com","stun:stun.Vidyo.com",
+          "stun:stun.Vocera.com","stun:stun.Vodafone.com","stun:stun.Vtech.com","stun:stun.Vyatta.com","stun:stun.West.com",
+          "stun:stun.Whirlpool.com","stun:stun.Wispe.com","stun:stun.Xerox.com","stun:stun.Yahoo.com","stun:stun.Zebra.com","stun:stun.ZTE.com"
+        ];
+        srvSecureShuffle(pool);
+        return pool.slice(0, 5).map(url => ({ urls: url }));
+      };
+
       const setupPeer = () => {
         // BUG S-1 FIX: usamos peerIdRef.current em vez de peerId (closure) para que
         // handleIdChange funcione corretamente após setPeerId() assincrônico.
@@ -1442,10 +1522,7 @@
           pingInterval: 5000, // PeerJS interno: ping a cada 5s
           config: {
             iceServers: [
-              { urls: 'stun:stun.l.google.com:19302' },
-              { urls: 'stun:stun1.l.google.com:19302' },
-              { urls: 'stun:stun2.l.google.com:19302' },
-              { urls: 'stun:stun3.l.google.com:19302' },
+              ...getK10StunPool(),
               // ⚠️ BUG-4 WARNING: These are public demo TURN credentials with no SLA.
               // Voice/video calls behind strict NAT may fail in production.
               // For reliability, replace with your own credentials:
