@@ -1,3 +1,21 @@
+<!-- ═══ Chat K10 V44 — Fix Lista Servidores Aba Geral (22/abr/2026) ═══
+     NOVO V44 — FIX: SERVIDORES NÃO APARECIAM NA ABA GERAL
+     ══════════════════════════════════════════════════════════════════════
+     FIX V44-GENERAL-SERVERLIST: K10-CENTRAL e servidores da lista de contatos
+          não apareciam na aba Geral
+          - Bug V43: filtro usava isMyGroupServer(c.peer), que só retorna true
+            para servidores presentes em groupServersRef.current (vindo do peer-list).
+            Se o servidor não enviou o campo groupServers, OU se o usuário conectou
+            manualmente via lista de contatos (sem passar pelo peer-list), o servidor
+            não entrava em groupServersRef → isMyGroupServer=false.
+            Como isCentralServer também é true para esses IDs, eles eram excluídos
+            da lista de usuários (filtro !isCentralServer). Resultado: sumiam completamente.
+          - Fix: filtro da lista de servidores alterado de isMyGroupServer → isCentralServer.
+            Qualquer conexão com ID terminado em -CENTRAL aparece na aba Geral,
+            seja vinda do peer-list ou conectada manualmente pela lista de contatos.
+          - K10-CENTRAL e servidores adicionados como contato agora sempre aparecem.
+     ══════════════════════════════════════════════════════════════════════
+     Correções anteriores V43 mantidas integralmente.
 <!-- ═══ Chat K10 V43 — Fix Listas Privado/Geral (22/abr/2026) ═══
      NOVO V43 — 2 FIXES CRÍTICOS: LISTAS DE CONVERSAS
      ══════════════════════════════════════════════════════════════════════
@@ -3993,8 +4011,9 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
 {/* ── Aba GERAL ── */}
 {sidebarTab === 'general' && (
 <div className="sidebar-tab-content">
-  {/* Servidores do MEU grupo — máx 10, nunca trava (V42) */}
-  {connections.filter(c => isMyGroupServer(c.peer)).map((conn, i) => {
+  {/* V44-FIX: Servidores na aba Geral — todos os -CENTRAL conectados
+      (isMyGroupServer omitia K10-CENTRAL e servidores adicionados manualmente) */}
+  {connections.filter(c => isCentralServer(c.peer)).map((conn, i) => {
     const isSelected = selectedContact === conn.peer;
     const srvGrpActive = serverE2EE[conn.peer]?.active;
     return (
