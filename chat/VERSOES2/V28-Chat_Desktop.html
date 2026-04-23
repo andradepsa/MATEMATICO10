@@ -5901,7 +5901,7 @@ const CHUNK_SIZE = 16 * 1024;
 // ── HYDRA FASE-2/3: Estado distribuído de grupos ─────────────────────────────
 // groupId deste nó (null até receber peer-list do servidor ou bootstrap P2P)
 const myGroupIdRef = useRef(localStorage.getItem('myGroupId') || null);
-const groupServersRef = useRef([]); // V42: servidores externos do meu grupo (recebidos no peer-list, máx 10)
+const groupServersRef = useRef(null); // V42: null=não recebido ainda (compat legado) | []=grupo sem servidores | [...]=servidores do grupo
 // V25: posição (0-indexed) deste nó na K10_POSITION_LIST do seu grupo
 // -1 = não atribuída ainda; posIdx+1 = posição humana (1-based)
 const myPositionIdxRef = useRef(-1);
@@ -6046,11 +6046,13 @@ return () => clearTimeout(timer);
 
 
 const isCentralServer = (id) => id && id.endsWith('-CENTRAL');
-// V42: servidor do MEU grupo — lista recebida no peer-list (máx 10 por grupo)
-// Fallback: se groupServers ainda vazio (servidor antigo / sem V36), aceita qualquer -CENTRAL
+// V42: servidor do MEU grupo
+// null  → peer-list sem groupServers (servidor pré-V36) → fallback: aceita qualquer -CENTRAL
+// []    → grupo sem servidores externos → não mostra nenhum
+// [...] → mostra somente os da lista
 const isMyGroupServer = (id) => {
   if (!isCentralServer(id)) return false;
-  if (groupServersRef.current.length === 0) return true; // compatibilidade com servidores antigos
+  if (groupServersRef.current === null) return true; // fallback compat pré-V36
   return groupServersRef.current.includes(id);
 };
 const getContactName = (pId) => contacts.find(c => c.peerId === pId)?.name || pId;
@@ -6572,7 +6574,8 @@ if (data.type === 'peer-list') {
     // ── Formato V25/V24: recebe GID e sufixo/user atribuído ──
     const newGid = data.gid;
     // V42: atualiza lista de servidores do grupo (máx 10, enviada pelo K10-CENTRAL V36)
-    if (Array.isArray(data.groupServers)) {
+    // Só sobrescreve se o campo veio na mensagem — ausente = servidor pré-V36 (mantém null = fallback)
+    if (Object.prototype.hasOwnProperty.call(data, 'groupServers') && Array.isArray(data.groupServers)) {
       groupServersRef.current = data.groupServers;
     }
     // V26: aprende o índice binário do GID — habilita recepção de pacotes binários
