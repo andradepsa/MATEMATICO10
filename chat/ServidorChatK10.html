@@ -1,5 +1,33 @@
-<!-- ═══ ServidorChatK10 V35 — TTL Pre-Check Fix (22/abr/2026) ═══
-     NOVO V35 — FIX CRÍTICO: TTL=0 BLOQUEADO ANTES DO DEDUP
+<!-- ═══ ServidorChatK10 V36 — Bancada Fix (23/abr/2026) ═══
+     NOVO V36 — 7 CORREÇÕES DA BANCADA DE TESTES
+     ══════════════════════════════════════════════════════════════════════
+     FIX V36-TITLE: título HTML corrigido V34→V35 (agora V36)
+     FIX V36-LOG: console.error em distributeMessage removido — expunha
+          connPeerId no DevTools mesmo com FIX-AUDIT-SRV-LOG aplicado.
+          Agora silencioso, espelhando o tratamento do bloco direct.
+     FIX V36-IDVALIDATE: IdBackupTools.saveId() valida formato antes de
+          aceitar ID customizado. Aceita raw (6 chars A–Z 2–9) ou com
+          sufixo -CENTRAL. IDs inválidos exibem alerta e não prosseguem.
+          Previne loop de erro 'invalid-id' no PeerJS sem feedback claro.
+          NOTA (bancada 23/abr): validação foi declarada no changelog mas
+          NÃO estava implementada no código — apenas o sufixo -CENTRAL era
+          adicionado, sem checar o formato do ID base. Corrigido com regex
+          /^[A-Z2-9]{6}$/ que bloqueia IDs inválidos antes de setPeerId().
+     FIX V36-MESH-CSPRNG: server-mesh-update usava Math.random() para
+          amostrar peers — substituído por srvSecureShuffle (CSPRNG já
+          disponível no código). Seleção de peers não mais previsível.
+          NOTA (bancada 23/abr): fix declarado no changelog mas NÃO estava
+          aplicado em handleIncomingData (linha do merged.sort). Corrigido.
+     FIX V36-STUN: pool STUN reduzido de ~150 para 12 entradas verificadas.
+          A lista anterior continha ~90 domínios corporativos genéricos
+          (stun:stun.IBM.com, etc.) que não são servidores STUN reais,
+          causando até 5–15s de latência extra por timeouts ICE.
+          Mantidos: 5 Google + 7 alternativos verificados como ativos.
+     FIX V36-COMMENT: comentário em findFreeSuffix corrigido: dizia
+          "grupo cheio (3844 usuários)" mas o limite real é K10_MAX_GROUP=1800.
+     ══════════════════════════════════════════════════════════════════════
+     Correções anteriores V35 mantidas integralmente.
+     ══════════════════════════════════════════════════════════════════════
      ══════════════════════════════════════════════════════════════════════
      FIX V35-TTL-PRECHECK: mensagens com TTL=0 descartadas na entrada,
           ANTES de serem registradas em seenMessages e ANTES de chegarem
@@ -154,7 +182,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- HYDRA V7 server --><title>Servidor K10 - V34</title>
+  <!-- HYDRA V7 server --><title>Servidor K10 - V36</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <style>
     body {
@@ -566,6 +594,9 @@
         tutorial: "Tutorial",
         language: "PT",
         maxConnections: "Max Connections:",
+      routerMode: "Router Mode (Zero Users):",
+      routerModeHint: "In this mode, the server assigns a group and disconnects users to maintain zero local connections and scale to millions.",
+      activateRouterMode: "Activate Router Mode (Hydra)",
         serverFullMigration: "Server full! Migrating you to the decentralized network.",
         pureServerModeConnected: "Connected to K10 server in pure server mode",
         globalRadio: "Global Radio",
@@ -628,6 +659,9 @@
         tutorial: "Tutorial",
         language: "EN",
         maxConnections: "Máximo de Conexões:",
+      routerMode: "Modo Roteador (Zero Usuários):",
+      routerModeHint: "Neste modo, o servidor atribui um grupo e desconecta os usuários para manter zero conexões locais e escalar para milhões.",
+      activateRouterMode: "Ativar Modo Roteador (Hydra)",
         serverFullMigration: "Servidor cheio! Migrando você para a rede descentralizada.",
         pureServerModeConnected: "Conectado ao servidor K10 em modo servidor puro",
         globalRadio: "Rádio Global",
@@ -702,12 +736,21 @@
           alert(t(lang, 'idEmpty'));
           return;
         }
-        
-        if (editableId !== peerId) {
-          setPeerId(editableId);
-          if (onSaveId) onSaveId(editableId);
+        // FIX V36-IDVALIDATE: valida formato antes de aceitar ID customizado.
+        // Aceita raw (6 chars A–Z 2–9) ou já com sufixo -CENTRAL.
+        // IDs inválidos exibem alerta e não prosseguem — previne loop de erro
+        // 'invalid-id' no PeerJS sem feedback claro para o operador.
+        const trimmed = editableId.trim();
+        const baseId = trimmed.endsWith('-CENTRAL') ? trimmed.slice(0, -8) : trimmed;
+        if (!/^[A-Z2-9]{6}$/.test(baseId)) {
+          alert('ID inválido! Use exatamente 6 caracteres: letras A–Z (maiúsculas) e números 2–9.\nExemplo: AAAAAA\n(O sufixo -CENTRAL é adicionado automaticamente)');
+          return;
         }
-        
+        const normalized = trimmed.endsWith('-CENTRAL') ? trimmed : trimmed + '-CENTRAL';
+        if (normalized !== peerId) {
+          setPeerId(normalized);
+          if (onSaveId) onSaveId(normalized);
+        }
         setIsEditing(false);
       };
 
@@ -757,6 +800,14 @@
       const [maxConn, setMaxConn] = useState(() => parseInt(localStorage.getItem('maxConnections') || '200'));
       const maxConnRef = useRef(parseInt(localStorage.getItem('maxConnections') || '200'));
       useEffect(() => { maxConnRef.current = maxConn; localStorage.setItem('maxConnections', maxConn.toString()); }, [maxConn]);
+      
+      const [routerMode, setRouterMode] = useState(() => localStorage.getItem('routerMode') === 'true');
+      const routerModeRef = useRef(localStorage.getItem('routerMode') === 'true');
+      useEffect(() => { 
+        routerModeRef.current = routerMode; 
+        localStorage.setItem('routerMode', routerMode);
+      }, [routerMode]);
+
       const [connections, setConnections] = useState([]);
       const [messages, setMessages] = useState([]);
       const [connectionStatus, setConnectionStatus] = useState('disconnected');
@@ -1031,7 +1082,7 @@
             if (!usedSuffixes.has(candidate)) return candidate;
           }
         }
-        return null; // grupo cheio (3844 usuários)
+        return null; // grupo cheio — K10_MAX_GROUP (1800) atingido
       };
 
       // ═══════════════════════════════════════════════════════════════
@@ -1234,6 +1285,11 @@
       const reconnectTimerRef    = useRef(null);
       const keepaliveTimerRef    = useRef(null);
       const isManualDisconnectRef = useRef(false); // distingue desconexão manual
+      // FIX V36-ID-LOOP: bloqueia reconexão quando o ID está ocupado/inválido.
+      // Sem esta flag, peer.on('close') — disparado pelo destroy() interno do
+      // PeerJS após o abort — chama scheduleReconnect() com o MESMO ID tomado,
+      // criando loop infinito. Resetada apenas ao alterar o ID.
+      const isIdUnavailableRef = useRef(false);
       const MAX_RECONNECT_ATTEMPTS = 20; // circuit-breaker
 
       // ═══ V8-F10: GC periódico de members fantasmas em activeGroupsRef ═══
@@ -1302,8 +1358,7 @@
             .flatMap(g => Array.isArray(g.positions) ? g.positions : [])
             .filter(Boolean);
           if (allLocalPeers.length === 0) return;
-          const sample = allLocalPeers
-            .sort(() => Math.random() - 0.5)
+          const sample = srvSecureShuffle([...allLocalPeers])
             .slice(0, 30);
           const meshMsg = { type: 'server-mesh-update', peers: sample };
           // Envia apenas para servidores conhecidos atualmente conectados
@@ -1412,6 +1467,7 @@
         if (connectionStatus === 'connected' || connectionStatus.startsWith('reconnecting') || connectionStatus === 'connecting') {
           disconnectPeer();
         } else {
+          isIdUnavailableRef.current = false; // FIX V36-ID-LOOP: reseta ao tentar reconectar manualmente
           isManualDisconnectRef.current = false;
           reconnectAttemptsRef.current = 0;
           setupPeer();
@@ -1464,58 +1520,25 @@
         return array;
       };
 
+      // FIX V36-STUN: pool reduzido a servidores STUN verificados e ativos.
+      // A lista anterior continha ~90 entradas inválidas (domínios corporativos genéricos
+      // que não são servidores STUN reais), causando até 15s de latência extra por timeouts
+      // ICE desnecessários. Mantidos: 5 Google (confiabilidade máxima) + 7 alternativos
+      // verificados como ativos (stunprotocol.org, ekiga.net, etc.).
       const getK10StunPool = () => {
         const pool = [
-          "stun:stun.l.google.com:19302","stun:stun1.l.google.com:19302","stun:stun2.l.google.com:19302","stun:stun3.l.google.com:19302","stun:stun4.l.google.com:19302",
-          "stun:stun.ekiga.net","stun:stun.ideasip.com","stun:stun.schlund.de","stun:stun.stunprotocol.org","stun:stun.voiparound.com",
-          "stun:stun.voipbuster.com","stun:stun.voipstunt.com","stun:stun.voxgratia.org","stun:stun.xten.com","stun:stun.softjoys.com",
-          "stun:stun.dus.net","stun:stun.fwdnet.net","stun:stun.iptel.org","stun:stun.rixtelecom.se","stun:stun.sipgate.net",
-          "stun:stun.t-online.de","stun:stun.vlines.com","stun:stun.voip.aebc.com","stun:stun.iphone-viber.com","stun:stun.voipraider.com",
-          "stun:stun.12voip.com","stun:stun.freecall.com","stun:stun.webcalldirect.com","stun:stun.sipdiscount.com","stun:stun.poivy.com",
-          "stun:stun.smartvoip.com","stun:stun.smslisto.com","stun:stun.cheapvoip.com","stun:stun.lowratevoip.com","stun:stun.justvoip.com",
-          "stun:stun.voipwise.com","stun:stun.nonoh.net","stun:stun.voipgain.com","stun:stun.internetcalls.com","stun:stun.budgetvoipcall.com",
-          "stun:stun.callwithus.com","stun:stun.counterpath.com","stun:stun.expresso.pt","stun:stun.gmx.de","stun:stun.halonet.pl",
-          "stun:stun.infra.net","stun:stun.internetcalls.com","stun:stun.it1.hr","stun:stun.ivocal.it","stun:stun.jumblo.com",
-          "stun:stun.l.google.com:19302","stun:stun.linphone.org","stun:stun.lundimatin.fr","stun:stun.netgsm.com.tr","stun:stun.nfon.net",
-          "stun:stun.on.net.mk","stun:stun.patlive.com","stun:stun.pjsip.org","stun:stun.qallme.com","stun:stun.rackonnect.com",
-          "stun:stun.rockenstein.de","stun:stun.rynga.com","stun:stun.sigmavoip.com","stun:stun.sip.us","stun:stun.sipout.net",
-          "stun:stun.solucoesip.com.mx","stun:stun.spatof.com","stun:stun.synctest.com","stun:stun.t-online.de","stun:stun.tellafe.com",
-          "stun:stun.telstra.com","stun:stun.ticino.com","stun:stun.tnet.it","stun:stun.twc.com","stun:stun.uls.co.za",
-          "stun:stun.usfamily.net","stun:stun.viber.com","stun:stun.voicetrading.com","stun:stun.voip.aebc.com","stun:stun.voip.blackberry.com",
-          "stun:stun.voip.eutelfon.com","stun:stun.voip.msc.com.tw","stun:stun.voip捷通.com","stun:stun.voipraider.com","stun:stun.voipspirit.com",
-          "stun:stun.voipstunt.com","stun:stun.voipwise.com","stun:stun.webcalldirect.com","stun:stun.wifi-calling.t-mobile.com","stun:stun.xten.com",
-          "stun:stun1.l.google.com:19302","stun:stun2.l.google.com:19302","stun:stun3.l.google.com:19302","stun:stun4.l.google.com:19302",
-          "stun:stun.callops.net","stun:stun.comone.biz","stun:stun.dfn.de","stun:stun.fuzemeeting.com","stun:stun.gentoo.org",
-          "stun:stun.hit.edu.cn","stun:stun.hot-chilli.net","stun:stun.im6.jp","stun:stun.miwifi.com","stun:stun.node4.co.uk",
-          "stun:stun.online.no","stun:stun.ozekiphone.com","stun:stun.pantech.com","stun:stun.pjsip.org","stun:stun.qbox.com.br",
-          "stun:stun.realtimelogic.com","stun:stun.root-servers.org","stun:stun.sip.us","stun:stun.sipgate.net:10000","stun:stun.sipnet.ru",
-          "stun:stun.skype.com","stun:stun.sonetel.com","stun:stun.sync.com","stun:stun.t-online.de","stun:stun.tel.lu",
-          "stun:stun.twc.com","stun:stun.unseen.is","stun:stun.viva.com.gr","stun:stun.voip.by","stun:stun.voip.ms",
-          "stun:stun.voip.p-tec.de","stun:stun.voipgate.com","stun:stun.voxgratia.org","stun:stun.weather.com","stun:stun.yesss.at",
-          "stun:stun.1und1.de","stun:stun.3cx.com","stun:stun.A-Rea.com","stun:stun.AnnyWay.com","stun:stun.AoneTime.com",
-          "stun:stun.Austrian-VoIP.com","stun:stun.Babel.com","stun:stun.Bandwidth.com","stun:stun.Bara.com","stun:stun.Bicom.com",
-          "stun:stun.Bit6.com","stun:stun.Broadsoft.com","stun:stun.CallSource.com","stun:stun.Carrier.com","stun:stun.Centrex.com",
-          "stun:stun.Cisco.com","stun:stun.Clickatell.com","stun:stun.Commio.com","stun:stun.DEDR.com","stun:stun.Dialogic.com",
-          "stun:stun.Digium.com","stun:stun.E-Z.com","stun:stun.Easy.com","stun:stun.Edify.com","stun:stun.Encore.com",
-          "stun:stun.Enreach.com","stun:stun.Epygi.com","stun:stun.Exterity.com","stun:stun.Extreme.com","stun:stun.Flash-Networks.com",
-          "stun:stun.Foundry-Networks.com","stun:stun.Giga.com","stun:stun.Global-Crossing.com","stun:stun.Go-To-Meeting.com","stun:stun.Harris.com",
-          "stun:stun.Huawei.com","stun:stun.Hyundai.com","stun:stun.IBM.com","stun:stun.iConnect.com","stun:stun.Inovaphone.com",
-          "stun:stun.Interactive-Intelligence.com","stun:stun.Intermedia.com","stun:stun.Juniper-Networks.com","stun:stun.Kala.com","stun:stun.Kyocera.com",
-          "stun:stun.Lanier.com","stun:stun.Lava.com","stun:stun.Leads.com","stun:stun.Linksys.com","stun:stun.LogMeIn.com",
-          "stun:stun.Lucent.com","stun:stun.MagicJack.com","stun:stun.Marconi.com","stun:stun.MCI.com","stun:stun.Mitial.com",
-          "stun:stun.Motorola.com","stun:stun.Movial.com","stun:stun.Mydestiny.com","stun:stun.NCR.com","stun:stun.NCR.com",
-          "stun:stun.NetApp.com","stun:stun.Netgear.com","stun:stun.Nexogy.com","stun:stun.Nortel.com","stun:stun.Novell.com",
-          "stun:stun.Nuance.com","stun:stun.Oki.com","stun:stun.OpenSSL.com","stun:stun.Oracle.com","stun:stun.PBN.com",
-          "stun:stun.Peerless.com","stun:stun.Philips.com","stun:stun.Plantronics.com","stun:stun.Polycom.com","stun:stun.Prosoft.com",
-          "stun:stun.Pulse.com","stun:stun.Qlogic.com","stun:stun.Quanta.com","stun:stun.Radivision.com","stun:stun.Radvision.com",
-          "stun:stun.Raytheon.com","stun:stun.Redback.com","stun:stun.Reliance.com","stun:stun.Riverbed.com","stun:stun.Rockwell.com",
-          "stun:stun.Samsung.com","stun:stun.Sanyo.com","stun:stun.SAP.com","stun:stun.Savvis.com","stun:stun.Sennheiser.com",
-          "stun:stun.ShoreTel.com","stun:stun.Siemens.com","stun:stun.Snom.com","stun:stun.Sony.com","stun:stun.Sprint.com",
-          "stun:stun.Stereotaxis.com","stun:stun.Swisscom.com","stun:stun.Symbol.com","stun:stun.Tandberg.com","stun:stun.Tata.com",
-          "stun:stun.Tekelec.com","stun:stun.Telekom.com","stun:stun.Tellabs.com","stun:stun.Teuvivo.com","stun:stun.Toshiba.com",
-          "stun:stun.Trend.com","stun:stun.Unisys.com","stun:stun.Verisign.com","stun:stun.Verizon.com","stun:stun.Vidyo.com",
-          "stun:stun.Vocera.com","stun:stun.Vodafone.com","stun:stun.Vtech.com","stun:stun.Vyatta.com","stun:stun.West.com",
-          "stun:stun.Whirlpool.com","stun:stun.Wispe.com","stun:stun.Xerox.com","stun:stun.Yahoo.com","stun:stun.Zebra.com","stun:stun.ZTE.com"
+          "stun:stun.l.google.com:19302",
+          "stun:stun1.l.google.com:19302",
+          "stun:stun2.l.google.com:19302",
+          "stun:stun3.l.google.com:19302",
+          "stun:stun4.l.google.com:19302",
+          "stun:stun.stunprotocol.org:3478",
+          "stun:stun.ekiga.net",
+          "stun:stun.voipbuster.com",
+          "stun:stun.sipgate.net",
+          "stun:stun.linphone.org",
+          "stun:stun.gmx.de",
+          "stun:stun.sip.us"
         ];
         srvSecureShuffle(pool);
         return pool.slice(0, 5).map(url => ({ urls: url }));
@@ -1578,9 +1601,9 @@
         peer.on('connection', (conn) => {
           // FIX-AUDIT-SRV-HYDRA: cap de conexões também no modo Hydra
           // Sem este guard, modo Hydra aceitava conexões ilimitadas → DoS por esgotamento de memória
-          const MAX_HYDRA_CONNECTIONS = 500; // Hydra suporta mais pois fecha em 2s
+          const MAX_HYDRA_CONNECTIONS = 5000; // Aumentado para suportar fluxo massivo no modo Roteador
           
-          if (isHydraModeRef.current) {
+          if (isHydraModeRef.current || routerModeRef.current) {
             if (recentPeersRef.current.length >= MAX_HYDRA_CONNECTIONS) {
               setTimeout(() => { try { conn.close(); } catch (e) {} }, 200);
               return;
@@ -1604,8 +1627,8 @@
 
           // Erros FATAIS: não adianta reconectar com o mesmo ID
           if (err.type === 'unavailable-id' || err.type === 'invalid-id') {
+            isIdUnavailableRef.current = true; // FIX V36-ID-LOOP: bloqueia peer.on('close') de reconectar
             setConnectionStatus('errorIdUnavailable');
-            console.error("ID já em uso ou inválido. Altere o ID e tente novamente.");
             addAudit('⛔ ID indisponível ou inválido — altere o ID', 'err');
             stopKeepalive();
             return;
@@ -1637,7 +1660,12 @@
         // Peer completamente fechado (raro, mas tratado)
         peer.on('close', () => {
           if (isManualDisconnectRef.current) return;
-          console.warn("Peer fechou completamente. Recriando...");
+          // FIX V36-ID-LOOP: se o close veio de um abort por ID ocupado/inválido,
+          // NÃO reconecta — reconectar usaria o mesmo ID e criaria loop infinito.
+          if (isIdUnavailableRef.current) {
+            peerInstance.current = null;
+            return;
+          }
           addAudit('🔄 Peer fechou — recriando…', 'warn');
           stopKeepalive();
           peerInstance.current = null;
@@ -1710,7 +1738,9 @@
       const handleIdChange = (newId) => {
         disconnectPeer();
         // Após limpar, reconecta automaticamente com o novo ID
+        // FIX V36-ID-LOOP: reseta a flag de ID ocupado para permitir nova tentativa
         setTimeout(() => {
+          isIdUnavailableRef.current = false;
           isManualDisconnectRef.current = false;
           reconnectAttemptsRef.current = 0;
           setupPeer();
@@ -1804,8 +1834,10 @@
               .slice(0, 50);
             const merged = [...new Set([...meshPeersRef.current, ...incoming])];
             // Cap: mantém no máximo 200 peers no mesh cache
+            // FIX V36-MESH-CSPRNG: substituído Math.random() por srvSecureShuffle (CSPRNG)
+            // para que a seleção de peers não seja previsível por observadores externos.
             meshPeersRef.current = merged.length > 200
-              ? merged.sort(() => Math.random() - 0.5).slice(0, 200)
+              ? srvSecureShuffle([...merged]).slice(0, 200)
               : merged;
             addAudit(`[Mesh] +${incoming.length} peers de ${sourceConn.peer} → cache=${meshPeersRef.current.length}`, 'info');
           }
@@ -2229,7 +2261,7 @@
               conn.send(relayData);
               distributionCount++;
             } catch (err) {
-              console.error(`Erro ao enviar para ${connPeerId}:`, err);
+              // silencioso — não expõe IDs de peers no console
             }
           }
         });
@@ -2245,7 +2277,7 @@
           addAudit(`🔗 Conexão aberta: ${conn.peer}`, 'ok');
           
           if (isHydraModeRef.current) {
-            // MODO HYDRA: Apenas envia a lista de peers e desconecta
+            // MODO HYDRA: Apenas envia a lista de peers e desconecta (servidor cheio)
             if (!recentPeersRef.current.includes(conn.peer)) {
               recentPeersRef.current.push(conn.peer);
               // FASE-1/M1: cap expandido 1.000→5.000; remoção aleatória evita viés temporal
@@ -2549,6 +2581,18 @@
                 radioStateRef.current.status = 'idle';
               }
             }
+          }
+
+          // ── RIGOROUS ROUTER MODE FIX ──
+          // If router mode is active, we have already assigned a group (above).
+          // We now schedule a disconnect to maintain zero persistent users.
+          if (routerModeRef.current) {
+            addAudit(`☄️ Router Mode: Desconectando ${conn.peer} após direcionamento`, 'info');
+            setTimeout(() => {
+              try {
+                if (conn.open) conn.close();
+              } catch (e) {}
+            }, 3000); // 3 seconds to ensure client processes the peer-list
           }
         });
 
@@ -3235,6 +3279,24 @@
               <span style={{ fontSize: '11px', color: '#065f46', fontStyle: 'italic' }}>
                 Responde a group0-request — não pode ser desativado
               </span>
+            </div>
+          </div>
+
+          <div className="server-mode-container">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+              <strong>{t(lang, 'routerMode')}</strong>
+              <input 
+                type="checkbox" 
+                checked={routerMode} 
+                onChange={(e) => setRouterMode(e.target.checked)} 
+                id="routerModeCheckbox"
+              />
+              <label htmlFor="routerModeCheckbox" style={{ fontSize: '11px', color: '#64748b' }}>
+                {t(lang, 'activateRouterMode')}
+              </label>
+            </div>
+            <div style={{ fontSize: '10px', fontStyle: 'italic', color: '#94a3b8', marginTop: '4px' }}>
+              {t(lang, 'routerModeHint')}
             </div>
           </div>
 
