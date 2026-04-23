@@ -8331,23 +8331,23 @@ let reconnectTimeout = null;
 let reconnectAttempts = 0;
 
 // ── K10 Elite Entropy System (CSPRNG + Anti-Bias Buffer) ──
-const IDX_ENTROPY_SIZE = 128;
-const idxEntropyBuffer = new Uint32Array(IDX_ENTROPY_SIZE);
-let idxEntropyIndex = IDX_ENTROPY_SIZE;
-const idxRefillEntropy = () => { window.crypto.getRandomValues(idxEntropyBuffer); idxEntropyIndex = 0; };
-const idxSecureRandomInt = (max) => {
+const CHAT_ENTROPY_SIZE = 128;
+const chatEntropyBuffer = new Uint32Array(CHAT_ENTROPY_SIZE);
+let chatEntropyIndex = CHAT_ENTROPY_SIZE;
+const chatRefillEntropy = () => { window.crypto.getRandomValues(chatEntropyBuffer); chatEntropyIndex = 0; };
+const chatSecureRandomInt = (max) => {
   const maxUint32 = 0xFFFFFFFF;
   const limit = maxUint32 - (maxUint32 % max);
   let rand;
   do {
-    if (idxEntropyIndex >= IDX_ENTROPY_SIZE) idxRefillEntropy();
-    rand = idxEntropyBuffer[idxEntropyIndex++];
+    if (chatEntropyIndex >= CHAT_ENTROPY_SIZE) chatRefillEntropy();
+    rand = chatEntropyBuffer[chatEntropyIndex++];
   } while (rand >= limit);
   return rand % max;
 };
-const idxSecureShuffle = (array) => {
+const chatSecureShuffle = (array) => {
   for (let i = array.length - 1; i > 0; i--) {
-    const j = idxSecureRandomInt(i + 1);
+    const j = chatSecureRandomInt(i + 1);
     [array[i], array[j]] = [array[j], array[i]];
   }
   return array;
@@ -8373,7 +8373,7 @@ const getK10StunPool = () => {
     "stun:stun.usfamily.net","stun:stun.viber.com","stun:stun.voicetrading.com","stun:stun.voip.aebc.com","stun:stun.voip.blackberry.com",
     "stun:stun.voip.eutelfon.com","stun:stun.voip.msc.com.tw","stun:stun.voip捷通.com","stun:stun.voipraider.com","stun:stun.voipspirit.com",
     "stun:stun.voipstunt.com","stun:stun.voipwise.com","stun:stun.webcalldirect.com","stun:stun.wifi-calling.t-mobile.com","stun:stun.xten.com",
-    "stun:stun1.l.google.com:19302","stun2.l.google.com:19302","stun3.l.google.com:19302","stun4.l.google.com:19302",
+    "stun:stun1.l.google.com:19302","stun:stun2.l.google.com:19302","stun:stun3.l.google.com:19302","stun:stun4.l.google.com:19302",
     "stun:stun.callops.net","stun:stun.comone.biz","stun:stun.dfn.de","stun:stun.fuzemeeting.com","stun:stun.gentoo.org",
     "stun:stun.hit.edu.cn","stun:stun.hot-chilli.net","stun:stun.im6.jp","stun:stun.miwifi.com","stun:stun.node4.co.uk",
     "stun:stun.online.no","stun:stun.ozekiphone.com","stun:stun.pantech.com","stun:stun.pjsip.org","stun:stun.qbox.com.br",
@@ -8406,7 +8406,7 @@ const getK10StunPool = () => {
     "stun:stun.Vodafone.com","stun:stun.Vtech.com","stun:stun.Vyatta.com","stun:stun.West.com","stun:stun.Whirlpool.com",
     "stun:stun.Wispe.com","stun:stun.Xerox.com","stun:stun.Yahoo.com","stun:stun.Zebra.com","stun:stun.ZTE.com"
   ];
-  idxSecureShuffle(pool);
+  chatSecureShuffle(pool);
   return pool.slice(0, 5).map(url => ({ urls: url }));
 };
 
