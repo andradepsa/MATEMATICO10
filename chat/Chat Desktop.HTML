@@ -6214,6 +6214,8 @@ return () => clearTimeout(timer);
 
 
 const isCentralServer = (id) => id && id.endsWith('-CENTRAL');
+// V48: rastreia servidores que operam em Router Mode (não devem virar centralServerId)
+const routerModeServersRef = useRef(new Set());
 // V42: servidor do MEU grupo
 // null  → peer-list sem groupServers (servidor pré-V36) → fallback: aceita qualquer -CENTRAL
 // []    → grupo sem servidores externos → não mostra nenhum
@@ -6531,7 +6533,8 @@ return;
 
 
 if (data.type === 'handshake') { 
-  if (isCentralServer(pId)) setCentralServerId(pId); 
+  // V48: não seta como central se for servidor em Router Mode (ele vai desconectar após atribuir grupo)
+  if (isCentralServer(pId) && !routerModeServersRef.current.has(pId)) setCentralServerId(pId); 
   if (data.avatar) {
     setAvatars(prev => ({ ...prev, [pId]: data.avatar }));
   }
@@ -6754,6 +6757,11 @@ if (data.type === 'peer-list') {
   if (data.gid) {
     // ── Formato V25/V24: recebe GID e sufixo/user atribuído ──
     const newGid = data.gid;
+    // V48: se o servidor que enviou o peer-list opera em Router Mode, marca-o para não reconectar
+    if (data.routerMode === true && isCentralServer(pId)) {
+      routerModeServersRef.current.add(pId);
+      addAudit(`[V48] Router Mode detectado em ${pId} — não será centralServerId`, 'info');
+    }
     // V42: atualiza lista de servidores do grupo (máx 10, enviada pelo K10-CENTRAL V36)
     // Só sobrescreve se o campo veio na mensagem — ausente = servidor pré-V36 (mantém null = fallback)
     if (Object.prototype.hasOwnProperty.call(data, 'groupServers') && Array.isArray(data.groupServers)) {
@@ -8348,7 +8356,7 @@ if (!group0WelcomeReceivedRef.current && !myGroupIdRef.current) {
 // FIX V46-FAILOVER-SETCENTRAL: ao conectar em servidor -CENTRAL (ex: failover K10-CENTRAL → K100-CENTRAL),
 // se o centralServerId atual está morto (sem conexão aberta), atualiza imediatamente.
 // Garante que heartbeats e mensagens passem a usar o servidor de backup sem esperar o próximo ciclo.
-if (isCentralServer(peerIdToConnect)) {
+if (isCentralServer(peerIdToConnect) && !routerModeServersRef.current.has(peerIdToConnect)) {
   const isCurrentCentralAlive = centralServerIdRef.current &&
     connectionsRef.current.some(c => c.peer === centralServerIdRef.current && c.open);
   if (!isCurrentCentralAlive) {
@@ -8937,10 +8945,11 @@ if (centralServerId) {
 const serverConn = connectionsRef.current.find(c => c.peer === centralServerId && c.open);
 if (serverConn) {
 try { serverConn.send(heartbeatMsg); } catch(e) {}
-} else {
+} else if (!routerModeServersRef.current.has(centralServerId)) {
 // FIX V32-HEARTBEAT: era raw peer.connect() com tempConn.close() após 2s.
 // Isso criava uma conexão paralela que ao fechar derrubava a conexão permanente.
 // Solução: usa connectToPeer → rastreado em connectionsRef → sem duplicatas → sem fechamento forçado.
+// V48: NÃO reconecta se centralServerId for Router Mode server (ele desconecta intencionalmente)
 try { connectToPeer(centralServerId); } catch(e) {}
 }
 }
