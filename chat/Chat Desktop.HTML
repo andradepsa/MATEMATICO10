@@ -1115,8 +1115,15 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 
         // FIX V40-TTL-RELAY: descartar mensagens com TTL esgotado antes de qualquer relay P2P.
         // Espelha o guard de distributeMessage do servidor — impede bypass via caminho P2P.
-        const relayTtl = data.ttl !== undefined ? (parseInt(data.ttl) || 0) : 8;
-        if (relayTtl <= 0) return;
+        const relayTtl = data.ttl !== undefined ? (parseInt(data.ttl) || 0) : 15;
+        let clampedTtl = isNaN(relayTtl) ? 15 : Math.min(Math.max(0, relayTtl), 15);
+        if (clampedTtl <= 0) return;
+        
+        // FIX-AUDIT-CLI: sanitize before relay
+        data.ttl = clampedTtl;
+        if (typeof data.senderName === 'string') {
+          data.senderName = data.senderName.replace(/[<>]/g, '').slice(0, 60);
+        }
 
         // FIX V41-RELAY-DEDUP: descartar se este msgId já foi relay-ado por este peer.
         // Cenário corrigido: servidor envia broadcast para usuário real E para bots;
@@ -6330,6 +6337,19 @@ if (K10BinaryProtocolClient.isBinaryPacket(data)) {
   data = decoded;
 }
 // ── Fim V26 intercepção binária ───────────────────────────────────────────────
+
+// ── VIGILÂNCIA DE SEGURANÇA (FIX-AUDIT-CLI): XSS, OOM, TTL ────────────────────
+if (data && typeof data === 'object') {
+  if (typeof data.senderName === 'string') {
+    data.senderName = data.senderName.replace(/[<>]/g, '').slice(0, 60);
+  }
+  if (data.ttl !== undefined) {
+    let parsedTtl = parseInt(data.ttl);
+    data.ttl = isNaN(parsedTtl) ? 15 : Math.min(Math.max(0, parsedTtl), 15);
+  }
+}
+// ────────────────────────────────────────────────────────────────────────────────
+
 // ── VIGILÂNCIA P2P: alerta de violação vindo de outro peer ──────────────────
 if (data.type === 'quiz-violation') {
   // Relay para os demais peers (propaga pelo grafo)
