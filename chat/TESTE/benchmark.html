@@ -1878,21 +1878,38 @@ async function phase_sustained(bots, server, durationS) {
 async function phase_failover(bots, server, backupServer) {
   setPhase('failover','running');
   log('PHASE', '━━━ FASE 21: FAILOVER & RECONEXÃO ━━━');
-  if (!backupServer) { log('WARN','Sem servidor backup configurado — simulando'); setPhase('failover','done'); return; }
+  if (!backupServer) { log('WARN','Sem servidor backup configurado — pulando'); setPhase('failover','done'); return; }
   if (bots.length < 1) { setPhase('failover','failed'); return; }
-  // Register backup on all bots
-  bots.forEach(b => connectBotTo(b, backupServer));
-  await wait(2000);
-  // Kill primary
+
+  // PRÉ-VERIFICAÇÃO: testa se o backup está acessível antes de iniciar
+  log('INFO', `Verificando acessibilidade do backup: ${backupServer}...`);
+  const probeBot = bots[0];
+  const probeConn = connectBotTo(probeBot, backupServer);
+  await wait(3500);
+  const backupUp = probeConn && probeConn.open;
+  if (!backupUp) {
+    log('WARN', `Backup ${backupServer} inacessível — servidor instável, pulando failover`);
+    // Limpa conexão inútil
+    try { probeConn && probeConn.close(); } catch(e){}
+    setPhase('failover','done');
+    return;
+  }
+
+  // Conecta todos os bots ao backup
+  bots.slice(1).forEach(b => connectBotTo(b, backupServer));
+  await wait(3000); // aguarda mais tempo para as conexões abrirem
+
+  // Mata a conexão primária
   log('WARN', `💥 Simulando queda de ${server}...`);
-  let migrated = 0;
   bots.forEach(b => {
     const c = b.conns.get(server);
     if (c) { try { c.close(); } catch(e){} }
   });
-  // Poll for reconnection to backup
+
+  // Aguarda migração para o backup
   const t0 = Date.now();
   const timeout = 12000;
+  let migrated = 0;
   while (Date.now()-t0 < timeout) {
     await wait(500);
     migrated = bots.filter(b => { const c=b.conns.get(backupServer); return c&&c.open; }).length;
@@ -1901,6 +1918,16 @@ async function phase_failover(bots, server, backupServer) {
   const failoverMs = Date.now()-t0;
   const ok = migrated >= Math.ceil(bots.length * 0.6);
   log(ok?'OK':'FAIL', `Failover: ${migrated}/${bots.length} bots no backup em ${fmtMs(failoverMs)}`);
+
+  // RESTAURAÇÃO: reconecta ao servidor primário para não quebrar fases posteriores
+  log('INFO', `Restaurando conexão primária com ${server}...`);
+  bots.forEach(b => {
+    if (!b.conns.get(server)?.open) connectBotTo(b, server);
+  });
+  await wait(3000);
+  const restored = bots.filter(b => b.conns.get(server)?.open).length;
+  log('INFO', `Restauração: ${restored}/${bots.length} bots reconectados ao primário`);
+
   setPhase('failover', ok?'done':'failed');
 }
 
@@ -1912,8 +1939,16 @@ async function phase_resilience(bots, server) {
   log('PHASE', '━━━ FASE 22: RESILIÊNCIA (dados inválidos & ataques) ━━━');
   if (bots.length < 2) { setPhase('resilience','failed'); return; }
   const [A, B] = bots;
-  const wc = getWorkingConn(A, server);
-  if (!wc) { setPhase('resilience','failed'); return; }
+
+  // Garante conexão ativa (pode ter sido fechada pelo failover)
+  let wc = getWorkingConn(A, server);
+  if (!wc) {
+    log('INFO', 'Reconectando ao servidor para teste de resiliência...');
+    connectBotTo(A, server);
+    await wait(3000);
+    wc = getWorkingConn(A, server);
+  }
+  if (!wc) { log('FAIL', 'Sem conexão disponível para teste de resiliência'); setPhase('resilience','failed'); return; }
 
   // Battery of invalid payloads
   const attacks = [
@@ -2979,8 +3014,16 @@ async function phase_chaos_fuzz(bots, server) {
   logC('PHASE','━━━ FASE 36: CHAOS — BINARY FUZZ 1000 FRAMES ALEATÓRIOS ━━━');
   if (bots.length < 2) { setPhase('chaos-fuzz','failed'); return; }
   const [A, B] = bots;
-  const wc = getWorkingConn(A, server);
-  if (!wc) { setPhase('chaos-fuzz','failed'); return; }
+
+  // Garante conexão ativa (pode ter sido perdida após chaos-kill/storm)
+  let wc = getWorkingConn(A, server);
+  if (!wc) {
+    logC('INFO', 'Reconectando ao servidor para binary fuzz...');
+    connectBotTo(A, server);
+    await wait(3000);
+    wc = getWorkingConn(A, server);
+  }
+  if (!wc) { logC('FAIL','Sem conexão disponível para binary fuzz'); setPhase('chaos-fuzz','failed'); return; }
 
   logC('INFO', 'Enviando 1000 frames binários aleatórios...');
   const t0 = performance.now();
@@ -3002,7 +3045,7 @@ async function phase_chaos_fuzz(bots, server) {
   const fuzzAlive = B.rcvd.some(m=>m.text==='FUZZ-SURVIVE');
   setBadge('ch-binfuzz', fuzzAlive?'ok':'fail');
   logC(fuzzAlive?'OK':'FAIL', `Binary fuzz: ${fuzzSent} frames em ${fuzzTime.toFixed(0)}ms, servidor sobreviveu=${fuzzAlive}`);
-  setPhase('chaos-fuzz','done');
+  setPhase('chaos-fuzz', fuzzAlive?'done':'failed');
 }
 
 // ════════════════════════════════════════════════════════════════
@@ -3014,8 +3057,16 @@ async function phase_chaos_edge(bots, server) {
   logC('PHASE','━━━ FASE 37: EDGE CASES & UNICODE EXTREMO ━━━');
   if (bots.length < 2) { setPhase('chaos-edge','failed'); return; }
   const [A, B] = bots;
-  const wc = getWorkingConn(A, server);
-  if (!wc) { setPhase('chaos-edge','failed'); return; }
+
+  // Garante conexão ativa (pode ter sido perdida após chaos-fuzz)
+  let wc = getWorkingConn(A, server);
+  if (!wc) {
+    logC('INFO', 'Reconectando ao servidor para edge cases...');
+    connectBotTo(A, server);
+    await wait(3000);
+    wc = getWorkingConn(A, server);
+  }
+  if (!wc) { logC('FAIL','Sem conexão disponível para edge cases'); setPhase('chaos-edge','failed'); return; }
 
   const edgeCases = [
     { name:'Emoji complexo', text: '📡🔐☢️🌍🚀💥⚡🤖👾🎯🔊📻📺🖥️📱💻🌐🔒🔓🛡️' },
@@ -3051,7 +3102,7 @@ async function phase_chaos_edge(bots, server) {
   const ok = passed >= Math.ceil(edgeCases.length * 0.8);
   setBadge('ch-unicode', ok?'ok':'fail');
   logC(ok?'OK':'FAIL', `Edge Cases: ${passed}/${edgeCases.length} servidores sobreviveram`);
-  setPhase('chaos-edge','done');
+  setPhase('chaos-edge', ok?'done':'failed');
 }
 
 // ════════════════════════════════════════════════════════════════
