@@ -2292,9 +2292,10 @@
               }));
             }
             
-            // FASE-1/M1: amostra aleatória de 50 – elimina ilhas temporais do slice(-50)
+            // FIX V36-CSPRNG-HYDRA: substituído Math.random() por srvSecureShuffle (CSPRNG)
+            // para que a seleção de peers no modo Hydra não seja previsível por observadores externos.
             const filtered = recentPeersRef.current.filter(p => p !== conn.peer);
-            const peersToSend = filtered.sort(() => 0.5 - Math.random()).slice(0, 50);
+            const peersToSend = srvSecureShuffle([...filtered]).slice(0, 50);
             
             try {
               conn.send({
@@ -2668,13 +2669,11 @@
             const allLocalPeers = Object.values(activeGroupsRef.current)
               .flatMap(g => Array.isArray(g.positions) ? g.positions : [])
               .filter(p => p && p !== conn.peer && activeConnectionsRef.current.has(p));
-            const localSample = allLocalPeers
-              .sort(() => Math.random() - 0.5)
+            const localSample = srvSecureShuffle([...allLocalPeers])
               .slice(0, 15);
-            const meshSample = meshPeersRef.current
-              .filter(p => p !== conn.peer && !localSample.includes(p))
-              .sort(() => Math.random() - 0.5)
-              .slice(0, 10);
+            const meshSample = srvSecureShuffle(
+              meshPeersRef.current.filter(p => p !== conn.peer && !localSample.includes(p))
+            ).slice(0, 10);
             const peersForClient = [...new Set([...localSample, ...meshSample])].slice(0, 20);
             // ── FIM V30: peers[] ──────────────────────────────────────────────
 
