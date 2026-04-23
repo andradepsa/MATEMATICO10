@@ -8399,8 +8399,17 @@ conn.on('close', () => {
   // tenta reconectar ao BACKUP (K100-CENTRAL) IMEDIATAMENTE — sem aguardar o
   // heartbeat de 30s, que era a causa do FAIL de failover no teste nuclear (12s).
   // O primário também é retentado via heartbeat, garantindo auto-heal se voltar.
-  if (peerIdToConnect === centralServerIdRef.current && group0WelcomeReceivedRef.current) {
-    const K10_SECONDARY_BOOTSTRAP = 'K100-CENTRAL';
+  //
+  // FIX V47-FAILOVER-LOOP: adicionada guarda `peerIdToConnect !== K10_SECONDARY_BOOTSTRAP`.
+  // Bug: quando K100-CENTRAL se tornava o centralServerId (após failover do primário) e
+  // K100-CENTRAL desconectava, o código tentava failover para K100-CENTRAL → ele mesmo,
+  // criando um loop infinito de conexão/desconexão (~1x/s nos logs de auditoria).
+  // Solução: só disparar failover para K100-CENTRAL se o servidor que caiu for o PRIMÁRIO
+  // (K10-CENTRAL). Se o próprio backup caiu, deixa o heartbeat/retry exponencial tratar.
+  const K10_SECONDARY_BOOTSTRAP = 'K100-CENTRAL';
+  if (peerIdToConnect === centralServerIdRef.current &&
+      group0WelcomeReceivedRef.current &&
+      peerIdToConnect !== K10_SECONDARY_BOOTSTRAP) {
     const isSecondaryAlreadyConnected = connectionsRef.current.some(
       c => c.peer === K10_SECONDARY_BOOTSTRAP && c.open
     );
