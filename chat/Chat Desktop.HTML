@@ -472,7 +472,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V35</title>
+<title>Chat K10 — V45</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -1137,7 +1137,15 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
       // caminho P2P (usuário real → relay → bot), bug confirmado nos testes V5/V6.
       // Cleanup automático ao atingir 2000 entradas (evita memory leak de longa sessão).
       const relaySeenMessages = new Set();
-      const pruneRelaySeen = () => { if (relaySeenMessages.size > 2000) relaySeenMessages.clear(); };
+      // FIX V45-RELAYPRUNE: substituído clear() por slice(-1000) — evita que duplicatas com alta
+      // latência passem logo após o clear (mesmo padrão do pruneSeenClient do seenMessagesRef principal).
+      const pruneRelaySeen = () => {
+        if (relaySeenMessages.size > 2000) {
+          const keep = [...relaySeenMessages].slice(-1000);
+          relaySeenMessages.clear();
+          keep.forEach(id => relaySeenMessages.add(id));
+        }
+      };
 
       function relayMessage(conn, data, senderId) {
         if (!data || typeof data !== 'object') return;
@@ -1366,7 +1374,7 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
      
 <noscript>
   <div style="padding:40px;font-family:system-ui,-apple-system,sans-serif;text-align:center;max-width:560px;margin:60px auto;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);">
-    <h1 style="color:#1e40af;margin-top:0;">Chat K10 V27</h1>
+    <h1 style="color:#1e40af;margin-top:0;">Chat K10 V45</h1>
     <p style="color:#1e293b;font-size:16px;line-height:1.6;">
       <strong>JavaScript is required.</strong><br>
       This peer-to-peer encrypted chat needs JavaScript to establish secure connections between browsers.
