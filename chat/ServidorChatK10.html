@@ -1,4 +1,4 @@
-<!-- ═══ ServidorChatK10 V36 — Bancada Fix (23/abr/2026) ═══
+<!-- ═══ ServidorChatK10 V37 — Bancada Fix (23/abr/2026) ═══
      NOVO V36 — 7 CORREÇÕES DA BANCADA DE TESTES
      ══════════════════════════════════════════════════════════════════════
      FIX V36-TITLE: título HTML corrigido V34→V35 (agora V36)
@@ -840,6 +840,10 @@
       // FIX: ref mirrors knownServers so peer.on('open') never reads stale closure
       const knownServersRef = useRef([]);
       useEffect(() => { knownServersRef.current = knownServers; }, [knownServers]);
+
+      // ── K10 MONITOR: ID fixo — oculto, igual ao K10-CENTRAL ──────────────
+      const K10_MONITOR_ID = 'K10-MON';
+      const monitorTimerRef = useRef(null);
       const [darkMode, setDarkMode] = useState(() => localStorage.getItem('serverDarkMode') === 'true');
       const [auditLog, setAuditLog] = useState([]);
       const auditLogRef = useRef([]);
@@ -1395,9 +1399,39 @@
         }
       };
 
+      // ── K10 MONITOR: para e inicia envio de relatórios ────────────────────
+      const stopMonitorReporting = () => {
+        if (monitorTimerRef.current) {
+          clearInterval(monitorTimerRef.current);
+          monitorTimerRef.current = null;
+        }
+      };
+
+      const startMonitorReporting = () => {
+        stopMonitorReporting();
+        const sendToMonitor = () => {
+          const mid = K10_MONITOR_ID;
+          const p = peerInstance.current;
+          if (!p || p.destroyed) return;
+          try {
+            const conn = p.connect(mid, { reliable: true });
+            conn.on('open', () => {
+              try {
+                // Heartbeat do servidor — grupos são reportados pelos próprios clientes
+                conn.send({ t: 's', id: peerIdRef.current });
+              } catch(e) {}
+              setTimeout(() => { try { conn.close(); } catch(e) {} }, 4000);
+            });
+            conn.on('error', () => {});
+          } catch(e) {}
+        };
+        sendToMonitor(); // disparo imediato
+        monitorTimerRef.current = setInterval(sendToMonitor, 30000);
+      };
+
       // Keepalive: envia um ping ao servidor PeerJS a cada 25s para evitar timeout silencioso
       const startKeepalive = () => {
-        stopKeepalive();
+        stopKeepalive(); stopMonitorReporting();
         keepaliveTimerRef.current = setInterval(() => {
           const p = peerInstance.current;
           if (p && !p.destroyed && !p.disconnected) {
@@ -1433,7 +1467,7 @@
         if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
           console.error(`Circuit-breaker: ${MAX_RECONNECT_ATTEMPTS} tentativas falharam. Desistindo.`);
           setConnectionStatus('errorFatal');
-          stopKeepalive();
+          stopKeepalive(); stopMonitorReporting();
           return;
         }
 
@@ -1477,7 +1511,7 @@
       const disconnectPeer = () => {
         isManualDisconnectRef.current = true; // impede reconexão automática
         clearReconnectTimer();
-        stopKeepalive();
+        stopKeepalive(); stopMonitorReporting();
         if (peerInstance.current) {
           try {
             // desconexão manual
@@ -1553,7 +1587,7 @@
 
         // setupPeer: currentId carregado
         setConnectionStatus('connecting');
-        stopKeepalive();
+        stopKeepalive(); stopMonitorReporting();
         clearReconnectTimer();
         
         if (peerInstance.current) {
@@ -1587,6 +1621,7 @@
           setConnectionStatus('connected');
           addAudit(`✅ Servidor online: ${id}`, 'ok');
           startKeepalive();
+          startMonitorReporting();
           
           // FIX: usa ref para evitar stale closure – knownServers pode estar desatualizado
           knownServersRef.current.forEach(serverId => {
@@ -1630,7 +1665,7 @@
             isIdUnavailableRef.current = true; // FIX V36-ID-LOOP: bloqueia peer.on('close') de reconectar
             setConnectionStatus('errorIdUnavailable');
             addAudit('⛔ ID indisponível ou inválido — altere o ID', 'err');
-            stopKeepalive();
+            stopKeepalive(); stopMonitorReporting();
             return;
           }
 
@@ -1667,7 +1702,7 @@
             return;
           }
           addAudit('🔄 Peer fechou — recriando…', 'warn');
-          stopKeepalive();
+          stopKeepalive(); stopMonitorReporting();
           peerInstance.current = null;
           scheduleReconnect();
         });
@@ -2385,19 +2420,19 @@
           if (isExternalServer) {
             // Servidores seguem a mesma regra de grupos, mas com cap de 10 por grupo
             const available = groups.filter(([, g]) =>
-              Math.max(g.size || 0, (g.positions || []).length) < K10_MAX_GROUP &&
+              (g.positions || []).length < K10_MAX_GROUP &&
               (g.serverCount || 0) < K10_MAX_SERVERS_PER_GROUP
             );
             if (available.length > 0) {
               // Prefere grupo mais populoso (menos fragmentação)
               assignedGid = available.reduce((a, b) =>
-                Math.max(a[1].size || 0, (a[1].positions||[]).length) > Math.max(b[1].size || 0, (b[1].positions||[]).length) ? a : b
+                (a[1].positions||[]).length > (b[1].positions||[]).length ? a : b
               )[0];
             } else {
               // Todos os grupos atingiram o cap de servidores — deriva novo grupo
               const allGids = Object.keys(activeGroupsRef.current);
               const largestGid = allGids.reduce((best, g) =>
-                Math.max(activeGroupsRef.current[g]?.size || 0, (activeGroupsRef.current[g]?.positions?.length || 0)) > Math.max(activeGroupsRef.current[best]?.size || 0, (activeGroupsRef.current[best]?.positions?.length || 0)) ? g : best
+                (activeGroupsRef.current[g]?.positions?.length || 0) > (activeGroupsRef.current[best]?.positions?.length || 0) ? g : best
               , allGids[0]);
               assignedGid = generateChildGid(largestGid);
               activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] };
@@ -2406,16 +2441,16 @@
             }
           } else {
             // Procura grupo com vagas; prefere o mais populoso (agrupa em vez de fragmentar)
-            const available = groups.filter(([, g]) => Math.max(g.size || 0, (g.positions || []).length) < K10_MAX_GROUP);
+            const available = groups.filter(([, g]) => (g.positions || []).length < K10_MAX_GROUP);
             if (available.length > 0) {
               assignedGid = available.reduce((a, b) =>
-                Math.max(a[1].size || 0, (a[1].positions||[]).length) > Math.max(b[1].size || 0, (b[1].positions||[]).length) ? a : b
+                (a[1].positions||[]).length > (b[1].positions||[]).length ? a : b
               )[0];
             } else {
               // Todos cheios — deriva novo GID do grupo mais populoso (herança hierárquica)
               const allGids = Object.keys(activeGroupsRef.current);
               const largestGid = allGids.reduce((best, g) =>
-                Math.max(activeGroupsRef.current[g]?.size || 0, (activeGroupsRef.current[g]?.positions?.length || 0)) > Math.max(activeGroupsRef.current[best]?.size || 0, (activeGroupsRef.current[best]?.positions?.length || 0)) ? g : best
+                (activeGroupsRef.current[g]?.positions?.length || 0) > (activeGroupsRef.current[best]?.positions?.length || 0) ? g : best
               , allGids[0]);
               assignedGid = generateChildGid(largestGid);
               activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] };
@@ -2748,14 +2783,6 @@
             const { gid: peerGid, posIdx } = posInfo;
             const group = activeGroupsRef.current[peerGid];
             if (group && group.positions) {
-              
-              // FIX ROUTER MODE / V36: remove do serverPeers se for um servidor externo
-              if (conn.peer.endsWith('-CENTRAL') && group.serverPeers) {
-                group.serverPeers = group.serverPeers.filter(s => s !== conn.peer);
-                group.serverCount = group.serverPeers.length;
-                addAudit(`[K10-V36] Servidor ${conn.peer} removido de serverPeers do grupo ${peerGid}`, 'warn');
-              }
-              
               const oldLen = group.positions.length;
               if (oldLen > 0 && posIdx < oldLen) {
                 // O sufixo da última posição será o que anunciamos como "saiu"
@@ -3120,7 +3147,7 @@
                 {darkMode ? '☀️' : '🌙'}
               </button>
               <a 
-                href="https://github.com/andradepsa/MATEMATICO10/blob/main/chat/TESTE/manual.html"
+                href="https://andradepsa.github.io/MATEMATICO10/chat/manual.html"
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
