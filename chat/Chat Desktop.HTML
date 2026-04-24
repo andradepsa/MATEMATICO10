@@ -3833,7 +3833,7 @@ textToSend = E2EE_PREFIX + await encryptMsg(newMessage, e2eeState[selectedContac
 }
 const conn = connectionsRef.current.find(c => c.peer === selectedContact); // FIX N-8 V20: era connections.find (stale pós-await encryptMsg)
 if (!conn || !conn.open) throw new Error('Connection lost during encryption. Please try again.');
-conn.send({ type: 'message', id: msgId, ttl: 15, text: textToSend, senderName: userName, direct: true, time: formatTime(timestamp) });
+conn.send({ type: 'message', id: msgId, ttl: 15, text: textToSend, sender: peerId, senderName: userName, recipient: selectedContact, direct: true, time: formatTime(timestamp) });
 const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
 setMessages(prev => {
 const updated = [...prev, newMsgObj].slice(-500);
@@ -3988,9 +3988,14 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
       )
     );
     // se selectedContact é contato mas ainda não conectou (connectToPeer em andamento)
-    const selectedInContacts = selectedContact && !isCentralServer(selectedContact) && contacts.some(c => c.peerId === selectedContact);
+    // FIX-PRIVATE-DESELECT: inclui peers de directPeers que enviaram msg direta mas não estão em contacts
+    const selectedIsPrivatePeer = selectedContact && !isCentralServer(selectedContact) && (
+      contacts.some(c => c.peerId === selectedContact) ||
+      (directPeersRef && directPeersRef.current.has(selectedContact)) ||
+      (directPeers && directPeers.has(selectedContact))
+    );
     const selectedInList = connList.some(c => c.peer === selectedContact);
-    const pendingEntry = (selectedInContacts && !selectedInList)
+    const pendingEntry = (selectedIsPrivatePeer && !selectedInList)
       ? [{ peer: selectedContact, open: false, _pending: true }]
       : [];
     const privateConns = [...pendingEntry, ...connList];
@@ -8008,7 +8013,10 @@ seenMessagesRef.current.add(data.id);
 pruneSeenClient();
 pruneSeenMessages();
 let ttl = data.ttl !== undefined ? data.ttl : 15;
-if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
+// FIX-PRIVATE-RELAY: mensagens diretas (direct:true) NUNCA são relayadas para outros peers
+// — o relay fazia a mensagem privada chegar a todos os contatos da lista do recipiente.
+// Mensagens diretas são entregues peer-a-peer; não precisam (nem devem) ser retransmitidas.
+if (ttl > 0 && !data.direct) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
 }
 
 
@@ -8378,7 +8386,9 @@ conn.on('error', err => {
   clearTimeout(timeoutId);
   addAudit(`[P2P] Falha na conexão com ${peerIdToConnect}: ${err?.type || 'unknown'}`, 'error');
   setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect));
-  setSelectedContact(curr => curr === peerIdToConnect ? null : curr);
+  // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact em erros de conexão.
+  // Limpar causava setSidebarTab('general') via useEffect, jogando o usuário para fora do chat privado.
+  // A aba Privado já trata peers desconectados com pendingEntry e bloqueia envio quando conn.open=false.
   console.warn('[V8-BUG#9] conn error', peerIdToConnect, err && err.message);
   // V8-BUG#9: reconexão automática com backoff exponencial
   if (!bannedPeersRef.current.has(peerIdToConnect)) {
@@ -8398,7 +8408,9 @@ conn.on('close', () => {
   addAudit(`[P2P] Conexão encerrada: ${peerIdToConnect}`, 'warn');
   worldQuizSubscribersRef.current.delete(peerIdToConnect);
   setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect));
-  setSelectedContact(curr => curr === peerIdToConnect ? null : curr);
+  // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact no close de conexão.
+  // Limpar disparava setSidebarTab('general') no useEffect, tirando o usuário do chat privado
+  // durante reconexões (que usam backoff automático logo abaixo).
   setTimeout(checkAndAssumeQuizMaster, 1000);
   // V8-BUG#9: reset contador em close limpo
   if (window.__v8ReconAttempts) window.__v8ReconAttempts.delete(peerIdToConnect);
@@ -8557,14 +8569,14 @@ conn.on('close', () => {
   addAudit(`[P2P] Conexão encerrada com: ${porta}`, 'warn');
   worldQuizSubscribersRef.current.delete(porta); 
   setConnections(prev => prev.filter(c => c.peer !== porta)); 
-  setSelectedContact(curr => curr === porta ? null : curr); 
+  // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact — desconexão não deve jogar para aba Geral.
   setTimeout(checkAndAssumeQuizMaster, 1000); 
 });
 conn.on('error', (e) => { 
   addAudit(`[P2P] Erro na conexão com ${porta}: ${e?.message || '?' }`, 'error');
   worldQuizSubscribersRef.current.delete(porta); 
   setConnections(prev => prev.filter(c => c.peer !== porta)); 
-  setSelectedContact(curr => curr === porta ? null : curr); 
+  // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact — erro não deve jogar para aba Geral.
 });
 }
 }
@@ -8760,7 +8772,8 @@ conn.on('close', () => {
   addAudit(`[P2P] Conexão encerrada: ${conn.peer}`, 'warn');
   worldQuizSubscribersRef.current.delete(conn.peer); 
   setConnections(prev => prev.filter(c => c.peer !== conn.peer)); 
-  setSelectedContact(curr => curr === conn.peer ? null : curr); 
+  // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact — desconexão temporária não deve
+  // jogar o usuário para a aba Geral. pendingEntry mantém o contato visível na lista.
   endCall(conn.peer, 'video'); 
   endCall(conn.peer, 'voice'); 
   setTimeout(checkAndAssumeQuizMaster, 1000);
@@ -8806,7 +8819,7 @@ conn.on('error', (e) => {
   addAudit(`[P2P] Erro na conexão com ${conn.peer}: ${e?.message || '?' }`, 'error');
   worldQuizSubscribersRef.current.delete(conn.peer); 
   setConnections(prev => prev.filter(c => c.peer !== conn.peer)); 
-  setSelectedContact(curr => curr === conn.peer ? null : curr); 
+  // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact — erro/reconexão não deve tirar o usuário do chat privado.
   endCall(conn.peer, 'video'); 
   endCall(conn.peer, 'voice'); 
 });
