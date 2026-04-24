@@ -5006,7 +5006,7 @@ function buildAlternatives(pool, correct) {
 
 const MIN_QUIZ_INTERVAL = 120; // TRAVA: mínimo absoluto de 2 minutos — não remova
 
-const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizIntervalInput, setQuizIntervalInput, quizDiscipline, setQuizDiscipline, serverQuizBotActive, notifyServer, quizJitterTimerRef, broadcastToggle, sendQuizHandoff, quizServerOwnerId, peerId }) => {
+const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizIntervalInput, setQuizIntervalInput, quizDiscipline, setQuizDiscipline, serverQuizBotActive, notifyServer, quizJitterTimerRef, broadcastToggle, sendQuizHandoff, quizServerOwnerId, globalQuizOwner, setGlobalQuizOwner, quizMasterIdRef, peerId }) => {
   const langName = getLangName(lang);
   return (
     <FloatingWindow
@@ -5070,7 +5070,11 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
 
         <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: 'auto' }}>
           {(() => {
-            const iAmOwner = quizBotActive || (serverQuizBotActive && quizServerOwnerId === peerId);
+            const peerP2POwner = quizBotActive && globalQuizOwner && globalQuizOwner !== peerId && quizMasterIdRef.current !== peerId;
+            const isLockedByServer = serverQuizBotActive && quizServerOwnerId !== peerId;
+            const isLocked = peerP2POwner || isLockedByServer;
+            const iAmOwner = (quizBotActive && (globalQuizOwner === peerId || quizMasterIdRef.current === peerId)) || (serverQuizBotActive && quizServerOwnerId === peerId);
+
             return (
           <button 
             className="primary-btn" 
@@ -5080,6 +5084,7 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
               if (!newActive && sendQuizHandoff) {
                 try { sendQuizHandoff(); handoffSent = true; } catch(e) { console.warn('Quiz handoff failed', e); }
               }
+              setGlobalQuizOwner(newActive ? peerId : null);
               setQuizBotActive(newActive);
               if (newActive) {
                 notifyServer('quiz-bot-start');
@@ -5095,10 +5100,10 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
                 if (quizJitterTimerRef.current) clearTimeout(quizJitterTimerRef.current);
               }
             }}
-            disabled={!iAmOwner}
-            style={{ background: iAmOwner && (quizBotActive || serverQuizBotActive) ? '#ef4444' : serverQuizBotActive ? '#94a3b8' : '#10b981', width: '100%', cursor: !iAmOwner ? 'not-allowed' : 'pointer' }}
+            disabled={isLocked}
+            style={{ background: iAmOwner ? '#ef4444' : isLocked ? '#94a3b8' : '#10b981', width: '100%', cursor: isLocked ? 'not-allowed' : 'pointer' }}
           >
-            {quizBotActive ? 'Stop Bot' : (serverQuizBotActive && quizServerOwnerId === peerId) ? 'Stop Bot' : serverQuizBotActive ? '🔒 Bot em uso no servidor' : 'Start Bot'}
+            {iAmOwner ? 'Stop Bot' : isLocked ? '🔒 Bot em uso por outro usuário' : 'Start Bot'}
           </button>
             );
           })()}
@@ -5280,6 +5285,7 @@ const quizAllIndexRef = useRef(0);
 const quizBotActiveRef = useRef(false); // FIX: ref para evitar stale closure nos timers
 const [serverQuizBotActive, setServerQuizBotActive] = useState(false); // outro usuário tem bot ativo no servidor
 const [quizServerOwnerId, setQuizServerOwnerId] = useState(null); // V46: peerId de quem tem a responsabilidade do quiz
+const [globalQuizOwner, setGlobalQuizOwner] = useState(null); // V48: tracking of who started bot via P2P
 const worldQuizStageRef    = useRef(0);    // 0=idle, 1=etapa1 rodando, 2=etapa2 rodando
 const worldQuizPlaceRef    = useRef(null); // lugar atual { query, country, state, place }
 const worldQuizImageRef    = useRef(null); // URL da imagem (reutilizada na etapa 2)
@@ -6313,7 +6319,10 @@ if (data.type === 'quiz-bot-global-toggle') {
   setQuizBotActive(data.active);
   quizBotActiveRef.current = data.active;
   if (data.active) {
+    setGlobalQuizOwner(data.owner); 
     setTimeout(checkAndAssumeQuizMaster, 2000); // Wait a bit then check master
+  } else {
+    setGlobalQuizOwner(null);
   }
   return;
 }
@@ -10134,7 +10143,7 @@ return (
 {showPollCreator && <PollCreator onClose={() => setShowPollCreator(false)} onCreated={handlePollCreated} />}
 {showMarkdownEditor && <MarkdownEditor lang={lang} connectionsRef={connectionsRef} selectedContact={selectedContact} onClose={() => setShowMarkdownEditor(false)} />}
 {showGeneralModeInfo && <GeneralModeInfoModal lang={lang} selectedContact={selectedContact} onClose={() => setShowGeneralModeInfo(false)} />}
-{showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId});}catch(e){} })} sendQuizHandoff={sendQuizHandoff} quizServerOwnerId={quizServerOwnerId} peerId={peerId} />}
+        {showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId});}catch(e){} })} sendQuizHandoff={sendQuizHandoff} quizServerOwnerId={quizServerOwnerId} globalQuizOwner={globalQuizOwner} setGlobalQuizOwner={setGlobalQuizOwner} quizMasterIdRef={quizMasterIdRef} peerId={peerId} />}
 {showTorrentManager && (
 <TorrentManagerModal
 lang={lang}
