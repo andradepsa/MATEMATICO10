@@ -340,6 +340,8 @@ const MAX_GRP    = 1_800;    // max users per group (for bar %)
 const PAGE_ROWS  = 80;       // max DOM rows rendered at once
 const RENDER_THR = 1_000;    // min ms between renders (throttle)
 const LOG_MAX    = 100;      // max log lines kept
+const PEER_TIMEOUT = 15000;  // timeout para conexão Peer (ms)
+const DEMO_MODE_INTERVAL = 5000; // intervalo de geração de dados demo (ms)
 
 const STUN = [
   {urls:'stun:stun.l.google.com:19302'},
@@ -350,9 +352,6 @@ const STUN = [
 // ═══════════════════════════════════════════════════════════════════════
 //  STATE  (aggregated — never stores individual users)
 // ═══════════════════════════════════════════════════════════════════════
-//  servers = {
-//    'SRV-01': { ts: Date.now(), total: 150000, groups: {AAAA:5000, BBBB:3200} }
-//  }
 let peer, servers = {}, conns = new Set();
 let prevGroups = {};   // previous snapshot for delta
 let peakUsers  = 0;
@@ -362,6 +361,9 @@ let cleanTimer, footerTimer, rpsTimer;
 let logs = [];
 let warnOldSrc = null;
 let legacyBucket = {}; // temp bucket for old {t:'u'} payloads, aggregated before render
+let demoMode = false;   // flag para modo simulado
+let demoInterval = null; // intervalo para gerar dados demo
+let isRunning = false;   // estado de execução
 
 // ═══════════════════════════════════════════════════════════════════════
 //  HELPERS
@@ -384,6 +386,7 @@ function now8() {
 }
 function setStatus(txt,cls) {
   const el = document.getElementById('status');
+  if (!el) return;
   el.textContent = txt; el.className = cls||'';
 }
 
@@ -397,6 +400,7 @@ function log(msg, type='') {
 }
 function flushLog() {
   const el = document.getElementById('log-strip');
+  if (!el) return;
   el.innerHTML = logs.slice(-30).map(l => {
     let cls = '';
     if (l.type==='ok') cls='ok-t'; else if (l.type==='warn') cls='warn-t'; else if (l.type==='err') cls='err-t'; else cls='hi';
@@ -555,7 +559,6 @@ function handleMsg(msg) {
   if (!msg || !msg.t) return;
 
   // ── NEW AGGREGATED PAYLOAD (scalable) ──────────────────────────────
-  // {t:'s', id:'SRV-01', total:150000, groups:{AAAA:5000,BBBB:3200}}
   if (msg.t === 's' && msg.id) {
     const isNew = !servers[msg.id];
     servers[msg.id] = {
@@ -570,9 +573,7 @@ function handleMsg(msg) {
   }
 
   // ── LEGACY INDIVIDUAL PAYLOAD (not scalable) ───────────────────────
-  // {t:'u', id:'K10AAAABB', gid:'AAAA'}
   if (msg.t === 'u' && msg.id && msg.gid) {
-    // Aggregate into legacyBucket instead of individual Map
     if (!warnOldSrc) {
       warnOldSrc = msg.id;
       document.getElementById('warn-src').textContent = msg.id;
@@ -588,25 +589,104 @@ function handleMsg(msg) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+//  DEMO MODE (fallback quando Peer falha)
+// ═══════════════════════════════════════════════════════════════════════
+function startDemoMode() {
+  if (demoMode) return;
+  demoMode = true;
+  log("⚠️ MODO DEMO ATIVADO — gerando dados simulados (sem rede)", "warn");
+  setStatus("DEMO MODE", "wait");
+  
+  // Gerar alguns servidores fictícios
+  const demoGroups = ["LOBBY", "ARENA_1", "ARENA_2", "TRADE", "GUILD_1", "GUILD_2", "EVENT", "PVP", "PVE", "CHAT"];
+  servers = {};
+  for (let i=1; i<=3; i++) {
+    const groupSample = {};
+    for (let j=0; j<5; j++) {
+      const gid = demoGroups[(i+j) % demoGroups.length];
+      groupSample[gid] = Math.floor(Math.random() * 1500);
+    }
+    servers[`DEMO-SRV-${i}`] = {
+      ts: Date.now(),
+      total: Object.values(groupSample).reduce((a,b)=>a+b,0),
+      groups: groupSample
+    };
+  }
+  
+  demoInterval = setInterval(() => {
+    if (!isRunning) return;
+    // Atualiza números aleatoriamente
+    for (let sid in servers) {
+      const s = servers[sid];
+      s.ts = Date.now();
+      s.total = s.total + Math.floor(Math.random() * 200) - 100;
+      if (s.total < 0) s.total = 100;
+      for (let gid in s.groups) {
+        let change = Math.floor(Math.random() * 100) - 50;
+        s.groups[gid] = Math.max(0, s.groups[gid] + change);
+      }
+      // Recalcula total
+      s.total = Object.values(s.groups).reduce((a,b)=>a+b,0);
+    }
+    scheduleRender();
+  }, DEMO_MODE_INTERVAL);
+}
+
+function stopDemoMode() {
+  if (demoInterval) clearInterval(demoInterval);
+  demoInterval = null;
+  demoMode = false;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 //  START / STOP
 // ═══════════════════════════════════════════════════════════════════════
 function startMon() {
-  stopMon();
+  if (isRunning) stopMon();
   const id = document.getElementById('mon-id').value.trim().toUpperCase() || 'K10-MON';
   setStatus('CONECTANDO...', 'wait');
   log(`Iniciando monitor como: ${id}`, 'hi');
+  
+  // Verifica suporte a WebRTC
+  if (!window.RTCPeerConnection) {
+    log("❌ WebRTC não é suportado neste navegador. Ativando modo demo.", "err");
+    startDemoMode();
+    isRunning = true;
+    document.getElementById('btn-start').disabled = true;
+    document.getElementById('btn-stop').disabled  = false;
+    document.getElementById('my-id').textContent = 'DEMO MODE';
+    setStatus("DEMO", "wait");
+    return;
+  }
+
+  let connectionTimeout = setTimeout(() => {
+    if (peer && !peer.destroyed && !peer.open) {
+      log("⚠️ Timeout de conexão PeerJS. Ativando modo demo.", "warn");
+      if (peer && !peer.destroyed) peer.destroy();
+      startDemoMode();
+      isRunning = true;
+      document.getElementById('btn-start').disabled = true;
+      document.getElementById('btn-stop').disabled  = false;
+      document.getElementById('my-id').textContent = 'DEMO MODE';
+      setStatus("DEMO", "wait");
+    }
+  }, PEER_TIMEOUT);
 
   peer = new Peer(id, {
     host:'0.peerjs.com', port:443, secure:true, debug:0,
     config:{iceServers:STUN}
   });
 
+  // Resolve ou rejeita a conexão
   peer.on('open', pid => {
+    clearTimeout(connectionTimeout);
+    if (demoMode) stopDemoMode();
     setStatus('● ONLINE', 'on');
     document.getElementById('my-id').textContent = 'ID: '+pid;
     document.getElementById('btn-start').disabled = true;
     document.getElementById('btn-stop').disabled  = false;
     log(`Monitor online: ${pid}`, 'ok');
+    isRunning = true;
   });
 
   peer.on('connection', conn => {
@@ -624,8 +704,19 @@ function startMon() {
   });
 
   peer.on('error', e => {
+    clearTimeout(connectionTimeout);
     setStatus('ERRO: '+e.type, 'err');
-    log(`Erro peer: ${e.type}`, 'err');
+    log(`Erro peer: ${e.type} - ${e.message || ''}`, 'err');
+    if (e.type === 'peer-unavailable' || e.type === 'network' || e.type === 'server-error') {
+      log("Tentando ativar modo demo...", "warn");
+      if (peer && !peer.destroyed) peer.destroy();
+      startDemoMode();
+      isRunning = true;
+      document.getElementById('btn-start').disabled = true;
+      document.getElementById('btn-stop').disabled  = false;
+      document.getElementById('my-id').textContent = 'DEMO MODE';
+      setStatus("DEMO", "wait");
+    }
   });
 
   // ── Clean stale entries every 30s ────────────────────────────────
@@ -650,6 +741,7 @@ function startMon() {
 }
 
 function stopMon() {
+  isRunning = false;
   clearInterval(cleanTimer);
   clearInterval(rpsTimer);
   clearInterval(footerTimer);
@@ -659,6 +751,7 @@ function stopMon() {
   peer = null;
   servers = {}; legacyBucket = {}; prevGroups = {};
   conns.clear(); msgCount = 0; peakUsers = 0; warnOldSrc = null;
+  stopDemoMode();
   setStatus('PARADO', '');
   document.getElementById('my-id').textContent = '';
   document.getElementById('btn-start').disabled = false;
@@ -667,6 +760,14 @@ function stopMon() {
   log('Monitor parado.', 'warn');
   render();
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+//  GLOBAL ERROR HANDLER (captura promessas não tratadas)
+// ═══════════════════════════════════════════════════════════════════════
+window.addEventListener('unhandledrejection', event => {
+  log(`[Promise Rejection] ${event.reason?.message || event.reason}`, 'err');
+  event.preventDefault();
+});
 
 // ═══════════════════════════════════════════════════════════════════════
 //  INIT
