@@ -2385,19 +2385,19 @@
           if (isExternalServer) {
             // Servidores seguem a mesma regra de grupos, mas com cap de 10 por grupo
             const available = groups.filter(([, g]) =>
-              (g.positions || []).length < K10_MAX_GROUP &&
+              Math.max(g.size || 0, (g.positions || []).length) < K10_MAX_GROUP &&
               (g.serverCount || 0) < K10_MAX_SERVERS_PER_GROUP
             );
             if (available.length > 0) {
               // Prefere grupo mais populoso (menos fragmentação)
               assignedGid = available.reduce((a, b) =>
-                (a[1].positions||[]).length > (b[1].positions||[]).length ? a : b
+                Math.max(a[1].size || 0, (a[1].positions||[]).length) > Math.max(b[1].size || 0, (b[1].positions||[]).length) ? a : b
               )[0];
             } else {
               // Todos os grupos atingiram o cap de servidores — deriva novo grupo
               const allGids = Object.keys(activeGroupsRef.current);
               const largestGid = allGids.reduce((best, g) =>
-                (activeGroupsRef.current[g]?.positions?.length || 0) > (activeGroupsRef.current[best]?.positions?.length || 0) ? g : best
+                Math.max(activeGroupsRef.current[g]?.size || 0, (activeGroupsRef.current[g]?.positions?.length || 0)) > Math.max(activeGroupsRef.current[best]?.size || 0, (activeGroupsRef.current[best]?.positions?.length || 0)) ? g : best
               , allGids[0]);
               assignedGid = generateChildGid(largestGid);
               activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] };
@@ -2406,16 +2406,16 @@
             }
           } else {
             // Procura grupo com vagas; prefere o mais populoso (agrupa em vez de fragmentar)
-            const available = groups.filter(([, g]) => (g.positions || []).length < K10_MAX_GROUP);
+            const available = groups.filter(([, g]) => Math.max(g.size || 0, (g.positions || []).length) < K10_MAX_GROUP);
             if (available.length > 0) {
               assignedGid = available.reduce((a, b) =>
-                (a[1].positions||[]).length > (b[1].positions||[]).length ? a : b
+                Math.max(a[1].size || 0, (a[1].positions||[]).length) > Math.max(b[1].size || 0, (b[1].positions||[]).length) ? a : b
               )[0];
             } else {
               // Todos cheios — deriva novo GID do grupo mais populoso (herança hierárquica)
               const allGids = Object.keys(activeGroupsRef.current);
               const largestGid = allGids.reduce((best, g) =>
-                (activeGroupsRef.current[g]?.positions?.length || 0) > (activeGroupsRef.current[best]?.positions?.length || 0) ? g : best
+                Math.max(activeGroupsRef.current[g]?.size || 0, (activeGroupsRef.current[g]?.positions?.length || 0)) > Math.max(activeGroupsRef.current[best]?.size || 0, (activeGroupsRef.current[best]?.positions?.length || 0)) ? g : best
               , allGids[0]);
               assignedGid = generateChildGid(largestGid);
               activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] };
@@ -2748,6 +2748,14 @@
             const { gid: peerGid, posIdx } = posInfo;
             const group = activeGroupsRef.current[peerGid];
             if (group && group.positions) {
+              
+              // FIX ROUTER MODE / V36: remove do serverPeers se for um servidor externo
+              if (conn.peer.endsWith('-CENTRAL') && group.serverPeers) {
+                group.serverPeers = group.serverPeers.filter(s => s !== conn.peer);
+                group.serverCount = group.serverPeers.length;
+                addAudit(`[K10-V36] Servidor ${conn.peer} removido de serverPeers do grupo ${peerGid}`, 'warn');
+              }
+              
               const oldLen = group.positions.length;
               if (oldLen > 0 && posIdx < oldLen) {
                 // O sufixo da última posição será o que anunciamos como "saiu"
@@ -3112,7 +3120,7 @@
                 {darkMode ? '☀️' : '🌙'}
               </button>
               <a 
-                href="https://andradepsa.github.io/MATEMATICO10/chat/TESTE/manual.html"
+                href="https://github.com/andradepsa/MATEMATICO10/blob/main/chat/TESTE/manual.html"
                 target="_blank"
                 rel="noopener noreferrer"
                 style={{
