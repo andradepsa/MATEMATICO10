@@ -5066,34 +5066,25 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
         </div>
 
         <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: 'auto' }}>
+          {(() => {
+            const iAmOwner = quizBotActive || (serverQuizBotActive && quizServerOwnerId === peerId);
+            return (
           <button 
             className="primary-btn" 
             onClick={() => {
               const newActive = !quizBotActive;
-              // ── HANDOFF: ao DESLIGAR, transferimos o estado do quiz para o servidor
-              // assumir a transmissão (mesmo padrão URL+ID, sem binários).
-              // FIX BUG-5: handoff já implica parada do bot — NÃO enviamos quiz-bot-stop
-              // separado quando handoff foi enviado. Em P2P a ordem de chegada não é
-              // garantida: se quiz-bot-stop chegar antes do quiz-handoff, o servidor
-              // descarta o handoff ou pisca active:false para todos os clientes.
               let handoffSent = false;
               if (!newActive && sendQuizHandoff) {
                 try { sendQuizHandoff(); handoffSent = true; } catch(e) { console.warn('Quiz handoff failed', e); }
               }
               setQuizBotActive(newActive);
-              // Só envia quiz-bot-stop se NÃO enviou handoff (bot desligado sem servidor ativo)
               if (newActive) {
                 notifyServer('quiz-bot-start');
               } else if (!handoffSent) {
                 notifyServer('quiz-bot-stop');
               }
-              
-              // Dispara ativação global via P2P (Self-Healing)
               if (broadcastToggle) broadcastToggle(newActive);
-
               if (newActive) {
-                // Ao ligar o bot MANUALMENTE, vamos assumir com latência baixa inicial
-                // para o utilizador não achar que está "quebrado" esperando 2 minutos
                 const initialJitterMs = 1000 + Math.floor(Math.random() * 2000);
                 if (quizJitterTimerRef.current) clearTimeout(quizJitterTimerRef.current);
                 quizJitterTimerRef.current = setTimeout(askNextQuestion, initialJitterMs);
@@ -5101,15 +5092,13 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
                 if (quizJitterTimerRef.current) clearTimeout(quizJitterTimerRef.current);
               }
             }}
-            // V46: só o responsável pelo quiz pode parar
-            // - bot local ativo → eu sou o responsável (user)
-            // - bot do servidor ativo → só o dono (quizServerOwnerId === peerId) pode parar
-            const iAmOwner = quizBotActive || (serverQuizBotActive && quizServerOwnerId === peerId);
             disabled={!iAmOwner}
-            style={{ background: quizBotActive ? '#ef4444' : (serverQuizBotActive && quizServerOwnerId === peerId) ? '#ef4444' : serverQuizBotActive ? '#94a3b8' : '#10b981', width: '100%', cursor: !iAmOwner ? 'not-allowed' : 'pointer' }}
+            style={{ background: iAmOwner && (quizBotActive || serverQuizBotActive) ? '#ef4444' : serverQuizBotActive ? '#94a3b8' : '#10b981', width: '100%', cursor: !iAmOwner ? 'not-allowed' : 'pointer' }}
           >
             {quizBotActive ? 'Stop Bot' : (serverQuizBotActive && quizServerOwnerId === peerId) ? 'Stop Bot' : serverQuizBotActive ? '🔒 Bot em uso no servidor' : 'Start Bot'}
           </button>
+            );
+          })()}
         </div>
       </div>
     </FloatingWindow>
