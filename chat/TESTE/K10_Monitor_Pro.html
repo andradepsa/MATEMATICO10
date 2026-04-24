@@ -340,8 +340,8 @@ const MAX_GRP    = 1_800;    // max users per group (for bar %)
 const PAGE_ROWS  = 80;       // max DOM rows rendered at once
 const RENDER_THR = 1_000;    // min ms between renders (throttle)
 const LOG_MAX    = 100;      // max log lines kept
-const PEER_TIMEOUT = 15000;  // timeout para conexão Peer (ms)
-const DEMO_MODE_INTERVAL = 5000; // intervalo de geração de dados demo (ms)
+const PEER_TIMEOUT = 15000;  // timeout for PeerJS connection
+const DEMO_MODE_INTERVAL = 5000; // interval for demo data generation
 
 const STUN = [
   {urls:'stun:stun.l.google.com:19302'},
@@ -361,9 +361,9 @@ let cleanTimer, footerTimer, rpsTimer;
 let logs = [];
 let warnOldSrc = null;
 let legacyBucket = {}; // temp bucket for old {t:'u'} payloads, aggregated before render
-let demoMode = false;   // flag para modo simulado
-let demoInterval = null; // intervalo para gerar dados demo
-let isRunning = false;   // estado de execução
+let demoMode = false;
+let demoInterval = null;
+let isRunning = false;
 
 // ═══════════════════════════════════════════════════════════════════════
 //  HELPERS
@@ -386,24 +386,36 @@ function now8() {
 }
 function setStatus(txt,cls) {
   const el = document.getElementById('status');
-  if (!el) return;
-  el.textContent = txt; el.className = cls||'';
+  if (el) { el.textContent = txt; el.className = cls||''; }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  LOG
+//  LOG COM THROTTLE (evita travamentos)
 // ═══════════════════════════════════════════════════════════════════════
+let logFlushScheduled = false;
 function log(msg, type='') {
+  if (!isRunning && type !== 'warn') return;
   logs.push({ts:now8(), msg, type});
   if (logs.length > LOG_MAX) logs.shift();
-  flushLog();
+  scheduleLogFlush();
+}
+function scheduleLogFlush() {
+  if (logFlushScheduled) return;
+  logFlushScheduled = true;
+  setTimeout(() => {
+    logFlushScheduled = false;
+    flushLog();
+  }, 500);
 }
 function flushLog() {
   const el = document.getElementById('log-strip');
   if (!el) return;
   el.innerHTML = logs.slice(-30).map(l => {
     let cls = '';
-    if (l.type==='ok') cls='ok-t'; else if (l.type==='warn') cls='warn-t'; else if (l.type==='err') cls='err-t'; else cls='hi';
+    if (l.type==='ok') cls='ok-t';
+    else if (l.type==='warn') cls='warn-t';
+    else if (l.type==='err') cls='err-t';
+    else cls='hi';
     return `<div class="log-line"><span class="ts">[${l.ts}]</span> <span class="${cls}">${esc(l.msg)}</span></div>`;
   }).join('');
   el.scrollTop = el.scrollHeight;
@@ -597,12 +609,12 @@ function startDemoMode() {
   log("⚠️ MODO DEMO ATIVADO — gerando dados simulados (sem rede)", "warn");
   setStatus("DEMO MODE", "wait");
   
-  // Gerar alguns servidores fictícios
+  // Gerar servidores fictícios
   const demoGroups = ["LOBBY", "ARENA_1", "ARENA_2", "TRADE", "GUILD_1", "GUILD_2", "EVENT", "PVP", "PVE", "CHAT"];
   servers = {};
-  for (let i=1; i<=3; i++) {
+  for (let i = 1; i <= 3; i++) {
     const groupSample = {};
-    for (let j=0; j<5; j++) {
+    for (let j = 0; j < 5; j++) {
       const gid = demoGroups[(i+j) % demoGroups.length];
       groupSample[gid] = Math.floor(Math.random() * 1500);
     }
@@ -615,7 +627,6 @@ function startDemoMode() {
   
   demoInterval = setInterval(() => {
     if (!isRunning) return;
-    // Atualiza números aleatoriamente
     for (let sid in servers) {
       const s = servers[sid];
       s.ts = Date.now();
@@ -625,7 +636,6 @@ function startDemoMode() {
         let change = Math.floor(Math.random() * 100) - 50;
         s.groups[gid] = Math.max(0, s.groups[gid] + change);
       }
-      // Recalcula total
       s.total = Object.values(s.groups).reduce((a,b)=>a+b,0);
     }
     scheduleRender();
@@ -677,7 +687,6 @@ function startMon() {
     config:{iceServers:STUN}
   });
 
-  // Resolve ou rejeita a conexão
   peer.on('open', pid => {
     clearTimeout(connectionTimeout);
     if (demoMode) stopDemoMode();
