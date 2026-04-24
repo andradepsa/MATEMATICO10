@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>K10 MONITOR PRO — Health Dashboard (No Demo)</title>
+<title>K10 MONITOR PRO — Export Reports</title>
 <style>
 :root {
   --bg:    #020810;
@@ -44,8 +44,6 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 #status.err{color:var(--red)}
 #status.wait{color:var(--amber)}
 #my-id{font-size:10px;color:var(--dim)}
-
-/* stats grid */
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:18px}
 .stat{background:var(--bg2);border:1px solid var(--border);padding:12px 16px;border-left:3px solid;position:relative;overflow:hidden}
 .stat::after{content:'';position:absolute;right:-10px;bottom:-10px;width:60px;height:60px;border-radius:50%;opacity:.04}
@@ -60,8 +58,6 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 .sa .stat-v{color:var(--amber)}
 .sp .stat-v{color:var(--purple)}
 .stat-sub{font-size:9px;color:var(--dim);margin-top:3px;letter-spacing:1px}
-
-/* health dashboard */
 .health-panel{background:var(--bg2);border:1px solid var(--border);margin-bottom:16px;padding:12px 16px}
 .health-status{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;margin-bottom:12px}
 .health-badge{font-size:14px;font-weight:700;padding:4px 12px;border-radius:20px}
@@ -80,7 +76,6 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 .health-table{width:100%;border-collapse:collapse;font-size:10px}
 .health-table th,.health-table td{border-bottom:1px solid var(--border);padding:6px 4px;text-align:left}
 .health-table th{color:var(--cyan);text-transform:uppercase;letter-spacing:1px}
-
 .slbl{font-size:9px;letter-spacing:3px;color:var(--cyan);margin-bottom:8px;text-transform:uppercase;display:flex;align-items:center;gap:8px}
 .slbl::after{content:'';flex:1;height:1px;background:var(--border)}
 .perf-row{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap}
@@ -128,6 +123,8 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 .footer{margin-top:18px;padding-top:10px;border-top:1px solid var(--border);font-size:9px;color:var(--dim);letter-spacing:1px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px}
 @keyframes fi{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 .fi{animation:fi .25s}
+.export-btn{background:var(--cyan);color:#020810;border-color:var(--cyan);margin-left:12px}
+.export-btn:hover{background:#00f5ff44}
 </style>
 </head>
 <body>
@@ -136,7 +133,7 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
   <div>
     <h1>K10<span class="dot">.</span>MONITOR <span class="ver">PRO v3</span></h1>
     <div style="font-size:9px;color:var(--dim);letter-spacing:2px;margin-top:4px">
-      HEALTH DASHBOARD · 5-LAST REPORTS · REAL MODE ONLY
+      HEALTH DASHBOARD · 5-LAST REPORTS · EXPORT TXT
     </div>
   </div>
   <div class="arch-badge">▲ MODEL: SERVER-AGGREGATED</div>
@@ -172,7 +169,9 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 </div>
 
 <!-- HEALTH DASHBOARD -->
-<div class="slbl">🔍 HEALTH CHECK (LAST 5 REPORTS)</div>
+<div class="slbl">🔍 HEALTH CHECK (LAST 5 REPORTS)
+  <button id="exportBtn" class="export-btn" onclick="exportReportsToTxt()" style="margin-left:auto; font-size:9px; padding:4px 10px;">📄 Exportar relatórios (TXT)</button>
+</div>
 <div class="health-panel" id="health-panel">
   <div class="health-status">
     <div><span class="health-badge" id="health-badge">⚪ CALCULATING</span></div>
@@ -181,8 +180,7 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
   <div class="health-metrics" id="health-metrics"></div>
   <div id="health-alerts" class="health-alerts" style="display:none"></div>
   <table class="health-table" id="health-table">
-    <thead><tr><th>Timestamp</th><th>Users</th><th>Servers</th><th>Groups</th><th>Avg.Size</th><th>Splits</th><th>Merges</th><th>Comp.</th><th>Tutor</th></tr>
-    </thead>
+    <thead><tr><th>Timestamp</th><th>Users</th><th>Servers</th><th>Groups</th><th>Avg.Size</th><th>Splits</th><th>Merges</th><th>Comp.</th><th>Tutor</th></tr></thead>
     <tbody id="health-table-body"></tbody>
   </table>
 </div>
@@ -204,13 +202,14 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
   <b>✔ NEW (scales to billions)</b> — Server reports aggregated totals per group:<br>
   <b class="h-new">{t:'s', id:'SRV-01', total:150000, groups:{AAAA:5000,BBBB:3200,...}}</b> &nbsp;·&nbsp; every 30s<br>
   <b>🩺 HEALTH ADDON</b> — Monitor also listens to <b>group‑split, group‑merge, group‑compensate, group‑tutor‑status</b> to compute network health.<br>
+  <b>📄 EXPORT</b> — Click the button above to download the last 5 health reports as .txt file.<br>
   <br>
   <b class="h-old">✗ LEGACY (does not scale)</b> — Each user reports individually:<br>
   {t:'u', id:'K10AAAABB', gid:'AAAA'} &nbsp;·&nbsp; every 30s &nbsp;→ <b style="color:var(--red)">freezes with &gt; 100k users</b>
 </div>
 
 <div class="footer">
-  <span>K10 MONITOR PRO — HEALTH DASHBOARD v3 (REAL MODE ONLY)</span>
+  <span>K10 MONITOR PRO — HEALTH DASHBOARD v3 (Export TXT)</span>
   <span id="footer-ts">—</span>
 </div>
 
@@ -226,7 +225,7 @@ const PAGE_ROWS  = 80;
 const RENDER_THR = 1_000;
 const LOG_MAX    = 100;
 const PEER_TIMEOUT = 15000;
-const HEALTH_REPORT_INTERVAL = 30000; // 30 segundos entre relatórios
+const HEALTH_REPORT_INTERVAL = 30000;
 
 // ═══════════════════════════════════════════════════════════════════════
 //  STATE
@@ -242,14 +241,12 @@ let warnOldSrc = null;
 let legacyBucket = {};
 let isRunning = false;
 
-// Contadores de eventos de topologia (resetados a cada período de relatório)
 let splitCounter = 0;
 let mergeCounter = 0;
 let compensateCounter = 0;
-let tutorActiveFlag = false; // true se recebeu group-tutor-status com active=true no período
+let tutorActiveFlag = false;
 
-// Array com os últimos 5 relatórios de saúde
-let healthReports = []; // cada elemento: { ts, totalUsers, totalServers, totalGroups, avgGroupSize, splits, merges, compensates, tutorActive }
+let healthReports = []; // até 5
 
 // ═══════════════════════════════════════════════════════════════════════
 //  HELPERS
@@ -308,7 +305,7 @@ function flushLog() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  AGREGAÇÃO DE DADOS
+//  AGREGAÇÃO
 // ═══════════════════════════════════════════════════════════════════════
 function deriveGroups() {
   const g = {};
@@ -341,7 +338,7 @@ function totalUsers() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  GERAÇÃO DE RELATÓRIO DE SAÚDE (chamada a cada 30s)
+//  HEALTH SNAPSHOT
 // ═══════════════════════════════════════════════════════════════════════
 function takeHealthSnapshot() {
   const groups = deriveGroups();
@@ -365,7 +362,6 @@ function takeHealthSnapshot() {
   healthReports.unshift(report);
   if (healthReports.length > 5) healthReports.pop();
 
-  // Resetar contadores para o próximo período
   splitCounter = 0;
   mergeCounter = 0;
   compensateCounter = 0;
@@ -444,21 +440,88 @@ function updateHealthUI() {
   const tbody = document.getElementById('health-table-body');
   tbody.innerHTML = healthReports.map(r => `
     <tr>
-      <td>${new Date(r.ts).toLocaleTimeString()}</td>
-      <td>${fmt(r.totalUsers)}</td>
-      <td>${r.totalServers}</td>
-      <td>${r.totalGroups}</td>
-      <td>${fmt(r.avgGroupSize)}</td>
-      <td>${r.splits}</td>
-      <td>${r.merges}</td>
-      <td>${r.compensates}</td>
-      <td>${r.tutorActive ? '⚕️ sim' : 'não'}</td>
+      <td>${new Date(r.ts).toLocaleTimeString()}】--
+      <td>${fmt(r.totalUsers)}】--
+      <td>${r.totalServers}】--
+      <td>${r.totalGroups}】--
+      <td>${fmt(r.avgGroupSize)}】--
+      <td>${r.splits}】--
+      <td>${r.merges}】--
+      <td>${r.compensates}】--
+      <td>${r.tutorActive ? '⚕️ sim' : 'não'}】--
     </tr>
   `).join('');
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  PROCESSAMENTO DE MENSAGENS (agregado + eventos topologia)
+//  EXPORTAR RELATÓRIOS PARA TXT
+// ═══════════════════════════════════════════════════════════════════════
+window.exportReportsToTxt = function() {
+  if (healthReports.length === 0) {
+    alert("Nenhum relatório disponível ainda. Aguarde o monitor coletar dados.");
+    return;
+  }
+
+  let content = "K10 MONITOR PRO — HEALTH REPORT EXPORT\n";
+  content += `Exportado em: ${new Date().toLocaleString()}\n`;
+  content += `Monitor ID: ${document.getElementById('mon-id').value.trim().toUpperCase() || 'K10-MON'}\n`;
+  content += `Status: ${document.getElementById('status').innerText}\n`;
+  content += `Conexões ativas: ${conns.size}\n`;
+  content += `Total de mensagens recebidas: ${msgCount}\n`;
+  content += `Último render: ${document.getElementById('p-lat').innerText}\n`;
+  content += `\n${'='.repeat(80)}\n`;
+  content += `ÚLTIMOS 5 RELATÓRIOS DE SAÚDE (mais recente primeiro)\n`;
+  content += `${'='.repeat(80)}\n\n`;
+
+  healthReports.forEach((r, idx) => {
+    content += `📌 RELATÓRIO #${idx+1} (${new Date(r.ts).toLocaleString()})\n`;
+    content += `   Usuários totais  : ${fmt(r.totalUsers)} (${r.totalUsers.toLocaleString()} exato)\n`;
+    content += `   Servidores ativos: ${r.totalServers}\n`;
+    content += `   Grupos ativos    : ${r.totalGroups}\n`;
+    content += `   Tamanho médio    : ${fmt(r.avgGroupSize)}\n`;
+    content += `   Splits           : ${r.splits}\n`;
+    content += `   Merges           : ${r.merges}\n`;
+    content += `   Compensações     : ${r.compensates}\n`;
+    content += `   Tutela ativa     : ${r.tutorActive ? 'Sim (grupo filho em crescimento)' : 'Não'}\n\n`;
+  });
+
+  if (healthReports.length >= 2) {
+    const latest = healthReports[0];
+    const prev = healthReports[1];
+    const userDelta = ((latest.totalUsers - prev.totalUsers) / (prev.totalUsers || 1)) * 100;
+    const serverDelta = ((latest.totalServers - prev.totalServers) / (prev.totalServers || 1)) * 100;
+    const groupDelta = ((latest.totalGroups - prev.totalGroups) / (prev.totalGroups || 1)) * 100;
+    content += `📈 TENDÊNCIAS (último vs penúltimo):\n`;
+    content += `   Usuários : ${userDelta>=0?'+':''}${userDelta.toFixed(2)}%\n`;
+    content += `   Servidores: ${serverDelta>=0?'+':''}${serverDelta.toFixed(2)}%\n`;
+    content += `   Grupos   : ${groupDelta>=0?'+':''}${groupDelta.toFixed(2)}%\n\n`;
+  }
+
+  const alertsDiv = document.getElementById('health-alerts');
+  if (alertsDiv && alertsDiv.style.display !== 'none') {
+    content += `⚠️ ALERTAS ATUAIS:\n`;
+    const alerts = Array.from(alertsDiv.querySelectorAll('.alert-item')).map(a => a.innerText);
+    alerts.forEach(a => content += `   ${a}\n`);
+    content += `\n`;
+  }
+
+  content += `${'='.repeat(80)}\n`;
+  content += `FIM DO RELATÓRIO\n`;
+
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const link = document.createElement('a');
+  const url = URL.createObjectURL(blob);
+  link.href = url;
+  link.download = `k10_health_${new Date().toISOString().slice(0,19).replace(/:/g, '-')}.txt`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+  log(`📄 Relatório exportado com ${healthReports.length} registros.`, 'ok');
+};
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PROCESSAMENTO DE MENSAGENS
 // ═══════════════════════════════════════════════════════════════════════
 function handleMsg(msg) {
   msgCount++;
@@ -487,7 +550,6 @@ function handleMsg(msg) {
     return;
   }
 
-  // Eventos de topologia para contagem de splits/merges/compensações
   if (msg.type === 'group-split') {
     splitCounter++;
     log(`[TOPOLOGY] group-split: ${msg.oldGroupId} → ${msg.newGroupId}`, 'warn');
@@ -582,7 +644,7 @@ function render() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  START / STOP (SEM DEMO MODE)
+//  START / STOP (REAL MODE ONLY, NO DEMO)
 // ═══════════════════════════════════════════════════════════════════════
 function startMon() {
   if (isRunning) stopMon();
@@ -678,20 +740,14 @@ function stopMon() {
   document.getElementById('warn-old').classList.remove('show');
   log('Monitor parado.', 'warn');
   render();
-  updateHealthUI(); // limpa o painel de saúde
+  updateHealthUI();
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-//  GLOBAL ERROR HANDLER (captura promessas não tratadas)
-// ═══════════════════════════════════════════════════════════════════════
 window.addEventListener('unhandledrejection', event => {
   log(`[Promise Rejection] ${event.reason?.message || event.reason}`, 'err');
   event.preventDefault();
 });
 
-// ═══════════════════════════════════════════════════════════════════════
-//  INIT
-// ═══════════════════════════════════════════════════════════════════════
 render();
 </script>
 </body>
