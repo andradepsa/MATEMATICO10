@@ -1,4 +1,24 @@
-<!-- ═══ Chat K10 V45 — Bancada Fix (23/abr/2026) ═══
+<!-- ═══ Chat K10 V46 — Bancada Fix (23/abr/2026) ═══
+     NOVO V46 — FIX CRÍTICO: RACE CONDITION connectToPeer REMOVE CONEXÃO ATIVA
+     ══════════════════════════════════════════════════════════════════════
+     FIX V46-CONNCLOSE-RACE: conn.on('error') e conn.on('close') em connectToPeer
+          usavam `prev.filter(c => c.peer !== peerIdToConnect)` — removiam TODAS
+          as conexões com aquele peer, inclusive conexões de ENTRADA ativas.
+          - Bug: usuário seleciona contatos → connectToPeer(pId) inicia conexão
+            de SAÍDA → peer não responde diretamente (NAT) → timeout 10s → conn.close()
+            → close handler dispara → filter por peer ID → REMOVE a conexão de ENTRADA
+            que estava funcionando → lista do Privado some.
+          - A remoção ocorria ~10s após selecionar os contatos, coincidindo com o
+            momento em que o usuário estava enviando/recebendo mensagem no Geral.
+          - Fix: filter alterado de `c.peer !== peerIdToConnect` para `c !== conn`.
+            Só remove o objeto de conexão exato que falhou. Conexões de entrada
+            (objeto diferente, mesmo peer) são preservadas.
+          - Aplicado em: conn.on('error') e conn.on('close') dentro de connectToPeer.
+          - Mensagem de timeout também suprimida se ainda houver conexão aberta com
+            o peer (evita spam de "falha de conexão" para contatos já conectados).
+     ══════════════════════════════════════════════════════════════════════
+     Correções anteriores V45 mantidas integralmente.
+     ══════════════════════════════════════════════════════════════════════
      NOVO V45 — FIX CRÍTICO: PRUNING DO seenMessagesRef PRINCIPAL
      ══════════════════════════════════════════════════════════════════════
      FIX V45-SEENPRUNE: seenMessagesRef principal não tinha limite de tamanho.
@@ -8344,8 +8364,13 @@ const timeoutId = setTimeout(() => {
 if (conn && !conn.open) {
 console.warn(`Connection to ${peerIdToConnect} timed out. Closing attempt.`);
 conn.close();
+// FIX V46-CONNCLOSE-RACE: só exibe aviso de timeout se não houver conexão ativa com o peer.
+// Evita spam de "falha de conexão" quando a conexão de entrada já está funcionando.
+const hasActiveConn = connectionsRef.current.some(c => c.peer === peerIdToConnect && c.open);
+if (!hasActiveConn) {
 // FIX C-14: langRef.current evita stale closure — lang pode ter mudado durante os 10s de timeout
 setMessages(prev => [...prev, { text: `⚠️ ${t(langRef.current, 'connectFailed')} ${peerIdToConnect} (Timeout)`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500));
+}
 }
 }, 10000);
 
@@ -8385,7 +8410,9 @@ setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
 conn.on('error', err => {
   clearTimeout(timeoutId);
   addAudit(`[P2P] Falha na conexão com ${peerIdToConnect}: ${err?.type || 'unknown'}`, 'error');
-  setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect));
+  // FIX V46-CONNCLOSE-RACE: filtra SOMENTE o objeto conn que falhou (c !== conn).
+  // Antes: filter por c.peer removia TAMBÉM conexões de entrada ativas do mesmo peer.
+  setConnections(prev => prev.filter(c => c !== conn));
   // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact em erros de conexão.
   // Limpar causava setSidebarTab('general') via useEffect, jogando o usuário para fora do chat privado.
   // A aba Privado já trata peers desconectados com pendingEntry e bloqueia envio quando conn.open=false.
@@ -8407,7 +8434,10 @@ conn.on('close', () => {
   clearTimeout(timeoutId);
   addAudit(`[P2P] Conexão encerrada: ${peerIdToConnect}`, 'warn');
   worldQuizSubscribersRef.current.delete(peerIdToConnect);
-  setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect));
+  // FIX V46-CONNCLOSE-RACE: filtra SOMENTE o objeto conn que fechou (c !== conn).
+  // Antes: filter por c.peer removia TAMBÉM conexões de entrada ativas do mesmo peer,
+  // causando sumiço da lista Privado ~10s após selecionar contatos (timeout da saída).
+  setConnections(prev => prev.filter(c => c !== conn));
   // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact no close de conexão.
   // Limpar disparava setSidebarTab('general') no useEffect, tirando o usuário do chat privado
   // durante reconexões (que usam backoff automático logo abaixo).
