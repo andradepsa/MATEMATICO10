@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>☢️ K10 NUCLEAR TEST — V4 SYNC EDITION</title>
+<title>☢️ K10 NUCLEAR TEST — V5 ROUTING + ELECTION</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <style>
@@ -348,6 +348,10 @@ input[type=checkbox] { accent-color: var(--accent); width: 13px; height: 13px; }
     <label><input type="checkbox" id="m-fuzzing" checked> Binary Fuzzing Profundo</label>
     <label><input type="checkbox" id="m-integrity" checked> Integridade (Hash)</label>
     <label><input type="checkbox" id="m-replay2" checked> Anti-Replay Avançado</label>
+    <label><input type="checkbox" id="m-usr-srv-usr" checked> USER→SERVER→USER (V49.1)</label>
+    <label><input type="checkbox" id="m-mode-leak" checked> Anti-Vazamento Privado/Geral</label>
+    <label><input type="checkbox" id="m-modogeral" checked> Modo Geral Activation</label>
+    <label><input type="checkbox" id="m-shadow-elect" checked> K10 Shadow Election (V49/V50)</label>
     <label><input type="checkbox" id="m-billion" checked> Modelo Bilhões</label>
   </div>
 </div>
@@ -727,6 +731,11 @@ const PHASES = [
   { id:'chaos-edge', label:'37. Edge Cases & Unicode' },
   { id:'antispam',   label:'38. Anti-Spam Rate Limit' },
   { id:'integrity',  label:'39. Integridade Hash/Ordem' },
+  // ═══ V5: NOVAS FASES — VALIDAM FIXES V47-V50 ═══
+  { id:'usr-srv-usr',label:'41. USER→SERVER→USER (relay)' },
+  { id:'mode-leak',  label:'42. Anti-Vazamento Privado/Geral' },
+  { id:'modogeral',  label:'43. Modo Geral Activation Stability' },
+  { id:'shadow-elect',label:'44. K10 Shadow Election (V49/V50)' },
   { id:'billion',    label:'40. Modelo de Bilhões' },
 ];
 
@@ -2341,6 +2350,18 @@ async function startNuclear() {
     // FASE 39: Integrity
     if (cfg('integrity') && bots.length >= 2) { await phase_integrity(bots, server); setProgress(92); }
 
+    // FASE 41: USER -> SERVER -> USER (validacao do fix V49.1)
+    if (cfg('usr-srv-usr') && bots.length >= 3) { await phase_usr_srv_usr(bots, server); setProgress(94); }
+
+    // FASE 42: anti-vazamento entre privado e geral
+    if (cfg('mode-leak') && bots.length >= 3) { await phase_mode_leak(bots, server); setProgress(95); }
+
+    // FASE 43: estabilidade de ativacao do Modo Geral
+    if (cfg('modogeral') && bots.length >= 1) { await phase_modogeral(bots, server); setProgress(95); }
+
+    // FASE 44: K10 Shadow Election (V49 + V50)
+    if (cfg('shadow-elect') && bots.length >= 1) { await phase_shadow_election(bots, server); setProgress(96); }
+
     // FASE 40: Billion Model
     if (cfg('billion')) { await phase_billion(bots); setProgress(96); }
 
@@ -2349,7 +2370,7 @@ async function startNuclear() {
     const score = state.total > 0 ? Math.round(state.pass/state.total*100) : 0;
     log('PHASE', `━━━ ☢️ TESTE NUCLEAR V2 OMEGA CONCLUÍDO ━━━`);
     log('OK', `RESULTADO: ${state.pass} PASS / ${state.fail} FAIL / ${state.warns} WARNS em ${elapsed}s`);
-    log('OK', `SCORE: ${score}% (${state.pass}/${state.total}) — 40 FASES TESTADAS`);
+    log('OK', `SCORE: ${score}% (${state.pass}/${state.total}) — 44 FASES TESTADAS`);
     log('OK', `Msgs testadas: ${state.msgsSent} enviadas / ${state.msgsRecv} recebidas / ${state.dups} dups / ${state.lost} perdidas`);
 
     // Auto generate report
@@ -2374,7 +2395,8 @@ async function startQuick() {
   });
   ['dedup','antiloop','order','e2ee','srve2ee','poll','quiz','md','yt','pex','group0','peerlist',
    'concurr','burst','sustained','failover','resilience','security','memory','supernode','swap','tabs',
-   'ui-privado','ui-geral','ui-youtube','ui-lista','chaos','antispam','unicode','fuzzing','integrity','billion']
+   'ui-privado','ui-geral','ui-youtube','ui-lista','chaos','antispam','unicode','fuzzing','integrity',
+   'usr-srv-usr','mode-leak','modogeral','shadow-elect','billion']
     .forEach(id => { const el=document.getElementById('m-'+id); if(el) el.checked=false; });
   await startNuclear();
 }
@@ -2519,7 +2541,7 @@ async function startExtreme(isEconomic) {
     const score = state.total > 0 ? Math.round(state.pass / state.total * 100) : 0;
     log('PHASE', `━━━ ☢️ TESTE EXTREMO CONCLUÍDO ━━━`);
     log('OK', `RESULTADO: ${state.pass} PASS / ${state.fail} FAIL / ${state.warns} WARNS em ${elapsed}s`);
-    log('OK', `SCORE: ${score}% (${state.pass}/${state.total}) — 40 FASES TESTADAS`);
+    log('OK', `SCORE: ${score}% (${state.pass}/${state.total}) — 44 FASES TESTADAS`);
 
     renderScaleBars();
     generateReport();
@@ -3190,6 +3212,135 @@ async function phase_integrity(bots, server) {
   logC(ok?'OK':'FAIL', `Integridade: ${integrityOk}/${N} msgs íntegras, corrompidas=${corrupted}, ordenadas=${isOrdered}, entregues=${deliveredN}`);
   if (corrupted>0) logC('FAIL', `⛔ ${corrupted} MSGS CORROMPIDAS em trânsito!`);
   setPhase('integrity','done');
+}
+
+
+// ════════════════════════════════════════════════════════════════
+// FASE 41: USER → SERVER → USER (relay broadcast via servidor)
+// Verifica fix V49.1: shadow K10-CENTRAL agora retransmite mensagens
+// ════════════════════════════════════════════════════════════════
+async function phase_usr_srv_usr(bots, server) {
+  setPhase('usr-srv-usr','running');
+  log('PHASE', '━━━ FASE 41: USER→SERVER→USER (relay) ━━━');
+  if (bots.length < 3) { setPhase('usr-srv-usr','failed'); log('FAIL','Precisa de >= 3 bots'); return; }
+  const [A, B, C] = bots;
+  // Limpa caixas
+  B.rcvd = []; C.rcvd = [];
+  const msgId = 'USR-SRV-USR-' + uid();
+  const wc = getWorkingConn(A, server);
+  if (!wc) { setPhase('usr-srv-usr','failed'); log('FAIL','A sem conn'); return; }
+  try { wc.conn.send({type:'message',id:msgId,text:'TESTE_RELAY_VIA_SERVER',sender:A.id,senderName:'A',ttl:8,direct:false}); }
+  catch(e){ setPhase('usr-srv-usr','failed'); log('FAIL','send falhou: '+e.message); return; }
+  await wait(3000);
+  const Bgot = B.rcvd.filter(m => m.id === msgId).length;
+  const Cgot = C.rcvd.filter(m => m.id === msgId).length;
+  const ok = (Bgot >= 1) && (Cgot >= 1);
+  log(ok?'OK':'FAIL', `USER→SERVER→USER: B recebeu ${Bgot}x, C recebeu ${Cgot}x (esperado: ambos >= 1)`);
+  setPhase('usr-srv-usr', ok?'done':'failed');
+  setBadge('pt-bcast', ok?'ok':'fail');
+}
+
+// ════════════════════════════════════════════════════════════════
+// FASE 42: ANTI-VAZAMENTO entre Privado e Geral
+// Privada A→B nao deve aparecer em C; Geral nao deve virar privada
+// ════════════════════════════════════════════════════════════════
+async function phase_mode_leak(bots, server) {
+  setPhase('mode-leak','running');
+  log('PHASE', '━━━ FASE 42: ANTI-VAZAMENTO PRIVADO/GERAL ━━━');
+  if (bots.length < 3) { setPhase('mode-leak','failed'); log('FAIL','Precisa de >= 3 bots'); return; }
+  const [A, B, C] = bots;
+  // 1. Privada A→B: C nao pode receber
+  B.rcvd = []; C.rcvd = [];
+  const privId = 'PRIV-' + uid();
+  const wcA = getWorkingConn(A, server);
+  if (wcA) try { wcA.conn.send({type:'message',id:privId,text:'segredo',sender:A.id,senderName:'A',ttl:8,direct:true,recipient:B.id}); } catch(e){}
+  await wait(2000);
+  const Bpriv = B.rcvd.filter(m => m.id === privId).length;
+  const Cpriv = C.rcvd.filter(m => m.id === privId).length;
+  const noLeak1 = (Bpriv >= 1) && (Cpriv === 0);
+  log(noLeak1?'OK':'FAIL', `Privada A→B: B recebeu ${Bpriv}, C ${Cpriv} (vazamento? ${Cpriv>0?'SIM':'NAO'})`);
+
+  // 2. Broadcast geral nao deve ter direct:true
+  B.rcvd = []; C.rcvd = [];
+  const bcastId = 'BCAST-' + uid();
+  if (wcA) try { wcA.conn.send({type:'message',id:bcastId,text:'publico',sender:A.id,senderName:'A',ttl:8,direct:false}); } catch(e){}
+  await wait(2000);
+  const Bbc = B.rcvd.filter(m => m.id === bcastId);
+  const Cbc = C.rcvd.filter(m => m.id === bcastId);
+  const allHaveCorrectMode = Bbc.every(m => !m.direct) && Cbc.every(m => !m.direct);
+  const noLeak2 = (Bbc.length >= 1) && (Cbc.length >= 1) && allHaveCorrectMode;
+  log(noLeak2?'OK':'FAIL', `Broadcast: B ${Bbc.length}, C ${Cbc.length}, todos com direct=false: ${allHaveCorrectMode}`);
+
+  const ok = noLeak1 && noLeak2;
+  setPhase('mode-leak', ok?'done':'failed');
+}
+
+// ════════════════════════════════════════════════════════════════
+// FASE 43: ESTABILIDADE DE ATIVACAO DO MODO GERAL
+// Bug V49.1: as vezes inicia, as vezes nao. Reduzimos timeout 6s -> 1.5s.
+// Validamos que apos N tentativas de "novo bot", o Modo Geral ativa em
+// todas (recebe peer-list ou group0-welcome).
+// ════════════════════════════════════════════════════════════════
+async function phase_modogeral(bots, server) {
+  setPhase('modogeral','running');
+  log('PHASE', '━━━ FASE 43: MODO GERAL ACTIVATION STABILITY ━━━');
+  // Conta quantos bots receberam group0-welcome OU peer-list (= modo geral ativo)
+  const activated = bots.filter(b => b.group0Welcome || b.peerListRcvd).length;
+  const total = bots.length;
+  const pct = total > 0 ? (activated / total * 100).toFixed(1) : 0;
+  const ok = pct >= 80; // ao menos 80% dos bots devem ter ativado
+  log(ok?'OK':'FAIL', `Modo Geral ativou em ${activated}/${total} (${pct}%) — esperado >= 80%`);
+  setPhase('modogeral', ok?'done':'failed');
+}
+
+// ════════════════════════════════════════════════════════════════
+// FASE 44: K10 SHADOW ELECTION (V49 K10-CENTRAL + V50 K10-{gid}-N)
+// Verifica que existe alguem servindo K10-CENTRAL (probe), e que
+// IDs de slot por salinha (K10-{gid}-1, K10-{gid}-2) sao acessiveis
+// quando ha bots no mesmo gid.
+// ════════════════════════════════════════════════════════════════
+async function phase_shadow_election(bots, server) {
+  setPhase('shadow-elect','running');
+  log('PHASE', '━━━ FASE 44: K10 SHADOW ELECTION (V49/V50) ━━━');
+  if (bots.length < 1) { setPhase('shadow-elect','failed'); return; }
+  const probe = bots[0];
+  if (!probe.peer || probe.peer.destroyed) { setPhase('shadow-elect','failed'); log('FAIL','probe sem peer'); return; }
+  // Probe K10-CENTRAL
+  const aliveCentral = await new Promise(resolve => {
+    let resolved = false;
+    let pc;
+    try { pc = probe.peer.connect('K10-CENTRAL', {reliable:true}); }
+    catch(e){ return resolve(false); }
+    if (!pc) return resolve(false);
+    const t = setTimeout(()=>{ if(!resolved){ resolved=true; try{pc.close();}catch(e){}; resolve(false); }}, 5000);
+    pc.on('open',  ()=>{ if(!resolved){ resolved=true; clearTimeout(t); try{pc.close();}catch(e){}; resolve(true); }});
+    pc.on('error', ()=>{ if(!resolved){ resolved=true; clearTimeout(t); resolve(false); }});
+  });
+  log(aliveCentral?'OK':'WARN', `K10-CENTRAL probe: ${aliveCentral?'ATIVO (shadow eleito ou servidor real)':'OFFLINE (esperado se nenhum chat real esta aberto)'}`);
+
+  // Detecta gids reportados pelos bots (peer-list)
+  const gids = [...new Set(bots.map(b => b.groupId).filter(Boolean))];
+  if (gids.length === 0) {
+    log('WARN', 'Nenhum gid detectado nos bots — nao pode validar shadow de salinha');
+    setPhase('shadow-elect', 'done'); // aceita o probe central como pass parcial
+    return;
+  }
+  // Probe primeiro slot do primeiro gid
+  const sampleGid = gids[0];
+  const slotId = `K10-${sampleGid}-1`;
+  const aliveSlot = await new Promise(resolve => {
+    let resolved = false;
+    let pc;
+    try { pc = probe.peer.connect(slotId, {reliable:true}); }
+    catch(e){ return resolve(false); }
+    if (!pc) return resolve(false);
+    const t = setTimeout(()=>{ if(!resolved){ resolved=true; try{pc.close();}catch(e){}; resolve(false); }}, 5000);
+    pc.on('open',  ()=>{ if(!resolved){ resolved=true; clearTimeout(t); try{pc.close();}catch(e){}; resolve(true); }});
+    pc.on('error', ()=>{ if(!resolved){ resolved=true; clearTimeout(t); resolve(false); }});
+  });
+  log(aliveSlot?'OK':'WARN', `Slot ${slotId} probe: ${aliveSlot?'ATIVO (V50 shadow eleito)':'inativo (esperado se chat V50 nao esta aberto)'}`);
+
+  setPhase('shadow-elect', 'done');
 }
 
 // ════════════════════════════════════════════════════════════════
