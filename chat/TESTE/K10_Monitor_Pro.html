@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>K10 MONITOR PRO — Health Dashboard (Advanced Metrics)</title>
 <style>
-  
 :root {
   --bg:    #020810;
   --bg2:   #060e1a;
@@ -331,6 +330,9 @@ function deriveGroups() {
     }
   }
   for (const gid in legacyBucket) {
+    // FIX-BUG8: se o servidor já reportou este GID, ignorar legacyBucket para evitar
+    // dupla contagem (clientes enviando 'u' + servidor enviando groups:{GID:count}).
+    if (g[gid]) continue;
     const lb = legacyBucket[gid];
     if (now - lb.ts > STALE) { delete legacyBucket[gid]; continue; }
     if (!g[gid]) g[gid] = {n:0, ts:0};
@@ -341,11 +343,9 @@ function deriveGroups() {
 }
 
 function totalUsers() {
-  const now = Date.now();
-  let t = 0;
-  for (const sid in servers) if (now - servers[sid].ts <= STALE) t += (servers[sid].total || 0);
-  for (const gid in legacyBucket) if (now - legacyBucket[gid].ts <= STALE) t += legacyBucket[gid].peers ? [...legacyBucket[gid].peers.entries()].filter(([,t])=>now-t<=STALE).length : (legacyBucket[gid].n||0); // FIX V2-UNIQUE
-  return t;
+  // FIX-BUG8: usa deriveGroups() para evitar dupla contagem entre server reports e legacyBucket.
+  // A função deriveGroups já aplica a regra: server report tem precedência sobre legacyBucket.
+  return Object.values(deriveGroups()).reduce((s, g) => s + g.n, 0);
 }
 
 function totalServers() {
