@@ -7207,7 +7207,7 @@ if (data.type === 'gid-promote') {
   // V26: garante que ambos os GIDs estão no registry binário (troca de índices)
   k10bin.registerGid(formerDominantGid);
   k10bin.registerGid(formerRecessiveGid);
-  if (!formerDominantGid || !formerRecessiveGid) return;
+  // FIX-BUG7: null check duplicado removido
   const myGid = myGroupIdRef.current;
   if (myGid === formerDominantGid || myGid === formerRecessiveGid) {
     // Se este nó pertence ao grupo recessivo, migra para o dominante
@@ -7226,7 +7226,7 @@ if (data.type === 'gid-promote') {
       const dominant  = directoryGlobalRef.current[newGid];
       const mergedR = new Set([...dominant.reservados, ...dominated.reservados]);
       dominant.reservados = [...mergedR].slice(0, 10);
-      dominant.groupSize  = Math.max(dominant.groupSize, dominant.groupSize + dominated.groupSize, dominated.groupSize);
+      dominant.groupSize  = dominated.groupSize; // FIX-BUG1: gid-promote é troca de labels; o "novo dominante" representa os membros do recessivo. Math.max(a,a+b,b)=a+b sempre inflava — correto é apenas o tamanho do recessivo.
       dominant.lastUpdate = Date.now();
       delete directoryGlobalRef.current[myGid];
     }
@@ -7295,13 +7295,23 @@ if (data.type === 'group-split') {
   const { oldGroupId, newGroupId } = data;
   // Atualiza diretório: cria entrada para o novo grupo
   if (newGroupId && !directoryGlobalRef.current[newGroupId]) {
-    directoryGlobalRef.current[newGroupId] = { reservados: data.migratedReservados || [], groupSize: data.migratedReservados ? data.migratedReservados.length : 0, lastUpdate: Date.now() };
+    directoryGlobalRef.current[newGroupId] = { reservados: data.migratedReservados || [], groupSize: data.transferCount || (data.migratedReservados ? data.migratedReservados.length : 0), lastUpdate: Date.now() }; // FIX-BUG6: usa transferCount quando disponível; migratedReservados.length é fallback (máx 10, subestima grupos grandes)
   }
   // Se sou reservado do grupo que fez split, migro para o novo grupo
   if (isSuperNodeRef.current && myGroupIdRef.current === oldGroupId) {
     myGroupIdRef.current = newGroupId;
     localStorage.setItem('myGroupId', newGroupId);
     sendUserToMonitor();
+    // FIX-BUG4: supernode migrado deve conectar-se aos peers do novo grupo.
+    // group-compensate e group-orphan-rescue já fazem isso; group-split estava omitindo.
+    const newGrpEntry = directoryGlobalRef.current[newGroupId];
+    if (newGrpEntry?.reservados?.length && peerInstance.current) {
+      newGrpEntry.reservados.forEach(pid => {
+        if (pid !== peerId) {
+          setTimeout(() => connectToPeer(pid), Math.random() * 3000);
+        }
+      });
+    }
   }
   // FASE-3/Caso5: se meu grupo original perdeu todos os reservados, auto-eleição
   if (myGroupIdRef.current === oldGroupId && !isSuperNodeRef.current) {
