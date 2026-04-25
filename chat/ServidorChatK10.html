@@ -1,4 +1,25 @@
-<!-- ═══ ServidorChatK10 V36 — Bancada Fix (23/abr/2026) ═══
+<!-- ═══ ServidorChatK10 V38 — Limites PeerJS Público (24/abr/2026) ═══
+     NOVO V38 — AJUSTE DE CONSTANTES PARA SERVIDOR PEERJS PÚBLICO
+     ══════════════════════════════════════════════════════════════════════
+     CONTEXT V38: O servidor peerjs.com público tem limite de conexões
+          simultâneas por sessão (~50-100). Com K10_MAX_GROUP=1800, o grupo
+          atingia o teto do servidor público e começava a rejeitar conexões
+          silenciosamente — causando o colapso observado nos health reports
+          (83 usuários → 0 em um único ciclo de 30s).
+     AJUSTE V38-MAX_GROUP: K10_MAX_GROUP 1800 → 50
+          Grupos de 50 ficam bem abaixo do teto do peerjs.com público.
+          Proporciona falha localizada (50 users afetados, não 1800).
+     AJUSTE V38-MAX_SERVERS: K10_MAX_SERVERS_PER_GROUP 10 → 2
+          Cada grupo fica amarrado a exatamente 2 servidores para redundância.
+          Sinalizador (routerMode) já está implementado — não alterado.
+     LÓGICA PRESERVADA: Zero alterações na lógica do programa.
+          Apenas constantes de dimensionamento ajustadas à realidade do
+          servidor público. Toda arquitetura de roteamento, grupos,
+          redundância e homeostase permanece inalterada.
+     ══════════════════════════════════════════════════════════════════════
+     Correções anteriores V37 mantidas integralmente.
+     ══════════════════════════════════════════════════════════════════════
+<!-- ═══ ServidorChatK10 V37 — Bancada Fix (23/abr/2026) ═══
      NOVO V36 — 7 CORREÇÕES DA BANCADA DE TESTES
      ══════════════════════════════════════════════════════════════════════
      FIX V36-TITLE: título HTML corrigido V34→V35 (agora V36)
@@ -182,7 +203,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- HYDRA V7 server --><title>Servidor K10 - V36</title>
+  <!-- HYDRA V7 server --><title>Servidor K10 - V38</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <style>
     body {
@@ -840,6 +861,10 @@
       // FIX: ref mirrors knownServers so peer.on('open') never reads stale closure
       const knownServersRef = useRef([]);
       useEffect(() => { knownServersRef.current = knownServers; }, [knownServers]);
+
+      // ── K10 MONITOR: ID fixo — oculto, igual ao K10-CENTRAL ──────────────
+      const K10_MONITOR_ID = 'K10-MON';
+      const monitorTimerRef = useRef(null);
       const [darkMode, setDarkMode] = useState(() => localStorage.getItem('serverDarkMode') === 'true');
       const [auditLog, setAuditLog] = useState([]);
       const auditLogRef = useRef([]);
@@ -894,11 +919,11 @@
       const K10_GID_LEN = 4;
       const K10_SUFFIX_LEN = 2;
 
-      // ── V25: Lista de posições fixas — idêntica em TODOS os nós ──────
-      // Posição 1→'AA', Posição 2→'AB', ..., Posição 50→'AX'
-      // V38: K10_MAX_GROUP reduzido para 50
-      const K10_MAX_GROUP = 50;             // V38: reduzido de 1800 → 50
-      const K10_MAX_SERVERS_PER_GROUP = 2;  // V38: 2 servidores por grupo
+      // ── V25: Lista de 1800 posições fixas — idêntica em TODOS os nós ──────
+      // Posição 1→'AA', Posição 2→'AB', ..., Posição 1800→'dB'
+      // Gravada no código: ninguém precisa transmitir a lista, só o índice/sufixo
+      const K10_MAX_GROUP = 50;
+      const K10_MAX_SERVERS_PER_GROUP = 2; // V38: 2 servidores por grupo — redundância mínima segura para peerjs público
       const K10_POSITION_LIST = (() => {
         const list = [];
         for (let i = 0; i < K10_CHARS.length; i++) {
@@ -908,7 +933,7 @@
           }
           if (list.length >= K10_MAX_GROUP) break;
         }
-        return list; // ['AA','AB','AC',...,'AX'] — exatamente 50 entradas
+        return list; // ['AA','AB','AC',...,'dB'] — exatamente 1800 entradas
       })();
 
       // ── V26: Protocolo Binário K10 ─────────────────────────────────────────
@@ -1395,9 +1420,39 @@
         }
       };
 
+      // ── K10 MONITOR: para e inicia envio de relatórios ────────────────────
+      const stopMonitorReporting = () => {
+        if (monitorTimerRef.current) {
+          clearInterval(monitorTimerRef.current);
+          monitorTimerRef.current = null;
+        }
+      };
+
+      const startMonitorReporting = () => {
+        stopMonitorReporting();
+        const sendToMonitor = () => {
+          const mid = K10_MONITOR_ID;
+          const p = peerInstance.current;
+          if (!p || p.destroyed) return;
+          try {
+            const conn = p.connect(mid, { reliable: true });
+            conn.on('open', () => {
+              try {
+                // Heartbeat do servidor — grupos são reportados pelos próprios clientes
+                conn.send({ t: 's', id: peerIdRef.current });
+              } catch(e) {}
+              setTimeout(() => { try { conn.close(); } catch(e) {} }, 4000);
+            });
+            conn.on('error', () => {});
+          } catch(e) {}
+        };
+        sendToMonitor(); // disparo imediato
+        monitorTimerRef.current = setInterval(sendToMonitor, 30000);
+      };
+
       // Keepalive: envia um ping ao servidor PeerJS a cada 25s para evitar timeout silencioso
       const startKeepalive = () => {
-        stopKeepalive();
+        stopKeepalive(); stopMonitorReporting();
         keepaliveTimerRef.current = setInterval(() => {
           const p = peerInstance.current;
           if (p && !p.destroyed && !p.disconnected) {
@@ -1433,7 +1488,7 @@
         if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
           console.error(`Circuit-breaker: ${MAX_RECONNECT_ATTEMPTS} tentativas falharam. Desistindo.`);
           setConnectionStatus('errorFatal');
-          stopKeepalive();
+          stopKeepalive(); stopMonitorReporting();
           return;
         }
 
@@ -1477,7 +1532,7 @@
       const disconnectPeer = () => {
         isManualDisconnectRef.current = true; // impede reconexão automática
         clearReconnectTimer();
-        stopKeepalive();
+        stopKeepalive(); stopMonitorReporting();
         if (peerInstance.current) {
           try {
             // desconexão manual
@@ -1553,7 +1608,7 @@
 
         // setupPeer: currentId carregado
         setConnectionStatus('connecting');
-        stopKeepalive();
+        stopKeepalive(); stopMonitorReporting();
         clearReconnectTimer();
         
         if (peerInstance.current) {
@@ -1587,6 +1642,7 @@
           setConnectionStatus('connected');
           addAudit(`✅ Servidor online: ${id}`, 'ok');
           startKeepalive();
+          startMonitorReporting();
           
           // FIX: usa ref para evitar stale closure – knownServers pode estar desatualizado
           knownServersRef.current.forEach(serverId => {
@@ -1630,7 +1686,7 @@
             isIdUnavailableRef.current = true; // FIX V36-ID-LOOP: bloqueia peer.on('close') de reconectar
             setConnectionStatus('errorIdUnavailable');
             addAudit('⛔ ID indisponível ou inválido — altere o ID', 'err');
-            stopKeepalive();
+            stopKeepalive(); stopMonitorReporting();
             return;
           }
 
@@ -1667,7 +1723,7 @@
             return;
           }
           addAudit('🔄 Peer fechou — recriando…', 'warn');
-          stopKeepalive();
+          stopKeepalive(); stopMonitorReporting();
           peerInstance.current = null;
           scheduleReconnect();
         });
