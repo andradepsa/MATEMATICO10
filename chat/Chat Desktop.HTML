@@ -7297,24 +7297,13 @@ if (data.type === 'group-split') {
   if (newGroupId && !directoryGlobalRef.current[newGroupId]) {
     directoryGlobalRef.current[newGroupId] = { reservados: data.migratedReservados || [], groupSize: data.transferCount || (data.migratedReservados ? data.migratedReservados.length : 0), lastUpdate: Date.now() }; // FIX-BUG6: usa transferCount quando disponível; migratedReservados.length é fallback (máx 10, subestima grupos grandes)
   }
-  // Se sou do grupo que fez split, verifico se devo migrar
-  const oldGroupSize = directoryGlobalRef.current[oldGroupId]?.groupSize || K10_MAX_GROUP;
-  const tc = data.transferCount || K10_TRANSFER_SIZE;
-  const isMigrating = myGroupIdRef.current === oldGroupId && (
-    isSuperNodeRef.current || 
-    (myPositionIdxRef.current >= 0 && myPositionIdxRef.current >= (oldGroupSize - tc))
-  );
-
-  if (isMigrating) {
+  // Se sou reservado do grupo que fez split, migro para o novo grupo
+  if (isSuperNodeRef.current && myGroupIdRef.current === oldGroupId) {
     myGroupIdRef.current = newGroupId;
     localStorage.setItem('myGroupId', newGroupId);
-    if (!isSuperNodeRef.current && myPositionIdxRef.current >= 0) {
-      // Ajusta o índice local provisoriamente (será reconfirmado pelo server no próximo PEX/heartbeat)
-      myPositionIdxRef.current = myPositionIdxRef.current - (oldGroupSize - tc);
-    }
     sendUserToMonitor();
-    
-    // Conecta aos reservados do novo grupo
+    // FIX-BUG4: supernode migrado deve conectar-se aos peers do novo grupo.
+    // group-compensate e group-orphan-rescue já fazem isso; group-split estava omitindo.
     const newGrpEntry = directoryGlobalRef.current[newGroupId];
     if (newGrpEntry?.reservados?.length && peerInstance.current) {
       newGrpEntry.reservados.forEach(pid => {
@@ -9163,7 +9152,6 @@ useEffect(() => {
       newGroupId: newGroupId,
       migratedReservados: directoryGlobalRef.current[myGroupId]?.reservados || [],
       action: 'reservados-migrate',
-      transferCount: K10_TRANSFER_SIZE,
       epoch: epochRef.current,
       leader: peerId,
       ttl: 8
