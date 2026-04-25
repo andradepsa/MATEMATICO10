@@ -416,7 +416,7 @@
              - Handler gid-promote: troca GID local quando dominância muda
              - Atualização automática de peerId e directoryGlobalRef após promoção
      C-19    K10 V25: Lista de Posições Fixa + pex-update + Swap-on-Leave ← NOVO V25
-             - K10_MAX_GROUP: limite de 1800 usuários por grupo
+             - K10_MAX_GROUP: limite de 50 usuários por grupo
              - K10_POSITION_LIST: lista fixa de 1800 sufixos (AA..dB) — idêntica em todos os nós
              - myPositionIdxRef: rastreia posição local no grupo
              - peer-list V25: recebe {gid, user, count} — conecta às posições 0..count-1
@@ -885,15 +885,12 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 
 /* MEDIA CONTROLS MODAL */
 .media-controls-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 2000; display: flex; align-items: center; justify-content: center; padding: 16px; animation: fadeIn 0.25s ease; }
-.media-controls-modal { background: #0f172a; border-radius: 20px; max-width: 480px; width: 100%; padding: 24px; border: 1px solid #1e3a5f; box-shadow: 0 24px 80px rgba(0,0,0,0.7); color: #f8fafc; max-height: 88vh; display: flex; flex-direction: column; }
-.media-controls-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-shrink: 0; }
+.media-controls-modal { background: #0f172a; border-radius: 20px; max-width: 400px; width: 100%; padding: 24px; border: 1px solid #1e3a5f; box-shadow: 0 24px 80px rgba(0,0,0,0.7); color: #f8fafc; }
+.media-controls-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
 .media-controls-header h2 { margin: 0; font-size: 18px; color: #ffffff; }
-.media-controls-options { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; padding-right: 4px; }
-.media-controls-options::-webkit-scrollbar { width: 4px; }
-.media-controls-options::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
-.media-controls-btn { background: #1e293b; border: 1px solid #334155; color: #e2e8f0; padding: 11px 14px; border-radius: 10px; cursor: pointer; font-size: 13px; font-weight: 600; text-align: left; transition: all 0.18s; display: flex; align-items: center; gap: 12px; }
+.media-controls-options { display: flex; flex-direction: column; gap: 12px; }
+.media-controls-btn { background: #1e293b; border: 1px solid #334155; color: #e2e8f0; padding: 14px; border-radius: 12px; cursor: pointer; font-size: 14px; font-weight: 600; text-align: left; transition: all 0.2s; display: flex; align-items: center; gap: 12px; }
 .media-controls-btn:hover { background: #2563eb; color: white; border-color: #2563eb; }
-.media-controls-btn i { width: 20px; text-align: center; font-size: 16px; flex-shrink: 0; }
 
 /* WHITEBOARD */
 .whiteboard-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 2500; display: flex; align-items: center; justify-content: center; padding: 16px; }
@@ -2322,10 +2319,10 @@ const K10_GID_LEN = 4;
 const K10_SUFFIX_LEN = 2;
 const K10_TOTAL_LEN = K10_PREFIX.length + K10_GID_LEN + K10_SUFFIX_LEN; // 9
 
-// ── V25: Lista de 1800 posições fixas — idêntica em TODOS os nós ──────────
-// Posição 1→'AA', Posição 2→'AB', ..., Posição 1800→'dB'
-// Gravada no código: ninguém precisa transmitir a lista, só o sufixo/count
-const K10_MAX_GROUP = 1800;
+// ── V25: Lista de posições fixas — idêntica em TODOS os nós ──────────
+// Posição 1→'AA', Posição 2→'AB', ..., Posição 50→'AX'
+// V38: K10_MAX_GROUP reduzido de 1800 → 50 (grupos menores, menos impacto por falha)
+const K10_MAX_GROUP = 50;
 const K10_POSITION_LIST = (() => {
   const list = [];
   for (let i = 0; i < K10_CHARS.length; i++) {
@@ -2335,7 +2332,7 @@ const K10_POSITION_LIST = (() => {
     }
     if (list.length >= K10_MAX_GROUP) break;
   }
-  return list; // ['AA','AB','AC',...,'dB'] — exatamente 1800 entradas
+  return list; // ['AA','AB','AC',...,'AX'] — exatamente 50 entradas
 })();
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -2343,15 +2340,16 @@ const K10_POSITION_LIST = (() => {
 // Estas constantes governam Mitose, Tutela, Compensação e Fusão de grupos.
 // O Peer ID do usuário NUNCA é alterado por nenhuma dessas operações.
 // Apenas myGroupIdRef (GID) e directoryGlobalRef são modificados.
+// V38: todos os valores ajustados proporcionalmente a K10_MAX_GROUP=50
 // ══════════════════════════════════════════════════════════════════════════════
-const K10_SPLIT_THRESHOLD   = 1800;  // dispara mitose (= K10_MAX_GROUP)
-const K10_TRANSFER_SIZE     = 180;   // 10% dos usuários mais recentes → Filho
-const K10_TUTOR_TARGET      = 1700;  // Filho "adulto" — fim da fase de tutela
-const K10_ALERT_LOW         = 1600;  // alerta amarelo — grupo próximo do mínimo seguro
-const K10_CRITICAL_LOW      = 1400;  // alerta vermelho — irmão doa usuários ativamente
-const K10_MERGE_THRESHOLD   = 1700;  // fusão se Pai+Filho ≤ este valor
-const K10_MERGE_DEBOUNCE_MS = 300000; // 5 min estável antes de fundir (evita fusões frenéticas)
-const K10_COMPENSATE_DELTA  = 100;   // usuários transferidos por ciclo de compensação
+const K10_SPLIT_THRESHOLD   = 50;   // dispara mitose (= K10_MAX_GROUP)
+const K10_TRANSFER_SIZE     = 5;    // 10% dos usuários mais recentes → Filho
+const K10_TUTOR_TARGET      = 47;   // Filho "adulto" — fim da fase de tutela (94.4% de 50)
+const K10_ALERT_LOW         = 44;   // alerta amarelo — grupo próximo do mínimo seguro (88.9% de 50)
+const K10_CRITICAL_LOW      = 39;   // alerta vermelho — irmão doa usuários ativamente (77.8% de 50)
+const K10_MERGE_THRESHOLD   = 47;   // fusão se Pai+Filho ≤ este valor (94.4% de 50)
+const K10_MERGE_DEBOUNCE_MS = 300000; // 5 min estável antes de fundir (inalterado)
+const K10_COMPENSATE_DELTA  = 3;    // usuários transferidos por ciclo de compensação (5.6% de 50)
 
 // Verifica se um peerId tem formato K10 válido
 const isK10Id = (id) => typeof id === 'string' && id.length === K10_TOTAL_LEN && id.startsWith(K10_PREFIX);
@@ -5006,7 +5004,7 @@ function buildAlternatives(pool, correct) {
 
 const MIN_QUIZ_INTERVAL = 120; // TRAVA: mínimo absoluto de 2 minutos — não remova
 
-const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizIntervalInput, setQuizIntervalInput, quizDiscipline, setQuizDiscipline, serverQuizBotActive, notifyServer, quizJitterTimerRef, broadcastToggle, sendQuizHandoff, quizServerOwnerId, globalQuizOwner, setGlobalQuizOwner, quizMasterIdRef, peerId }) => {
+const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizIntervalInput, setQuizIntervalInput, quizDiscipline, setQuizDiscipline, serverQuizBotActive, notifyServer, quizJitterTimerRef, broadcastToggle, sendQuizHandoff, quizServerOwnerId, peerId }) => {
   const langName = getLangName(lang);
   return (
     <FloatingWindow
@@ -5070,11 +5068,7 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
 
         <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: 'auto' }}>
           {(() => {
-            const peerP2POwner = quizBotActive && globalQuizOwner && globalQuizOwner !== peerId && quizMasterIdRef.current !== peerId;
-            const isLockedByServer = serverQuizBotActive && quizServerOwnerId !== peerId;
-            const isLocked = peerP2POwner || isLockedByServer;
-            const iAmOwner = (quizBotActive && (globalQuizOwner === peerId || quizMasterIdRef.current === peerId)) || (serverQuizBotActive && quizServerOwnerId === peerId);
-
+            const iAmOwner = quizBotActive || (serverQuizBotActive && quizServerOwnerId === peerId);
             return (
           <button 
             className="primary-btn" 
@@ -5084,7 +5078,6 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
               if (!newActive && sendQuizHandoff) {
                 try { sendQuizHandoff(); handoffSent = true; } catch(e) { console.warn('Quiz handoff failed', e); }
               }
-              setGlobalQuizOwner(newActive ? peerId : null);
               setQuizBotActive(newActive);
               if (newActive) {
                 notifyServer('quiz-bot-start');
@@ -5100,10 +5093,10 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
                 if (quizJitterTimerRef.current) clearTimeout(quizJitterTimerRef.current);
               }
             }}
-            disabled={isLocked}
-            style={{ background: iAmOwner ? '#ef4444' : isLocked ? '#94a3b8' : '#10b981', width: '100%', cursor: isLocked ? 'not-allowed' : 'pointer' }}
+            disabled={!iAmOwner}
+            style={{ background: iAmOwner && (quizBotActive || serverQuizBotActive) ? '#ef4444' : serverQuizBotActive ? '#94a3b8' : '#10b981', width: '100%', cursor: !iAmOwner ? 'not-allowed' : 'pointer' }}
           >
-            {iAmOwner ? 'Stop Bot' : isLocked ? '🔒 Bot em uso por outro usuário' : 'Start Bot'}
+            {quizBotActive ? 'Stop Bot' : (serverQuizBotActive && quizServerOwnerId === peerId) ? 'Stop Bot' : serverQuizBotActive ? '🔒 Bot em uso no servidor' : 'Start Bot'}
           </button>
             );
           })()}
@@ -5285,7 +5278,6 @@ const quizAllIndexRef = useRef(0);
 const quizBotActiveRef = useRef(false); // FIX: ref para evitar stale closure nos timers
 const [serverQuizBotActive, setServerQuizBotActive] = useState(false); // outro usuário tem bot ativo no servidor
 const [quizServerOwnerId, setQuizServerOwnerId] = useState(null); // V46: peerId de quem tem a responsabilidade do quiz
-const [globalQuizOwner, setGlobalQuizOwner] = useState(null); // V48: tracking of who started bot via P2P
 const worldQuizStageRef    = useRef(0);    // 0=idle, 1=etapa1 rodando, 2=etapa2 rodando
 const worldQuizPlaceRef    = useRef(null); // lugar atual { query, country, state, place }
 const worldQuizImageRef    = useRef(null); // URL da imagem (reutilizada na etapa 2)
@@ -5871,31 +5863,6 @@ const pendingRadioFiles = useRef({});
 const radioIntervalRef = useRef(null);
 const knownUsersRef = useRef(new Set());
 const peerIdRef = useRef(null);
-// ── K10 MONITOR: ID fixo, oculto — igual ao K10-CENTRAL ──────────────────────
-const K10_MONITOR_ID = 'K10-MON';
-const monitorTimerRef = useRef(null);
-const stopMonitorReporting = () => {
-  if (monitorTimerRef.current) { clearInterval(monitorTimerRef.current); monitorTimerRef.current = null; }
-};
-const sendUserToMonitor = () => {
-  const uid  = peerIdRef.current;
-  const gid  = myGroupIdRef.current;
-  const p    = peerInstance.current;
-  if (!uid || !gid || !p || p.destroyed) return;
-  try {
-    const c = p.connect(K10_MONITOR_ID, { reliable: true });
-    c.on('open', () => {
-      try { c.send({ t: 'u', id: uid, gid }); } catch(e) {}
-      setTimeout(() => { try { c.close(); } catch(e) {} }, 4000);
-    });
-    c.on('error', () => {});
-  } catch(e) {}
-};
-const startMonitorReporting = () => {
-  stopMonitorReporting();
-  sendUserToMonitor();
-  monitorTimerRef.current = setInterval(sendUserToMonitor, 30000);
-};
 const lastMessageTimeRef = useRef(new Map());
 const bannedPeersRef = useRef(new Set());
 const spamViolationsRef = useRef(new Map());
@@ -6319,10 +6286,7 @@ if (data.type === 'quiz-bot-global-toggle') {
   setQuizBotActive(data.active);
   quizBotActiveRef.current = data.active;
   if (data.active) {
-    setGlobalQuizOwner(data.owner); 
     setTimeout(checkAndAssumeQuizMaster, 2000); // Wait a bit then check master
-  } else {
-    setGlobalQuizOwner(null);
   }
   return;
 }
@@ -6624,7 +6588,6 @@ if (data.type === 'peer-list') {
     if (!savedGroupId || !directoryGlobalRef.current[savedGroupId] || savedGroupId === newGid) {
       myGroupIdRef.current = newGid;
       localStorage.setItem('myGroupId', newGid);
-      sendUserToMonitor();
     }
 
     // FIX V26→V23: Peer ID NUNCA muda. Apenas registra posição se sufixo atribuído.
@@ -6681,7 +6644,6 @@ if (data.type === 'peer-list') {
       if (!savedGroupId || !directoryGlobalRef.current[savedGroupId] || savedGroupId === data.groupId) {
         myGroupIdRef.current = data.groupId;
         localStorage.setItem('myGroupId', data.groupId);
-        sendUserToMonitor();
       }
     }
   }
@@ -6837,7 +6799,6 @@ if (data.type === 'position-update') {
   // Atualiza SOMENTE o Group ID — Peer ID permanece intocado
   myGroupIdRef.current = data.gid;
   localStorage.setItem('myGroupId', data.gid);
-  sendUserToMonitor();
   // Atualiza posição se sufixo informado
   if (data.user) {
     const newPosIdx = K10_POSITION_LIST.indexOf(data.user);
@@ -6922,7 +6883,6 @@ if (data.type === 'group-split') {
     const oldGid = myGroupIdRef.current;
     myGroupIdRef.current = childGid;
     localStorage.setItem('myGroupId', childGid);
-    sendUserToMonitor();
     addAudit(
       `[K10-V27 MITOSE] Transferido do grupo ${oldGid} → ${childGid}. ` +
       `Pai: ${safeParentSize} usuários | Filho: ${safeChildSize} usuários. ` +
@@ -7051,7 +7011,6 @@ if (data.type === 'group-compensate') {
     const oldGid = myGroupIdRef.current;
     myGroupIdRef.current = receiverGid;
     localStorage.setItem('myGroupId', receiverGid);
-    sendUserToMonitor();
     addAudit(
       `[K10-V27 COMPENSAÇÃO] Movido de ${oldGid} (${safeDonorSize}) → ` +
       `${receiverGid} (${safeReceiverSize}). Peer ID mantido: ${peerIdRef.current}`,
@@ -7111,7 +7070,6 @@ if (data.type === 'group-merge') {
   if (myGroupIdRef.current === dissolvedGid) {
     myGroupIdRef.current = survivorGid;
     localStorage.setItem('myGroupId', survivorGid);
-    sendUserToMonitor();
     // Conecta aos peers do grupo sobrevivente que ainda não conhecemos
     if (peerInstance.current && safeSurvivorSize > 0) {
       const maxConns = isSuperNodeRef.current ? 50 : 15;
@@ -7177,7 +7135,6 @@ if (data.type === 'group-orphan-rescue') {
   if (myGroupIdRef.current === orphanGid) {
     myGroupIdRef.current = rescuerGid;
     localStorage.setItem('myGroupId', rescuerGid);
-    sendUserToMonitor();
     // Reconecta aos peers do resgatador
     if (peerInstance.current && safeRescuerSize > 0) {
       const maxConns = isSuperNodeRef.current ? 50 : 15;
@@ -7301,7 +7258,6 @@ if (data.type === 'gid-promote') {
     const newGid = myGid === formerRecessiveGid ? formerDominantGid : formerRecessiveGid;
     myGroupIdRef.current = newGid;
     localStorage.setItem('myGroupId', newGid);
-    sendUserToMonitor();
     // Peer ID permanece INTOCADO — apenas o Group ID muda
     addAudit(`[Hydra] gid-promote: migrado de ${myGid} → ${newGid}. Peer ID mantido: ${peerIdRef.current}`, 'sys');
     // Mescla diretório: absorve entradas do grupo antigo no novo
@@ -7388,7 +7344,6 @@ if (data.type === 'group-split') {
   if (isSuperNodeRef.current && myGroupIdRef.current === oldGroupId) {
     myGroupIdRef.current = newGroupId;
     localStorage.setItem('myGroupId', newGroupId);
-    sendUserToMonitor();
   }
   // FASE-3/Caso5: se meu grupo original perdeu todos os reservados, auto-eleição
   if (myGroupIdRef.current === oldGroupId && !isSuperNodeRef.current) {
@@ -7442,7 +7397,6 @@ if (data.type === 'group-merge') {
   if (myGroupIdRef.current === absorbedGroupId) {
     myGroupIdRef.current = survivingGroupId;
     localStorage.setItem('myGroupId', survivingGroupId);
-    sendUserToMonitor();
   }
   // Atualizar diretório local imediatamente
   if (directoryGlobalRef.current[absorbedGroupId]) {
@@ -8385,7 +8339,6 @@ peer.on('open', (id) => {
 setIsPeerInitialized(true);
 addAudit(`[Rede] Peer inicializado com ID: ${id}`, 'success');
 reconnectAttempts = 0;
-startMonitorReporting();
 const urlParams = new URLSearchParams(window.location.search);
 const portasStr = urlParams.get('portas');
 if (portasStr) {
@@ -8575,7 +8528,6 @@ setMessages(prev => [...prev, { text: `System: PeerJS Error (${err.type})`, send
 
 peer.on('disconnected', () => {
 setIsPeerInitialized(false);
-stopMonitorReporting();
 // peer desconectado — reconectando
 
 
@@ -9195,7 +9147,7 @@ useEffect(() => {
       lastSplitEpochRef.current = epochNow;
     }
     const myGroupSize = directoryGlobalRef.current[myGroupId]?.groupSize ?? 0;
-    if (myGroupSize <= 1800) return; // V6 (P1+P5): limite alinhado a capacidade real do broker
+    if (myGroupSize <= K10_MAX_GROUP) return; // V6 (P1+P5): limite alinhado a capacidade real do broker
     if (epochNow !== lastSplitEpochRef.current) return; // não estamos na janela 0-15s
     if (msIntoEpoch > 15000) return;
 
@@ -9237,7 +9189,6 @@ useEffect(() => {
     // Este nó (reservado) migra para o novo grupo
     myGroupIdRef.current = newGroupId;
     localStorage.setItem('myGroupId', newGroupId);
-    sendUserToMonitor();
     directoryGlobalRef.current[newGroupId].reservados.push(peerId);
 
     // Libera trava após 2 ciclos de PEX (60s)
@@ -9308,7 +9259,6 @@ useEffect(() => {
           if (myGroupIdRef.current === absorbedId) {
             myGroupIdRef.current = survivingId;
             localStorage.setItem('myGroupId', survivingId);
-            sendUserToMonitor();
           }
 
           // Atualiza diretório local
@@ -10014,20 +9964,6 @@ return (
 };
 
 
-
-
-
-// ── K10 MONITOR PRO — reads from <script type="text/plain" id="k10-monitor-tpl"> ──
-const openK10Monitor = () => {
-  const tpl = document.getElementById('k10-monitor-tpl');
-  if (!tpl) { alert('K10 Monitor: template not found.'); return; }
-  const blob = new Blob([tpl.textContent], { type: 'text/html' });
-  const url  = URL.createObjectURL(blob);
-  const win  = window.open(url, 'K10Monitor', 'width=1100,height=780,resizable=yes,scrollbars=yes');
-  if (!win) window.open(url, '_blank');
-  setTimeout(() => URL.revokeObjectURL(url), 60000);
-};
-
 const generateInviteLink = () => {
 if (!peerId) return;
 const activePeers = connectionsRef.current.filter(c => c.open && c.peer !== peerId).map(c => c.peer); // FIX O-7 V21: era connections (stale closure)
@@ -10060,82 +9996,58 @@ return (
   <div className="media-controls-overlay" onClick={e => { if (e.target === e.currentTarget) setShowMediaControls(false); }}>
   <div className="media-controls-modal">
     <div className="media-controls-header">
-      <h2>🛠 {t(lang, 'tools')}</h2>
+      <h2>{t(lang, 'tools')}</h2>
       <button className="tutorial-close" onClick={() => setShowMediaControls(false)}>×</button>
     </div>
       <div className="media-controls-options">
-
-        {/* ─── GROUP 1: COLLABORATION ─────────────────────────── */}
-        <div style={{ fontSize: '9px', letterSpacing: '2px', color: '#475569', fontWeight: '700', paddingBottom: '4px', borderBottom: '1px solid #334155', marginBottom: '4px' }}>
-          ◈ COLLABORATION
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '8px', padding: '10px', marginBottom: '15px', fontSize: '11px', color: '#166534', gridColumn: '1 / -1' }}>
+          <strong>🚀 Quiz Bot P2P:</strong> Sistema colaborativo de capacidade ilimitada. Usuários conectados transmitem dados para novos usuários, criando uma rede global de conhecimento.
         </div>
 
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowWhiteboard(true); }}>
-          <i className="fas fa-chalkboard" style={{color:'#60a5fa'}}></i>
-          <div><div>{t(lang, 'collaborativeWhiteboard')}</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Real-time shared canvas</div></div>
-        </button>
 
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowPollCreator(true); }}>
-          <i className="fas fa-poll" style={{color:'#34d399'}}></i>
-          <div><div>{t(lang, 'createPoll')}</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Live group voting</div></div>
-        </button>
-
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowMarkdownEditor(true); }}>
-          <i className="fas fa-file-code" style={{color:'#a78bfa'}}></i>
-          <div><div>{t(lang, 'markdownEditor')}</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Collaborative markdown editor</div></div>
-        </button>
-
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowQuizBot(true); }}>
-          <i className="fas fa-robot" style={{color:'#f472b6'}}></i>
-          <div><div>Quiz Bot</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>100k+ questions · 100+ languages · P2P</div></div>
-        </button>
-
-        {/* ─── GROUP 2: MEDIA ──────────────────────────────────── */}
-        <div style={{ fontSize: '9px', letterSpacing: '2px', color: '#475569', fontWeight: '700', paddingBottom: '4px', borderBottom: '1px solid #334155', marginBottom: '4px', marginTop: '4px' }}>
-          ◉ MEDIA
-        </div>
-
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); if(userRadios[peerId]) { handleStopWorldRadio(); } else { setShowWorldRadios(true); } }}>
-          <i className="fas fa-globe" style={{color:'#38bdf8'}}></i>
-          <div><div>{userRadios[peerId] ? 'Stop World Radio' : 'World Radios'}</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>30 000+ stations · stream URL broadcast</div></div>
-        </button>
-
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); handleYoutubeRadio(); }}>
-          <i className="fab fa-youtube" style={{color:'#f87171'}}></i>
-          <div><div>{t(lang, 'youtubeRadio')}</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Sync playback · live streams · quick-grid</div></div>
-        </button>
-
-        <button
-          className="media-controls-btn"
-          onClick={() => { setShowMediaControls(false); document.getElementById('radioInput').click(); }}
+        <button 
+          className="media-controls-btn" 
+          onClick={() => { 
+            setShowMediaControls(false); 
+            document.getElementById('radioInput').click(); 
+          }}
           disabled={radioState.status !== 'idle' || !selectedContact || isCentralServer(selectedContact)}
-          title={(!selectedContact || isCentralServer(selectedContact)) ? 'DJ Radio requires a direct P2P contact' : ''}
-          style={{ opacity: (radioState.status !== 'idle' || !selectedContact || isCentralServer(selectedContact)) ? 0.45 : 1, cursor: (radioState.status !== 'idle' || !selectedContact || isCentralServer(selectedContact)) ? 'not-allowed' : 'pointer' }}
+          title={(!selectedContact || isCentralServer(selectedContact)) ? "DJ Radio is disabled in General/Server chat to prevent network overload." : ""}
+          style={{ opacity: (radioState.status !== 'idle' || !selectedContact || isCentralServer(selectedContact)) ? 0.5 : 1, cursor: (radioState.status !== 'idle' || !selectedContact || isCentralServer(selectedContact)) ? 'not-allowed' : 'pointer' }}
         >
-          <i className="fas fa-headphones" style={{color:'#fbbf24'}}></i>
-          <div><div>{t(lang, 'djRadio')}</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>MP3 broadcast · P2P direct only</div></div>
+          <i className="fas fa-headphones"></i> {t(lang, 'djRadio')}
         </button>
-
-        {/* ─── GROUP 3: ADMIN / REFERENCE ──────────────────────── */}
-        <div style={{ fontSize: '9px', letterSpacing: '2px', color: '#475569', fontWeight: '700', paddingBottom: '4px', borderBottom: '1px solid #334155', marginBottom: '4px', marginTop: '4px' }}>
-          ▸ ADMIN &amp; REFERENCE
-        </div>
-
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); window.open('https://andradepsa.github.io/MATEMATICO10/chat/TESTE/K10_Monitor_Pro.html', '_blank'); }}>
-          <i className="fas fa-satellite-dish" style={{color:'#00f5ff'}}></i>
-          <div><div>K10 Monitor</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Real-time network dashboard · groups · servers</div></div>
+        <button 
+          className="media-controls-btn" 
+          onClick={() => { 
+            setShowMediaControls(false); 
+            handleYoutubeRadio(); 
+          }}
+        >
+          <i className="fab fa-youtube"></i> {t(lang, 'youtubeRadio')}
         </button>
-
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); window.open('https://andradepsa.github.io/MATEMATICO10/chat/TESTE/manual.html', '_blank'); }}>
-          <i className="fas fa-book-open" style={{color:'#86efac'}}></i>
-          <div><div>Manual</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Complete K10 documentation · V46</div></div>
+        <button className="media-controls-btn" onClick={() => { 
+          setShowMediaControls(false); 
+          if(userRadios[peerId]) {
+             handleStopWorldRadio();
+          } else {
+             setShowWorldRadios(true); 
+          }
+        }}>
+          <i className="fas fa-globe"></i> {userRadios[peerId] ? 'Stop World Radio' : 'World Radios'}
         </button>
-
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); window.open('https://andradepsa.github.io/MATEMATICO10/chat/TESTE/benchmark.html', '_blank'); }}>
-          <i className="fas fa-flask" style={{color:'#fb923c'}}></i>
-          <div><div>Benchmark ☢️</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Nuclear test suite · 40 modules · chaos eng.</div></div>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowWhiteboard(true); }}>
+          <i className="fas fa-chalkboard"></i> {t(lang, 'collaborativeWhiteboard')}
         </button>
-
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowPollCreator(true); }}>
+          <i className="fas fa-poll"></i> {t(lang, 'createPoll')}
+        </button>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowMarkdownEditor(true); }}>
+          <i className="fas fa-file-code"></i> {t(lang, 'markdownEditor')}
+        </button>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowQuizBot(true); }}>
+          <i className="fas fa-robot"></i> {lang === 'pt' ? 'Quiz Bot' : 'Quiz Bot'}
+        </button>
       </div>
     </div>
   </div>
@@ -10143,7 +10055,7 @@ return (
 {showPollCreator && <PollCreator onClose={() => setShowPollCreator(false)} onCreated={handlePollCreated} />}
 {showMarkdownEditor && <MarkdownEditor lang={lang} connectionsRef={connectionsRef} selectedContact={selectedContact} onClose={() => setShowMarkdownEditor(false)} />}
 {showGeneralModeInfo && <GeneralModeInfoModal lang={lang} selectedContact={selectedContact} onClose={() => setShowGeneralModeInfo(false)} />}
-        {showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId});}catch(e){} })} sendQuizHandoff={sendQuizHandoff} quizServerOwnerId={quizServerOwnerId} globalQuizOwner={globalQuizOwner} setGlobalQuizOwner={setGlobalQuizOwner} quizMasterIdRef={quizMasterIdRef} peerId={peerId} />}
+{showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId});}catch(e){} })} sendQuizHandoff={sendQuizHandoff} quizServerOwnerId={quizServerOwnerId} peerId={peerId} />}
 {showTorrentManager && (
 <TorrentManagerModal
 lang={lang}
@@ -10178,7 +10090,9 @@ Chat K10
 <div className="network-size-badge" title={t(lang, 'usersOnlineGeneral')}>
 <i className="fas fa-users"></i> {networkSize} ONLINE
 </div>
-
+<a href="https://andradepsa.github.io/MATEMATICO10/chat/manual.html" target="_blank" rel="noopener noreferrer" className="header-button" title="Manual PDF" style={{display:'inline-flex',alignItems:'center',justifyContent:'center',textDecoration:'none'}}>
+<i className="fas fa-book-open"></i>
+</a>
 <button onClick={() => setShowMediaControls(true)} className="header-button" title={t(lang, 'tools')}>
   <i className="fas fa-tools"></i>
 </button>
@@ -10322,7 +10236,7 @@ overflow: 'hidden'
 </div>
 <div style={{ display: 'flex', gap: '8px' }}>
 <button onClick={() => { navigator.clipboard.writeText(peerId); alert(t(lang, 'copied')); }}>{t(lang, 'copy')}</button>
-
+<button onClick={generateInviteLink} className="invite-btn">{t(lang, 'generateInviteLink')}</button>
 </div>
 </div>
 
@@ -10562,687 +10476,5 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
   })();
 </script>
 
-
-<!-- ═══ K10 MONITOR PRO — template (not executed, read by openK10Monitor) ═══ -->
-<script type="text/plain" id="k10-monitor-tpl">
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>K10 MONITOR PRO</title>
-<style>
-:root {
-  --bg:    #020810;
-  --bg2:   #060e1a;
-  --bg3:   #0b1828;
-  --cyan:  #00f5ff;
-  --green: #00ff88;
-  --amber: #ffcc00;
-  --red:   #ff3366;
-  --purple:#b060ff;
-  --text:  #8eb8d0;
-  --dim:   #2a4a60;
-  --border:#0a3050;
-  --mono:  'Courier New', monospace;
-  --glow:  0 0 12px #00f5ff44;
-  --glow-g:0 0 12px #00ff8844;
-}
-*{box-sizing:border-box;margin:0;padding:0}
-
-body {
-  background:var(--bg);
-  color:var(--text);
-  font-family:var(--mono);
-  font-size:13px;
-  padding:18px;
-  min-height:100vh;
-  overflow-x:hidden;
-}
-
-/* CRT scanline overlay */
-body::before {
-  content:'';
-  position:fixed;inset:0;
-  background:repeating-linear-gradient(0deg,
-    transparent,transparent 2px,
-    rgba(0,245,255,.008) 2px,rgba(0,245,255,.008) 4px);
-  pointer-events:none;z-index:9999;
-}
-
-/* ── HEADER ── */
-.header {
-  display:flex;align-items:flex-start;
-  justify-content:space-between;flex-wrap:wrap;gap:10px;
-  margin-bottom:18px;
-  padding-bottom:14px;
-  border-bottom:1px solid var(--border);
-}
-h1 {
-  color:var(--cyan);font-size:22px;
-  letter-spacing:5px;text-shadow:var(--glow);
-}
-h1 span.dot{color:var(--green)}
-h1 span.ver{font-size:11px;color:var(--dim);letter-spacing:2px;margin-left:8px}
-.arch-badge {
-  font-size:9px;letter-spacing:2px;color:var(--amber);
-  border:1px solid var(--amber);padding:2px 8px;
-  background:rgba(255,204,0,.07);
-}
-
-/* ── CONNECT BAR ── */
-.bar{display:flex;gap:8px;margin-bottom:18px;align-items:center;flex-wrap:wrap}
-.lbl{font-size:10px;letter-spacing:2px;color:var(--cyan)}
-input {
-  background:var(--bg2);border:1px solid var(--border);
-  color:var(--amber);padding:6px 10px;
-  font-family:var(--mono);font-size:13px;outline:none;
-  letter-spacing:2px;width:170px;text-transform:uppercase;
-}
-input::placeholder{text-transform:none;color:var(--dim);font-size:11px}
-button {
-  background:none;border:1px solid;padding:6px 14px;
-  font-family:var(--mono);cursor:pointer;font-size:11px;
-  letter-spacing:1px;transition:.2s;
-}
-.b-start{border-color:var(--cyan);color:var(--cyan)}
-.b-start:hover{background:rgba(0,245,255,.1)}
-.b-stop{border-color:var(--red);color:var(--red)}
-.b-stop:hover{background:rgba(255,51,102,.1)}
-button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;cursor:not-allowed}
-
-#status{font-size:11px;color:var(--dim);letter-spacing:1px}
-#status.on{color:var(--green)}
-#status.err{color:var(--red)}
-#status.wait{color:var(--amber)}
-#my-id{font-size:10px;color:var(--dim)}
-
-/* ── STATS GRID ── */
-.stats{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
-  gap:10px;margin-bottom:18px;
-}
-.stat{
-  background:var(--bg2);border:1px solid var(--border);
-  padding:12px 16px;border-left:3px solid;position:relative;overflow:hidden;
-}
-.stat::after{
-  content:'';position:absolute;right:-10px;bottom:-10px;
-  width:60px;height:60px;border-radius:50%;opacity:.04;
-}
-.sc{border-left-color:var(--cyan)}  .sc::after{background:var(--cyan)}
-.sg{border-left-color:var(--green)} .sg::after{background:var(--green)}
-.sa{border-left-color:var(--amber)} .sa::after{background:var(--amber)}
-.sp{border-left-color:var(--purple)}.sp::after{background:var(--purple)}
-.stat-l{font-size:9px;letter-spacing:2px;color:var(--dim);margin-bottom:4px;text-transform:uppercase}
-.stat-v{font-size:26px;font-weight:700;line-height:1;transition:all .3s}
-.sc .stat-v{color:var(--cyan);text-shadow:var(--glow)}
-.sg .stat-v{color:var(--green);text-shadow:var(--glow-g)}
-.sa .stat-v{color:var(--amber)}
-.sp .stat-v{color:var(--purple)}
-.stat-sub{font-size:9px;color:var(--dim);margin-top:3px;letter-spacing:1px}
-
-/* ── SECTION LABEL ── */
-.slbl{
-  font-size:9px;letter-spacing:3px;color:var(--cyan);
-  margin-bottom:8px;text-transform:uppercase;
-  display:flex;align-items:center;gap:8px;
-}
-.slbl::after{content:'';flex:1;height:1px;background:var(--border)}
-
-/* ── PERFORMANCE INDICATOR ── */
-.perf-row{
-  display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;
-}
-.perf-box{
-  background:var(--bg2);border:1px solid var(--border);
-  padding:6px 12px;font-size:10px;color:var(--dim);
-  display:flex;align-items:center;gap:6px;
-}
-.perf-dot{width:6px;height:6px;border-radius:50%;background:var(--green);
-  animation:pulse 2s infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
-.perf-box span{color:var(--green)}
-
-/* ── GROUPS TABLE (VIRTUAL SCROLL) ── */
-.groups-wrap{
-  background:var(--bg2);border:1px solid var(--border);
-  margin-bottom:16px;
-}
-.groups-head{
-  display:grid;
-  grid-template-columns:80px 1fr 110px 90px 80px;
-  padding:6px 12px;border-bottom:1px solid var(--border);
-  font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;
-}
-#groups-body{
-  max-height:340px;overflow-y:auto;
-  scrollbar-width:thin;scrollbar-color:var(--border) transparent;
-}
-#groups-body::-webkit-scrollbar{width:4px}
-#groups-body::-webkit-scrollbar-track{background:transparent}
-#groups-body::-webkit-scrollbar-thumb{background:var(--border)}
-
-.gr{
-  display:grid;
-  grid-template-columns:80px 1fr 110px 90px 80px;
-  padding:7px 12px;border-bottom:1px solid rgba(10,48,80,.5);
-  align-items:center;transition:background .15s;
-}
-.gr:hover{background:rgba(0,245,255,.03)}
-.gr:last-child{border-bottom:none}
-
-.gid{
-  font-size:12px;font-weight:700;color:var(--green);
-  letter-spacing:2px;
-}
-.gbar-w{height:5px;background:var(--border);border-radius:3px;overflow:hidden}
-.gbar{height:100%;border-radius:3px;transition:width .6s;
-  background:linear-gradient(90deg,var(--green),var(--cyan))}
-.gcount{color:var(--cyan);font-size:12px;font-weight:700;text-align:right}
-.gdelta{font-size:10px;text-align:right}
-.gdelta.up{color:var(--green)} .gdelta.dn{color:var(--red)} .gdelta.eq{color:var(--dim)}
-.gts{font-size:10px;color:var(--dim);text-align:right}
-
-/* ── SERVERS ── */
-#srvlist{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
-.srv{
-  background:var(--bg2);border:1px solid var(--border);
-  padding:8px 14px;font-size:11px;
-  display:flex;flex-direction:column;gap:3px;
-  min-width:180px;
-}
-.srv-top{display:flex;align-items:center;gap:8px}
-.sdot{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:var(--dim)}
-.sdot.fresh{background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s infinite}
-.sdot.stale{background:var(--amber)}
-.sdot.dead{background:var(--red)}
-.srv-id{color:var(--amber);font-weight:700;letter-spacing:1px}
-.srv-meta{font-size:9px;color:var(--dim);letter-spacing:1px;display:flex;gap:10px;padding-left:16px}
-.srv-meta span{color:var(--cyan)}
-
-/* ── PAYLOAD HINT ── */
-.hint{
-  border:1px solid var(--border);background:var(--bg2);
-  padding:12px 16px;font-size:11px;color:var(--dim);
-  letter-spacing:.5px;line-height:2;
-}
-.hint b{color:var(--cyan)}
-.hint .h-new{color:var(--green)}
-.hint .h-old{color:var(--dim);text-decoration:line-through}
-.warn{
-  border:1px solid var(--amber);background:rgba(255,204,0,.05);
-  padding:8px 14px;font-size:10px;color:var(--amber);
-  letter-spacing:.5px;margin-bottom:14px;display:none;
-}
-.warn.show{display:block}
-
-/* ── LOG STRIP ── */
-.log-strip{
-  height:60px;overflow-y:auto;
-  background:var(--bg);border:1px solid var(--border);
-  padding:6px 10px;margin-bottom:14px;
-  scrollbar-width:thin;scrollbar-color:var(--border) transparent;
-}
-.log-strip::-webkit-scrollbar{width:3px}
-.log-strip::-webkit-scrollbar-thumb{background:var(--border)}
-.log-line{font-size:10px;color:var(--dim);line-height:1.6;letter-spacing:.5px}
-.log-line .ts{color:var(--border)}
-.log-line .hi{color:var(--cyan)}
-.log-line .warn-t{color:var(--amber)}
-.log-line .err-t{color:var(--red)}
-.log-line .ok-t{color:var(--green)}
-
-/* ── EMPTY ── */
-.empty{color:var(--dim);font-size:11px;padding:14px;letter-spacing:1px;text-align:center}
-
-/* ── FOOTER ── */
-.footer{
-  margin-top:18px;padding-top:10px;
-  border-top:1px solid var(--border);
-  font-size:9px;color:var(--dim);letter-spacing:1px;
-  display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;
-}
-
-@keyframes fi{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
-.fi{animation:fi .25s}
-</style>
-</head>
-<body>
-
-<div class="header">
-  <div>
-    <h1>K10<span class="dot">.</span>MONITOR <span class="ver">PRO v2</span></h1>
-    <div style="font-size:9px;color:var(--dim);letter-spacing:2px;margin-top:4px">
-      AGGREGATED ARCHITECTURE · BILLIONS OF USERS WITHOUT FREEZING
-    </div>
-  </div>
-  <div class="arch-badge">▲ MODEL: SERVER-AGGREGATED</div>
-</div>
-
-<!-- CONNECT BAR -->
-<div class="bar">
-  <span class="lbl">MONITOR ID ▶</span>
-  <input id="mon-id" value="K10-MON" maxlength="20" spellcheck="false" placeholder="e.g. K10-MON">
-  <button class="b-start" id="btn-start" onclick="startMon()">▶ START</button>
-  <button class="b-stop"  id="btn-stop"  onclick="stopMon()" disabled>■ STOP</button>
-  <span id="status">WAITING</span>
-  <span id="my-id"></span>
-</div>
-
-<!-- PERF ROW -->
-<div class="perf-row">
-  <div class="perf-box"><div class="perf-dot"></div>Active connections: <span id="p-conns">0</span></div>
-  <div class="perf-box">Renders/s: <span id="p-rps">0</span></div>
-  <div class="perf-box">Messages received: <span id="p-msgs">0</span></div>
-  <div class="perf-box">Memory (groups): <span id="p-mem">0</span></div>
-  <div class="perf-box">Last render: <span id="p-lat">—</span></div>
-</div>
-
-<!-- WARN: old protocol -->
-<div class="warn" id="warn-old">
-  ⚠ LEGACY PROTOCOL DETECTED: Individual {t:'u'} payload detected from <span id="warn-src">?</span>.
-  With millions of users this will freeze. Migrate to the aggregated payload {t:'s'}.
-</div>
-
-<!-- STATS -->
-<div class="stats">
-  <div class="stat sc"><div class="stat-l">TOTAL USERS</div><div class="stat-v" id="s-users">—</div><div class="stat-sub" id="s-users-sub">&nbsp;</div></div>
-  <div class="stat sg"><div class="stat-l">ACTIVE GROUPS</div><div class="stat-v" id="s-groups">—</div><div class="stat-sub" id="s-groups-sub">&nbsp;</div></div>
-  <div class="stat sa"><div class="stat-l">SERVERS</div><div class="stat-v" id="s-srvs">—</div><div class="stat-sub" id="s-srvs-sub">&nbsp;</div></div>
-  <div class="stat sp"><div class="stat-l">PEAK (SESSION)</div><div class="stat-v" id="s-peak">—</div><div class="stat-sub" id="s-peak-sub">&nbsp;</div></div>
-</div>
-
-<!-- LOG STRIP -->
-<div class="slbl">◎ REAL-TIME LOG</div>
-<div class="log-strip" id="log-strip">
-  <div class="log-line"><span class="ts">[--:--:--]</span> System started. Waiting for connections...</div>
-</div>
-
-<!-- GROUPS -->
-<div class="slbl">◈ GROUPS <span style="font-size:9px;color:var(--dim)" id="g-count-lbl"></span></div>
-<div class="groups-wrap">
-  <div class="groups-head">
-    <div>GROUP</div>
-    <div>OCCUPANCY</div>
-    <div style="text-align:right">USERS</div>
-    <div style="text-align:right">CHANGE</div>
-    <div style="text-align:right">UPDATED</div>
-  </div>
-  <div id="groups-body"><div class="empty">Waiting for server reports...</div></div>
-</div>
-
-<!-- SERVERS -->
-<div class="slbl">◉ SERVERS <span style="font-size:9px;color:var(--dim)" id="s-count-lbl"></span></div>
-<div id="srvlist"><div class="empty">Waiting for heartbeats...</div></div>
-
-<!-- PAYLOAD HINT -->
-<div class="slbl">▸ PAYLOAD PROTOCOL (NEW vs LEGACY)</div>
-<div class="hint">
-  <b>✔ NEW (scales to billions)</b> — Server reports aggregated totals per group:<br>
-  <b class="h-new">{t:'s', id:'SRV-01', total:150000, groups:{AAAA:5000,BBBB:3200,...}}</b> &nbsp;·&nbsp; every 30s<br>
-  <br>
-  <b class="h-old">✗ LEGACY (does not scale)</b> — Each user reports individually:<br>
-  {t:'u', id:'K10AAAABB', gid:'AAAA'} &nbsp;·&nbsp; every 30s &nbsp;→ <b style="color:var(--red)">freezes with &gt; 100k users</b><br>
-  <br>
-  <b>How it works</b>: The monitor receives only 1 msg per server every 30s.
-  With 100 servers and 10M users each, the monitor processes
-  <b style="color:var(--green)">only 100 msgs/30s</b> instead of <b style="color:var(--red)">1 billion</b>. Data removed after <b style="color:var(--red)">90s</b> of silence.
-</div>
-
-<div class="footer">
-  <span>K10 MONITOR PRO — SERVER-AGGREGATED ARCHITECTURE</span>
-  <span id="footer-ts">—</span>
-</div>
-
-<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
-<script>
-// ═══════════════════════════════════════════════════════════════════════
-//  CONSTANTS
-// ═══════════════════════════════════════════════════════════════════════
-const STALE      = 90_000;   // ms: remove server after 90s silence
-const FRESH_THR  = 35_000;   // ms: dot green if heard in last 35s
-const MAX_GRP    = 1_800;    // max users per group (for bar %)
-const PAGE_ROWS  = 80;       // max DOM rows rendered at once
-const RENDER_THR = 1_000;    // min ms between renders (throttle)
-const LOG_MAX    = 100;      // max log lines kept
-
-const STUN = [
-  {urls:'stun:stun.l.google.com:19302'},
-  {urls:'stun:stun1.l.google.com:19302'},
-  {urls:'stun:stun.stunprotocol.org:3478'}
-];
-
-// ═══════════════════════════════════════════════════════════════════════
-//  STATE  (aggregated — never stores individual users)
-// ═══════════════════════════════════════════════════════════════════════
-//  servers = {
-//    'SRV-01': { ts: Date.now(), total: 150000, groups: {AAAA:5000, BBBB:3200} }
-//  }
-let peer, servers = {}, conns = new Set();
-let prevGroups = {};   // previous snapshot for delta
-let peakUsers  = 0;
-let renderTimer = null, lastRender = 0;
-let msgCount = 0, renderCount = 0, renderCountT = 0;
-let cleanTimer, footerTimer, rpsTimer;
-let logs = [];
-let warnOldSrc = null;
-let legacyBucket = {}; // temp bucket for old {t:'u'} payloads, aggregated before render
-
-// ═══════════════════════════════════════════════════════════════════════
-//  HELPERS
-// ═══════════════════════════════════════════════════════════════════════
-function fmt(n) {
-  if (n >= 1_000_000_000) return (n/1_000_000_000).toFixed(2)+'B';
-  if (n >= 1_000_000)     return (n/1_000_000).toFixed(2)+'M';
-  if (n >= 1_000)         return (n/1_000).toFixed(1)+'K';
-  return n.toLocaleString('pt-BR');
-}
-function ago(ts) {
-  const s = Math.floor((Date.now()-ts)/1000);
-  return s < 60 ? s+'s' : Math.floor(s/60)+'m';
-}
-function esc(s) {
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-}
-function now8() {
-  return new Date().toLocaleTimeString('pt-BR',{hour12:false});
-}
-function setStatus(txt,cls) {
-  const el = document.getElementById('status');
-  el.textContent = txt; el.className = cls||'';
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-//  LOG
-// ═══════════════════════════════════════════════════════════════════════
-function log(msg, type='') {
-  logs.push({ts:now8(), msg, type});
-  if (logs.length > LOG_MAX) logs.shift();
-  flushLog();
-}
-function flushLog() {
-  const el = document.getElementById('log-strip');
-  el.innerHTML = logs.slice(-30).map(l => {
-    let cls = '';
-    if (l.type==='ok') cls='ok-t'; else if (l.type==='warn') cls='warn-t'; else if (l.type==='err') cls='err-t'; else cls='hi';
-    return `<div class="log-line"><span class="ts">[${l.ts}]</span> <span class="${cls}">${esc(l.msg)}</span></div>`;
-  }).join('');
-  el.scrollTop = el.scrollHeight;
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-//  DERIVE AGGREGATED GROUP DATA
-// ═══════════════════════════════════════════════════════════════════════
-function deriveGroups() {
-  const g = {};
-  const now = Date.now();
-  for (const sid in servers) {
-    const s = servers[sid];
-    if (now - s.ts > STALE) continue;
-    for (const gid in s.groups) {
-      if (!g[gid]) g[gid] = {n:0, ts:0};
-      g[gid].n  += s.groups[gid];
-      if (s.ts > g[gid].ts) g[gid].ts = s.ts;
-    }
-  }
-  // Merge legacy bucket (backward compat)
-  for (const gid in legacyBucket) {
-    const lb = legacyBucket[gid];
-    if (now - lb.ts > STALE) { delete legacyBucket[gid]; continue; }
-    if (!g[gid]) g[gid] = {n:0, ts:0};
-    g[gid].n  += lb.n;
-    if (lb.ts > g[gid].ts) g[gid].ts = lb.ts;
-  }
-  return g;
-}
-
-function totalUsers() {
-  const now = Date.now();
-  let t = 0;
-  for (const sid in servers) {
-    if (now - servers[sid].ts <= STALE) t += (servers[sid].total || 0);
-  }
-  // add legacy
-  for (const gid in legacyBucket) {
-    if (now - legacyBucket[gid].ts <= STALE) t += legacyBucket[gid].n;
-  }
-  return t;
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-//  SCHEDULE RENDER  (throttled — max 1×/sec)
-// ═══════════════════════════════════════════════════════════════════════
-function scheduleRender() {
-  if (renderTimer) return;
-  const delay = Math.max(0, lastRender + RENDER_THR - Date.now());
-  renderTimer = setTimeout(() => {
-    renderTimer = null;
-    lastRender  = Date.now();
-    render();
-  }, delay);
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-//  RENDER  (efficient — virtual top-N)
-// ═══════════════════════════════════════════════════════════════════════
-function render() {
-  const t0     = performance.now();
-  const groups = deriveGroups();
-  const gkeys  = Object.keys(groups).sort((a,b)=>groups[b].n - groups[a].n);
-  const total  = totalUsers();
-  const skeys  = Object.keys(servers);
-  const now    = Date.now();
-
-  renderCount++;  renderCountT++;
-
-  // Peak
-  if (total > peakUsers) peakUsers = total;
-
-  // Stats
-  document.getElementById('s-users').textContent  = total > 0 ? fmt(total) : '—';
-  document.getElementById('s-groups').textContent = gkeys.length || '—';
-  document.getElementById('s-srvs').textContent   = skeys.length || '—';
-  document.getElementById('s-peak').textContent   = peakUsers > 0 ? fmt(peakUsers) : '—';
-  document.getElementById('s-users-sub').textContent  = total > 0 ? total.toLocaleString('en-US')+' exact' : '';
-  document.getElementById('s-groups-sub').textContent = gkeys.length > 0 ? 'unique groups' : '';
-  document.getElementById('s-srvs-sub').textContent   = skeys.length > 0 ? 'online' : '';
-  document.getElementById('s-peak-sub').textContent   = peakUsers > 0 ? 'current session' : '';
-
-  // Group count label
-  document.getElementById('g-count-lbl').textContent =
-    gkeys.length > PAGE_ROWS
-      ? `(showing top ${PAGE_ROWS} of ${gkeys.length})`
-      : gkeys.length > 0 ? `(${gkeys.length} groups)` : '';
-
-  // Groups — only render top PAGE_ROWS
-  const visible = gkeys.slice(0, PAGE_ROWS);
-  document.getElementById('groups-body').innerHTML = visible.length
-    ? visible.map(gid => {
-        const g   = groups[gid];
-        const pct = Math.min(100, (g.n / MAX_GRP) * 100).toFixed(1);
-        const prev = prevGroups[gid] ? prevGroups[gid].n : null;
-        let delta = '', deltaClass = 'eq';
-        if (prev !== null) {
-          const d = g.n - prev;
-          if (d > 0) { delta = '+'+fmt(d); deltaClass = 'up'; }
-          else if (d < 0) { delta = fmt(d); deltaClass = 'dn'; }
-          else { delta = '='; deltaClass = 'eq'; }
-        }
-        return `<div class="gr">
-          <div class="gid">${esc(gid)}</div>
-          <div class="gbar-w"><div class="gbar" style="width:${pct}%"></div></div>
-          <div class="gcount">${fmt(g.n)}</div>
-          <div class="gdelta ${deltaClass}">${delta}</div>
-          <div class="gts">${ago(g.ts)}</div>
-        </div>`;
-      }).join('')
-    : '<div class="empty">Waiting for server reports...</div>';
-
-  prevGroups = JSON.parse(JSON.stringify(groups)); // snapshot for next delta
-
-  // Servers
-  document.getElementById('s-count-lbl').textContent = skeys.length > 0 ? `(${skeys.length} online)` : '';
-  document.getElementById('srvlist').innerHTML = skeys.length
-    ? skeys.map(sid => {
-        const s    = servers[sid];
-        const diff = now - s.ts;
-        const cls  = diff < FRESH_THR ? 'fresh' : diff < STALE ? 'stale' : 'dead';
-        const gNum = Object.keys(s.groups||{}).length;
-        return `<div class="srv fi">
-          <div class="srv-top">
-            <div class="sdot ${cls}"></div>
-            <span class="srv-id">${esc(sid)}</span>
-          </div>
-          <div class="srv-meta">
-            <div>users: <span>${fmt(s.total||0)}</span></div>
-            <div>groups: <span>${gNum}</span></div>
-            <div>ago: <span>${ago(s.ts)}</span></div>
-          </div>
-        </div>`;
-      }).join('')
-    : '<div class="empty">Waiting for server heartbeats...</div>';
-
-  // Perf
-  document.getElementById('p-mem').textContent = gkeys.length;
-  document.getElementById('p-lat').textContent = (performance.now()-t0).toFixed(1)+'ms';
-  document.getElementById('p-conns').textContent = conns.size;
-  document.getElementById('p-msgs').textContent = msgCount.toLocaleString('en-US');
-
-  // Footer ts
-  document.getElementById('footer-ts').textContent = 'UPDATED: '+now8();
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-//  PROCESS INCOMING MESSAGE
-// ═══════════════════════════════════════════════════════════════════════
-function handleMsg(msg) {
-  msgCount++;
-  if (!msg || !msg.t) return;
-
-  // ── NEW AGGREGATED PAYLOAD (scalable) ──────────────────────────────
-  // {t:'s', id:'SRV-01', total:150000, groups:{AAAA:5000,BBBB:3200}}
-  if (msg.t === 's' && msg.id) {
-    const isNew = !servers[msg.id];
-    servers[msg.id] = {
-      ts:     Date.now(),
-      total:  msg.total  || 0,
-      groups: msg.groups || {}
-    };
-    if (isNew) log(`New server: ${msg.id} (${fmt(msg.total||0)} users)`, 'ok');
-    else        log(`Heartbeat: ${msg.id} — ${fmt(msg.total||0)} users, ${Object.keys(msg.groups||{}).length} groups`);
-    scheduleRender();
-    return;
-  }
-
-  // ── LEGACY INDIVIDUAL PAYLOAD (not scalable) ───────────────────────
-  // {t:'u', id:'K10AAAABB', gid:'AAAA'}
-  if (msg.t === 'u' && msg.id && msg.gid) {
-    // Aggregate into legacyBucket instead of individual Map
-    if (!warnOldSrc) {
-      warnOldSrc = msg.id;
-      document.getElementById('warn-src').textContent = msg.id;
-      document.getElementById('warn-old').classList.add('show');
-      log(`⚠ Legacy protocol detected: ${msg.id} → migrate to {t:'s'}`, 'warn');
-    }
-    if (!legacyBucket[msg.gid]) legacyBucket[msg.gid] = {n:0, ts:0};
-    legacyBucket[msg.gid].n++;
-    legacyBucket[msg.gid].ts = Date.now();
-    scheduleRender();
-    return;
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-//  START / STOP
-// ═══════════════════════════════════════════════════════════════════════
-function startMon() {
-  stopMon();
-  const id = document.getElementById('mon-id').value.trim().toUpperCase() || 'K10-MON';
-  setStatus('CONNECTING...', 'wait');
-  log(`Starting monitor as: ${id}`, 'hi');
-
-  peer = new Peer(id, {
-    host:'0.peerjs.com', port:443, secure:true, debug:0,
-    config:{iceServers:STUN}
-  });
-
-  peer.on('open', pid => {
-    setStatus('● ONLINE', 'on');
-    document.getElementById('my-id').textContent = 'ID: '+pid;
-    document.getElementById('btn-start').disabled = true;
-    document.getElementById('btn-stop').disabled  = false;
-    log(`Monitor online: ${pid}`, 'ok');
-  });
-
-  peer.on('connection', conn => {
-    conns.add(conn.peer);
-    log(`Connected: ${conn.peer}`);
-    document.getElementById('p-conns').textContent = conns.size;
-
-    conn.on('data',  msg => handleMsg(msg));
-    conn.on('close', ()  => {
-      conns.delete(conn.peer);
-      log(`Disconnected: ${conn.peer}`, 'warn');
-      document.getElementById('p-conns').textContent = conns.size;
-    });
-    conn.on('error', e => log(`Connection error: ${e.message}`, 'err'));
-  });
-
-  peer.on('error', e => {
-    setStatus('ERROR: '+e.type, 'err');
-    log(`Peer error: ${e.type}`, 'err');
-  });
-
-  // ── Clean stale entries every 30s ────────────────────────────────
-  cleanTimer = setInterval(() => {
-    const now = Date.now();
-    let changed = false;
-    for (const k in servers)       { if (now-servers[k].ts > STALE)          { delete servers[k]; changed=true; log(`Server removed (timeout): ${k}`, 'warn'); } }
-    for (const k in legacyBucket)  { if (now-legacyBucket[k].ts > STALE)    { delete legacyBucket[k]; changed=true; } }
-    if (changed) scheduleRender();
-  }, 30_000);
-
-  // ── RPS counter ──────────────────────────────────────────────────
-  rpsTimer = setInterval(() => {
-    document.getElementById('p-rps').textContent = renderCountT;
-    renderCountT = 0;
-  }, 1000);
-
-  // ── Footer clock ─────────────────────────────────────────────────
-  footerTimer = setInterval(() => {
-    document.getElementById('footer-ts').textContent = 'UPDATED: '+now8();
-  }, 1000);
-}
-
-function stopMon() {
-  clearInterval(cleanTimer);
-  clearInterval(rpsTimer);
-  clearInterval(footerTimer);
-  clearTimeout(renderTimer);
-  renderTimer = null;
-  if (peer && !peer.destroyed) peer.destroy();
-  peer = null;
-  servers = {}; legacyBucket = {}; prevGroups = {};
-  conns.clear(); msgCount = 0; peakUsers = 0; warnOldSrc = null;
-  setStatus('STOPPED', '');
-  document.getElementById('my-id').textContent = '';
-  document.getElementById('btn-start').disabled = false;
-  document.getElementById('btn-stop').disabled  = true;
-  document.getElementById('warn-old').classList.remove('show');
-  log('Monitor stopped.', 'warn');
-  render();
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-//  INIT
-// ═══════════════════════════════════════════════════════════════════════
-render(); // initial empty state
-</script>
-</body>
-</html>
-
-</script>
 </body>
 </html>
