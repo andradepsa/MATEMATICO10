@@ -203,7 +203,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- HYDRA V7 server --><title>Servidor K10 - V38</title>
+  <!-- HYDRA V7 server --><title>Servidor K10 - V39</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <style>
     body {
@@ -1438,8 +1438,16 @@
             const conn = p.connect(mid, { reliable: true });
             conn.on('open', () => {
               try {
-                // Heartbeat do servidor — grupos são reportados pelos próprios clientes
-                conn.send({ t: 's', id: peerIdRef.current });
+                // FIX V39-MONITOR: envia grupos reais ao monitor via payload agregado {t:'s'}
+                // Antes: apenas {t:'s', id} → monitor recebia total=0 e groups={}
+                // Agora: inclui total de posições vivas e mapa gid→contagem
+                const groupsReport = {};
+                let totalLive = 0;
+                Object.entries(activeGroupsRef.current).forEach(([gid, g]) => {
+                  const n = (g.positions || []).length;
+                  if (n > 0) { groupsReport[gid] = n; totalLive += n; }
+                });
+                conn.send({ t: 's', id: peerIdRef.current, total: totalLive, groups: groupsReport });
               } catch(e) {}
               setTimeout(() => { try { conn.close(); } catch(e) {} }, 4000);
             });
