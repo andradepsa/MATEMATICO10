@@ -6687,18 +6687,20 @@ if (data.type === 'peer-list') {
 
     if (peerInstance.current && count > 0) {
       const maxConns = isSuperNodeRef.current ? 50 : 15;
-      // V25: itera as posições 0..count-1 da lista pré-definida
-      for (let i = 0; i < count; i++) {
-        const suffix = K10_POSITION_LIST[i];
-        if (!suffix) break;
-        const fullPeerId = k10BuildPeerId(newGid, suffix);
-        if (fullPeerId === peerIdRef.current) continue; // não conecta a si mesmo
-        const activeCount = Object.keys(peerInstance.current.connections).length;
-        if (activeCount < maxConns
-            && !peerInstance.current.connections[fullPeerId]
-            && !bannedPeersRef.current.has(fullPeerId)) {
-          setTimeout(() => connectToPeer(fullPeerId), Math.random() * 3000);
-        }
+      // FIX V33-PEERLIST: conecta usando IDs PeerJS reais enviados pelo servidor (data.peers).
+      // Bug V25: iterava K10_POSITION_LIST para construir IDs sintéticos (K10AAAA+sufixo) que
+      // nunca existem na rede PeerJS — peer IDs reais são aleatórios (ex: QYTPF8YAM).
+      // Fix: usa data.peers[] com os IDs reais, conforme enviado pelo servidor V33+.
+      if (Array.isArray(data.peers) && data.peers.length > 0) {
+        data.peers.forEach((fullPeerId) => {
+          if (fullPeerId === peerIdRef.current) return; // não conecta a si mesmo
+          const activeCount = Object.keys(peerInstance.current.connections).length;
+          if (activeCount < maxConns
+              && !peerInstance.current.connections[fullPeerId]
+              && !bannedPeersRef.current.has(fullPeerId)) {
+            setTimeout(() => connectToPeer(fullPeerId), Math.random() * 3000);
+          }
+        });
       }
     }
 
