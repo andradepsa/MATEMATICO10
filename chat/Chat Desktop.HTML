@@ -510,7 +510,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V49 (Shadow Central)</title>
+<title>Chat K10 — V50 (Shadow Central + Group Shadow)</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -8298,6 +8298,29 @@ try {
     () => getK10StunPool ? getK10StunPool() : []
   );
 } catch(e) {}
+
+// ── K10-GROUP SHADOW: 2 servidores eleitos por salinha (V50) ──
+try {
+  K10GroupShadow.start(
+    id,
+    () => myGroupIdRef.current || null,
+    () => {
+      // membros conhecidos do meu grupo (apenas peers reais, exclui K10-CENTRAL e K10-{gid}-N)
+      const myGid = myGroupIdRef.current;
+      if (!myGid) return [];
+      const members = new Set();
+      const dir = directoryGlobalRef.current && directoryGlobalRef.current[myGid];
+      if (dir && Array.isArray(dir.reservados)) dir.reservados.forEach(p => p && members.add(p));
+      connectionsRef.current.forEach(c => {
+        if (c.open && c.peer && !c.peer.startsWith('K10-') && !isCentralServer(c.peer)) {
+          members.add(c.peer);
+        }
+      });
+      return [...members];
+    },
+    () => getK10StunPool ? getK10StunPool() : []
+  );
+} catch(e) {}
 const urlParams = new URLSearchParams(window.location.search);
 const portasStr = urlParams.get('portas');
 if (portasStr) {
@@ -10162,6 +10185,216 @@ const K10ShadowCentral = (() => {
   return {
     start, stop, noteCentralAlive,
     get isActive() { return isShadowActive; }
+  };
+})();
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// K10-GROUP SHADOW (V50) — 2 servidores eleitos por salinha, em background
+//
+// Cada salinha (gid) precisa ter exatamente 2 servidores ativos em
+// qualquer momento. Os 2 sao eleitos entre os usuarios da propria
+// salinha (menor peerId = slot 1, segundo menor = slot 2).
+//
+// Quando 1 cai, o proximo da fila assume automaticamente. Tudo silencioso.
+// O usuario nao sabe que esta servindo. IDs registrados no PeerJS publico:
+//   K10-{gid}-1  (servidor primario da salinha)
+//   K10-{gid}-2  (servidor secundario da salinha)
+//
+// Cada slot atende clientes do proprio gid: relay de mensagens broadcast
+// (Modo Geral dentro da salinha) e mensagens diretas entre membros.
+// ═══════════════════════════════════════════════════════════════════════
+const K10GroupShadow = (() => {
+  const PROBE_MS         = 10_000;
+  const ELECT_JITTER_MS  = 1_500;
+  const RECENT_ALIVE_MS  = 18_000;
+
+  const slots = new Map();   // slotId -> { peer, conns:Map, isActive:bool, alive:number }
+  let probeTimer = null;
+  let myPeerId   = null;
+  let getMyGid   = null;
+  let getGroupMembers = null;  // () => Array<peerId>
+  let stunPoolFn = null;
+
+  function start(myId, gidGetter, membersGetter, stunGetter) {
+    myPeerId        = myId;
+    getMyGid        = gidGetter;
+    getGroupMembers = membersGetter;
+    stunPoolFn      = stunGetter;
+    if (probeTimer) clearInterval(probeTimer);
+    probeTimer = setInterval(probeAndElect, PROBE_MS);
+    setTimeout(probeAndElect, 6000);
+  }
+
+  function stop() {
+    if (probeTimer) clearInterval(probeTimer);
+    probeTimer = null;
+    slots.forEach(s => { try { if (s.peer && !s.peer.destroyed) s.peer.destroy(); } catch(e) {} });
+    slots.clear();
+  }
+
+  function noteAlive(slotId) {
+    const s = slots.get(slotId);
+    if (s) s.alive = Date.now();
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  async function probeAndElect() {
+    if (!peerInstance.current || peerInstance.current.destroyed) return;
+    const gid = getMyGid && getMyGid();
+    if (!gid) {
+      // Sem grupo — libera todos os slots (era de outro grupo)
+      for (const slotId of [...slots.keys()]) releaseSlot(slotId);
+      return;
+    }
+
+    const members = (getGroupMembers && getGroupMembers()) || [];
+    const sortedAll = [...new Set([...members, myPeerId])].filter(Boolean).sort();
+    const myRank = sortedAll.indexOf(myPeerId);
+
+    // Libera slots que nao deveriamos mais ter (mudou de grupo, mudou rank)
+    for (const slotId of [...slots.keys()]) {
+      const m = slotId.match(/^K10-(.+)-(\d)$/);
+      if (!m) { releaseSlot(slotId); continue; }
+      const slotGid = m[1];
+      const slotNum = parseInt(m[2]);
+      if (slotGid !== gid || myRank !== (slotNum - 1)) {
+        releaseSlot(slotId);
+      }
+    }
+
+    // Para cada slot 1 e 2, verifica se eu deveria ocupa-lo
+    for (let slotNum = 1; slotNum <= 2; slotNum++) {
+      const slotId = `K10-${gid}-${slotNum}`;
+      const expectedHolder = sortedAll[slotNum - 1]; // rank 0 -> slot 1, rank 1 -> slot 2
+      if (myPeerId !== expectedHolder) continue;
+      if (slots.has(slotId) && slots.get(slotId).isActive) continue; // ja sou
+      // Verifica se ja existe (alguem mais o tem)
+      const alive = await probeId(slotId);
+      if (alive) continue;
+      // Tenta reivindicar (com jitter por slotNum)
+      await sleep(slotNum * ELECT_JITTER_MS + Math.random() * 400);
+      if (!getMyGid || getMyGid() !== gid) return; // gid mudou durante a espera
+      const stillDead = !(await probeId(slotId));
+      if (stillDead) await tryClaimSlot(slotId);
+    }
+  }
+
+  function probeId(targetId) {
+    return new Promise(resolve => {
+      const p = peerInstance.current;
+      if (!p || p.destroyed) return resolve(false);
+      let test, resolved = false;
+      try { test = p.connect(targetId, { reliable: true }); }
+      catch(e) { return resolve(false); }
+      if (!test) return resolve(false);
+      const t = setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
+        try { test.close(); } catch(e) {}
+        resolve(false);
+      }, 4500);
+      test.on('open',  () => { if (!resolved) { resolved = true; clearTimeout(t); try{test.close();}catch(e){} resolve(true);  } });
+      test.on('error', () => { if (!resolved) { resolved = true; clearTimeout(t); resolve(false); } });
+    });
+  }
+
+  function tryClaimSlot(slotId) {
+    return new Promise(resolve => {
+      const slot = { peer: null, conns: new Map(), isActive: false, alive: Date.now() };
+      slots.set(slotId, slot);
+      let resolved = false;
+      try {
+        const ice = (stunPoolFn && stunPoolFn()) || [];
+        slot.peer = new Peer(slotId, {
+          host: '0.peerjs.com', port: 443, secure: true, debug: 0,
+          config: { iceServers: ice }
+        });
+        const failTimer = setTimeout(() => {
+          if (resolved) return;
+          resolved = true;
+          releaseSlot(slotId);
+          resolve(false);
+        }, 12_000);
+        slot.peer.on('open', () => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(failTimer);
+          slot.isActive = true;
+          slot.peer.on('connection', conn => onClientConn(slotId, conn));
+          resolve(true);
+        });
+        slot.peer.on('error', err => {
+          if (err && (err.type === 'unavailable-id' || err.type === 'invalid-id')) {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(failTimer);
+            releaseSlot(slotId);
+            resolve(false);
+          } else {
+            releaseSlot(slotId);
+          }
+        });
+        slot.peer.on('close', () => releaseSlot(slotId));
+      } catch(e) {
+        releaseSlot(slotId);
+        resolve(false);
+      }
+    });
+  }
+
+  function releaseSlot(slotId) {
+    const s = slots.get(slotId);
+    if (!s) return;
+    try { if (s.peer && !s.peer.destroyed) s.peer.destroy(); } catch(e) {}
+    slots.delete(slotId);
+  }
+
+  function onClientConn(slotId, conn) {
+    const s = slots.get(slotId);
+    if (!s) return;
+    s.conns.set(conn.peer, conn);
+    conn.on('data',  data => onClientData(slotId, conn, data));
+    conn.on('close', ()   => { const ss = slots.get(slotId); if (ss) ss.conns.delete(conn.peer); });
+    conn.on('error', ()   => { const ss = slots.get(slotId); if (ss) ss.conns.delete(conn.peer); });
+  }
+
+  function onClientData(slotId, conn, data) {
+    if (!data || !data.type) return;
+    const s = slots.get(slotId);
+    if (!s) return;
+
+    // Handshake silencioso
+    if (data.type === 'handshake') {
+      try { conn.send({ type: 'handshake', peerId: slotId }); } catch(e) {}
+      return;
+    }
+
+    // Relay de mensagens dentro da salinha (com TTL e dedup pelo cliente)
+    if (data.type === 'message' || data.type === 'youtube-chat-start' || data.type === 'youtube-chat-stop' || data.type === 'radio-start' || data.type === 'radio-chunk') {
+      const rawTtl = (typeof data.ttl === 'number') ? data.ttl : 8;
+      const ttl = Math.min(Math.max(0, rawTtl), 15);
+      if (ttl <= 0) return;
+      const relay = Object.assign({}, data, { ttl: ttl - 1 });
+      if (data.direct && data.recipient) {
+        const target = s.conns.get(data.recipient);
+        if (target && target.open && data.recipient !== conn.peer) {
+          try { target.send(relay); } catch(e) {}
+        }
+        return;
+      }
+      s.conns.forEach((c, pid) => {
+        if (pid !== conn.peer && c.open) {
+          try { c.send(relay); } catch(e) {}
+        }
+      });
+    }
+  }
+
+  return {
+    start, stop, noteAlive,
+    get activeSlots() { return [...slots.keys()].filter(k => slots.get(k).isActive); }
   };
 })();
 
