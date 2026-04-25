@@ -2072,6 +2072,14 @@
             // FIX-AUDIT-SRV3: positions:[] obrigatório
             activeGroupsRef.current[data.newGroupId] = { size: 0, reservados: Array.isArray(data.migratedReservados) ? data.migratedReservados.slice(0,10) : [], members: new Set(), positions: [] };
           }
+          // FIX-BUG5: atualiza size do oldGroupId imediatamente após split.
+          // Sem isso, doAssignPeer vê o grupo como "cheio" (size=K10_MAX_GROUP) por todo
+          // o próximo ciclo do GC (~30s), recusando novos peers que deveriam entrar nele.
+          if (data.oldGroupId && activeGroupsRef.current[data.oldGroupId]) {
+            const oldG = activeGroupsRef.current[data.oldGroupId];
+            const tc = typeof data.transferCount === 'number' ? data.transferCount : Math.ceil((oldG.size || 0) / 2);
+            oldG.size = Math.max(0, (oldG.size || 0) - tc);
+          }
           const ttl = (data.ttl || 0) - 1;
           if (ttl > 0) {
             const relay = { ...data, ttl };
@@ -2096,6 +2104,18 @@
             const abs = activeGroupsRef.current[absorbedGroupId];
             // merge members
             abs.members.forEach(p => surv.members.add(p));
+            // FIX-BUG3: mescla positions[] e remapeia peerPositionMapRef para peers absorvidos.
+            // Sem isso, swap-on-leave falha silenciosamente para os peers do grupo absorvido:
+            // peerPositionMapRef ainda aponta para absorbedGroupId (inexistente) → posIdx < oldLen
+            // nunca é satisfeito → positions[] não limpo → nenhum pex-update emitido.
+            if (Array.isArray(abs.positions)) {
+              if (!Array.isArray(surv.positions)) surv.positions = [];
+              const survOffset = surv.positions.length;
+              abs.positions.forEach((p, i) => {
+                surv.positions.push(p);
+                peerPositionMapRef.current.set(p, { gid: survivingGroupId, posIdx: survOffset + i });
+              });
+            }
             const mergedR = new Set([...surv.reservados, ...abs.reservados]);
             surv.reservados = [...mergedR].slice(0, 10);
             // V8: groupSize = MAX (idempotente)
@@ -2430,7 +2450,7 @@
         }
 
         const assignedGroup = activeGroupsRef.current[assignedGid];
-        const posIdx = assignedGroup.positions.length; // próxima posição disponível
+        let posIdx = assignedGroup.positions.length; // próxima posição disponível
         let assignedSuffix = K10_POSITION_LIST[posIdx];
 
         // Fallback: posIdx fora da lista (não deveria acontecer pois verificamos vagas)
@@ -2439,6 +2459,7 @@
           activeGroupsRef.current[fallbackGid] = { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] };
           k10bin.registerGid(fallbackGid); // V26
           assignedGid = fallbackGid;
+          posIdx = 0; // FIX-BUG2: resetar posIdx para 0 — fallbackGid é grupo vazio; manter posIdx antigo (K10_MAX_GROUP) causava swap-on-leave inválido (posIdx >= oldLen sempre falso)
           assignedSuffix = K10_POSITION_LIST[0];
           addAudit(`[K10-V25] Fallback hierárquico: novo grupo ${fallbackGid}`, 'warn');
         }
