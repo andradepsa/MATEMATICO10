@@ -227,7 +227,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- HYDRA V7 server --><title>Servidor K10 - V40</title>
+  <!-- HYDRA V7 server --><title>Servidor K10 - V41</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <style>
     body {
@@ -491,7 +491,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/esbuild-wasm@0.20.1/lib/browser.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.1/peerjs.min.js"></script>
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 
   <script type="text/tsx" id="esbuild-main">
     const { useState, useEffect, useRef } = React;
@@ -1483,8 +1483,11 @@
       };
 
       // Keepalive: envia um ping ao servidor PeerJS a cada 25s para evitar timeout silencioso
+      // FIX V41-KEEPALIVE: removido stopMonitorReporting() colateral. startKeepalive nao deve
+      // matar o relatorio de monitoramento (efeito colateral causava silencio do monitor
+      // sempre que peer.on('open') reordenasse startKeepalive() e startMonitorReporting()).
       const startKeepalive = () => {
-        stopKeepalive(); stopMonitorReporting();
+        stopKeepalive();
         keepaliveTimerRef.current = setInterval(() => {
           const p = peerInstance.current;
           if (p && !p.destroyed && !p.disconnected) {
