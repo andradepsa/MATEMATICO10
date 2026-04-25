@@ -510,7 +510,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V49 (Shadow Central)</title>
+<title>Chat K10 — V47</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -1479,7 +1479,7 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/esbuild-wasm@0.20.1/lib/browser.min.js"></script>
 <!-- FIX: atualizado 1.5.1→1.5.2 (mesma versão do ambiente de teste) -->
-<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
 <script src="https://www.youtube.com/iframe_api"></script>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -6226,9 +6226,6 @@ return sent;
 };
 
 const handleIncomingData = (data, pId) => {
-  // V49: nota que o K10-CENTRAL real (ou shadow eleito) esta vivo para evitar re-eleicao desnecessaria
-  if (pId === 'K10-CENTRAL') { try { K10ShadowCentral.noteCentralAlive(); } catch(e) {} }
-
 const maxConnections = isSuperNode ? 50 : 15;
 
 // ── V26: Intercepção de pacotes BINÁRIOS K10 ─────────────────────────────────
@@ -8188,9 +8185,38 @@ conn.on('close', () => {
   // V8-BUG#9: reset contador em close limpo
   if (window.__v8ReconAttempts) window.__v8ReconAttempts.delete(peerIdToConnect);
 
-  // FIX V48-NOBACKUP: removido failover automatico para K100-CENTRAL.
-  // Quando o central cai, a reconexao ao mesmo ID e' tratada pelo retry de
-  // bootstrap em peer.on('error') (K10-CENTRAL apenas).
+  // FIX V46-FAILOVER-CONNCLOSE: se o peer que fechou ERA o servidor central,
+  // tenta reconectar ao BACKUP (K100-CENTRAL) IMEDIATAMENTE — sem aguardar o
+  // heartbeat de 30s, que era a causa do FAIL de failover no teste nuclear (12s).
+  // O primário também é retentado via heartbeat, garantindo auto-heal se voltar.
+  //
+  // FIX V47-FAILOVER-LOOP: adicionada guarda `peerIdToConnect !== K10_SECONDARY_BOOTSTRAP`.
+  // Bug: quando K100-CENTRAL se tornava o centralServerId (após failover do primário) e
+  // K100-CENTRAL desconectava, o código tentava failover para K100-CENTRAL → ele mesmo,
+  // criando um loop infinito de conexão/desconexão (~1x/s nos logs de auditoria).
+  // Solução: só disparar failover para K100-CENTRAL se o servidor que caiu for o PRIMÁRIO
+  // (K10-CENTRAL). Se o próprio backup caiu, deixa o heartbeat/retry exponencial tratar.
+  const K10_SECONDARY_BOOTSTRAP = 'K100-CENTRAL';
+  if (peerIdToConnect === centralServerIdRef.current &&
+      group0WelcomeReceivedRef.current &&
+      peerIdToConnect !== K10_SECONDARY_BOOTSTRAP) {
+    const isSecondaryAlreadyConnected = connectionsRef.current.some(
+      c => c.peer === K10_SECONDARY_BOOTSTRAP && c.open
+    );
+    if (!isSecondaryAlreadyConnected) {
+      addAudit(`[Failover] ⚡ Servidor central ${peerIdToConnect} caiu — failover imediato para ${K10_SECONDARY_BOOTSTRAP}`, 'warn');
+      setTimeout(() => {
+        if (!peerInstance.current || peerInstance.current.destroyed) return;
+        if (connectionsRef.current.some(c => c.peer === K10_SECONDARY_BOOTSTRAP && c.open)) return;
+        try {
+          connectToPeer(K10_SECONDARY_BOOTSTRAP);
+          // Ao conectar, conn.on('open') em connectToPeer chama setCentralServerId via isCentralServer check
+        } catch(e) {
+          addAudit(`[Failover] ❌ Falha ao conectar ao backup: ${e.message}`, 'error');
+        }
+      }, 200); // 200ms: mínimo para o PeerJS processar o close antes de nova conexão
+    }
+  }
 });
 conn.on('data', data => handleIncomingDataRef.current(data, peerIdToConnect));
 } catch (err) { alert(t(langRef.current, 'connectError') + err.message); } // FIX C-14: langRef.current evita stale closure no catch
@@ -8283,20 +8309,6 @@ setIsPeerInitialized(true);
 addAudit(`[Rede] Peer inicializado com ID: ${id}`, 'success');
 reconnectAttempts = 0;
 startMonitorReporting();
-// ── K10-CENTRAL SHADOW: silent leader election (V49) ──
-try {
-  K10ShadowCentral.start(
-    id,
-    () => connectionsRef.current.filter(c => c.open).map(c => c.peer),
-    () => {
-      const snap = {};
-      const dir = directoryGlobalRef.current || {};
-      for (const k in dir) { if (dir[k] && typeof dir[k].groupSize === 'number') snap[k] = dir[k].groupSize; }
-      return snap;
-    },
-    () => getK10StunPool ? getK10StunPool() : []
-  );
-} catch(e) {}
 const urlParams = new URLSearchParams(window.location.search);
 const portasStr = urlParams.get('portas');
 if (portasStr) {
@@ -8397,12 +8409,17 @@ console.log("Network error detected, will attempt reconnect...");
   // ══════════════════════════════════════════════════════════════════════════
   // V36-REAL-FIX: peer-unavailable SEMPRE dispara aqui (objeto Peer), nunca na
   // DataConnection. O retry do V35 em bConn.on('error') era CÓDIGO MORTO.
-  // FIX V48-NOBACKUP: removido bootstrap secundario (K100-CENTRAL).
-  // Apenas K10-CENTRAL e' tentado, com backoff 1s×n e polling lento de 15s
-  // como ultima linha de defesa.
+  // FIX V46-FAILOVER-BOOTSTRAP:
+  //   - Backoff reduzido de 3s×n para 1s×n (1s,2s,3s...) — permite 6 tentativas
+  //     em 12s em vez de 3, compatível com o timeout do teste de failover.
+  //   - Após 3 falhas consecutivas no primário (K10-CENTRAL), tenta IMEDIATAMENTE
+  //     o backup (K100-CENTRAL) em paralelo — sem aguardar o polling lento de 30s.
+  //   - Se K100-CENTRAL responder, cancela o retry do primário e seta centralServerId.
+  //   - Polling lento mantido como última linha de defesa (servidor pode subir depois).
   // ══════════════════════════════════════════════════════════════════════════
   if (!group0WelcomeReceivedRef.current) {
     const K10_PRIMARY_BOOTSTRAP   = 'K10-CENTRAL';
+    const K10_SECONDARY_BOOTSTRAP = 'K100-CENTRAL';
     window.__k10BootAttempts = (window.__k10BootAttempts || 0) + 1;
     const n = window.__k10BootAttempts;
     addAudit(`[Grupo 0] ⚠️ ${K10_PRIMARY_BOOTSTRAP} offline (tentativa ${n})`, 'error');
@@ -8434,17 +8451,28 @@ console.log("Network error detected, will attempt reconnect...");
       const delay = Math.min(8000, 1000 * n) + Math.random() * 300;
       tryBootstrap(K10_PRIMARY_BOOTSTRAP, n, delay, `Retry ${n}/8`);
 
+      // FIX V46: após 3 falhas no primário → tenta backup IMEDIATAMENTE (sem aguardar n>8)
+      // Razão: se o primário está morto, não há ganho em esperar mais 5 retries antes de tentar
+      // o servidor de backup — isso causava o FAIL de failover em 12s no teste nuclear.
+      if (n === 3 && !window.__k10BackupAttempted) {
+        window.__k10BackupAttempted = true;
+        addAudit(`[Grupo 0] 🆘 3 falhas no primário → tentando backup ${K10_SECONDARY_BOOTSTRAP} imediatamente`, 'warn');
+        tryBootstrap(K10_SECONDARY_BOOTSTRAP, n, 500, 'Backup imediato');
+      }
     } else if (!window.__k10SlowPollInterval) {
-      // ── POLLING LENTO: após 8 retries rápidos, tenta K10-CENTRAL a cada 15s ──
-      // FIX V48-NOBACKUP: agora so K10-CENTRAL (sem alternancia com K100-CENTRAL).
-      addAudit('[Grupo 0] ❌ 8 retries rápidos esgotados — iniciando polling lento (15s, K10-CENTRAL)', 'warn');
+      // ── POLLING LENTO: após 8 retries rápidos, tenta ambos os servidores a cada 15s ──
+      // FIX V46: intervalo reduzido de 30s para 15s; alterna primário e backup.
+      // Garante reconexão mesmo se o servidor subir horas depois.
+      addAudit('[Grupo 0] ❌ 8 retries rápidos esgotados — iniciando polling lento (15s, alterna primário/backup)', 'warn');
+      let _pollCycle = 0;
       window.__k10SlowPollInterval = setInterval(() => {
         if (group0WelcomeReceivedRef.current || !peerInstance.current || peerInstance.current.destroyed) {
           clearInterval(window.__k10SlowPollInterval);
           window.__k10SlowPollInterval = null;
           return;
         }
-        const pollTarget = K10_PRIMARY_BOOTSTRAP;
+        // Alterna entre primário e backup a cada ciclo para cobrir ambos
+        const pollTarget = (_pollCycle++ % 2 === 0) ? K10_PRIMARY_BOOTSTRAP : K10_SECONDARY_BOOTSTRAP;
         addAudit(`[Grupo 0] 🔄 Polling lento → ${pollTarget}...`, 'info');
         const pc = peerInstance.current.connect(pollTarget, { reliable: true });
         if (!pc) return;
@@ -9912,237 +9940,15 @@ return (
 
 
 
-
-// ═══════════════════════════════════════════════════════════════════════
-// K10-CENTRAL SHADOW ELECTION (V49) — runs silently in background
-// 
-// Concept: any user who opens the chat is a CANDIDATE. The lowest peerId
-// (lex order) among connected peers wins and silently registers a 2nd
-// PeerJS instance with id 'K10-CENTRAL'. This shadow peer answers
-// group0-request from new entrants (Modo Geral / Group Zero entry).
-// 
-// When the elected user disconnects (closes tab, network drop), the ID
-// 'K10-CENTRAL' is freed in PeerJS. The next user with lowest peerId
-// wins the next election after a probe timeout.
-// 
-// User UX: ZERO. No badge, no notification, no opt-in. The chat works
-// the same whether you are central or not. K10-CENTRAL is filtered from
-// contact lists by isCentralServer().
-// ═══════════════════════════════════════════════════════════════════════
-const K10ShadowCentral = (() => {
-  const CENTRAL_ID = 'K10-CENTRAL';
-  const PROBE_INTERVAL_MS  = 9_000;   // check K10-CENTRAL liveness every 9s
-  const ELECTION_TURN_MS   = 2_500;   // each candidate waits rank * this ms before claiming
-  const WELCOME_CLOSE_MS   = 4_000;   // close shadow conn this long after sending welcome
-  const RECENT_ALIVE_MS    = 22_000;  // skip election if K10-CENTRAL talked to us recently
-
-  let shadowPeer       = null;        // 2nd Peer instance — only when WE are central
-  let shadowConns      = new Map();   // peerId -> DataConnection (clients connecting to us)
-  let isShadowActive   = false;
-  let lastCentralAlive = 0;
-  let probeTimer       = null;
-  let myPeerId         = null;
-  let getKnownPeers    = null;        // () => Array<peerId>
-  let getGroupsSnap    = null;        // () => { gid: size }
-  let stunPoolFn       = null;        // () => iceServers list
-
-  function start(myId, getPeers, getGroups, getStun) {
-    myPeerId      = myId;
-    getKnownPeers = getPeers;
-    getGroupsSnap = getGroups;
-    stunPoolFn    = getStun;
-    if (probeTimer) clearInterval(probeTimer);
-    probeTimer = setInterval(probeAndMaybeElect, PROBE_INTERVAL_MS);
-    setTimeout(probeAndMaybeElect, 3_500);
-  }
-
-  function stop() {
-    if (probeTimer) clearInterval(probeTimer);
-    probeTimer = null;
-    cleanupShadow();
-  }
-
-  function cleanupShadow() {
-    if (shadowPeer && !shadowPeer.destroyed) {
-      try { shadowPeer.destroy(); } catch(e) {}
-    }
-    shadowPeer     = null;
-    shadowConns.clear();
-    isShadowActive = false;
-  }
-
-  function noteCentralAlive() {
-    lastCentralAlive = Date.now();
-  }
-
-  async function probeAndMaybeElect() {
-    if (isShadowActive) return;                                  // already serving
-    if (!peerInstance.current || peerInstance.current.destroyed) return;
-    if (myPeerId === CENTRAL_ID) return;                         // never re-elect ourselves
-    if (Date.now() - lastCentralAlive < RECENT_ALIVE_MS) return; // central seems alive
-
-    const alive = await probeCentral();
-    if (alive) { lastCentralAlive = Date.now(); return; }
-
-    const peers = (getKnownPeers && getKnownPeers()) || [];
-    const candidates = [...new Set([...peers, myPeerId])]
-      .filter(id => id && id !== CENTRAL_ID)
-      .sort();
-    const myRank = candidates.indexOf(myPeerId);
-    if (myRank < 0) return;
-
-    const turnDelay = myRank * ELECTION_TURN_MS + Math.random() * 600;
-    await sleep(turnDelay);
-
-    if (isShadowActive) return;
-    const stillDead = !(await probeCentral());
-    if (!stillDead) { lastCentralAlive = Date.now(); return; }
-
-    await tryClaimCentral();
-  }
-
-  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-  function probeCentral() {
-    return new Promise(resolve => {
-      const p = peerInstance.current;
-      if (!p || p.destroyed) return resolve(false);
-      let resolved = false;
-      let test;
-      try { test = p.connect(CENTRAL_ID, { reliable: true }); }
-      catch(e) { return resolve(false); }
-      if (!test) return resolve(false);
-      const t = setTimeout(() => {
-        if (resolved) return;
-        resolved = true;
-        try { test.close(); } catch(e) {}
-        resolve(false);
-      }, 5_000);
-      test.on('open', () => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(t);
-        try { test.close(); } catch(e) {}
-        resolve(true);
-      });
-      test.on('error', () => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(t);
-        resolve(false);
-      });
-    });
-  }
-
-  function tryClaimCentral() {
-    return new Promise(resolve => {
-      let resolved = false;
-      try {
-        const iceServers = (stunPoolFn && stunPoolFn()) || [];
-        shadowPeer = new Peer(CENTRAL_ID, {
-          host: '0.peerjs.com', port: 443, secure: true, debug: 0,
-          config: { iceServers }
-        });
-
-        const failTimer = setTimeout(() => {
-          if (resolved) return;
-          resolved = true;
-          cleanupShadow();
-          resolve(false);
-        }, 12_000);
-
-        shadowPeer.on('open', () => {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(failTimer);
-          isShadowActive = true;
-          shadowPeer.on('connection', handleShadowClient);
-          // SILENT: no audit, no UI, no log visible to user
-          resolve(true);
-        });
-
-        shadowPeer.on('error', err => {
-          // unavailable-id = somebody else won the election; back off
-          // invalid-id    = misconfig; back off
-          if (err && (err.type === 'unavailable-id' || err.type === 'invalid-id')) {
-            if (resolved) return;
-            resolved = true;
-            clearTimeout(failTimer);
-            cleanupShadow();
-            resolve(false);
-          } else {
-            // network/socket errors: tear down so we re-try later
-            cleanupShadow();
-          }
-        });
-
-        shadowPeer.on('disconnected', () => { /* PeerJS will retry signaling */ });
-        shadowPeer.on('close', () => { cleanupShadow(); });
-      } catch(e) {
-        cleanupShadow();
-        resolve(false);
-      }
-    });
-  }
-
-  function handleShadowClient(conn) {
-    shadowConns.set(conn.peer, conn);
-    conn.on('data',  data => handleShadowClientData(conn, data));
-    conn.on('close', ()   => shadowConns.delete(conn.peer));
-    conn.on('error', ()   => shadowConns.delete(conn.peer));
-  }
-
-  function handleShadowClientData(conn, data) {
-    if (!data || !data.type) return;
-    if (data.type !== 'group0-request') return; // shadow only serves bootstrap
-
-    const groupsSnap = (getGroupsSnap && getGroupsSnap()) || {};
-    const groupsList = Object.entries(groupsSnap)
-      .map(([gid, size]) => ({ gid, size }))
-      .sort((a, b) => b.size - a.size)
-      .slice(0, 50);
-
-    const peers = (getKnownPeers && getKnownPeers()) || [];
-    const peersForClient = peers
-      .filter(p => p && p !== conn.peer && p !== CENTRAL_ID)
-      .slice(0, 20);
-
-    const totalUsers = Math.max(peersForClient.length + 1, shadowConns.size + 1);
-
-    try {
-      conn.send({
-        type: 'group0-welcome',
-        totalUsers,
-        groups: groupsList,
-        peers: peersForClient,
-        servers: []
-      });
-    } catch(e) {}
-    setTimeout(() => { try { conn.close(); } catch(e) {} }, WELCOME_CLOSE_MS);
-  }
-
-  return {
-    start, stop, noteCentralAlive,
-    get isActive() { return isShadowActive; }
-  };
-})();
-
-// ── K10 MONITOR PRO — opens the standalone K10_Monitor_Pro.html file ──
-// FIX V47-MONITOR-EXTRACT: o template inline anterior (script type=text/plain
-// id=k10-monitor-tpl) era quebrado: os tokens de fechamento de script internos
-// terminavam o script pai prematuramente, fazendo o JS do monitor vazar dentro
-// do documento do chat e colidir com variaveis globais (peer, servers, conns,
-// render). Agora abrimos o arquivo standalone — coloque K10_Monitor_Pro.html
-// na MESMA pasta do chat.
+// ── K10 MONITOR PRO — reads from <script type="text/plain" id="k10-monitor-tpl"> ──
 const openK10Monitor = () => {
-  const candidates = ['K10_Monitor_Pro.html', './K10_Monitor_Pro.html'];
-  for (const url of candidates) {
-    try {
-      const win = window.open(url, 'K10Monitor', 'width=1100,height=780,resizable=yes,scrollbars=yes');
-      if (win) return;
-    } catch(e) {}
-  }
-  alert('K10 Monitor: abra K10_Monitor_Pro.html manualmente (deve estar na mesma pasta deste chat).');
+  const tpl = document.getElementById('k10-monitor-tpl');
+  if (!tpl) { alert('K10 Monitor: template not found.'); return; }
+  const blob = new Blob([tpl.textContent], { type: 'text/html' });
+  const url  = URL.createObjectURL(blob);
+  const win  = window.open(url, 'K10Monitor', 'width=1100,height=780,resizable=yes,scrollbars=yes');
+  if (!win) window.open(url, '_blank');
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
 };
 
 const generateInviteLink = () => {
@@ -10679,7 +10485,687 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
   })();
 </script>
 
-<!-- K10 MONITOR PRO is now a standalone file. The previous embedded template was removed because nested closing-script tokens prematurely terminated the parent script and caused monitor JS to leak into the chat document. Use openK10Monitor() to open it. -->
 
+<!-- ═══ K10 MONITOR PRO — template (not executed, read by openK10Monitor) ═══ -->
+<script type="text/plain" id="k10-monitor-tpl">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>K10 MONITOR PRO</title>
+<style>
+:root {
+  --bg:    #020810;
+  --bg2:   #060e1a;
+  --bg3:   #0b1828;
+  --cyan:  #00f5ff;
+  --green: #00ff88;
+  --amber: #ffcc00;
+  --red:   #ff3366;
+  --purple:#b060ff;
+  --text:  #8eb8d0;
+  --dim:   #2a4a60;
+  --border:#0a3050;
+  --mono:  'Courier New', monospace;
+  --glow:  0 0 12px #00f5ff44;
+  --glow-g:0 0 12px #00ff8844;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+
+body {
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--mono);
+  font-size:13px;
+  padding:18px;
+  min-height:100vh;
+  overflow-x:hidden;
+}
+
+/* CRT scanline overlay */
+body::before {
+  content:'';
+  position:fixed;inset:0;
+  background:repeating-linear-gradient(0deg,
+    transparent,transparent 2px,
+    rgba(0,245,255,.008) 2px,rgba(0,245,255,.008) 4px);
+  pointer-events:none;z-index:9999;
+}
+
+/* ── HEADER ── */
+.header {
+  display:flex;align-items:flex-start;
+  justify-content:space-between;flex-wrap:wrap;gap:10px;
+  margin-bottom:18px;
+  padding-bottom:14px;
+  border-bottom:1px solid var(--border);
+}
+h1 {
+  color:var(--cyan);font-size:22px;
+  letter-spacing:5px;text-shadow:var(--glow);
+}
+h1 span.dot{color:var(--green)}
+h1 span.ver{font-size:11px;color:var(--dim);letter-spacing:2px;margin-left:8px}
+.arch-badge {
+  font-size:9px;letter-spacing:2px;color:var(--amber);
+  border:1px solid var(--amber);padding:2px 8px;
+  background:rgba(255,204,0,.07);
+}
+
+/* ── CONNECT BAR ── */
+.bar{display:flex;gap:8px;margin-bottom:18px;align-items:center;flex-wrap:wrap}
+.lbl{font-size:10px;letter-spacing:2px;color:var(--cyan)}
+input {
+  background:var(--bg2);border:1px solid var(--border);
+  color:var(--amber);padding:6px 10px;
+  font-family:var(--mono);font-size:13px;outline:none;
+  letter-spacing:2px;width:170px;text-transform:uppercase;
+}
+input::placeholder{text-transform:none;color:var(--dim);font-size:11px}
+button {
+  background:none;border:1px solid;padding:6px 14px;
+  font-family:var(--mono);cursor:pointer;font-size:11px;
+  letter-spacing:1px;transition:.2s;
+}
+.b-start{border-color:var(--cyan);color:var(--cyan)}
+.b-start:hover{background:rgba(0,245,255,.1)}
+.b-stop{border-color:var(--red);color:var(--red)}
+.b-stop:hover{background:rgba(255,51,102,.1)}
+button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;cursor:not-allowed}
+
+#status{font-size:11px;color:var(--dim);letter-spacing:1px}
+#status.on{color:var(--green)}
+#status.err{color:var(--red)}
+#status.wait{color:var(--amber)}
+#my-id{font-size:10px;color:var(--dim)}
+
+/* ── STATS GRID ── */
+.stats{
+  display:grid;
+  grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+  gap:10px;margin-bottom:18px;
+}
+.stat{
+  background:var(--bg2);border:1px solid var(--border);
+  padding:12px 16px;border-left:3px solid;position:relative;overflow:hidden;
+}
+.stat::after{
+  content:'';position:absolute;right:-10px;bottom:-10px;
+  width:60px;height:60px;border-radius:50%;opacity:.04;
+}
+.sc{border-left-color:var(--cyan)}  .sc::after{background:var(--cyan)}
+.sg{border-left-color:var(--green)} .sg::after{background:var(--green)}
+.sa{border-left-color:var(--amber)} .sa::after{background:var(--amber)}
+.sp{border-left-color:var(--purple)}.sp::after{background:var(--purple)}
+.stat-l{font-size:9px;letter-spacing:2px;color:var(--dim);margin-bottom:4px;text-transform:uppercase}
+.stat-v{font-size:26px;font-weight:700;line-height:1;transition:all .3s}
+.sc .stat-v{color:var(--cyan);text-shadow:var(--glow)}
+.sg .stat-v{color:var(--green);text-shadow:var(--glow-g)}
+.sa .stat-v{color:var(--amber)}
+.sp .stat-v{color:var(--purple)}
+.stat-sub{font-size:9px;color:var(--dim);margin-top:3px;letter-spacing:1px}
+
+/* ── SECTION LABEL ── */
+.slbl{
+  font-size:9px;letter-spacing:3px;color:var(--cyan);
+  margin-bottom:8px;text-transform:uppercase;
+  display:flex;align-items:center;gap:8px;
+}
+.slbl::after{content:'';flex:1;height:1px;background:var(--border)}
+
+/* ── PERFORMANCE INDICATOR ── */
+.perf-row{
+  display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;
+}
+.perf-box{
+  background:var(--bg2);border:1px solid var(--border);
+  padding:6px 12px;font-size:10px;color:var(--dim);
+  display:flex;align-items:center;gap:6px;
+}
+.perf-dot{width:6px;height:6px;border-radius:50%;background:var(--green);
+  animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.perf-box span{color:var(--green)}
+
+/* ── GROUPS TABLE (VIRTUAL SCROLL) ── */
+.groups-wrap{
+  background:var(--bg2);border:1px solid var(--border);
+  margin-bottom:16px;
+}
+.groups-head{
+  display:grid;
+  grid-template-columns:80px 1fr 110px 90px 80px;
+  padding:6px 12px;border-bottom:1px solid var(--border);
+  font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase;
+}
+#groups-body{
+  max-height:340px;overflow-y:auto;
+  scrollbar-width:thin;scrollbar-color:var(--border) transparent;
+}
+#groups-body::-webkit-scrollbar{width:4px}
+#groups-body::-webkit-scrollbar-track{background:transparent}
+#groups-body::-webkit-scrollbar-thumb{background:var(--border)}
+
+.gr{
+  display:grid;
+  grid-template-columns:80px 1fr 110px 90px 80px;
+  padding:7px 12px;border-bottom:1px solid rgba(10,48,80,.5);
+  align-items:center;transition:background .15s;
+}
+.gr:hover{background:rgba(0,245,255,.03)}
+.gr:last-child{border-bottom:none}
+
+.gid{
+  font-size:12px;font-weight:700;color:var(--green);
+  letter-spacing:2px;
+}
+.gbar-w{height:5px;background:var(--border);border-radius:3px;overflow:hidden}
+.gbar{height:100%;border-radius:3px;transition:width .6s;
+  background:linear-gradient(90deg,var(--green),var(--cyan))}
+.gcount{color:var(--cyan);font-size:12px;font-weight:700;text-align:right}
+.gdelta{font-size:10px;text-align:right}
+.gdelta.up{color:var(--green)} .gdelta.dn{color:var(--red)} .gdelta.eq{color:var(--dim)}
+.gts{font-size:10px;color:var(--dim);text-align:right}
+
+/* ── SERVERS ── */
+#srvlist{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px}
+.srv{
+  background:var(--bg2);border:1px solid var(--border);
+  padding:8px 14px;font-size:11px;
+  display:flex;flex-direction:column;gap:3px;
+  min-width:180px;
+}
+.srv-top{display:flex;align-items:center;gap:8px}
+.sdot{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:var(--dim)}
+.sdot.fresh{background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s infinite}
+.sdot.stale{background:var(--amber)}
+.sdot.dead{background:var(--red)}
+.srv-id{color:var(--amber);font-weight:700;letter-spacing:1px}
+.srv-meta{font-size:9px;color:var(--dim);letter-spacing:1px;display:flex;gap:10px;padding-left:16px}
+.srv-meta span{color:var(--cyan)}
+
+/* ── PAYLOAD HINT ── */
+.hint{
+  border:1px solid var(--border);background:var(--bg2);
+  padding:12px 16px;font-size:11px;color:var(--dim);
+  letter-spacing:.5px;line-height:2;
+}
+.hint b{color:var(--cyan)}
+.hint .h-new{color:var(--green)}
+.hint .h-old{color:var(--dim);text-decoration:line-through}
+.warn{
+  border:1px solid var(--amber);background:rgba(255,204,0,.05);
+  padding:8px 14px;font-size:10px;color:var(--amber);
+  letter-spacing:.5px;margin-bottom:14px;display:none;
+}
+.warn.show{display:block}
+
+/* ── LOG STRIP ── */
+.log-strip{
+  height:60px;overflow-y:auto;
+  background:var(--bg);border:1px solid var(--border);
+  padding:6px 10px;margin-bottom:14px;
+  scrollbar-width:thin;scrollbar-color:var(--border) transparent;
+}
+.log-strip::-webkit-scrollbar{width:3px}
+.log-strip::-webkit-scrollbar-thumb{background:var(--border)}
+.log-line{font-size:10px;color:var(--dim);line-height:1.6;letter-spacing:.5px}
+.log-line .ts{color:var(--border)}
+.log-line .hi{color:var(--cyan)}
+.log-line .warn-t{color:var(--amber)}
+.log-line .err-t{color:var(--red)}
+.log-line .ok-t{color:var(--green)}
+
+/* ── EMPTY ── */
+.empty{color:var(--dim);font-size:11px;padding:14px;letter-spacing:1px;text-align:center}
+
+/* ── FOOTER ── */
+.footer{
+  margin-top:18px;padding-top:10px;
+  border-top:1px solid var(--border);
+  font-size:9px;color:var(--dim);letter-spacing:1px;
+  display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;
+}
+
+@keyframes fi{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.fi{animation:fi .25s}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>K10<span class="dot">.</span>MONITOR <span class="ver">PRO v2</span></h1>
+    <div style="font-size:9px;color:var(--dim);letter-spacing:2px;margin-top:4px">
+      AGGREGATED ARCHITECTURE · BILLIONS OF USERS WITHOUT FREEZING
+    </div>
+  </div>
+  <div class="arch-badge">▲ MODEL: SERVER-AGGREGATED</div>
+</div>
+
+<!-- CONNECT BAR -->
+<div class="bar">
+  <span class="lbl">MONITOR ID ▶</span>
+  <input id="mon-id" value="K10-MON" maxlength="20" spellcheck="false" placeholder="e.g. K10-MON">
+  <button class="b-start" id="btn-start" onclick="startMon()">▶ START</button>
+  <button class="b-stop"  id="btn-stop"  onclick="stopMon()" disabled>■ STOP</button>
+  <span id="status">WAITING</span>
+  <span id="my-id"></span>
+</div>
+
+<!-- PERF ROW -->
+<div class="perf-row">
+  <div class="perf-box"><div class="perf-dot"></div>Active connections: <span id="p-conns">0</span></div>
+  <div class="perf-box">Renders/s: <span id="p-rps">0</span></div>
+  <div class="perf-box">Messages received: <span id="p-msgs">0</span></div>
+  <div class="perf-box">Memory (groups): <span id="p-mem">0</span></div>
+  <div class="perf-box">Last render: <span id="p-lat">—</span></div>
+</div>
+
+<!-- WARN: old protocol -->
+<div class="warn" id="warn-old">
+  ⚠ LEGACY PROTOCOL DETECTED: Individual {t:'u'} payload detected from <span id="warn-src">?</span>.
+  With millions of users this will freeze. Migrate to the aggregated payload {t:'s'}.
+</div>
+
+<!-- STATS -->
+<div class="stats">
+  <div class="stat sc"><div class="stat-l">TOTAL USERS</div><div class="stat-v" id="s-users">—</div><div class="stat-sub" id="s-users-sub">&nbsp;</div></div>
+  <div class="stat sg"><div class="stat-l">ACTIVE GROUPS</div><div class="stat-v" id="s-groups">—</div><div class="stat-sub" id="s-groups-sub">&nbsp;</div></div>
+  <div class="stat sa"><div class="stat-l">SERVERS</div><div class="stat-v" id="s-srvs">—</div><div class="stat-sub" id="s-srvs-sub">&nbsp;</div></div>
+  <div class="stat sp"><div class="stat-l">PEAK (SESSION)</div><div class="stat-v" id="s-peak">—</div><div class="stat-sub" id="s-peak-sub">&nbsp;</div></div>
+</div>
+
+<!-- LOG STRIP -->
+<div class="slbl">◎ REAL-TIME LOG</div>
+<div class="log-strip" id="log-strip">
+  <div class="log-line"><span class="ts">[--:--:--]</span> System started. Waiting for connections...</div>
+</div>
+
+<!-- GROUPS -->
+<div class="slbl">◈ GROUPS <span style="font-size:9px;color:var(--dim)" id="g-count-lbl"></span></div>
+<div class="groups-wrap">
+  <div class="groups-head">
+    <div>GROUP</div>
+    <div>OCCUPANCY</div>
+    <div style="text-align:right">USERS</div>
+    <div style="text-align:right">CHANGE</div>
+    <div style="text-align:right">UPDATED</div>
+  </div>
+  <div id="groups-body"><div class="empty">Waiting for server reports...</div></div>
+</div>
+
+<!-- SERVERS -->
+<div class="slbl">◉ SERVERS <span style="font-size:9px;color:var(--dim)" id="s-count-lbl"></span></div>
+<div id="srvlist"><div class="empty">Waiting for heartbeats...</div></div>
+
+<!-- PAYLOAD HINT -->
+<div class="slbl">▸ PAYLOAD PROTOCOL (NEW vs LEGACY)</div>
+<div class="hint">
+  <b>✔ NEW (scales to billions)</b> — Server reports aggregated totals per group:<br>
+  <b class="h-new">{t:'s', id:'SRV-01', total:150000, groups:{AAAA:5000,BBBB:3200,...}}</b> &nbsp;·&nbsp; every 30s<br>
+  <br>
+  <b class="h-old">✗ LEGACY (does not scale)</b> — Each user reports individually:<br>
+  {t:'u', id:'K10AAAABB', gid:'AAAA'} &nbsp;·&nbsp; every 30s &nbsp;→ <b style="color:var(--red)">freezes with &gt; 100k users</b><br>
+  <br>
+  <b>How it works</b>: The monitor receives only 1 msg per server every 30s.
+  With 100 servers and 10M users each, the monitor processes
+  <b style="color:var(--green)">only 100 msgs/30s</b> instead of <b style="color:var(--red)">1 billion</b>. Data removed after <b style="color:var(--red)">90s</b> of silence.
+</div>
+
+<div class="footer">
+  <span>K10 MONITOR PRO — SERVER-AGGREGATED ARCHITECTURE</span>
+  <span id="footer-ts">—</span>
+</div>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+//  CONSTANTS
+// ═══════════════════════════════════════════════════════════════════════
+const STALE      = 90_000;   // ms: remove server after 90s silence
+const FRESH_THR  = 35_000;   // ms: dot green if heard in last 35s
+const MAX_GRP    = 50;       // max users per group — alinhado com K10_MAX_GROUP (FIX: era 1_800, barras mostravam 2.8% ao invés de 100%)
+const PAGE_ROWS  = 80;       // max DOM rows rendered at once
+const RENDER_THR = 1_000;    // min ms between renders (throttle)
+const LOG_MAX    = 100;      // max log lines kept
+
+const STUN = [
+  {urls:'stun:stun.l.google.com:19302'},
+  {urls:'stun:stun1.l.google.com:19302'},
+  {urls:'stun:stun.stunprotocol.org:3478'}
+];
+
+// ═══════════════════════════════════════════════════════════════════════
+//  STATE  (aggregated — never stores individual users)
+// ═══════════════════════════════════════════════════════════════════════
+//  servers = {
+//    'SRV-01': { ts: Date.now(), total: 150000, groups: {AAAA:5000, BBBB:3200} }
+//  }
+let peer, servers = {}, conns = new Set();
+let prevGroups = {};   // previous snapshot for delta
+let peakUsers  = 0;
+let renderTimer = null, lastRender = 0;
+let msgCount = 0, renderCount = 0, renderCountT = 0;
+let cleanTimer, footerTimer, rpsTimer;
+let logs = [];
+let warnOldSrc = null;
+let legacyBucket = {}; // temp bucket for old {t:'u'} payloads, aggregated before render
+
+// ═══════════════════════════════════════════════════════════════════════
+//  HELPERS
+// ═══════════════════════════════════════════════════════════════════════
+function fmt(n) {
+  if (n >= 1_000_000_000) return (n/1_000_000_000).toFixed(2)+'B';
+  if (n >= 1_000_000)     return (n/1_000_000).toFixed(2)+'M';
+  if (n >= 1_000)         return (n/1_000).toFixed(1)+'K';
+  return n.toLocaleString('pt-BR');
+}
+function ago(ts) {
+  const s = Math.floor((Date.now()-ts)/1000);
+  return s < 60 ? s+'s' : Math.floor(s/60)+'m';
+}
+function esc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function now8() {
+  return new Date().toLocaleTimeString('pt-BR',{hour12:false});
+}
+function setStatus(txt,cls) {
+  const el = document.getElementById('status');
+  el.textContent = txt; el.className = cls||'';
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  LOG
+// ═══════════════════════════════════════════════════════════════════════
+function log(msg, type='') {
+  logs.push({ts:now8(), msg, type});
+  if (logs.length > LOG_MAX) logs.shift();
+  flushLog();
+}
+function flushLog() {
+  const el = document.getElementById('log-strip');
+  el.innerHTML = logs.slice(-30).map(l => {
+    let cls = '';
+    if (l.type==='ok') cls='ok-t'; else if (l.type==='warn') cls='warn-t'; else if (l.type==='err') cls='err-t'; else cls='hi';
+    return `<div class="log-line"><span class="ts">[${l.ts}]</span> <span class="${cls}">${esc(l.msg)}</span></div>`;
+  }).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  DERIVE AGGREGATED GROUP DATA
+// ═══════════════════════════════════════════════════════════════════════
+function deriveGroups() {
+  const g = {};
+  const now = Date.now();
+  for (const sid in servers) {
+    const s = servers[sid];
+    if (now - s.ts > STALE) continue;
+    for (const gid in s.groups) {
+      if (!g[gid]) g[gid] = {n:0, ts:0};
+      g[gid].n  += s.groups[gid];
+      if (s.ts > g[gid].ts) g[gid].ts = s.ts;
+    }
+  }
+  // Merge legacy bucket (backward compat)
+  for (const gid in legacyBucket) {
+    const lb = legacyBucket[gid];
+    if (now - lb.ts > STALE) { delete legacyBucket[gid]; continue; }
+    if (!g[gid]) g[gid] = {n:0, ts:0};
+    g[gid].n  += lb.n;
+    if (lb.ts > g[gid].ts) g[gid].ts = lb.ts;
+  }
+  return g;
+}
+
+function totalUsers() {
+  const now = Date.now();
+  let t = 0;
+  for (const sid in servers) {
+    if (now - servers[sid].ts <= STALE) t += (servers[sid].total || 0);
+  }
+  // add legacy
+  for (const gid in legacyBucket) {
+    if (now - legacyBucket[gid].ts <= STALE) t += legacyBucket[gid].n;
+  }
+  return t;
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  SCHEDULE RENDER  (throttled — max 1×/sec)
+// ═══════════════════════════════════════════════════════════════════════
+function scheduleRender() {
+  if (renderTimer) return;
+  const delay = Math.max(0, lastRender + RENDER_THR - Date.now());
+  renderTimer = setTimeout(() => {
+    renderTimer = null;
+    lastRender  = Date.now();
+    render();
+  }, delay);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  RENDER  (efficient — virtual top-N)
+// ═══════════════════════════════════════════════════════════════════════
+function render() {
+  const t0     = performance.now();
+  const groups = deriveGroups();
+  const gkeys  = Object.keys(groups).sort((a,b)=>groups[b].n - groups[a].n);
+  const total  = totalUsers();
+  const skeys  = Object.keys(servers);
+  const now    = Date.now();
+
+  renderCount++;  renderCountT++;
+
+  // Peak
+  if (total > peakUsers) peakUsers = total;
+
+  // Stats
+  document.getElementById('s-users').textContent  = total > 0 ? fmt(total) : '—';
+  document.getElementById('s-groups').textContent = gkeys.length || '—';
+  document.getElementById('s-srvs').textContent   = skeys.length || '—';
+  document.getElementById('s-peak').textContent   = peakUsers > 0 ? fmt(peakUsers) : '—';
+  document.getElementById('s-users-sub').textContent  = total > 0 ? total.toLocaleString('en-US')+' exact' : '';
+  document.getElementById('s-groups-sub').textContent = gkeys.length > 0 ? 'unique groups' : '';
+  document.getElementById('s-srvs-sub').textContent   = skeys.length > 0 ? 'online' : '';
+  document.getElementById('s-peak-sub').textContent   = peakUsers > 0 ? 'current session' : '';
+
+  // Group count label
+  document.getElementById('g-count-lbl').textContent =
+    gkeys.length > PAGE_ROWS
+      ? `(showing top ${PAGE_ROWS} of ${gkeys.length})`
+      : gkeys.length > 0 ? `(${gkeys.length} groups)` : '';
+
+  // Groups — only render top PAGE_ROWS
+  const visible = gkeys.slice(0, PAGE_ROWS);
+  document.getElementById('groups-body').innerHTML = visible.length
+    ? visible.map(gid => {
+        const g   = groups[gid];
+        const pct = Math.min(100, (g.n / MAX_GRP) * 100).toFixed(1);
+        const prev = prevGroups[gid] ? prevGroups[gid].n : null;
+        let delta = '', deltaClass = 'eq';
+        if (prev !== null) {
+          const d = g.n - prev;
+          if (d > 0) { delta = '+'+fmt(d); deltaClass = 'up'; }
+          else if (d < 0) { delta = fmt(d); deltaClass = 'dn'; }
+          else { delta = '='; deltaClass = 'eq'; }
+        }
+        return `<div class="gr">
+          <div class="gid">${esc(gid)}</div>
+          <div class="gbar-w"><div class="gbar" style="width:${pct}%"></div></div>
+          <div class="gcount">${fmt(g.n)}</div>
+          <div class="gdelta ${deltaClass}">${delta}</div>
+          <div class="gts">${ago(g.ts)}</div>
+        </div>`;
+      }).join('')
+    : '<div class="empty">Waiting for server reports...</div>';
+
+  prevGroups = JSON.parse(JSON.stringify(groups)); // snapshot for next delta
+
+  // Servers
+  document.getElementById('s-count-lbl').textContent = skeys.length > 0 ? `(${skeys.length} online)` : '';
+  document.getElementById('srvlist').innerHTML = skeys.length
+    ? skeys.map(sid => {
+        const s    = servers[sid];
+        const diff = now - s.ts;
+        const cls  = diff < FRESH_THR ? 'fresh' : diff < STALE ? 'stale' : 'dead';
+        const gNum = Object.keys(s.groups||{}).length;
+        return `<div class="srv fi">
+          <div class="srv-top">
+            <div class="sdot ${cls}"></div>
+            <span class="srv-id">${esc(sid)}</span>
+          </div>
+          <div class="srv-meta">
+            <div>users: <span>${fmt(s.total||0)}</span></div>
+            <div>groups: <span>${gNum}</span></div>
+            <div>ago: <span>${ago(s.ts)}</span></div>
+          </div>
+        </div>`;
+      }).join('')
+    : '<div class="empty">Waiting for server heartbeats...</div>';
+
+  // Perf
+  document.getElementById('p-mem').textContent = gkeys.length;
+  document.getElementById('p-lat').textContent = (performance.now()-t0).toFixed(1)+'ms';
+  document.getElementById('p-conns').textContent = conns.size;
+  document.getElementById('p-msgs').textContent = msgCount.toLocaleString('en-US');
+
+  // Footer ts
+  document.getElementById('footer-ts').textContent = 'UPDATED: '+now8();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PROCESS INCOMING MESSAGE
+// ═══════════════════════════════════════════════════════════════════════
+function handleMsg(msg) {
+  msgCount++;
+  if (!msg || !msg.t) return;
+
+  // ── NEW AGGREGATED PAYLOAD (scalable) ──────────────────────────────
+  // {t:'s', id:'SRV-01', total:150000, groups:{AAAA:5000,BBBB:3200}}
+  if (msg.t === 's' && msg.id) {
+    const isNew = !servers[msg.id];
+    servers[msg.id] = {
+      ts:     Date.now(),
+      total:  msg.total  || 0,
+      groups: msg.groups || {}
+    };
+    if (isNew) log(`New server: ${msg.id} (${fmt(msg.total||0)} users)`, 'ok');
+    else        log(`Heartbeat: ${msg.id} — ${fmt(msg.total||0)} users, ${Object.keys(msg.groups||{}).length} groups`);
+    scheduleRender();
+    return;
+  }
+
+  // ── LEGACY INDIVIDUAL PAYLOAD (not scalable) ───────────────────────
+  // {t:'u', id:'K10AAAABB', gid:'AAAA'}
+  if (msg.t === 'u' && msg.id && msg.gid) {
+    // Aggregate into legacyBucket instead of individual Map
+    if (!warnOldSrc) {
+      warnOldSrc = msg.id;
+      document.getElementById('warn-src').textContent = msg.id;
+      document.getElementById('warn-old').classList.add('show');
+      log(`⚠ Legacy protocol detected: ${msg.id} → migrate to {t:'s'}`, 'warn');
+    }
+    if (!legacyBucket[msg.gid]) legacyBucket[msg.gid] = {n:0, ts:0};
+    legacyBucket[msg.gid].n++;
+    legacyBucket[msg.gid].ts = Date.now();
+    scheduleRender();
+    return;
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START / STOP
+// ═══════════════════════════════════════════════════════════════════════
+function startMon() {
+  stopMon();
+  const id = document.getElementById('mon-id').value.trim().toUpperCase() || 'K10-MON';
+  setStatus('CONNECTING...', 'wait');
+  log(`Starting monitor as: ${id}`, 'hi');
+
+  peer = new Peer(id, {
+    host:'0.peerjs.com', port:443, secure:true, debug:0,
+    config:{iceServers:STUN}
+  });
+
+  peer.on('open', pid => {
+    setStatus('● ONLINE', 'on');
+    document.getElementById('my-id').textContent = 'ID: '+pid;
+    document.getElementById('btn-start').disabled = true;
+    document.getElementById('btn-stop').disabled  = false;
+    log(`Monitor online: ${pid}`, 'ok');
+  });
+
+  peer.on('connection', conn => {
+    conns.add(conn.peer);
+    log(`Connected: ${conn.peer}`);
+    document.getElementById('p-conns').textContent = conns.size;
+
+    conn.on('data',  msg => handleMsg(msg));
+    conn.on('close', ()  => {
+      conns.delete(conn.peer);
+      log(`Disconnected: ${conn.peer}`, 'warn');
+      document.getElementById('p-conns').textContent = conns.size;
+    });
+    conn.on('error', e => log(`Connection error: ${e.message}`, 'err'));
+  });
+
+  peer.on('error', e => {
+    setStatus('ERROR: '+e.type, 'err');
+    log(`Peer error: ${e.type}`, 'err');
+  });
+
+  // ── Clean stale entries every 30s ────────────────────────────────
+  cleanTimer = setInterval(() => {
+    const now = Date.now();
+    let changed = false;
+    for (const k in servers)       { if (now-servers[k].ts > STALE)          { delete servers[k]; changed=true; log(`Server removed (timeout): ${k}`, 'warn'); } }
+    for (const k in legacyBucket)  { if (now-legacyBucket[k].ts > STALE)    { delete legacyBucket[k]; changed=true; } }
+    if (changed) scheduleRender();
+  }, 30_000);
+
+  // ── RPS counter ──────────────────────────────────────────────────
+  rpsTimer = setInterval(() => {
+    document.getElementById('p-rps').textContent = renderCountT;
+    renderCountT = 0;
+  }, 1000);
+
+  // ── Footer clock ─────────────────────────────────────────────────
+  footerTimer = setInterval(() => {
+    document.getElementById('footer-ts').textContent = 'UPDATED: '+now8();
+  }, 1000);
+}
+
+function stopMon() {
+  clearInterval(cleanTimer);
+  clearInterval(rpsTimer);
+  clearInterval(footerTimer);
+  clearTimeout(renderTimer);
+  renderTimer = null;
+  if (peer && !peer.destroyed) peer.destroy();
+  peer = null;
+  servers = {}; legacyBucket = {}; prevGroups = {};
+  conns.clear(); msgCount = 0; peakUsers = 0; warnOldSrc = null;
+  setStatus('STOPPED', '');
+  document.getElementById('my-id').textContent = '';
+  document.getElementById('btn-start').disabled = false;
+  document.getElementById('btn-stop').disabled  = true;
+  document.getElementById('warn-old').classList.remove('show');
+  log('Monitor stopped.', 'warn');
+  render();
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  INIT
+// ═══════════════════════════════════════════════════════════════════════
+render(); // initial empty state
+</script>
+</body>
+</html>
+
+</script>
 </body>
 </html>
