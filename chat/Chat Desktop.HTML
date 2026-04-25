@@ -6816,11 +6816,9 @@ if (data.type === 'join-update') {
     fillGroupPresenceBits(data.gid, newCount);
     addAudit(`[K10-V26] join-update binário: grupo ${data.gid} → ${newCount} usuários`, 'sys');
 
-    // FIX-JOIN-UPDATE: loop de IDs sintéticos removido. join-update não carrega data.peers[]
-    // com IDs PeerJS reais (peer IDs reais são aleatórios, ex: QYTPF8YAM — nunca K10AAAA+sufixo).
-    // A conexão P2P dentro do grupo é feita pelo handler peer-list (V33+), que recebe
-    // data.peers[] com IDs reais diretamente do servidor. Este handler apenas atualiza o
-    // contador local de groupSize.
+    // FIX-3-JOIN-UPDATE: loop de IDs sintéticos removido. k10BuildPeerId(gid,suffix) gera
+    // IDs K10AAAA+sufixo que não existem no PeerJS (peer IDs reais são aleatórios, ex: QYTPF8YAM).
+    // Conexão P2P é feita via peer-list (V33), que envia data.peers[] com IDs reais do servidor.
   }
   return;
 }
@@ -6904,16 +6902,10 @@ if (data.type === 'pex-family') {
     );
     // Conecta aos peers do MEU grupo usando a lista comprimida
     if (myGroupIdRef.current === gid && peerInstance.current) {
-      const maxConns = isSuperNodeRef.current ? 50 : 15;
-      allSuffixes.forEach(suffix => {
-        if (typeof suffix !== 'string' || suffix.length !== K10_SUFFIX_LEN) return;
-        const fullId = k10BuildPeerId(gid, suffix);
-        if (fullId === peerIdRef.current) return;
-        const active = Object.keys(peerInstance.current.connections).length;
-        if (active < maxConns && !peerInstance.current.connections[fullId] && !bannedPeersRef.current.has(fullId)) {
-          setTimeout(() => connectToPeer(fullId), Math.random() * 3000);
-        }
-      });
+      // FIX-7-PEX-FAMILY: loop de conexão via IDs sintéticos REMOVIDO.
+      // O servidor extrai "sufixos" dos últimos 2 chars de IDs aleatórios (ex: QYTPF8YAM → "AM").
+      // k10BuildPeerId(gid, "AM") → "K10AAAAAAM" — ID que nunca existe no PeerJS.
+      // Conexão P2P correta ocorre via peer-list (data.peers[] com IDs reais — FIX V33).
     }
   });
   // Relay com TTL decrementado
@@ -7000,10 +6992,13 @@ if (data.type === 'group-tutor-status') {
     groupTutorStateRef.current = { childGid, parentGid, childSize: safeSize };
     // Calcula a faixa de roteamento ponderado para o log
     let routingPct = 0;
-    if (safeSize < 500)        routingPct = 95;
-    else if (safeSize < 1000)  routingPct = 80;
-    else if (safeSize < 1500)  routingPct = 60;
-    else if (safeSize < 1700)  routingPct = 30;
+    // FIX-8-TUTOR-ROUTING: thresholds proporcionais a K10_TUTOR_TARGET=47 (eram 500/1000/1500/1700 de K10_MAX_GROUP=1800).
+    // Com max=50, todos os grupos sempre seriam < 500 → sempre mostrava 95% (errado).
+    const t = K10_TUTOR_TARGET;
+    if (safeSize < Math.floor(t * 0.25))       routingPct = 95; // < 12
+    else if (safeSize < Math.floor(t * 0.50))  routingPct = 80; // < 24
+    else if (safeSize < Math.floor(t * 0.75))  routingPct = 60; // < 35
+    else if (safeSize < t)                      routingPct = 30; // < 47
     addAudit(
       `[K10-V27 TUTELA] Filho ${childGid}: ${safeSize}/${K10_TUTOR_TARGET} usuários. ` +
       `Roteamento: ${routingPct}% de novos entrantes → Filho.`,
@@ -7086,6 +7081,18 @@ if (data.type === 'group-compensate') {
     myGroupIdRef.current = receiverGid;
     localStorage.setItem('myGroupId', receiverGid);
     sendUserToMonitor();
+    // FIX-9-COMPENSATE-CONNECT: após migração para receiverGid, reconecta ao servidor
+    // central para receber peer-list fresco com IDs reais dos peers do grupo receptor.
+    if (peerInstance.current) {
+      const servers = groupServersRef.current && groupServersRef.current.length > 0
+        ? groupServersRef.current
+        : (centralServerIdRef.current ? [centralServerIdRef.current] : []);
+      servers.forEach(srv => {
+        if (srv && !peerInstance.current.connections[srv]) {
+          setTimeout(() => connectToPeer(srv), Math.random() * 2000);
+        }
+      });
+    }
     addAudit(
       `[K10-V27 COMPENSAÇÃO] Movido de ${oldGid} (${safeDonorSize}) → ` +
       `${receiverGid} (${safeReceiverSize}). Peer ID mantido: ${peerIdRef.current}`,
@@ -7146,9 +7153,9 @@ if (data.type === 'group-merge') {
     myGroupIdRef.current = survivorGid;
     localStorage.setItem('myGroupId', survivorGid);
     sendUserToMonitor();
-    // FIX-MERGE-CONNECT: era um loop construindo IDs sintéticos K10AAAA+sufixo que nunca
-    // existem na rede PeerJS (IDs reais são aleatórios, ex: QYTPF8YAM).
-    // Correção: reconecta ao servidor central para receber um peer-list fresco com IDs reais.
+    // FIX-4-MERGE-CONNECT: era loop com k10BuildPeerId(survivorGid, suffix) → IDs sintéticos
+    // que nunca existem no PeerJS. Reconecta ao servidor central para receber peer-list
+    // fresco com IDs reais dos peers do grupo sobrevivente.
     if (peerInstance.current) {
       const servers = groupServersRef.current && groupServersRef.current.length > 0
         ? groupServersRef.current
@@ -7209,8 +7216,8 @@ if (data.type === 'group-orphan-rescue') {
     myGroupIdRef.current = rescuerGid;
     localStorage.setItem('myGroupId', rescuerGid);
     sendUserToMonitor();
-    // FIX-ORPHAN-RESCUE-CONNECT: era um loop construindo IDs sintéticos K10AAAA+sufixo.
-    // Correção: reconecta ao servidor central para receber peer-list fresco com IDs reais.
+    // FIX-5-ORPHAN-RESCUE-CONNECT: era loop com k10BuildPeerId(rescuerGid, suffix) → IDs sintéticos.
+    // Reconecta ao servidor central para peer-list fresco com IDs reais.
     if (peerInstance.current) {
       const servers = groupServersRef.current && groupServersRef.current.length > 0
         ? groupServersRef.current
@@ -7487,7 +7494,7 @@ if (data.type === 'group-merge') {
     // para que múltiplos relays não inflem o tamanho.
     const survivingSize = directoryGlobalRef.current[survivingGroupId].groupSize || 0;
     const absorbedSize  = absorbed.groupSize || 0;
-    directoryGlobalRef.current[survivingGroupId].groupSize = Math.min(survivingSize + absorbedSize, K10_MAX_GROUP); // FIX-BUG6: era Math.max(s,s+a,a) que sempre retornava s+a, inflando a cada relay. Idempotente pelo dedup isDuplicate(msgId).
+    directoryGlobalRef.current[survivingGroupId].groupSize = Math.min(survivingSize + absorbedSize, K10_MAX_GROUP); // FIX-6-INFLATION: era Math.max(s,s+a,a)=s+a sempre → inflava. Math.min(s+a,MAX) correto + idempotente via isDuplicate(msgId).
     directoryGlobalRef.current[survivingGroupId].lastUpdate = Date.now();
     delete directoryGlobalRef.current[absorbedGroupId];
   }
@@ -9222,7 +9229,7 @@ useEffect(() => {
       lastSplitEpochRef.current = epochNow;
     }
     const myGroupSize = directoryGlobalRef.current[myGroupId]?.groupSize ?? 0;
-    if (myGroupSize < K10_MAX_GROUP) return; // FIX-SPLIT: era <= (split nunca disparava — setGroupSize() capeia em K10_MAX_GROUP, então myGroupSize=50 é o máximo possível; < dispara ao atingir exatamente K10_MAX_GROUP)
+    if (myGroupSize < K10_MAX_GROUP) return; // FIX-1-SPLIT: era <= (nunca disparava — setGroupSize() capeia em K10_MAX_GROUP; < dispara quando atinge exatamente 50)
     if (epochNow !== lastSplitEpochRef.current) return; // não estamos na janela 0-15s
     if (msIntoEpoch > 15000) return;
 
@@ -9290,7 +9297,7 @@ useEffect(() => {
     // FASE-3/Caso2: verifica trava
     if (!canStartOperation()) return;
 
-    const MERGE_THRESHOLD = K10_MERGE_THRESHOLD; // FIX-MERGE: era 1620 (hardcoded para K10_MAX_GROUP=1800 antigo). Com K10_MAX_GROUP=50, qualquer par sempre soma ≤ 1620 → merges disparavam em grupos cheios saudáveis (50+50=100 ≤ 1620). K10_MERGE_THRESHOLD = 47 está correto.
+    const MERGE_THRESHOLD = K10_MERGE_THRESHOLD; // FIX-2-MERGE: era 1620 (legado de K10_MAX_GROUP=1800). Com K10_MAX_GROUP=50 qualquer par soma ≤100 ≤ 1620 → merges destruíam grupos saudáveis. K10_MERGE_THRESHOLD=47 está correto.
     const groups = Object.entries(directoryGlobalRef.current);
 
     for (let i = 0; i < groups.length; i++) {
