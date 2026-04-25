@@ -1,3 +1,27 @@
+<!-- ═══ ServidorChatK10 V40 — FIX-SPLIT: Atribuição Adiada (25/abr/2026) ═══
+     BUG CRÍTICO CORRIGIDO: grupo não dividia em 50+1 usuários
+     ══════════════════════════════════════════════════════════════════════
+     ROOT CAUSE: conn.on('open') atribuía posição em positions[] ANTES de
+          saber se o peer era group0 ou usuário real. O FIX V32-GHOST então
+          removia imediatamente. Resultado: positions[] sempre ficava em 0
+          quando sendToMonitor disparava → servidor reportava total=0 →
+          split NUNCA atingia K10_MAX_GROUP=50 → grupo crescia sem limite.
+
+     FIX V40-DEFERRED-ASSIGN:
+          1. conn.on('open'): NÃO atribui posição. Apenas envia handshake e
+             marca conn._pendingAssignment = true.
+          2. conn.on('data'): Se data.type !== 'group0-request' E
+             conn._pendingAssignment, chama doAssignPeer(conn) antes de
+             processar o dado. Peer é atribuído apenas quando confirma
+             ser usuário real.
+          3. group0-request handler: Cancela pendingAssignment sem chamar
+             doAssignPeer (peer group0 NUNCA entra em positions[]).
+          Impacto: split em 50+1 funciona corretamente. sendToMonitor
+          reporta o total real. Monitor mostra grupos reais.
+
+     FIX V40-MONITOR-VERSION: título/versão atualizados V39→V40.
+     Correções V38/V39 mantidas integralmente.
+     ══════════════════════════════════════════════════════════════════════
 <!-- ═══ ServidorChatK10 V38 — Limites PeerJS Público (24/abr/2026) ═══
      NOVO V38 — AJUSTE DE CONSTANTES PARA SERVIDOR PEERJS PÚBLICO
      ══════════════════════════════════════════════════════════════════════
@@ -203,7 +227,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <!-- HYDRA V7 server --><title>Servidor K10 - V39</title>
+  <!-- HYDRA V7 server --><title>Servidor K10 - V40</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
   <style>
     body {
@@ -2336,6 +2360,235 @@
         }));
       };
 
+      // ═══ FIX V40-DEFERRED-ASSIGN: atribuição adiada até peer se identificar ═══
+      // Extraído de conn.on('open') para evitar que peers group0 entrem em positions[].
+      // Chamado em conn.on('data') somente quando o peer confirma NÃO ser group0.
+      const doAssignPeer = (conn) => {
+        // ── S-12 V25: Atribuição de GID + sufixo (sistema K10 Posicional) ──
+        // Seleciona o grupo com vagas (<1800); se todos cheios, cria filho derivado
+        const groups = Object.entries(activeGroupsRef.current);
+        let assignedGid = null;
+
+        // V36: detecta se o peer entrante é um servidor externo (-CENTRAL)
+        const isExternalServer = conn.peer.endsWith('-CENTRAL');
+
+        if (isExternalServer) {
+          // Servidores seguem a mesma regra de grupos, mas com cap de 10 por grupo
+          const available = groups.filter(([, g]) =>
+            (g.positions || []).length < K10_MAX_GROUP &&
+            (g.serverCount || 0) < K10_MAX_SERVERS_PER_GROUP
+          );
+          if (available.length > 0) {
+            // Prefere grupo mais populoso (menos fragmentação)
+            assignedGid = available.reduce((a, b) =>
+              (a[1].positions||[]).length > (b[1].positions||[]).length ? a : b
+            )[0];
+          } else {
+            // Todos os grupos atingiram o cap de servidores — deriva novo grupo
+            const allGids = Object.keys(activeGroupsRef.current);
+            const largestGid = allGids.reduce((best, g) =>
+              (activeGroupsRef.current[g]?.positions?.length || 0) > (activeGroupsRef.current[best]?.positions?.length || 0) ? g : best
+            , allGids[0]);
+            assignedGid = generateChildGid(largestGid);
+            activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] };
+            k10bin.registerGid(assignedGid);
+            addAudit(`[K10-V36] Novo grupo filho ${assignedGid} para servidor externo (cap atingido)`, 'info');
+          }
+        } else {
+          // Procura grupo com vagas; prefere o mais populoso (agrupa em vez de fragmentar)
+          const available = groups.filter(([, g]) => (g.positions || []).length < K10_MAX_GROUP);
+          if (available.length > 0) {
+            assignedGid = available.reduce((a, b) =>
+              (a[1].positions||[]).length > (b[1].positions||[]).length ? a : b
+            )[0];
+          } else {
+            // Todos cheios — deriva novo GID do grupo mais populoso (herança hierárquica)
+            const allGids = Object.keys(activeGroupsRef.current);
+            const largestGid = allGids.reduce((best, g) =>
+              (activeGroupsRef.current[g]?.positions?.length || 0) > (activeGroupsRef.current[best]?.positions?.length || 0) ? g : best
+            , allGids[0]);
+            assignedGid = generateChildGid(largestGid);
+            activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] };
+            k10bin.registerGid(assignedGid);
+            addAudit(`[K10-V25] Novo grupo filho ${assignedGid} derivado de ${largestGid}`, 'info');
+          }
+        }
+
+        // Garante que o grupo existe com positions[]
+        if (!activeGroupsRef.current[assignedGid]) {
+          activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] };
+        }
+        if (!activeGroupsRef.current[assignedGid].positions) {
+          activeGroupsRef.current[assignedGid].positions = [];
+        }
+        // V36: garante campos de servidor existem em grupos antigos
+        if (typeof activeGroupsRef.current[assignedGid].serverCount !== 'number') {
+          activeGroupsRef.current[assignedGid].serverCount = 0;
+        }
+        if (!Array.isArray(activeGroupsRef.current[assignedGid].serverPeers)) {
+          activeGroupsRef.current[assignedGid].serverPeers = [];
+        }
+
+        const assignedGroup = activeGroupsRef.current[assignedGid];
+        const posIdx = assignedGroup.positions.length; // próxima posição disponível
+        let assignedSuffix = K10_POSITION_LIST[posIdx];
+
+        // Fallback: posIdx fora da lista (não deveria acontecer pois verificamos vagas)
+        if (!assignedSuffix) {
+          const fallbackGid = generateChildGid(assignedGid);
+          activeGroupsRef.current[fallbackGid] = { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] };
+          k10bin.registerGid(fallbackGid); // V26
+          assignedGid = fallbackGid;
+          assignedSuffix = K10_POSITION_LIST[0];
+          addAudit(`[K10-V25] Fallback hierárquico: novo grupo ${fallbackGid}`, 'warn');
+        }
+
+        // Registra o peer no grupo
+        activeGroupsRef.current[assignedGid].positions.push(conn.peer);
+        activeGroupsRef.current[assignedGid].members.add(conn.peer);
+        activeGroupsRef.current[assignedGid].size = activeGroupsRef.current[assignedGid].positions.length;
+        peerGroupMapRef.current.set(conn.peer, assignedGid);
+        peerPositionMapRef.current.set(conn.peer, { gid: assignedGid, posIdx });
+
+        // V36: se é servidor externo, registra em serverPeers do grupo
+        if (isExternalServer) {
+          activeGroupsRef.current[assignedGid].serverCount = (activeGroupsRef.current[assignedGid].serverCount || 0) + 1;
+          activeGroupsRef.current[assignedGid].serverPeers.push(conn.peer);
+          addAudit(`[K10-V36] Servidor ${conn.peer} → grupo ${assignedGid} (${activeGroupsRef.current[assignedGid].serverCount}/${K10_MAX_SERVERS_PER_GROUP} servidores)`, 'ok');
+        }
+
+        // V33: peer-list agora inclui peers[] com IDs PeerJS reais do grupo.
+        // Bug V25: cliente reconstruía IDs K10 (K10AAAAAA) mas esses não são
+        // peer IDs PeerJS reais (IDs reais são aleatórios ex: QYTPF8YAM).
+        // Fix V33: enviamos positions[] filtrado por conexões ativas, cap 20.
+        // V25: 'user'/'count' mantidos para compatibilidade e UI.
+        const groupCount = activeGroupsRef.current[assignedGid].positions.length;
+        const gidIdx = k10bin.getIdx(assignedGid); // V26: índice uint16 do GID
+        // FIX V33: IDs reais dos peers do grupo (vivos, excluindo o novo peer)
+        const realPeers = activeGroupsRef.current[assignedGid].positions
+          .filter(p => p !== conn.peer && activeConnectionsRef.current.has(p))
+          .slice(0, 20);
+        try {
+          conn.send({
+            type: 'peer-list',
+            gid: assignedGid,            // 4 chars — ID do grupo (texto, para UI)
+            gidIdx,                      // V26: índice binário do GID (uint16)
+            user: assignedSuffix,         // V25: sufixo atribuído (posição do novo peer)
+            count: groupCount,            // V25: total de membros
+            suffix: assignedSuffix,       // compat V24 mínima (scalar, sem custo)
+            peers: realPeers,             // FIX V33: IDs PeerJS reais dos membros do grupo
+            groupServers: (activeGroupsRef.current[assignedGid].serverPeers || []).filter(s => s !== conn.peer), // V36: servidores externos do grupo (máx 10)
+            routerMode: routerModeRef.current || false, // V48: sinaliza ao cliente que este servidor é um roteador (não reconectar)
+          });
+        } catch(e) { console.warn('[K10-V33] Erro ao enviar peer-list:', e); }
+
+        addAudit(`[K10-V25] Peer ${conn.peer} → grupo ${assignedGid} posição ${posIdx+1}/${groupCount}`, 'ok');
+
+        // V24: se o grupo faz parte de uma família, envia pex-family comprimido
+        // para todos os peers da família (informam novos membros uns aos outros)
+        try {
+          const familyPex = buildFamilyPex(assignedGid);
+          if (familyPex) {
+            const familyGids = new Set(findGroupFamily(assignedGid));
+            activeConnectionsRef.current.forEach((c, pid) => {
+              const peerGid = peerGroupMapRef.current.get(pid);
+              if (peerGid && familyGids.has(peerGid) && c.open && pid !== conn.peer) {
+                try { c.send(familyPex); } catch(e) {}
+              }
+            });
+            // Envia também para o novo peer (ele precisa conhecer a família)
+            try { conn.send(familyPex); } catch(e) {}
+          }
+        } catch(e) { console.warn('[K10-V24] Erro ao enviar pex-family:', e); }
+
+        // V24: verifica dominância entre grupos irmãos após nova entrada
+        try {
+          const siblings = findGroupFamily(assignedGid).filter(g => g !== assignedGid);
+          siblings.forEach(sibGid => {
+            setTimeout(() => checkAndPromote(assignedGid, sibGid), 4000);
+          });
+        } catch(e) {}
+
+        // Here is the critical change to ensure we operate in pure server mode:
+        // We'll send a special message to mark this as a server connection
+        // when pure server mode is enabled
+        if (pureServerModeRef.current) {
+          try {
+            conn.send({
+              type: 'server-info',
+              isServer: true,
+              message: t(langRef.current, 'pureServerModeConnected') // FIX S1
+            });
+          } catch (err) {
+            console.error(`Erro ao enviar informação de servidor para ${conn.peer}:`, err);
+          }
+        }
+
+        // Se a rádio estiver tocando, avisa o novato imediatamente
+        if (radioStateRef.current.status === 'playing') {
+          const now = Date.now();
+          if (radioStateRef.current.radioType === 'stream') {
+            // FIX S-11 V22: cada send em try-catch individual — se radio-sync falha, '#$%' não era enviado
+            try {
+              conn.send({
+                type: 'radio-sync',
+                radioType: 'stream',
+                startTime: radioStateRef.current.startTime,
+                streamUrl: radioStateRef.current.streamUrl,
+                fileName: radioStateRef.current.fileName || t(langRef.current, 'globalRadio'), // FIX S1
+                senderName: radioStateRef.current.senderName || t(langRef.current, 'k10Server') // FIX S1
+              });
+            } catch (e) {}
+            try {
+              conn.send({
+                type: 'message',
+                text: '#$%',
+                senderName: t(langRef.current, 'k10Server'), // FIX S1
+                id: 'radio_block_' + Date.now()
+              });
+            } catch (e) {}
+          } else {
+            const endTime = radioStateRef.current.startTime + radioStateRef.current.duration * 1000;
+            if (now < endTime) {
+              // FIX S-12 V22: cada send em try-catch individual — se radio-sync falha, '#$%' não era enviado
+              try {
+                conn.send({
+                  type: 'radio-sync',
+                  radioType: 'file',
+                  startTime: radioStateRef.current.startTime,
+                  duration: radioStateRef.current.duration,
+                  fileName: radioStateRef.current.fileName || t(langRef.current, 'globalRadio'), // FIX S1
+                  senderName: radioStateRef.current.senderName || t(langRef.current, 'k10Server') // FIX S1
+                });
+              } catch (e) {}
+              try {
+                conn.send({
+                  type: 'message',
+                  text: '#$%',
+                  senderName: t(langRef.current, 'k10Server'), // FIX S1
+                  id: 'radio_block_' + Date.now()
+                });
+              } catch (e) {}
+            } else {
+              radioStateRef.current.status = 'idle';
+            }
+          }
+        }
+
+        // ── RIGOROUS ROUTER MODE FIX ──
+        // If router mode is active, we have already assigned a group (above).
+        // We now schedule a disconnect to maintain zero persistent users.
+        if (routerModeRef.current) {
+          addAudit(`☄️ Router Mode: Desconectando ${conn.peer} após direcionamento`, 'info');
+          setTimeout(() => {
+            try {
+              if (conn.open) conn.close();
+            } catch (e) {}
+          }, 3000); // 3 seconds to ensure client processes the peer-list
+        }
+
+      };
+
       const setupConnection = (conn) => {
         conn.on('open', () => {
           addAudit(`🔗 Conexão aberta: ${conn.peer}`, 'ok');
@@ -2438,231 +2691,21 @@
             try { conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 }); } catch(e) {}
           }
 
-          // ── S-12 V25: Atribuição de GID + sufixo (sistema K10 Posicional) ──
-          // Seleciona o grupo com vagas (<1800); se todos cheios, cria filho derivado
-          const groups = Object.entries(activeGroupsRef.current);
-          let assignedGid = null;
-
-          // V36: detecta se o peer entrante é um servidor externo (-CENTRAL)
-          const isExternalServer = conn.peer.endsWith('-CENTRAL');
-
-          if (isExternalServer) {
-            // Servidores seguem a mesma regra de grupos, mas com cap de 10 por grupo
-            const available = groups.filter(([, g]) =>
-              (g.positions || []).length < K10_MAX_GROUP &&
-              (g.serverCount || 0) < K10_MAX_SERVERS_PER_GROUP
-            );
-            if (available.length > 0) {
-              // Prefere grupo mais populoso (menos fragmentação)
-              assignedGid = available.reduce((a, b) =>
-                (a[1].positions||[]).length > (b[1].positions||[]).length ? a : b
-              )[0];
-            } else {
-              // Todos os grupos atingiram o cap de servidores — deriva novo grupo
-              const allGids = Object.keys(activeGroupsRef.current);
-              const largestGid = allGids.reduce((best, g) =>
-                (activeGroupsRef.current[g]?.positions?.length || 0) > (activeGroupsRef.current[best]?.positions?.length || 0) ? g : best
-              , allGids[0]);
-              assignedGid = generateChildGid(largestGid);
-              activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] };
-              k10bin.registerGid(assignedGid);
-              addAudit(`[K10-V36] Novo grupo filho ${assignedGid} para servidor externo (cap atingido)`, 'info');
-            }
-          } else {
-            // Procura grupo com vagas; prefere o mais populoso (agrupa em vez de fragmentar)
-            const available = groups.filter(([, g]) => (g.positions || []).length < K10_MAX_GROUP);
-            if (available.length > 0) {
-              assignedGid = available.reduce((a, b) =>
-                (a[1].positions||[]).length > (b[1].positions||[]).length ? a : b
-              )[0];
-            } else {
-              // Todos cheios — deriva novo GID do grupo mais populoso (herança hierárquica)
-              const allGids = Object.keys(activeGroupsRef.current);
-              const largestGid = allGids.reduce((best, g) =>
-                (activeGroupsRef.current[g]?.positions?.length || 0) > (activeGroupsRef.current[best]?.positions?.length || 0) ? g : best
-              , allGids[0]);
-              assignedGid = generateChildGid(largestGid);
-              activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] };
-              k10bin.registerGid(assignedGid);
-              addAudit(`[K10-V25] Novo grupo filho ${assignedGid} derivado de ${largestGid}`, 'info');
-            }
-          }
-
-          // Garante que o grupo existe com positions[]
-          if (!activeGroupsRef.current[assignedGid]) {
-            activeGroupsRef.current[assignedGid] = { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] };
-          }
-          if (!activeGroupsRef.current[assignedGid].positions) {
-            activeGroupsRef.current[assignedGid].positions = [];
-          }
-          // V36: garante campos de servidor existem em grupos antigos
-          if (typeof activeGroupsRef.current[assignedGid].serverCount !== 'number') {
-            activeGroupsRef.current[assignedGid].serverCount = 0;
-          }
-          if (!Array.isArray(activeGroupsRef.current[assignedGid].serverPeers)) {
-            activeGroupsRef.current[assignedGid].serverPeers = [];
-          }
-
-          const assignedGroup = activeGroupsRef.current[assignedGid];
-          const posIdx = assignedGroup.positions.length; // próxima posição disponível
-          let assignedSuffix = K10_POSITION_LIST[posIdx];
-
-          // Fallback: posIdx fora da lista (não deveria acontecer pois verificamos vagas)
-          if (!assignedSuffix) {
-            const fallbackGid = generateChildGid(assignedGid);
-            activeGroupsRef.current[fallbackGid] = { size: 0, reservados: [], members: new Set(), positions: [], serverCount: 0, serverPeers: [] };
-            k10bin.registerGid(fallbackGid); // V26
-            assignedGid = fallbackGid;
-            assignedSuffix = K10_POSITION_LIST[0];
-            addAudit(`[K10-V25] Fallback hierárquico: novo grupo ${fallbackGid}`, 'warn');
-          }
-
-          // Registra o peer no grupo
-          activeGroupsRef.current[assignedGid].positions.push(conn.peer);
-          activeGroupsRef.current[assignedGid].members.add(conn.peer);
-          activeGroupsRef.current[assignedGid].size = activeGroupsRef.current[assignedGid].positions.length;
-          peerGroupMapRef.current.set(conn.peer, assignedGid);
-          peerPositionMapRef.current.set(conn.peer, { gid: assignedGid, posIdx });
-
-          // V36: se é servidor externo, registra em serverPeers do grupo
-          if (isExternalServer) {
-            activeGroupsRef.current[assignedGid].serverCount = (activeGroupsRef.current[assignedGid].serverCount || 0) + 1;
-            activeGroupsRef.current[assignedGid].serverPeers.push(conn.peer);
-            addAudit(`[K10-V36] Servidor ${conn.peer} → grupo ${assignedGid} (${activeGroupsRef.current[assignedGid].serverCount}/${K10_MAX_SERVERS_PER_GROUP} servidores)`, 'ok');
-          }
-
-          // V33: peer-list agora inclui peers[] com IDs PeerJS reais do grupo.
-          // Bug V25: cliente reconstruía IDs K10 (K10AAAAAA) mas esses não são
-          // peer IDs PeerJS reais (IDs reais são aleatórios ex: QYTPF8YAM).
-          // Fix V33: enviamos positions[] filtrado por conexões ativas, cap 20.
-          // V25: 'user'/'count' mantidos para compatibilidade e UI.
-          const groupCount = activeGroupsRef.current[assignedGid].positions.length;
-          const gidIdx = k10bin.getIdx(assignedGid); // V26: índice uint16 do GID
-          // FIX V33: IDs reais dos peers do grupo (vivos, excluindo o novo peer)
-          const realPeers = activeGroupsRef.current[assignedGid].positions
-            .filter(p => p !== conn.peer && activeConnectionsRef.current.has(p))
-            .slice(0, 20);
-          try {
-            conn.send({
-              type: 'peer-list',
-              gid: assignedGid,            // 4 chars — ID do grupo (texto, para UI)
-              gidIdx,                      // V26: índice binário do GID (uint16)
-              user: assignedSuffix,         // V25: sufixo atribuído (posição do novo peer)
-              count: groupCount,            // V25: total de membros
-              suffix: assignedSuffix,       // compat V24 mínima (scalar, sem custo)
-              peers: realPeers,             // FIX V33: IDs PeerJS reais dos membros do grupo
-              groupServers: (activeGroupsRef.current[assignedGid].serverPeers || []).filter(s => s !== conn.peer), // V36: servidores externos do grupo (máx 10)
-              routerMode: routerModeRef.current || false, // V48: sinaliza ao cliente que este servidor é um roteador (não reconectar)
-            });
-          } catch(e) { console.warn('[K10-V33] Erro ao enviar peer-list:', e); }
-
-          addAudit(`[K10-V25] Peer ${conn.peer} → grupo ${assignedGid} posição ${posIdx+1}/${groupCount}`, 'ok');
-
-          // V24: se o grupo faz parte de uma família, envia pex-family comprimido
-          // para todos os peers da família (informam novos membros uns aos outros)
-          try {
-            const familyPex = buildFamilyPex(assignedGid);
-            if (familyPex) {
-              const familyGids = new Set(findGroupFamily(assignedGid));
-              activeConnectionsRef.current.forEach((c, pid) => {
-                const peerGid = peerGroupMapRef.current.get(pid);
-                if (peerGid && familyGids.has(peerGid) && c.open && pid !== conn.peer) {
-                  try { c.send(familyPex); } catch(e) {}
-                }
-              });
-              // Envia também para o novo peer (ele precisa conhecer a família)
-              try { conn.send(familyPex); } catch(e) {}
-            }
-          } catch(e) { console.warn('[K10-V24] Erro ao enviar pex-family:', e); }
-
-          // V24: verifica dominância entre grupos irmãos após nova entrada
-          try {
-            const siblings = findGroupFamily(assignedGid).filter(g => g !== assignedGid);
-            siblings.forEach(sibGid => {
-              setTimeout(() => checkAndPromote(assignedGid, sibGid), 4000);
-            });
-          } catch(e) {}
-
-          // Here is the critical change to ensure we operate in pure server mode:
-          // We'll send a special message to mark this as a server connection
-          // when pure server mode is enabled
-          if (pureServerModeRef.current) {
-            try {
-              conn.send({
-                type: 'server-info',
-                isServer: true,
-                message: t(langRef.current, 'pureServerModeConnected') // FIX S1
-              });
-            } catch (err) {
-              console.error(`Erro ao enviar informação de servidor para ${conn.peer}:`, err);
-            }
-          }
-
-          // Se a rádio estiver tocando, avisa o novato imediatamente
-          if (radioStateRef.current.status === 'playing') {
-            const now = Date.now();
-            if (radioStateRef.current.radioType === 'stream') {
-              // FIX S-11 V22: cada send em try-catch individual — se radio-sync falha, '#$%' não era enviado
-              try {
-                conn.send({
-                  type: 'radio-sync',
-                  radioType: 'stream',
-                  startTime: radioStateRef.current.startTime,
-                  streamUrl: radioStateRef.current.streamUrl,
-                  fileName: radioStateRef.current.fileName || t(langRef.current, 'globalRadio'), // FIX S1
-                  senderName: radioStateRef.current.senderName || t(langRef.current, 'k10Server') // FIX S1
-                });
-              } catch (e) {}
-              try {
-                conn.send({
-                  type: 'message',
-                  text: '#$%',
-                  senderName: t(langRef.current, 'k10Server'), // FIX S1
-                  id: 'radio_block_' + Date.now()
-                });
-              } catch (e) {}
-            } else {
-              const endTime = radioStateRef.current.startTime + radioStateRef.current.duration * 1000;
-              if (now < endTime) {
-                // FIX S-12 V22: cada send em try-catch individual — se radio-sync falha, '#$%' não era enviado
-                try {
-                  conn.send({
-                    type: 'radio-sync',
-                    radioType: 'file',
-                    startTime: radioStateRef.current.startTime,
-                    duration: radioStateRef.current.duration,
-                    fileName: radioStateRef.current.fileName || t(langRef.current, 'globalRadio'), // FIX S1
-                    senderName: radioStateRef.current.senderName || t(langRef.current, 'k10Server') // FIX S1
+          // FIX V40-DEFERRED-ASSIGN: NÃO atribuir posição aqui — aguarda o peer
+          // se identificar. group0-peers NÃO devem entrar em positions[].
+          // A atribuição real é feita em doAssignPeer(conn), chamado de conn.on('data')
+          // quando o cliente envia qualquer mensagem que NÃO seja group0-request.
+          conn._pendingAssignment = true;
                   });
-                } catch (e) {}
-                try {
-                  conn.send({
-                    type: 'message',
-                    text: '#$%',
-                    senderName: t(langRef.current, 'k10Server'), // FIX S1
-                    id: 'radio_block_' + Date.now()
-                  });
-                } catch (e) {}
-              } else {
-                radioStateRef.current.status = 'idle';
-              }
-            }
-          }
-
-          // ── RIGOROUS ROUTER MODE FIX ──
-          // If router mode is active, we have already assigned a group (above).
-          // We now schedule a disconnect to maintain zero persistent users.
-          if (routerModeRef.current) {
-            addAudit(`☄️ Router Mode: Desconectando ${conn.peer} após direcionamento`, 'info');
-            setTimeout(() => {
-              try {
-                if (conn.open) conn.close();
-              } catch (e) {}
-            }, 3000); // 3 seconds to ensure client processes the peer-list
-          }
-        });
 
         conn.on('data', (data) => {
+          // ═══ FIX V40-DEFERRED-ASSIGN: executa atribuição de posição adiada ═══
+          // Se o peer ainda não foi atribuído E não está enviando group0-request,
+          // ele é um usuário real — atribui posição agora antes de processar o dado.
+          if (conn._pendingAssignment && data && data.type !== 'group0-request') {
+            conn._pendingAssignment = false;
+            doAssignPeer(conn);
+          }
           // ══ K10 V29: GRUPO 0 ALWAYS-ON ════════════════════════════════════════
           // Todos os servidores respondem a 'group0-request' — sempre, sem toggle.
           // PROTOCOLO:
@@ -2689,29 +2732,9 @@
             // Marca como peer grupo0 para evitar que handleIncomingData o processe depois
             conn._isGroup0Peer = true;
 
-            // ── FIX V32-GHOST: remove peer de positions[] imediatamente ──────────
-            // O conn.on('open') já atribuiu uma posição antes de sabermos que era
-            // um peer group0. Precisamos removê-lo agora para evitar ghost na lista
-            // que seria enviada como peers[] no group0-welcome.
-            const g0Gid = peerGroupMapRef.current.get(conn.peer);
-            if (g0Gid && activeGroupsRef.current[g0Gid]) {
-              const g0Group = activeGroupsRef.current[g0Gid];
-              const g0PosIdx = g0Group.positions ? g0Group.positions.indexOf(conn.peer) : -1;
-              if (g0PosIdx !== -1) {
-                // swap-on-remove: troca com o último e faz pop (mantém lista contígua)
-                const lastPeer = g0Group.positions[g0Group.positions.length - 1];
-                g0Group.positions[g0PosIdx] = lastPeer;
-                g0Group.positions.pop();
-                g0Group.size = g0Group.positions.length;
-                // atualiza posIdx do peer que foi movido
-                if (lastPeer && lastPeer !== conn.peer && peerPositionMapRef.current.has(lastPeer)) {
-                  const lastEntry = peerPositionMapRef.current.get(lastPeer);
-                  peerPositionMapRef.current.set(lastPeer, { ...lastEntry, posIdx: g0PosIdx });
-                }
-              }
-              if (g0Group.members) g0Group.members.delete(conn.peer);
-            }
-            // ── FIM FIX V32-GHOST ─────────────────────────────────────────────────
+            // FIX V40-DEFERRED-ASSIGN: peer group0 NUNCA foi atribuído a positions[]
+            // (a atribuição foi adiada para conn.on('data')). Cancelamos a atribuição pendente.
+            conn._pendingAssignment = false;
 
             // totalUsers = max(soma posições de todos os grupos, heartbeats ativos)
             // Usando o maior valor disponível garante estimativa mais conservadora (segura)
