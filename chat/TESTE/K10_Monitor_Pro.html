@@ -245,7 +245,7 @@ let msgCount = 0, renderCount = 0, renderCountT = 0;
 let cleanTimer, footerTimer, rpsTimer, healthTimer;
 let logs = [];
 let warnOldSrc = null;
-let legacyBucket = {};
+let legacyBucket = {}; // {gid: {peers: Map<id,ts>, ts: number}}
 let isRunning = false;
 
 let splitCounter = 0;
@@ -333,7 +333,7 @@ function deriveGroups() {
     const lb = legacyBucket[gid];
     if (now - lb.ts > STALE) { delete legacyBucket[gid]; continue; }
     if (!g[gid]) g[gid] = {n:0, ts:0};
-    g[gid].n  += lb.n;
+    g[gid].n  += lb.peers ? [...lb.peers.entries()].filter(([,t])=>now-t<=STALE).length : (lb.n||0); // FIX V2-UNIQUE
     if (lb.ts > g[gid].ts) g[gid].ts = lb.ts;
   }
   return g;
@@ -343,7 +343,7 @@ function totalUsers() {
   const now = Date.now();
   let t = 0;
   for (const sid in servers) if (now - servers[sid].ts <= STALE) t += (servers[sid].total || 0);
-  for (const gid in legacyBucket) if (now - legacyBucket[gid].ts <= STALE) t += legacyBucket[gid].n;
+  for (const gid in legacyBucket) if (now - legacyBucket[gid].ts <= STALE) t += legacyBucket[gid].peers ? [...legacyBucket[gid].peers.entries()].filter(([,t])=>now-t<=STALE).length : (legacyBucket[gid].n||0); // FIX V2-UNIQUE
   return t;
 }
 
@@ -658,8 +658,11 @@ function handleMsg(msg) {
       document.getElementById('warn-old').classList.add('show');
       log(`⚠ Protocolo legado detectado: ${msg.id} → migre para {t:'s'}`, 'warn');
     }
-    if (!legacyBucket[msg.gid]) legacyBucket[msg.gid] = {n:0, ts:0};
-    legacyBucket[msg.gid].n++;
+    // FIX V2-UNIQUE: conta por peer ID único (Set) em vez de n++ acumulativo
+    // n++ crescia ilimitadamente (77 users × 4 ciclos = 308 após 2min).
+    // Agora: cada peer ID é contado uma única vez por GID.
+    if (!legacyBucket[msg.gid]) legacyBucket[msg.gid] = {peers: new Map(), ts: 0};
+    legacyBucket[msg.gid].peers.set(msg.id, Date.now()); // FIX V2-UNIQUE: Map peerId→lastSeen
     legacyBucket[msg.gid].ts = Date.now();
     scheduleRender();
     return;
@@ -825,7 +828,17 @@ function startMon() {
     const now = Date.now();
     let changed = false;
     for (const k in servers) if (now-servers[k].ts > STALE) { delete servers[k]; changed=true; log(`Servidor removido (timeout): ${k}`, 'warn'); }
-    for (const k in legacyBucket) if (now-legacyBucket[k].ts > STALE) { delete legacyBucket[k]; changed=true; }
+    // FIX V2-UNIQUE: remove peers individuais stale e buckets vazios
+    for (const k in legacyBucket) {
+      const lb = legacyBucket[k];
+      if (lb.peers instanceof Map) {
+        for (const [pid, pts] of lb.peers) { if (now - pts > STALE) lb.peers.delete(pid); }
+        if (lb.peers.size === 0) { delete legacyBucket[k]; changed = true; }
+        else lb.ts = Math.max(...lb.peers.values()); // atualiza ts do bucket
+      } else if (now - lb.ts > STALE) {
+        delete legacyBucket[k]; changed = true;
+      }
+    }
     if (changed) scheduleRender();
   }, 30_000);
 
@@ -849,7 +862,7 @@ function stopMon() {
   renderTimer = null;
   if (peer && !peer.destroyed) peer.destroy();
   peer = null;
-  servers = {}; legacyBucket = {}; prevGroups = {};
+  servers = {}; legacyBucket = {}; prevGroups = {}; warnOldSrc = null;
   conns.clear(); msgCount = 0; peakUsers = 0; warnOldSrc = null;
   splitCounter = 0; mergeCounter = 0; compensateCounter = 0; tutorActiveFlag = false;
   healthReports = [];
