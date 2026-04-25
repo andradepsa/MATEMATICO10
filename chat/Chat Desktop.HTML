@@ -1,4 +1,18 @@
-<!-- ═══ Chat K10 V46 — Limites PeerJS Público (24/abr/2026) ═══
+<!-- ═══ Chat K10 V47 — FIX-GROUP-LEGACY + Compatibilidade V40 Servidor (25/abr/2026) ═══
+     BUG CORRIGIDO: FIX V47-GROUP-LEGACY
+     ══════════════════════════════════════════════════════════════════════
+     O handler de peer-list legado (campo data.groupId) ainda tinha a
+     condicional antiga que bloqueava atualização de gid quando o usuário
+     já tinha um savedGroupId diferente no localStorage.
+     Isso significa que usuários em grupos AAAB+ continuavam reportando
+     AAAA ao monitor mesmo após o servidor V40 fazer o split corretamente.
+     FIX: atualização incondicional de myGroupIdRef e localStorage,
+     espelhando o FIX V39-GROUP do handler moderno (data.gid).
+     ══════════════════════════════════════════════════════════════════════
+     V47 mantém compatibilidade total com ServidorChatK10 V40.
+     Correções V46 mantidas integralmente.
+     ══════════════════════════════════════════════════════════════════════
+<!-- ═══ Chat K10 V47 — Limites PeerJS Público (24/abr/2026) ═══
      NOVO V46 — AJUSTE DE CONSTANTES HOMEOSTÁTICAS PARA SERVIDOR PEERJS PÚBLICO
      ══════════════════════════════════════════════════════════════════════
      CONTEXT V46: Mesma razão do ServidorChatK10 V38. O peerjs.com público
@@ -496,7 +510,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V46</title>
+<title>Chat K10 — V47</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -1401,7 +1415,7 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
      
 <noscript>
   <div style="padding:40px;font-family:system-ui,-apple-system,sans-serif;text-align:center;max-width:560px;margin:60px auto;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);">
-    <h1 style="color:#1e40af;margin-top:0;">Chat K10 V46</h1>
+    <h1 style="color:#1e40af;margin-top:0;">Chat K10 V47</h1>
     <p style="color:#1e293b;font-size:16px;line-height:1.6;">
       <strong>JavaScript is required.</strong><br>
       This peer-to-peer encrypted chat needs JavaScript to establish secure connections between browsers.
@@ -6703,12 +6717,12 @@ if (data.type === 'peer-list') {
       });
     }
     if (data.groupId) {
-      const savedGroupId = localStorage.getItem('myGroupId');
-      if (!savedGroupId || !directoryGlobalRef.current[savedGroupId] || savedGroupId === data.groupId) {
-        myGroupIdRef.current = data.groupId;
-        localStorage.setItem('myGroupId', data.groupId);
-        sendUserToMonitor();
-      }
+      // FIX V47-GROUP-LEGACY: mesmo fix do V39-GROUP aplicado ao handler legado.
+      // Antes: condicional bloqueava update quando savedGroupId era diferente de data.groupId.
+      // Agora: atualização incondicional (servidor tem autoridade sobre o GID).
+      myGroupIdRef.current = data.groupId;
+      localStorage.setItem('myGroupId', data.groupId);
+      sendUserToMonitor();
     }
   }
   return;
