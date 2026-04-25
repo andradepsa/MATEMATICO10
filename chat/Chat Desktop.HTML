@@ -6816,19 +6816,11 @@ if (data.type === 'join-update') {
     fillGroupPresenceBits(data.gid, newCount);
     addAudit(`[K10-V26] join-update binário: grupo ${data.gid} → ${newCount} usuários`, 'sys');
 
-    if (myGroupIdRef.current === data.gid && peerInstance.current && newCount > cur) {
-      const maxConns = isSuperNodeRef.current ? 50 : 15;
-      for (let i = cur; i < newCount; i++) {
-        const suffix = K10_POSITION_LIST[i];
-        if (!suffix) break;
-        const fullPeerId = k10BuildPeerId(data.gid, suffix);
-        if (fullPeerId === peerIdRef.current) continue;
-        const activeCount = Object.keys(peerInstance.current.connections).length;
-        if (activeCount < maxConns && !peerInstance.current.connections[fullPeerId] && !bannedPeersRef.current.has(fullPeerId)) {
-          setTimeout(() => connectToPeer(fullPeerId), Math.random() * 1500);
-        }
-      }
-    }
+    // FIX-JOIN-UPDATE: loop de IDs sintéticos removido. join-update não carrega data.peers[]
+    // com IDs PeerJS reais (peer IDs reais são aleatórios, ex: QYTPF8YAM — nunca K10AAAA+sufixo).
+    // A conexão P2P dentro do grupo é feita pelo handler peer-list (V33+), que recebe
+    // data.peers[] com IDs reais diretamente do servidor. Este handler apenas atualiza o
+    // contador local de groupSize.
   }
   return;
 }
@@ -7154,21 +7146,18 @@ if (data.type === 'group-merge') {
     myGroupIdRef.current = survivorGid;
     localStorage.setItem('myGroupId', survivorGid);
     sendUserToMonitor();
-    // Conecta aos peers do grupo sobrevivente que ainda não conhecemos
-    if (peerInstance.current && safeSurvivorSize > 0) {
-      const maxConns = isSuperNodeRef.current ? 50 : 15;
-      for (let i = 0; i < safeSurvivorSize; i++) {
-        const suffix = K10_POSITION_LIST[i];
-        if (!suffix) break;
-        const fullPeerId = k10BuildPeerId(survivorGid, suffix);
-        if (fullPeerId === peerIdRef.current) continue;
-        const activeCount = Object.keys(peerInstance.current.connections).length;
-        if (activeCount < maxConns
-            && !peerInstance.current.connections[fullPeerId]
-            && !bannedPeersRef.current.has(fullPeerId)) {
-          setTimeout(() => connectToPeer(fullPeerId), Math.random() * 3000);
+    // FIX-MERGE-CONNECT: era um loop construindo IDs sintéticos K10AAAA+sufixo que nunca
+    // existem na rede PeerJS (IDs reais são aleatórios, ex: QYTPF8YAM).
+    // Correção: reconecta ao servidor central para receber um peer-list fresco com IDs reais.
+    if (peerInstance.current) {
+      const servers = groupServersRef.current && groupServersRef.current.length > 0
+        ? groupServersRef.current
+        : (centralServerIdRef.current ? [centralServerIdRef.current] : []);
+      servers.forEach(srv => {
+        if (srv && !peerInstance.current.connections[srv]) {
+          setTimeout(() => connectToPeer(srv), Math.random() * 2000);
         }
-      }
+      });
     }
     addAudit(
       `[K10-V27 FUSÃO] Grupo ${dissolvedGid} dissolvido → migrado para ${survivorGid} ` +
@@ -7220,21 +7209,17 @@ if (data.type === 'group-orphan-rescue') {
     myGroupIdRef.current = rescuerGid;
     localStorage.setItem('myGroupId', rescuerGid);
     sendUserToMonitor();
-    // Reconecta aos peers do resgatador
-    if (peerInstance.current && safeRescuerSize > 0) {
-      const maxConns = isSuperNodeRef.current ? 50 : 15;
-      for (let i = 0; i < safeRescuerSize; i++) {
-        const suffix = K10_POSITION_LIST[i];
-        if (!suffix) break;
-        const fullPeerId = k10BuildPeerId(rescuerGid, suffix);
-        if (fullPeerId === peerIdRef.current) continue;
-        const activeCount = Object.keys(peerInstance.current.connections).length;
-        if (activeCount < maxConns
-            && !peerInstance.current.connections[fullPeerId]
-            && !bannedPeersRef.current.has(fullPeerId)) {
-          setTimeout(() => connectToPeer(fullPeerId), Math.random() * 2000);
+    // FIX-ORPHAN-RESCUE-CONNECT: era um loop construindo IDs sintéticos K10AAAA+sufixo.
+    // Correção: reconecta ao servidor central para receber peer-list fresco com IDs reais.
+    if (peerInstance.current) {
+      const servers = groupServersRef.current && groupServersRef.current.length > 0
+        ? groupServersRef.current
+        : (centralServerIdRef.current ? [centralServerIdRef.current] : []);
+      servers.forEach(srv => {
+        if (srv && !peerInstance.current.connections[srv]) {
+          setTimeout(() => connectToPeer(srv), Math.random() * 2000);
         }
-      }
+      });
     }
     addAudit(
       `[K10-V27 ORFANATO] Servidor do grupo ${orphanGid} caiu. ` +
@@ -9237,7 +9222,7 @@ useEffect(() => {
       lastSplitEpochRef.current = epochNow;
     }
     const myGroupSize = directoryGlobalRef.current[myGroupId]?.groupSize ?? 0;
-    if (myGroupSize <= K10_MAX_GROUP) return; // V6 (P1+P5): limite alinhado a capacidade real do broker
+    if (myGroupSize < K10_MAX_GROUP) return; // FIX-SPLIT: era <= (split nunca disparava — setGroupSize() capeia em K10_MAX_GROUP, então myGroupSize=50 é o máximo possível; < dispara ao atingir exatamente K10_MAX_GROUP)
     if (epochNow !== lastSplitEpochRef.current) return; // não estamos na janela 0-15s
     if (msIntoEpoch > 15000) return;
 
@@ -9305,7 +9290,7 @@ useEffect(() => {
     // FASE-3/Caso2: verifica trava
     if (!canStartOperation()) return;
 
-    const MERGE_THRESHOLD = 1620; // V6: 90% de 1800 (margem 10%)
+    const MERGE_THRESHOLD = K10_MERGE_THRESHOLD; // FIX-MERGE: era 1620 (hardcoded para K10_MAX_GROUP=1800 antigo). Com K10_MAX_GROUP=50, qualquer par sempre soma ≤ 1620 → merges disparavam em grupos cheios saudáveis (50+50=100 ≤ 1620). K10_MERGE_THRESHOLD = 47 está correto.
     const groups = Object.entries(directoryGlobalRef.current);
 
     for (let i = 0; i < groups.length; i++) {
