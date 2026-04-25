@@ -6643,13 +6643,15 @@ if (data.type === 'peer-list') {
     // V25: 'user' é o sufixo atribuído; V24: 'suffix'
     const assignedSuffix = data.user || data.suffix;
 
-    // Atualiza GID do nó se necessário
-    const savedGroupId = localStorage.getItem('myGroupId');
-    if (!savedGroupId || !directoryGlobalRef.current[savedGroupId] || savedGroupId === newGid) {
-      myGroupIdRef.current = newGid;
-      localStorage.setItem('myGroupId', newGid);
-      sendUserToMonitor();
-    }
+    // Atualiza GID do nó — o servidor é sempre autoritativo na atribuição
+    // FIX V39-GROUP: a condição anterior bloqueava a atualização quando o usuário
+    // já tinha um savedGroupId no localStorage (ex: AAAA) e o servidor atribuía um
+    // grupo filho (ex: AAAB). Resultado: todos os clientes ficavam reportando AAAA
+    // ao monitor mesmo após o servidor criar grupos filhos, fazendo o monitor mostrar
+    // 1 grupo com N>50 usuários em vez dos grupos reais.
+    myGroupIdRef.current = newGid;
+    localStorage.setItem('myGroupId', newGid);
+    sendUserToMonitor();
 
     // FIX V26→V23: Peer ID NUNCA muda. Apenas registra posição se sufixo atribuído.
     if (assignedSuffix && assignedSuffix.length === K10_SUFFIX_LEN) {
