@@ -314,14 +314,14 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 <div class="slbl">▸ PAYLOAD PROTOCOL (NEW vs LEGACY)</div>
 <div class="hint">
   <b>✔ NEW (scales to billions)</b> — Server reports aggregated totals per group:<br>
-  <b class="h-new">{t:'s', id:'SRV-01', total:150000, groups:{AAAA:5000,BBBB:3200,...}}</b> &nbsp;·&nbsp; every 30s<br>
+  <b class="h-new">{t:'s', id:'SRV-01', total:100, groups:{AAAA:50,BBBB:32,...}}</b> &nbsp;·&nbsp; every 30s<br>
   <br>
   <b class="h-old">✗ LEGACY (does not scale)</b> — Each user reports individually:<br>
   {t:'u', id:'K10AAAABB', gid:'AAAA'} &nbsp;·&nbsp; every 30s &nbsp;→ <b style="color:var(--red)">freezes with &gt; 100k users</b><br>
   <br>
   <b>How it works</b>: The monitor receives only 1 msg per server every 30s.
-  With 100 servers and 10M users each, the monitor processes
-  <b style="color:var(--green)">only 100 msgs/30s</b> instead of <b style="color:var(--red)">1 billion</b>. Data removed after <b style="color:var(--red)">90s</b> of silence.
+  With 100 servers and 50 users each, the monitor processes
+  <b style="color:var(--green)">only 100 msgs/30s</b> instead of <b style="color:var(--red)">5,000</b>. Data removed after <b style="color:var(--red)">90s</b> of silence.
 </div>
 
 <div class="footer">
@@ -336,7 +336,7 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 // ═══════════════════════════════════════════════════════════════════════
 const STALE      = 90_000;   // ms: remove server after 90s silence
 const FRESH_THR  = 35_000;   // ms: dot green if heard in last 35s
-const MAX_GRP    = 1_800;    // max users per group (for bar %)
+const MAX_GRP    = 50;           // max users per group (for bar %)
 const PAGE_ROWS  = 80;       // max DOM rows rendered at once
 const RENDER_THR = 1_000;    // min ms between renders (throttle)
 const LOG_MAX    = 100;      // max log lines kept
@@ -351,7 +351,7 @@ const STUN = [
 //  STATE  (aggregated — never stores individual users)
 // ═══════════════════════════════════════════════════════════════════════
 //  servers = {
-//    'SRV-01': { ts: Date.now(), total: 150000, groups: {AAAA:5000, BBBB:3200} }
+//    'SRV-01': { ts: Date.now(), total: 100, groups: {AAAA:50, BBBB:32} }
 //  }
 let peer, servers = {}, conns = new Set();
 let prevGroups = {};   // previous snapshot for delta
@@ -555,7 +555,7 @@ function handleMsg(msg) {
   if (!msg || !msg.t) return;
 
   // ── NEW AGGREGATED PAYLOAD (scalable) ──────────────────────────────
-  // {t:'s', id:'SRV-01', total:150000, groups:{AAAA:5000,BBBB:3200}}
+  // {t:'s', id:'SRV-01', total:100, groups:{AAAA:50,BBBB:32}}
   if (msg.t === 's' && msg.id) {
     const isNew = !servers[msg.id];
     servers[msg.id] = {
