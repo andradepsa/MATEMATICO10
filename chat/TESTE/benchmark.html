@@ -579,7 +579,7 @@ input[type=checkbox] { accent-color: var(--accent); width: 13px; height: 13px; }
     <thead><tr><th>Teste</th><th>Cenário</th><th>Status</th></tr></thead>
     <tbody>
       <tr><td>100 contatos simultâneos na lista</td><td>100 peers se conectando de uma vez</td><td><span class="badge badge-warn" id="ui-list-100">PENDENTE</span></td></tr>
-      <tr><td>Scroll/render de lista longa</td><td>1800 peers (max grupo)</td><td><span class="badge badge-warn" id="ui-list-1800">PENDENTE</span></td></tr>
+      <tr><td>Scroll/render de lista longa</td><td>50 peers (max grupo)</td><td><span class="badge badge-warn" id="ui-list-50">PENDENTE</span></td></tr>
       <tr><td>Remoção de peer desconectado</td><td>peer sai → saiu da lista</td><td><span class="badge badge-warn" id="ui-list-remove">PENDENTE</span></td></tr>
       <tr><td>Badge count por conversa</td><td>msgs não lidas por peer</td><td><span class="badge badge-warn" id="ui-list-badge">PENDENTE</span></td></tr>
     </tbody>
@@ -2537,10 +2537,10 @@ function runVirtualScale() {
   logScale('PHASE', `🚀 SIMULAÇÃO DE ESCALA VIRTUAL — ${users.toLocaleString()} usuários`);
 
   // K10 topology model:
-  // - Max group: 1800 users per group
+  // - Max group: 50 users per group
   // - Each server handles up to 500 connections (Hydra cap)
   // - Normal node: 15 connections, SuperNode: 50
-  const maxGroup = 1800;
+  const maxGroup = 50;
   const serverCap = 500;
   const normalNodeCap = 15;
   const superNodeCap = 50;
@@ -2553,7 +2553,7 @@ function runVirtualScale() {
   const networkBwKbps = (totalMsgsPerSec * 200) / 1024; // 200 bytes avg message
   const memorySizeMB = users * 0.001; // ~1KB per user state
 
-  logScale('INFO', `Grupos necessários: ${groups.toLocaleString()} (max 1800 users/grupo)`);
+  logScale('INFO', `Grupos necessários: ${groups.toLocaleString()} (max 50 users/grupo)`);
   logScale('INFO', `Servidores necessários: ${servers.toLocaleString()} (max 500 conn/servidor Hydra)`);
   logScale('INFO', `Msgs/s totais na rede: ${totalMsgsPerSec.toLocaleString()}`);
   logScale('INFO', `Relay fan-out (TTL=${ttl}): ${relayFanout.toLocaleString()}`);
@@ -2589,7 +2589,7 @@ function renderScaleBars() {
   const bars = document.getElementById('scale-bars');
   if (!bars) return;
   const scenarios = [
-    { label:'100 usuários',        val:100,         cap:1800,        color:'#00ff88' },
+    { label:'100 usuários',        val:100,         cap:50,          color:'#00ff88' },
     { label:'1.000 usuários',      val:1000,        cap:10000,       color:'#00d4ff' },
     { label:'10.000 usuários',     val:10000,       cap:100000,      color:'#ffd600' },
     { label:'100.000 usuários',    val:100000,      cap:1000000,     color:'#ff9800' },
@@ -2598,7 +2598,7 @@ function renderScaleBars() {
   ];
   bars.innerHTML = scenarios.map(s => {
     const pct = Math.min(s.val/s.cap*100, 100);
-    const groups = Math.ceil(s.val/1800);
+    const groups = Math.ceil(s.val/50);
     const servers = Math.ceil(s.val/500);
     return `<div class="scale-bar">
       <div class="scale-bar-label">${s.label}</div>
@@ -2856,17 +2856,17 @@ async function phase_ui_lista(bots, server) {
   setBadge('ui-list-100', rt100<100?'ok':'warn');
   logUI(rt100<100?'OK':'WARN', `100 contatos: render em ${rt100.toFixed(1)}ms`);
 
-  // TEST 2: Simular 1800 peers (max grupo K10)
+  // TEST 2: Simular 50 peers (max grupo K10)
   const t0_1800 = performance.now();
   const frag1800 = document.createDocumentFragment();
-  for (let i=0;i<1800;i++) {
+  for (let i=0;i<50;i++) {
     const div = document.createElement('div');
     div.textContent = `Peer-${i}`;
     frag1800.appendChild(div);
   }
   const rt1800 = performance.now()-t0_1800;
-  setBadge('ui-list-1800', rt1800<500?'ok':'warn');
-  logUI(rt1800<500?'OK':'WARN', `1800 peers (max grupo): render em ${rt1800.toFixed(1)}ms`);
+  setBadge('ui-list-50', rt1800<500?'ok':'warn');
+  logUI(rt1800<500?'OK':'WARN', `50 peers (max grupo): render em ${rt1800.toFixed(1)}ms`);
 
   // TEST 3: Remoção de peer desconectado
   const peerList = new Map(bots.map(b=>[b.id,b]));
@@ -3212,7 +3212,7 @@ async function phase_billion(bots) {
     : 500;
   const msgRate = 0.1; // msgs/s per user
   const ttl = 8;
-  const maxGroup = 1800, serverCap = 500;
+  const maxGroup = 50, serverCap = 500;
   const gidSpace = Math.pow(62,4); // ~14.7M GIDs
 
   for (const sc of scales) {
@@ -3261,7 +3261,7 @@ async function phase_billion(bots) {
 
   // Update dashboard
   document.getElementById('bil-users').textContent  = '1B';
-  document.getElementById('bil-groups').textContent = Math.ceil(1e9/1800).toLocaleString();
+  document.getElementById('bil-groups').textContent = Math.ceil(1e9/50).toLocaleString();
   document.getElementById('bil-servers').textContent= Math.ceil(1e9/500).toLocaleString();
   document.getElementById('bil-msgs').textContent   = (1e9*0.1/1e6).toFixed(1)+'M/s';
   document.getElementById('bil-bw').textContent     = (1e9*0.1*200/1e9).toFixed(2)+'GB/s';
@@ -3281,7 +3281,7 @@ function runBillionModel() {
   const rate = parseFloat(document.getElementById('bil-rate-u').value) || 0.1;
   const ttl = parseInt(document.getElementById('bil-ttl-u').value) || 8;
   const logB = (l,m) => { log(l,m,'console-billion'); };
-  const maxGroup=1800, serverCap=500, gidSpace=Math.pow(62,4);
+  const maxGroup=50, serverCap=500, gidSpace=Math.pow(62,4);
   const baseRTT = state.rttSamples.length?state.rttSamples.reduce((a,b)=>a+b,0)/state.rttSamples.length:500;
   logB('PHASE',`🌍 MODELO: ${n.toLocaleString()} usuários, ${rate} msgs/s/user, TTL=${ttl}`);
   const groups = Math.ceil(n/maxGroup);
@@ -3309,7 +3309,7 @@ function runAllScales() {
   const scales = [1e3,1e5,1e6,1e7,1e8,1e9,7.9e9];
   const logB = (l,m) => { log(l,m,'console-billion'); };
   scales.forEach(n => {
-    const g=Math.ceil(n/1800), s=Math.ceil(n/500), m=n*0.1, bw=(m*200/1e9).toFixed(3);
+    const g=Math.ceil(n/50), s=Math.ceil(n/500), m=n*0.1, bw=(m*200/1e9).toFixed(3);
     logB('INFO',`${n.toLocaleString().padStart(15)}: ${g.toLocaleString().padStart(12)} grupos | ${s.toLocaleString().padStart(10)} servers | ${bw}GB/s`);
   });
 }
@@ -3399,7 +3399,7 @@ Versão     : V2 OMEGA — 40 Fases
   report += `
 
 ━━━ ESCALABILIDADE K10 ━━━
-  Modelo K10: max 1800 users/grupo, 500 conns/servidor (Hydra), TTL max=15
+  Modelo K10: max 50 users/grupo, 500 conns/servidor (Hydra), TTL max=15
   GID: até 4 chars = 62^4 ≈ 14.7M grupos → ~26.5 BILHÕES de usuários teóricos
 
 ━━━ V2 OMEGA — TESTES ADICIONAIS ━━━`;
