@@ -133,7 +133,7 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 
 <div class="header">
   <div>
-    <h1>K10<span class="dot">.</span>MONITOR <span class="ver">PRO v7</span></h1>
+    <h1>K10<span class="dot">.</span>MONITOR <span class="ver">PRO v6</span></h1>
     <div style="font-size:9px;color:var(--dim);letter-spacing:2px;margin-top:4px">
       ADVANCED HEALTH · DISTRIBUTION STATS · TOPOLOGY METRICS
     </div>
@@ -474,12 +474,10 @@ function updateHealthUI() {
 
   let userTrend = 0, serverTrend = 0, nodeTrend = 0, groupTrend = 0;
   if (previous) {
-    // FIX v7-TREND: prev=0 e cur>0 mostrava 0% (parecia estavel). Agora retorna +100% (cresceu do zero).
-    const safeTrend = (cur, prev) => prev > 0 ? ((cur - prev) / prev) * 100 : (cur > 0 ? 100 : 0);
-    userTrend   = safeTrend(latest.totalUsers,   previous.totalUsers);
-    serverTrend = safeTrend(latest.totalServers, previous.totalServers);
-    nodeTrend   = safeTrend(latest.totalNodes,   previous.totalNodes);
-    groupTrend  = safeTrend(latest.totalGroups,  previous.totalGroups);
+    userTrend = ((latest.totalUsers - previous.totalUsers) / (previous.totalUsers || 1)) * 100;
+    serverTrend = ((latest.totalServers - previous.totalServers) / (previous.totalServers || 1)) * 100;
+    nodeTrend = ((latest.totalNodes - previous.totalNodes) / (previous.totalNodes || 1)) * 100;
+    groupTrend = ((latest.totalGroups - previous.totalGroups) / (previous.totalGroups || 1)) * 100;
   }
 
   let healthStatus = 'green';
@@ -598,12 +596,10 @@ window.exportReportsToTxt = function() {
   if (healthReports.length >= 2) {
     const latest = healthReports[0];
     const prev = healthReports[1];
-    // FIX v7-TREND-EXPORT: aplica mesma logica safeTrend usada na UI
-    const safeTrend = (cur, p) => p > 0 ? ((cur - p) / p) * 100 : (cur > 0 ? 100 : 0);
-    const userDelta = safeTrend(latest.totalUsers, prev.totalUsers);
-    const serverDelta = safeTrend(latest.totalServers, prev.totalServers);
-    const nodeDelta = safeTrend(latest.totalNodes, prev.totalNodes);
-    const groupDelta = safeTrend(latest.totalGroups, prev.totalGroups);
+    const userDelta = ((latest.totalUsers - prev.totalUsers) / (prev.totalUsers || 1)) * 100;
+    const serverDelta = ((latest.totalServers - prev.totalServers) / (prev.totalServers || 1)) * 100;
+    const nodeDelta = ((latest.totalNodes - prev.totalNodes) / (prev.totalNodes || 1)) * 100;
+    const groupDelta = ((latest.totalGroups - prev.totalGroups) / (prev.totalGroups || 1)) * 100;
     content += `📈 TENDÊNCIAS (último vs penúltimo):\n`;
     content += `   Usuários : ${userDelta>=0?'+':''}${userDelta.toFixed(2)}%\n`;
     content += `   Servidores: ${serverDelta>=0?'+':''}${serverDelta.toFixed(2)}%\n`;
