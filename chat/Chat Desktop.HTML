@@ -70,7 +70,7 @@
      ══════════════════════════════════════════════════════════════════════
      Correções anteriores V44 mantidas integralmente.
      ══════════════════════════════════════════════════════════════════════
-     FIX V44-GENERAL-SERVERLIST: K10-CENTRAL e servidores da lista de contatos
+     FIX V44-GENERAL-SERVERLIST: K10-GATE-0001 e servidores da lista de contatos
           não apareciam na aba Geral
           - Bug V43: filtro usava isMyGroupServer(c.peer), que só retorna true
             para servidores presentes em groupServersRef.current (vindo do peer-list).
@@ -82,7 +82,7 @@
           - Fix: filtro da lista de servidores alterado de isMyGroupServer → isCentralServer.
             Qualquer conexão com ID terminado em -CENTRAL aparece na aba Geral,
             seja vinda do peer-list ou conectada manualmente pela lista de contatos.
-          - K10-CENTRAL e servidores adicionados como contato agora sempre aparecem.
+          - K10-GATE-0001 e servidores adicionados como contato agora sempre aparecem.
 
      FIX V44-GENERAL-USERLIST: lista de usuários do Modo Geral sumia ao enviar mensagem
           - Bug V43/V44: ao clicar em um servidor na aba Geral, setSelectedContact(serverId)
@@ -124,7 +124,7 @@
      ══════════════════════════════════════════════════════════════════════
      FIX V41-RELAY-DEDUP: relayMessage não deduplicava por msgId — causava
           double-delivery confirmado nos testes V5/V6.
-          - Bug V40: quando K10-CENTRAL distribuía um broadcast para todos os
+          - Bug V40: quando K10-GATE-0001 distribuía um broadcast para todos os
             peers (bots + usuários reais), os usuários reais recebiam a mensagem
             do servidor e imediatamente faziam relay P2P para os bots — que já
             tinham recebido diretamente do servidor. Cada bot recebia 2 cópias.
@@ -186,20 +186,20 @@
 
      NOTA: Aba YouTube continua funcionando normalmente (sem alterações)
      ══════════════════════════════════════════════════════════════════════
-          - Causa: quando K10-CENTRAL retransmite (relay) uma mensagem de outro peer,
-            o handler definia recipient = pId = 'K10-CENTRAL' (isFromSrv=true)
+          - Causa: quando K10-GATE-0001 retransmite (relay) uma mensagem de outro peer,
+            o handler definia recipient = pId = 'K10-GATE-0001' (isFromSrv=true)
             em vez de recipient = 'general'
           - filteredMessages filtra: msg.recipient === 'general'
             → mensagens relay ficavam invisíveis para o destinatário!
-          - Causa secundária: sender = pId = 'K10-CENTRAL' em vez de data.sender
+          - Causa secundária: sender = pId = 'K10-GATE-0001' em vez de data.sender
             → nome do remetente mostrava o servidor em vez do usuário original
           - Fix 1 (mensagens normais): recipient sempre 'general' para data.direct=false
           - Fix 2 (mensagens poll): mesma correção no baseMessage de enquetes
           - Fix 3 (mensagens quiz): mesma correção no baseQuizMsg
           - Fix geral: sender = data.sender || pId (usa remetente original do payload)
           - Resultado: mensagens de todos os peers aparecem corretamente no Chat Geral
-            mesmo quando roteadas via K10-CENTRAL ✅
-     NOTA DESIGN: K10-CENTRAL é o Portal Grupo 0 (sempre ativo) E o servidor do grupo
+            mesmo quando roteadas via K10-GATE-0001 ✅
+     NOTA DESIGN: K10-GATE-0001 é o Portal Grupo 0 (sempre ativo) E o servidor do grupo
           em setups com servidor único — o FIX V32 (connectToPeer permanente) é correto
           para este caso. O bug era apenas no roteamento de mensagens relay.
      ══════════════════════════════════════════════════════════════════════
@@ -1143,9 +1143,9 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
     // FIX: O bloco <script> roda ANTES dos externos (PeerJS carrega na linha ~1209).
     // Envolvemos tudo em initK10Central() e esperamos Peer estar disponível via polling.
     function initK10Central() {
-      console.log('[K10] Iniciando servidor central K10-CENTRAL (todos no mesmo grupo)...');
+      console.log('[K10] Iniciando servidor central K10-GATE-0001 (todos no mesmo grupo)...');
 
-      const PEER_ID = 'K10-CENTRAL';
+      const PEER_ID = 'K10-GATE-0001';
       const MAX_PEERS = 5000;
       const connections = new Map(); // peerId -> { conn, lastSeen }
       const GROUP_ID = 'AAAA';      // grupo fixo para todos os clientes
@@ -1159,12 +1159,12 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
       });
 
       peer.on('open', () => {
-        console.log('✅ Servidor K10-CENTRAL online (modo grupo único)');
+        console.log('✅ Servidor K10-GATE-0001 online (modo grupo único)');
       });
 
       peer.on('error', (err) => {
         if (err.type === 'unavailable-id') {
-          console.warn('⚠️ ID K10-CENTRAL já em uso. Outro servidor já está rodando.');
+          console.warn('⚠️ ID K10-GATE-0001 já em uso. Outro servidor já está rodando.');
         } else {
           console.error('Erro no servidor:', err);
         }
@@ -1274,7 +1274,7 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
           type: 'message',
           id: 'sys_welcome_' + Date.now(), // BUG FIX: sem id, dedup era bypassado e msg podia duplicar
           text: text,
-          senderName: '🚀 K10-CENTRAL',
+          senderName: '🚀 K10-GATE-0001',
           direct: false,
           timestamp: Date.now(),
           time: new Date().toLocaleTimeString()
@@ -1387,7 +1387,7 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 
       // Opcional: envia uma mensagem de boas-vindas quando o servidor inicia
       setTimeout(() => {
-        broadcastSystemMessage('🎉 Servidor K10-CENTRAL ativo! Todos os usuários estão no mesmo grupo.');
+        broadcastSystemMessage('🎉 Servidor K10-GATE-0001 ativo! Todos os usuários estão no mesmo grupo.');
       }, 2000);
     } // fim initK10Central
 
@@ -2382,14 +2382,10 @@ const K10_POSITION_LIST = (() => {
 // O Peer ID do usuário NUNCA é alterado por nenhuma dessas operações.
 // Apenas myGroupIdRef (GID) e directoryGlobalRef são modificados.
 // ══════════════════════════════════════════════════════════════════════════════
-const K10_SPLIT_THRESHOLD   = 50;   // dispara mitose (= K10_MAX_GROUP)
-const K10_TRANSFER_SIZE     = 5;    // 10% dos usuários mais recentes → Filho
-const K10_TUTOR_TARGET      = 47;   // Filho "adulto" — fim da fase de tutela
-const K10_ALERT_LOW         = 44;   // alerta amarelo — grupo próximo do mínimo seguro
-const K10_CRITICAL_LOW      = 39;   // alerta vermelho — irmão doa usuários ativamente
-const K10_MERGE_THRESHOLD   = 47;   // fusão se Pai+Filho ≤ este valor
-const K10_MERGE_DEBOUNCE_MS = 300000; // 5 min estável antes de fundir (evita fusões frenéticas)
-const K10_COMPENSATE_DELTA  = 3;    // usuários transferidos por ciclo de compensação
+// ═══ V51: Constantes simplificadas ═══
+// Homeostase removida — grupos gerenciados pelo gateway (doAssignPeer + close).
+// GATEWAY_IDS: 100 gateways distribuídos para bootstrap
+const GATEWAY_IDS = Array.from({ length: 100 }, (_, i) => `K10-GATE-${(i+1).toString().padStart(4, '0')}`);
 
 // Verifica se um peerId tem formato K10 válido
 const isK10Id = (id) => typeof id === 'string' && id.length === K10_TOTAL_LEN && id.startsWith(K10_PREFIX);
@@ -3439,7 +3435,7 @@ return (
 </div>
 ))}
 </div>
-<a href="https://andradepsa.github.io/MATEMATICO10/chat/Chat%20Desktop.HTML?portas=K10-CENTRAL" style={{ display: 'block', marginTop: '15px', color: 'var(--primary)', fontSize: '14px', textDecoration: 'underline', fontWeight: 600 }}>Abrir Chat Desktop K10-CENTRAL</a>
+<a href="https://andradepsa.github.io/MATEMATICO10/chat/Chat%20Desktop.HTML?portas=K10-GATE-0001" style={{ display: 'block', marginTop: '15px', color: 'var(--primary)', fontSize: '14px', textDecoration: 'underline', fontWeight: 600 }}>Abrir Chat Desktop K10-GATE-0001</a>
 </div>
 );
 };
@@ -3929,7 +3925,7 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
 
 
 <div className="chat-main-container">
-{/* V46: sidebar única — contatos salvos + quem mandou msg direta. K10-CENTRAL oculto da UI */}
+{/* V46: sidebar única — contatos salvos + quem mandou msg direta. K10-GATE-0001 oculto da UI */}
 <div className="conversations-list">
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
     <h4 style={{ margin: 0 }}>{t(lang, 'conversations')}</h4>
@@ -3939,9 +3935,9 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
   </div>
   {(() => {
     // V46: só aparece na lista: (1) contatos salvos, (2) quem mandou msg direta
-    // APENAS K10-CENTRAL fica oculto — todos os outros contatos/servidores aparecem normalmente
+    // APENAS K10-GATE-0001 fica oculto — todos os outros contatos/servidores aparecem normalmente
     const visibleConns = connections.filter(conn =>
-      conn.peer !== 'K10-CENTRAL' && (
+      conn.peer !== 'K10-GATE-0001' && (
         contacts.some(c => c.peerId === conn.peer) ||
         (directPeers && directPeers.has(conn.peer)) ||
         (directPeersRef && directPeersRef.current.has(conn.peer))
@@ -3949,7 +3945,7 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
     );
     // selectedContact em andamento (connectToPeer ainda não abriu)
     const selectedInList = visibleConns.some(c => c.peer === selectedContact);
-    const pendingEntry = (selectedContact && selectedContact !== 'K10-CENTRAL' && !selectedInList &&
+    const pendingEntry = (selectedContact && selectedContact !== 'K10-GATE-0001' && !selectedInList &&
       (contacts.some(c => c.peerId === selectedContact) || (directPeersRef && directPeersRef.current.has(selectedContact)))) ?
       [{ peer: selectedContact, open: false, _pending: true }] : [];
     const finalConns = [...pendingEntry, ...visibleConns];
@@ -5909,7 +5905,7 @@ const pendingRadioFiles = useRef({});
 const radioIntervalRef = useRef(null);
 const knownUsersRef = useRef(new Set());
 const peerIdRef = useRef(null);
-// ── K10 MONITOR: ID fixo, oculto — igual ao K10-CENTRAL ──────────────────────
+// ── K10 MONITOR: ID fixo, oculto — igual ao K10-GATE-0001 ──────────────────────
 const K10_MONITOR_ID = 'K10-MON';
 const monitorTimerRef = useRef(null);
 const stopMonitorReporting = () => {
@@ -6086,7 +6082,7 @@ return () => clearTimeout(timer);
 }, [cooldownRemaining]);
 
 
-const isCentralServer = (id) => id && id.endsWith('-CENTRAL');
+const isCentralServer = (id) => id && id.startsWith('K10-GATE-');
 // V48: rastreia servidores que operam em Router Mode (não devem virar centralServerId)
 const routerModeServersRef = useRef(new Set());
 // V42: servidor do MEU grupo
@@ -6226,8 +6222,8 @@ return sent;
 };
 
 const handleIncomingData = (data, pId) => {
-  // V49: nota que o K10-CENTRAL real (ou shadow eleito) esta vivo para evitar re-eleicao desnecessaria
-  if (pId === 'K10-CENTRAL') { try { K10ShadowCentral.noteCentralAlive(); } catch(e) {} }
+  // V49: nota que o K10-GATE-0001 real (ou shadow eleito) esta vivo para evitar re-eleicao desnecessaria
+  if (pId === 'K10-GATE-0001') { try { K10ShadowCentral.noteCentralAlive(); } catch(e) {} }
 
 const maxConnections = isSuperNode ? 50 : 15;
 
@@ -6541,7 +6537,7 @@ if (data.type === 'group0-welcome') {
 
   // ── FIX V32: sem peers[] E sem servers[] → conecta permanentemente ao servidor de origem ──
   // Sem isso, o cliente fica com connections.length===0 e Modo Geral mostra
-  // "Aguardando conexões..." para sempre. O servidor de origem (pId = K10-CENTRAL)
+  // "Aguardando conexões..." para sempre. O servidor de origem (pId = K10-GATE-0001)
   // já conhece o cliente e vai incluí-lo no grupo — conexão permanente, não heartbeat.
   const hasValidPeers = Array.isArray(data.peers) && data.peers.length > 0;
   const hasValidServers = candidates.length > 0;
@@ -6552,7 +6548,7 @@ if (data.type === 'group0-welcome') {
     // recebido entao a conexao anterior (group0-request) ja terminou.
     setTimeout(() => {
       if (peerInstance.current && !peerInstance.current.destroyed) {
-        connectToPeer(pId); // pId = K10-CENTRAL (real ou shadow) — vira membro regular
+        connectToPeer(pId); // pId = K10-GATE-0001 (real ou shadow) — vira membro regular
       }
     }, 1500);
   }
@@ -6646,7 +6642,7 @@ if (data.type === 'peer-list') {
       routerModeServersRef.current.add(pId);
       addAudit(`[V48] Router Mode detectado em ${pId} — não será centralServerId`, 'info');
     }
-    // V42: atualiza lista de servidores do grupo (máx 10, enviada pelo K10-CENTRAL V36)
+    // V42: atualiza lista de servidores do grupo (máx 10, enviada pelo K10-GATE-0001 V36)
     // Só sobrescreve se o campo veio na mensagem — ausente = servidor pré-V36 (mantém null = fallback)
     if (Object.prototype.hasOwnProperty.call(data, 'groupServers') && Array.isArray(data.groupServers)) {
       groupServersRef.current = data.groupServers;
@@ -6888,31 +6884,15 @@ if (data.type === 'position-update') {
 
 
 // ── V24: pex-family — lista delta comprimida para família de grupos ──────────
-if (data.type === 'pex-family') {
-  const { prefix, base, branches } = data;
-  if (!prefix || typeof prefix !== 'string' || !Array.isArray(base) || !Array.isArray(branches)) return;
-  branches.forEach(({ ext, delta }) => {
-    if (!ext || !Array.isArray(delta)) return;
-    const gid = prefix + ext;
-    // V26: registra GID da família no registry binário (para receber eventos binários)
-    k10bin.registerGid(gid);
-    const allSuffixes = [...base, ...delta];
-    if (!directoryGlobalRef.current[gid]) {
-      directoryGlobalRef.current[gid] = { reservados: [], groupSize: 0 };
-    }
-    directoryGlobalRef.current[gid].groupSize = Math.max(
-      directoryGlobalRef.current[gid].groupSize || 0,
-      allSuffixes.length
-    );
-    // Conecta aos peers do MEU grupo usando a lista comprimida
-    if (myGroupIdRef.current === gid && peerInstance.current) {
-      // FIX-7-PEX-FAMILY: loop de conexão via IDs sintéticos REMOVIDO.
-      // O servidor extrai "sufixos" dos últimos 2 chars de IDs aleatórios (ex: QYTPF8YAM → "AM").
-      // k10BuildPeerId(gid, "AM") → "K10AAAAAAM" — ID que nunca existe no PeerJS.
-      // Conexão P2P correta ocorre via peer-list (data.peers[] com IDs reais — FIX V33).
-    }
-  });
-  // Relay com TTL decrementado
+// ═══ V51: Handlers homeostáticos removidos ═══
+// pex-family, group-tutor-status, group-alert, group-compensate,
+// group-orphan-rescue, group-size-report, gid-promote — todos removidos.
+// Relay mínimo para compatibilidade:
+if (data.type === 'pex-family' || data.type === 'group-tutor-status' ||
+    data.type === 'group-alert' || data.type === 'group-compensate' ||
+    data.type === 'group-orphan-rescue' || data.type === 'group-size-report' ||
+    data.type === 'gid-promote') {
+  if (data.msgId && isDuplicate(data.msgId)) return;
   if ((data.ttl || 0) > 0) {
     const relay = { ...data, ttl: capTtl(data.ttl) - 1 };
     connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
@@ -6920,325 +6900,32 @@ if (data.type === 'pex-family') {
   return;
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
-// V27: HANDLERS HOMEOSTÁTICOS DE GRUPO
-// INVARIANTE ABSOLUTA: peerIdRef.current NUNCA é alterado aqui.
-//   Apenas myGroupIdRef.current e directoryGlobalRef.current são modificados.
-// Todos os handlers fazem deduplicação por msgId antes de processar.
-// ══════════════════════════════════════════════════════════════════════════════
-
-// ── Handler group-split: movido para FASE-3 (linha ~7413) ────────────────────
-// O handler FASE-3 usa os campos corretos do protocolo Hydra: oldGroupId/newGroupId.
-// FIX-CRÍTICO: handler V27 removido pois usava parentGid/childGid (campos inexistentes)
-// e terminava com return incondicionalmente, bloqueando o handler FASE-3.
-// Processamento de 'group-split' ocorre exclusivamente no handler FASE-3 abaixo.
-
-// ── Handler 2: group-tutor-status — Atualiza estado de tutela ────────────────
-// Payload: { childGid, childSize, parentGid, active, msgId }
-// Semântica: informa se o Filho ainda está em fase de tutela.
-//   'active' = true  → Filho ainda não atingiu K10_TUTOR_TARGET.
-//   'active' = false → Filho é adulto; irmandade simbiótica iniciada.
-if (data.type === 'group-tutor-status') {
-  if (isGroupOpDuplicate(data.msgId)) return;
-  if (!isCentralServer(pId) && pId !== centralServerIdRef.current) return;
-  const { childGid, childSize, parentGid, active } = data;
-  if (!childGid) return;
-  const safeSize = Math.max(0, Math.min(K10_MAX_GROUP, parseInt(childSize) || 0));
-  // Atualiza diretório do Filho com tamanho mais recente
-  setGroupSize(childGid, safeSize);
-  // Atualiza ref de tutela (usado para exibir badge de status)
-  if (active) {
-    groupTutorStateRef.current = { childGid, parentGid, childSize: safeSize };
-    // Calcula a faixa de roteamento ponderado para o log
-    let routingPct = 0;
-    // FIX-8-TUTOR-ROUTING: thresholds proporcionais a K10_TUTOR_TARGET=47 (eram 500/1000/1500/1700 de K10_MAX_GROUP=1800).
-    // Com max=50, todos os grupos sempre seriam < 500 → sempre mostrava 95% (errado).
-    const t = K10_TUTOR_TARGET;
-    if (safeSize < Math.floor(t * 0.25))       routingPct = 95; // < 12
-    else if (safeSize < Math.floor(t * 0.50))  routingPct = 80; // < 24
-    else if (safeSize < Math.floor(t * 0.75))  routingPct = 60; // < 35
-    else if (safeSize < t)                      routingPct = 30; // < 47
-    addAudit(
-      `[K10-V27 TUTELA] Filho ${childGid}: ${safeSize}/${K10_TUTOR_TARGET} usuários. ` +
-      `Roteamento: ${routingPct}% de novos entrantes → Filho.`,
-      'info'
-    );
-  } else {
-    // Tutela encerrada — ambos os grupos são adultos
-    groupTutorStateRef.current = null;
-    addAudit(
-      `[K10-V27 TUTELA] Grupo ${childGid} atingiu ${K10_TUTOR_TARGET} usuários. ` +
-      `Fase adulta iniciada. Irmandade simbiótica com ${parentGid}.`,
-      'success'
-    );
-    addGroupSystemMsg(`✅ Grupo ${childGid} atingiu autonomia. Irmandade simbiótica ativada.`);
+// V51: group-full — gateway notifica que o grupo atingiu 50
+if (data.type === 'group-full') {
+  const { gid, size } = data;
+  if (gid && directoryGlobalRef.current[gid]) {
+    directoryGlobalRef.current[gid].groupSize = size || K10_MAX_GROUP;
   }
+  addAudit(`[V51] Grupo ${gid} CHEIO (${size}/${K10_MAX_GROUP})`, 'warn');
   return;
 }
 
-// ── Handler 3: group-alert — Alerta de nível crítico/alarme ─────────────────
-// Payload: { gid, size, level, siblingGid, msgId }
-// level: 'yellow' (< K10_ALERT_LOW) | 'red' (< K10_CRITICAL_LOW) | 'ok'
-// Semântica: notifica peers do grupo sobre nível de ocupação para que
-//   a UI possa exibir indicador de saúde e o servidor ajuste roteamento.
-if (data.type === 'group-alert') {
-  if (isGroupOpDuplicate(data.msgId)) return;
-  if (!isCentralServer(pId) && pId !== centralServerIdRef.current) return;
-  const { gid, size, level, siblingGid } = data;
-  if (!gid) return;
-  const safeSize = Math.max(0, Math.min(K10_MAX_GROUP, parseInt(size) || 0));
-  setGroupSize(gid, safeSize);
-  if (level === 'red') {
-    addAudit(
-      `[K10-V27 ALERTA 🔴] Grupo ${gid}: ${safeSize} usuários (< ${K10_CRITICAL_LOW}). ` +
-      `Irmão ${siblingGid || '?'} iniciará compensação ativa.`,
-      'error'
-    );
-    if (myGroupIdRef.current === gid) {
-      addGroupSystemMsg(
-        `🔴 Grupo crítico: ${safeSize} usuários. Compensação automática em andamento.`
-      );
-    }
-  } else if (level === 'yellow') {
-    addAudit(
-      `[K10-V27 ALERTA 🟡] Grupo ${gid}: ${safeSize} usuários (< ${K10_ALERT_LOW}). ` +
-      `Novos entrantes redirecionados. Monitorando irmão ${siblingGid || '?'}.`,
-      'warn'
-    );
-  } else {
-    // level === 'ok': grupo voltou ao normal
-    addAudit(
-      `[K10-V27 ALERTA ✅] Grupo ${gid}: ${safeSize} usuários. Nível normalizado.`,
-      'success'
-    );
+// V51: group-reopened — gateway notifica que o grupo reabriu (49)
+if (data.type === 'group-reopened') {
+  const { gid, size } = data;
+  if (gid && directoryGlobalRef.current[gid]) {
+    directoryGlobalRef.current[gid].groupSize = size || K10_MAX_GROUP - 1;
   }
+  addAudit(`[V51] Grupo ${gid} REABERTO (${size}/${K10_MAX_GROUP})`, 'ok');
   return;
 }
 
-// ── Handler 4: group-compensate — Transferência de usuários entre irmãos ─────
-// Payload: { donorGid, receiverGid, donorNewSize, receiverNewSize, msgId }
-// Semântica: o grupo donorGid doou K10_COMPENSATE_DELTA usuários ao receiverGid.
-//   Se myGroupIdRef === donorGid E iAmTransferred === true → migra para receiverGid.
-//   Caso contrário: atualiza apenas os tamanhos no diretório.
-//   Peer ID permanece INTOCADO em qualquer caso.
-if (data.type === 'group-compensate') {
-  if (isGroupOpDuplicate(data.msgId)) return;
-  if (!isCentralServer(pId) && pId !== centralServerIdRef.current) return;
-  const { donorGid, receiverGid, donorNewSize, receiverNewSize, iAmTransferred } = data;
-  if (!donorGid || !receiverGid) return;
-  const safeDonorSize    = Math.max(0, Math.min(K10_MAX_GROUP, parseInt(donorNewSize)    || 0));
-  const safeReceiverSize = Math.max(0, Math.min(K10_MAX_GROUP, parseInt(receiverNewSize) || 0));
-  // Atualiza tamanhos no diretório local
-  setGroupSize(donorGid,    safeDonorSize);
-  setGroupSize(receiverGid, safeReceiverSize);
-  // Garante que o GID do receptor está registrado no registry binário
-  k10bin.registerGid(receiverGid);
-  if (iAmTransferred === true) {
-    // Este peer é um dos transferidos do doador para o receptor
-    // INVARIANTE: peerIdRef.current permanece intocado
-    const oldGid = myGroupIdRef.current;
-    myGroupIdRef.current = receiverGid;
-    localStorage.setItem('myGroupId', receiverGid);
-    sendUserToMonitor();
-    // FIX-9-COMPENSATE-CONNECT: após migração para receiverGid, reconecta ao servidor
-    // central para receber peer-list fresco com IDs reais dos peers do grupo receptor.
-    if (peerInstance.current) {
-      const servers = groupServersRef.current && groupServersRef.current.length > 0
-        ? groupServersRef.current
-        : (centralServerIdRef.current ? [centralServerIdRef.current] : []);
-      servers.forEach(srv => {
-        if (srv && !peerInstance.current.connections[srv]) {
-          setTimeout(() => connectToPeer(srv), Math.random() * 2000);
-        }
-      });
-    }
-    addAudit(
-      `[K10-V27 COMPENSAÇÃO] Movido de ${oldGid} (${safeDonorSize}) → ` +
-      `${receiverGid} (${safeReceiverSize}). Peer ID mantido: ${peerIdRef.current}`,
-      'success'
-    );
-    addGroupSystemMsg(
-      `⚖️ Compensação de grupo: você foi movido para ${receiverGid} ` +
-      `(${safeReceiverSize} usuários). Seu ID pessoal não mudou.`
-    );
-  } else {
-    addAudit(
-      `[K10-V27 COMPENSAÇÃO] Doador ${donorGid} → ${safeDonorSize} | ` +
-      `Receptor ${receiverGid} → ${safeReceiverSize}. Não transferido.`,
-      'info'
-    );
-  }
-  return;
-}
-
-// ── Handler group-merge: movido para FASE-3 (linha ~7469) ────────────────────
-// O handler FASE-3 usa os campos corretos do protocolo Hydra: survivingGroupId/absorbedGroupId.
-// FIX-CRÍTICO: handler V27 removido pois usava survivorGid/dissolvedGid (campos inexistentes)
-// e terminava com return incondicionalmente, bloqueando o handler FASE-3.
-// Processamento de 'group-merge' ocorre exclusivamente no handler FASE-3 abaixo.
-
-// ── Handler 6: group-orphan-rescue — Resgate de órfãos após queda ────────────
-// Payload: { rescuerGid, orphanGid, rescuerNewSize, msgId }
-// Semântica: o servidor do grupo orphanGid caiu. O grupo rescuerGid absorve
-//   os usuários órfãos. Se myGroupIdRef === orphanGid → migra para rescuerGid.
-//   Peer ID permanece INTOCADO.
-if (data.type === 'group-orphan-rescue') {
-  if (isGroupOpDuplicate(data.msgId)) return;
-  if (!isCentralServer(pId) && pId !== centralServerIdRef.current) return;
-  const { rescuerGid, orphanGid, rescuerNewSize } = data;
-  if (!rescuerGid || !orphanGid) return;
-  const safeRescuerSize = Math.max(0, Math.min(K10_MAX_GROUP, parseInt(rescuerNewSize) || 0));
-  // Remove o grupo órfão do diretório
-  delete directoryGlobalRef.current[orphanGid];
-  // Atualiza o grupo resgatador
-  setGroupSize(rescuerGid, safeRescuerSize);
-  k10bin.registerGid(rescuerGid);
-  // Se este peer era do grupo órfão → migra para o resgatador
-  // Peer ID permanece INTOCADO
-  if (myGroupIdRef.current === orphanGid) {
-    myGroupIdRef.current = rescuerGid;
-    localStorage.setItem('myGroupId', rescuerGid);
-    sendUserToMonitor();
-    // FIX-5-ORPHAN-RESCUE-CONNECT: era loop com k10BuildPeerId(rescuerGid, suffix) → IDs sintéticos.
-    // Reconecta ao servidor central para peer-list fresco com IDs reais.
-    if (peerInstance.current) {
-      const servers = groupServersRef.current && groupServersRef.current.length > 0
-        ? groupServersRef.current
-        : (centralServerIdRef.current ? [centralServerIdRef.current] : []);
-      servers.forEach(srv => {
-        if (srv && !peerInstance.current.connections[srv]) {
-          setTimeout(() => connectToPeer(srv), Math.random() * 2000);
-        }
-      });
-    }
-    addAudit(
-      `[K10-V27 ORFANATO] Servidor do grupo ${orphanGid} caiu. ` +
-      `Reabsorvido por ${rescuerGid} (${safeRescuerSize} usuários). ` +
-      `Peer ID mantido: ${peerIdRef.current}`,
-      'warn'
-    );
-    addGroupSystemMsg(
-      `🆘 Servidor do seu grupo caiu. Você foi resgatado e movido para ${rescuerGid} ` +
-      `(${safeRescuerSize} usuários). Seu ID pessoal não mudou.`
-    );
-  } else {
-    addAudit(
-      `[K10-V27 ORFANATO] Grupo ${orphanGid} resgatado por ${rescuerGid} ` +
-      `(${safeRescuerSize}). Não afetado.`,
-      'info'
-    );
-  }
-  return;
-}
-
-// ── V27: Lógica de Debounce de Fusão (avaliação periódica P2P) ───────────────
-// Esta lógica é executada localmente como monitor de saúde, mas a fusão real
-// só ocorre quando o servidor envia 'group-merge'. Esta função avalia se as
-// condições de fusão estão presentes e registra no audit para o servidor agir.
-// NÃO executa fusão diretamente — apenas monitora e reporta.
-if (data.type === 'group-size-report') {
-  // Mensagem enviada pelo servidor para sincronizar tamanhos de grupos irmãos
-  if (!isCentralServer(pId) && pId !== centralServerIdRef.current) return;
-  const { groups } = data; // Array de { gid, size }
-  if (!Array.isArray(groups)) return;
-  groups.forEach(({ gid, size }) => {
-    if (!gid || typeof size !== 'number') return;
-    setGroupSize(gid, size);
-  });
-  // Avalia condição de fusão para pares de grupos
-  // Encontra pares (Pai, Filho) onde soma ≤ K10_MERGE_THRESHOLD
-  const gids = groups.map(g => g.gid);
-  for (let i = 0; i < gids.length; i++) {
-    for (let j = i + 1; j < gids.length; j++) {
-      const gA = gids[i], gB = gids[j];
-      const sumAB = getGroupSize(gA) + getGroupSize(gB);
-      if (sumAB <= K10_MERGE_THRESHOLD) {
-        const debounce = groupMergeDebounceRef.current;
-        const now = Date.now();
-        if (!debounce || debounce.gid1 !== gA || debounce.gid2 !== gB) {
-          // Nova condição de fusão — inicia debounce
-          if (groupMergeTimerRef.current) clearTimeout(groupMergeTimerRef.current);
-          groupMergeDebounceRef.current = { gid1: gA, gid2: gB, since: now, sum: sumAB };
-          groupMergeTimerRef.current = setTimeout(() => {
-            // Após K10_MERGE_DEBOUNCE_MS: condição estável → audita para o servidor
-            // O servidor tomará a decisão final e enviará 'group-merge'
-            const cur = groupMergeDebounceRef.current;
-            if (cur && cur.gid1 === gA && cur.gid2 === gB) {
-              addAudit(
-                `[K10-V27 FUSÃO-DEBOUNCE] Condição de fusão estável por 5min: ` +
-                `${gA}(${getGroupSize(gA)}) + ${gB}(${getGroupSize(gB)}) = ${getGroupSize(gA)+getGroupSize(gB)} ≤ ${K10_MERGE_THRESHOLD}. ` +
-                `Aguardando confirmação do servidor para executar fusão.`,
-                'warn'
-              );
-            }
-            groupMergeDebounceRef.current = null;
-            groupMergeTimerRef.current = null;
-          }, K10_MERGE_DEBOUNCE_MS);
-          addAudit(
-            `[K10-V27 FUSÃO] Condição detectada: ${gA}+${gB}=${sumAB} ≤ ${K10_MERGE_THRESHOLD}. ` +
-            `Aguardando ${K10_MERGE_DEBOUNCE_MS/60000}min sem oscilação.`,
-            'info'
-          );
-        }
-        // else: mesma condição, debounce já em andamento — não reinicia
-      } else {
-        // Condição de fusão não atendida — cancela debounce se existia
-        const debounce = groupMergeDebounceRef.current;
-        if (debounce && debounce.gid1 === gA && debounce.gid2 === gB) {
-          if (groupMergeTimerRef.current) clearTimeout(groupMergeTimerRef.current);
-          groupMergeDebounceRef.current = null;
-          groupMergeTimerRef.current = null;
-          addAudit(
-            `[K10-V27 FUSÃO] Condição cancelada: ${gA}+${gB}=${sumAB} > ${K10_MERGE_THRESHOLD}. Debounce resetado.`,
-            'info'
-          );
-        }
-      }
-    }
-  }
-  return;
-}
-// ══════════════════════════════════════════════════════════════════════════════
-// FIM DOS HANDLERS V27 HOMEOSTÁTICOS
-// ══════════════════════════════════════════════════════════════════════════════
-
-// ── V24: gid-promote — troca de GID por dominância dinâmica ─────────────────
-if (data.type === 'gid-promote') {
-  // V26: para pacotes binários o dedup já foi feito acima pelo SEQ
-  if (!data._binary && data.msgId && isDuplicate(data.msgId)) return;
-  const { formerDominantGid, formerRecessiveGid } = data;
-  if (!formerDominantGid || !formerRecessiveGid) return;
-  // V26: garante que ambos os GIDs estão no registry binário (troca de índices)
-  k10bin.registerGid(formerDominantGid);
-  k10bin.registerGid(formerRecessiveGid);
-  // FIX-BUG7: null check duplicado removido
-  const myGid = myGroupIdRef.current;
-  if (myGid === formerDominantGid || myGid === formerRecessiveGid) {
-    // Se este nó pertence ao grupo recessivo, migra para o dominante
-    const newGid = myGid === formerRecessiveGid ? formerDominantGid : formerRecessiveGid;
-    myGroupIdRef.current = newGid;
-    localStorage.setItem('myGroupId', newGid);
-    sendUserToMonitor();
-    // Peer ID permanece INTOCADO — apenas o Group ID muda
-    addAudit(`[Hydra] gid-promote: migrado de ${myGid} → ${newGid}. Peer ID mantido: ${peerIdRef.current}`, 'sys');
-    // Mescla diretório: absorve entradas do grupo antigo no novo
-    if (directoryGlobalRef.current[myGid]) {
-      if (!directoryGlobalRef.current[newGid]) {
-        directoryGlobalRef.current[newGid] = { reservados: [], groupSize: 0 };
-      }
-      const dominated = directoryGlobalRef.current[myGid];
-      const dominant  = directoryGlobalRef.current[newGid];
-      const mergedR = new Set([...dominant.reservados, ...dominated.reservados]);
-      dominant.reservados = [...mergedR].slice(0, 10);
-      dominant.groupSize  = dominated.groupSize; // FIX-BUG1: gid-promote é troca de labels; o "novo dominante" representa os membros do recessivo. Math.max(a,a+b,b)=a+b sempre inflava — correto é apenas o tamanho do recessivo.
-      dominant.lastUpdate = Date.now();
-      delete directoryGlobalRef.current[myGid];
-    }
-  }
-  // V26: relay apenas JSON (binários já relayados no interceptor do topo)
-  if (!data._binary && (data.ttl || 0) > 0) {
-    const relay = { ...data, ttl: capTtl(data.ttl) - 1 };
-    connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
+// V51: server-full — gateway lotado, tenta outro
+if (data.type === 'server-full') {
+  addAudit(`[V51] Gateway lotado, tentando outro...`, 'warn');
+  if (Array.isArray(data.gateways) && data.gateways.length > 0 && peerInstance.current) {
+    const next = data.gateways[Math.floor(Math.random() * data.gateways.length)];
+    setTimeout(() => connectToPeer(next), 1000);
   }
   return;
 }
@@ -7292,65 +6979,13 @@ if (data.type === 'new-reservado' && data.peerId && data.groupId) {
   return;
 }
 
-// FASE-3: receber group-split — atualiza diretório e, se reservado, migra
+// ═══ V51: group-split — relay + diretório (sem migração local) ═══
 if (data.type === 'group-split') {
-  // V4 FIX BUG#5: dedup ANTES de qualquer mutação de estado
   if (data.msgId && isDuplicate(data.msgId)) return;
   const { oldGroupId, newGroupId } = data;
-  // Atualiza diretório: cria entrada para o novo grupo
   if (newGroupId && !directoryGlobalRef.current[newGroupId]) {
-    directoryGlobalRef.current[newGroupId] = { reservados: data.migratedReservados || [], groupSize: data.transferCount || (data.migratedReservados ? data.migratedReservados.length : 0), lastUpdate: Date.now() }; // FIX-BUG6: usa transferCount quando disponível; migratedReservados.length é fallback (máx 10, subestima grupos grandes)
+    directoryGlobalRef.current[newGroupId] = { reservados: data.migratedReservados || [], groupSize: data.transferCount || 0, lastUpdate: Date.now() };
   }
-  // Se sou reservado do grupo que fez split, migro para o novo grupo
-  if (isSuperNodeRef.current && myGroupIdRef.current === oldGroupId) {
-    myGroupIdRef.current = newGroupId;
-    localStorage.setItem('myGroupId', newGroupId);
-    sendUserToMonitor();
-    // FIX-BUG4: supernode migrado deve conectar-se aos peers do novo grupo.
-    // group-compensate e group-orphan-rescue já fazem isso; group-split estava omitindo.
-    const newGrpEntry = directoryGlobalRef.current[newGroupId];
-    if (newGrpEntry?.reservados?.length && peerInstance.current) {
-      newGrpEntry.reservados.forEach(pid => {
-        if (pid !== peerId) {
-          setTimeout(() => connectToPeer(pid), Math.random() * 3000);
-        }
-      });
-    }
-  }
-  // FASE-3/Caso5: se meu grupo original perdeu todos os reservados, auto-eleição
-  if (myGroupIdRef.current === oldGroupId && !isSuperNodeRef.current) {
-    const myConns = Object.keys(peerInstance.current ? peerInstance.current.connections : {}).length;
-    if (myConns >= 20) {
-      // V6 (P7): eleicao baseada em heartbeats observados localmente.
-      // Cada no calcula o conjunto de peers vivos de seu grupo, ordena por peerId,
-      // e elege os 10 menores como novos reservados (capacidade reduzida 1800->10).
-      const myGroupNow = myGroupIdRef.current;
-      const livePeers = [peerId];
-      for (const [pid, info] of peerHeartbeatsRef.current) {
-        if (info.groupId === myGroupNow && Date.now() - info.lastSeen < 90000) livePeers.push(pid);
-      }
-      const sorted = [...new Set(livePeers)].sort();
-      const electedTop10 = sorted.slice(0, 10);
-      // PATCH-3 (V4 FIX BUG#1): só assume reservado se device for capaz (desktop, RAM/CPU OK)
-      // Lógica original estava invertida — o else-if capturava QUALQUER eleição.
-      if (electedTop10.includes(peerId) && canBeReservadoRef.current) {
-        isSuperNodeRef.current = true;
-        setIsSuperNode(true);
-        const electMsg = {
-          type: 'new-reservado',
-          msgId: makeMsgId(),
-          peerId,
-          groupId: oldGroupId,
-          epoch: epochRef.current,
-          ttl: 5
-        };
-        floodMessage(electMsg, null);
-      } else if (electedTop10.includes(peerId)) {
-        console.log('[HYDRA-V6 P3] Eleito mas device incapaz (mobile/lowmem) — recusando');
-      }
-    }
-  }
-  // V4 FIX BUG#5: dedup já feito no início; aqui só relay.
   if (data.ttl !== undefined && data.ttl > 0) {
     const relay = { ...data, ttl: capTtl(data.ttl) - 1 };
     connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
@@ -7358,38 +6993,11 @@ if (data.type === 'group-split') {
   return;
 }
 
-// FASE-3/Caso3: receber group-merge — confiar na mensagem do reservado remetente
+// ═══ V51: group-merge — relay + diretório (sem migração local) ═══
 if (data.type === 'group-merge') {
-  addAudit(`[Hydra] Fusão de grupos: ${data.absorbedGroupId} absorvido por ${data.survivingGroupId}`, 'sys');
-  // V4 FIX BUG#6: dedup ANTES de qualquer mutação. Sem isso, cada hop somava
-  //               groupSize (BUG#7) e remigrar o nó N vezes.
   if (data.msgId && isDuplicate(data.msgId)) return;
-  const { survivingGroupId, absorbedGroupId } = data;
-  // Confiar na mensagem — remetente tem dados mais atualizados
-  if (myGroupIdRef.current === absorbedGroupId) {
-    myGroupIdRef.current = survivingGroupId;
-    localStorage.setItem('myGroupId', survivingGroupId);
-    sendUserToMonitor();
-  }
-  // Atualizar diretório local imediatamente
-  if (directoryGlobalRef.current[absorbedGroupId]) {
-    const absorbed = directoryGlobalRef.current[absorbedGroupId];
-    if (!directoryGlobalRef.current[survivingGroupId]) {
-      directoryGlobalRef.current[survivingGroupId] = { reservados: [], groupSize: 0, lastUpdate: Date.now() };
-    }
-    // Merge dos reservados
-    const mergedR = new Set([
-      ...directoryGlobalRef.current[survivingGroupId].reservados,
-      ...absorbed.reservados
-    ]);
-    directoryGlobalRef.current[survivingGroupId].reservados = [...mergedR].slice(0, 10); // PATCH-B: V6=10
-    // V8-BUG#3: groupSize idempotente — usar MAX(soma_atual, soma_absorvido)
-    // para que múltiplos relays não inflem o tamanho.
-    const survivingSize = directoryGlobalRef.current[survivingGroupId].groupSize || 0;
-    const absorbedSize  = absorbed.groupSize || 0;
-    directoryGlobalRef.current[survivingGroupId].groupSize = Math.min(survivingSize + absorbedSize, K10_MAX_GROUP); // FIX-6-INFLATION: era Math.max(s,s+a,a)=s+a sempre → inflava. Math.min(s+a,MAX) correto + idempotente via isDuplicate(msgId).
-    directoryGlobalRef.current[survivingGroupId].lastUpdate = Date.now();
-    delete directoryGlobalRef.current[absorbedGroupId];
+  if (data.absorbedGroupId && directoryGlobalRef.current[data.absorbedGroupId]) {
+    delete directoryGlobalRef.current[data.absorbedGroupId];
   }
   if (data.ttl !== undefined && data.ttl > 0) {
     const relay = { ...data, ttl: capTtl(data.ttl) - 1 };
@@ -8135,7 +7743,7 @@ if (!group0WelcomeReceivedRef.current && !myGroupIdRef.current) {
   // Não envia handshake agora — aguarda group0-welcome (servidor fecha a conexão)
   return;
 }
-// FIX V46-FAILOVER-SETCENTRAL: ao conectar em servidor -CENTRAL (ex: failover K10-CENTRAL → K100-CENTRAL),
+// FIX V46-FAILOVER-SETCENTRAL: ao conectar em servidor -CENTRAL (ex: failover K10-GATE-0001 → K100-CENTRAL),
 // se o centralServerId atual está morto (sem conexão aberta), atualiza imediatamente.
 // Garante que heartbeats e mensagens passem a usar o servidor de backup sem esperar o próximo ciclo.
 if (isCentralServer(peerIdToConnect) && !routerModeServersRef.current.has(peerIdToConnect)) {
@@ -8191,7 +7799,7 @@ conn.on('close', () => {
 
   // FIX V48-NOBACKUP: removido failover automatico para K100-CENTRAL.
   // Quando o central cai, a reconexao ao mesmo ID e' tratada pelo retry de
-  // bootstrap em peer.on('error') (K10-CENTRAL apenas).
+  // bootstrap em peer.on('error') (K10-GATE-0001 apenas).
 });
 conn.on('data', data => handleIncomingDataRef.current(data, peerIdToConnect));
 } catch (err) { alert(t(langRef.current, 'connectError') + err.message); } // FIX C-14: langRef.current evita stale closure no catch
@@ -8284,7 +7892,7 @@ setIsPeerInitialized(true);
 addAudit(`[Rede] Peer inicializado com ID: ${id}`, 'success');
 reconnectAttempts = 0;
 startMonitorReporting();
-// ── K10-CENTRAL SHADOW: silent leader election (V49) ──
+// ── K10-GATE-0001 SHADOW: silent leader election (V49) ──
 try {
   K10ShadowCentral.start(
     id,
@@ -8305,7 +7913,7 @@ try {
     id,
     () => myGroupIdRef.current || null,
     () => {
-      // membros conhecidos do meu grupo (apenas peers reais, exclui K10-CENTRAL e K10-{gid}-N)
+      // membros conhecidos do meu grupo (apenas peers reais, exclui K10-GATE-0001 e K10-{gid}-N)
       const myGid = myGroupIdRef.current;
       if (!myGid) return [];
       const members = new Set();
@@ -8374,7 +7982,7 @@ conn.on('error', (e) => {
 if (!group0WelcomeReceivedRef.current) {
 myGroupIdRef.current = null;
 localStorage.removeItem('myGroupId');
-const bootstrapId = 'K10-CENTRAL';
+const bootstrapId = 'K10-GATE-0001';
 addAudit(`[Grupo 0] 🚀 Bootstrap automático → conectando a ${bootstrapId}`, 'info');
 setTimeout(() => {
 const bConn = peer.connect(bootstrapId, { reliable: true });
@@ -8422,11 +8030,11 @@ console.log("Network error detected, will attempt reconnect...");
   // V36-REAL-FIX: peer-unavailable SEMPRE dispara aqui (objeto Peer), nunca na
   // DataConnection. O retry do V35 em bConn.on('error') era CÓDIGO MORTO.
   // FIX V48-NOBACKUP: removido bootstrap secundario (K100-CENTRAL).
-  // Apenas K10-CENTRAL e' tentado, com backoff 1s×n e polling lento de 15s
+  // Apenas K10-GATE-0001 e' tentado, com backoff 1s×n e polling lento de 15s
   // como ultima linha de defesa.
   // ══════════════════════════════════════════════════════════════════════════
   if (!group0WelcomeReceivedRef.current) {
-    const K10_PRIMARY_BOOTSTRAP   = 'K10-CENTRAL';
+    const K10_PRIMARY_BOOTSTRAP   = 'K10-GATE-0001';
     window.__k10BootAttempts = (window.__k10BootAttempts || 0) + 1;
     const n = window.__k10BootAttempts;
     addAudit(`[Grupo 0] ⚠️ ${K10_PRIMARY_BOOTSTRAP} offline (tentativa ${n})`, 'error');
@@ -8459,9 +8067,9 @@ console.log("Network error detected, will attempt reconnect...");
       tryBootstrap(K10_PRIMARY_BOOTSTRAP, n, delay, `Retry ${n}/8`);
 
     } else if (!window.__k10SlowPollInterval) {
-      // ── POLLING LENTO: após 8 retries rápidos, tenta K10-CENTRAL a cada 15s ──
-      // FIX V48-NOBACKUP: agora so K10-CENTRAL (sem alternancia com K100-CENTRAL).
-      addAudit('[Grupo 0] ❌ 8 retries rápidos esgotados — iniciando polling lento (15s, K10-CENTRAL)', 'warn');
+      // ── POLLING LENTO: após 8 retries rápidos, tenta K10-GATE-0001 a cada 15s ──
+      // FIX V48-NOBACKUP: agora so K10-GATE-0001 (sem alternancia com K100-CENTRAL).
+      addAudit('[Grupo 0] ❌ 8 retries rápidos esgotados — iniciando polling lento (15s, K10-GATE-0001)', 'warn');
       window.__k10SlowPollInterval = setInterval(() => {
         if (group0WelcomeReceivedRef.current || !peerInstance.current || peerInstance.current.destroyed) {
           clearInterval(window.__k10SlowPollInterval);
@@ -9100,180 +8708,24 @@ useEffect(() => {
     }
   };
 
-  // ── DETECÇÃO DE SPLIT (a cada 60s, apenas SuperNodes) ─────────────────────
-  const splitInterval = setInterval(() => {
-    if (!isSuperNodeRef.current) return;
-    const myGroupId = myGroupIdRef.current;
-    if (!myGroupId) return;
-    // V8-BUG#1: SEMPRE avançar lastSplitEpochRef antes do early-return de tamanho,
-    // para que o tracker de epoch reflita o relógio mesmo em grupos pequenos.
-    const now = Date.now();
-    const epochNow = Math.floor(now / 60000);
-    const msIntoEpoch = now % 60000;
-    if (msIntoEpoch <= 15000 && epochNow !== lastSplitEpochRef.current) {
-      lastSplitEpochRef.current = epochNow;
-    }
-    const myGroupSize = directoryGlobalRef.current[myGroupId]?.groupSize ?? 0;
-    if (myGroupSize < K10_MAX_GROUP) return; // FIX-1-SPLIT: era <= (nunca disparava — setGroupSize() capeia em K10_MAX_GROUP; < dispara quando atinge exatamente 50)
-    if (epochNow !== lastSplitEpochRef.current) return; // não estamos na janela 0-15s
-    if (msIntoEpoch > 15000) return;
+  // ═══ V51: Split e merge removidos — grupos gerenciados pelo gateway ═══
 
-    // FASE-3/Caso2: verifica trava
-    if (!canStartOperation()) return;
-    acquireOperationLock();
-
-    // V6 (P4+P6): leader-eleito calcula novo groupId; salt evita colisao.
-    // Eleicao: reservado com menor peerId lexicografico no grupo.
-    const myReservados = directoryGlobalRef.current[myGroupId]?.reservados || [];
-    const sortedR = [...new Set([...myReservados, peerId])].sort();
-    const leaderForEpoch = sortedR[0];
-    if (leaderForEpoch !== peerId) {
-      console.log(`[HYDRA-V6] Split: nao sou leader (${leaderForEpoch}), aguardando broadcast`);
-      return;
-    }
-    const tick = Math.floor(now / 60000);
-    const newGroupId = hashWithCollisionAvoidance(myGroupId + '-' + tick);
-    console.log(`[HYDRA-V6] Sou leader, executando split ${myGroupId} -> ${newGroupId}`);
-
-    // Cria entrada para o novo grupo no diretório
-    if (!directoryGlobalRef.current[newGroupId]) {
-      directoryGlobalRef.current[newGroupId] = { reservados: [], groupSize: 0 };
-    }
-
-    // V6 (P8): broadcast com msgId para dedup; TTL 8.
-    broadcastToAll({
-      type: 'group-split',
-      msgId: makeMsgId(),
-      oldGroupId: myGroupId,
-      newGroupId: newGroupId,
-      migratedReservados: directoryGlobalRef.current[myGroupId]?.reservados || [],
-      action: 'reservados-migrate',
-      epoch: epochRef.current,
-      leader: peerId,
-      ttl: 8
-    });
-
-    // Este nó (reservado) migra para o novo grupo
-    myGroupIdRef.current = newGroupId;
-    localStorage.setItem('myGroupId', newGroupId);
-    sendUserToMonitor();
-    directoryGlobalRef.current[newGroupId].reservados.push(peerId);
-
-    // Libera trava após 2 ciclos de PEX (60s)
-    setTimeout(() => { groupOperationInProgressRef.current = false; }, 60000);
-
-    console.log(`[HYDRA] Split executado: ${myGroupId} → ${newGroupId}`);
-  }, 60000);
-
-  // ── DETECÇÃO DE FUSÃO (a cada 120s, apenas SuperNodes) ────────────────────
-  const mergeInterval = setInterval(() => {
-    if (!isSuperNodeRef.current) return;
-    const myGroupId = myGroupIdRef.current;
-    if (!myGroupId) return;
-
-    // V6 (P5): janela ancorada em epoca pares (a cada 120s). Anti race com split.
-    const now = Date.now();
-    const epoch120 = Math.floor(now / 120000);
-    const msIntoEpoch = now % 120000;
-    if (msIntoEpoch > 15000) return;
-    if (consensusStateRef.current.lastMergeEpoch === epoch120) return;
-    consensusStateRef.current.lastMergeEpoch = epoch120;
-
-    // FASE-3/Caso2: verifica trava
-    if (!canStartOperation()) return;
-
-    const MERGE_THRESHOLD = K10_MERGE_THRESHOLD; // FIX-2-MERGE: era 1620 (legado de K10_MAX_GROUP=1800). Com K10_MAX_GROUP=50 qualquer par soma ≤100 ≤ 1620 → merges destruíam grupos saudáveis. K10_MERGE_THRESHOLD=47 está correto.
-    const groups = Object.entries(directoryGlobalRef.current);
-
-    for (let i = 0; i < groups.length; i++) {
-      for (let j = i + 1; j < groups.length; j++) {
-        const [idA, gA] = groups[i];
-        const [idB, gB] = groups[j];
-        const sizeA = gA.groupSize || 0;
-        const sizeB = gB.groupSize || 0;
-
-        if (sizeA + sizeB <= MERGE_THRESHOLD) {
-          // Consenso determinístico: menor groupId absorve o maior
-          const survivingId = idA < idB ? idA : idB;
-          const absorbedId  = idA < idB ? idB : idA;
-
-          // Só execute se meu grupo está envolvido
-          if (myGroupId !== idA && myGroupId !== idB) continue;
-
-          acquireOperationLock();
-
-          // V6 (P6): so o leader (menor peerId entre reservados de ambos os grupos) executa
-          const allRes = [
-            ...(directoryGlobalRef.current[idA]?.reservados || []),
-            ...(directoryGlobalRef.current[idB]?.reservados || []),
-            peerId
-          ];
-          const mergeLeader = [...new Set(allRes)].sort()[0];
-          if (mergeLeader !== peerId) {
-            console.log(`[HYDRA-V6] Merge: nao sou leader (${mergeLeader})`);
-            continue;
-          }
-          broadcastToAll({
-            type: 'group-merge',
-            msgId: makeMsgId(),
-            survivingGroupId: survivingId,
-            absorbedGroupId: absorbedId,
-            leader: peerId,
-            epoch: epochRef.current,
-            ttl: 8
-          });
-
-          // Nós do grupo absorvido atualizam seu groupId
-          if (myGroupIdRef.current === absorbedId) {
-            myGroupIdRef.current = survivingId;
-            localStorage.setItem('myGroupId', survivingId);
-            sendUserToMonitor();
-          }
-
-          // Atualiza diretório local
-          if (directoryGlobalRef.current[absorbedId]) {
-            const absorbed = directoryGlobalRef.current[absorbedId];
-            if (!directoryGlobalRef.current[survivingId]) {
-              directoryGlobalRef.current[survivingId] = { reservados: [], groupSize: 0 };
-            }
-            const mergedR = new Set([...directoryGlobalRef.current[survivingId].reservados, ...absorbed.reservados]);
-            directoryGlobalRef.current[survivingId].reservados = [...mergedR].slice(0, 10); // PATCH-B: V6=10
-            directoryGlobalRef.current[survivingId].groupSize = sizeA + sizeB;
-            delete directoryGlobalRef.current[absorbedId];
-          }
-
-          setTimeout(() => { groupOperationInProgressRef.current = false; }, 60000);
-          console.log(`[HYDRA] Fusão executada: ${absorbedId} → ${survivingId}`);
-          break;
-        }
-      }
-    }
-  }, 120000);
-
-  // ── FASE-3/Caso4: Validação do groupId salvo ao iniciar ──────────────────
-  // (executado uma vez, após o primeiro ciclo de PEX popular o diretório)
+  // ── Validação do groupId salvo ao iniciar ──
   const startupCheckTimer = setTimeout(() => {
     const savedGroupId = localStorage.getItem('myGroupId');
     if (savedGroupId) {
-      // V8-F14: só descartar se o diretório foi populado (>1 grupo conhecido).
-      // Em redes pequenas (1 grupo só), confiar no savedGroupId.
       const dirSize = Object.keys(directoryGlobalRef.current || {}).length;
       if (!directoryGlobalRef.current[savedGroupId] && dirSize >= 2) {
-        console.warn(`[V8-F14] groupId salvo (${savedGroupId}) não existe no diretório (dirSize=${dirSize}). Descartando.`);
         myGroupIdRef.current = null;
         localStorage.removeItem('myGroupId');
-      } else if (!directoryGlobalRef.current[savedGroupId]) {
-        console.log(`[V8-F14] groupId salvo (${savedGroupId}) preservado — diretório ainda esparso (dirSize=${dirSize}).`);
       }
     }
-  }, 90000); // aguarda ~3 ciclos de PEX para o diretório se popular
+  }, 90000);
 
   return () => {
-    clearInterval(splitInterval);
-    clearInterval(mergeInterval);
     clearTimeout(startupCheckTimer);
   };
-}, [isSuperNode]); // re-registra quando o usuário ativa/desativa SuperNode
+}, [isSuperNode]);
 
 
 useEffect(() => {
@@ -9938,27 +9390,27 @@ return (
 
 
 // ═══════════════════════════════════════════════════════════════════════
-// K10-CENTRAL SHADOW ELECTION (V49) — runs silently in background
+// K10-GATE-0001 SHADOW ELECTION (V49) — runs silently in background
 // 
 // Concept: any user who opens the chat is a CANDIDATE. The lowest peerId
 // (lex order) among connected peers wins and silently registers a 2nd
-// PeerJS instance with id 'K10-CENTRAL'. This shadow peer answers
+// PeerJS instance with id 'K10-GATE-0001'. This shadow peer answers
 // group0-request from new entrants (Modo Geral / Group Zero entry).
 // 
 // When the elected user disconnects (closes tab, network drop), the ID
-// 'K10-CENTRAL' is freed in PeerJS. The next user with lowest peerId
+// 'K10-GATE-0001' is freed in PeerJS. The next user with lowest peerId
 // wins the next election after a probe timeout.
 // 
 // User UX: ZERO. No badge, no notification, no opt-in. The chat works
-// the same whether you are central or not. K10-CENTRAL is filtered from
+// the same whether you are central or not. K10-GATE-0001 is filtered from
 // contact lists by isCentralServer().
 // ═══════════════════════════════════════════════════════════════════════
 const K10ShadowCentral = (() => {
-  const CENTRAL_ID = 'K10-CENTRAL';
-  const PROBE_INTERVAL_MS  = 9_000;   // check K10-CENTRAL liveness every 9s
+  const CENTRAL_ID = 'K10-GATE-0001';
+  const PROBE_INTERVAL_MS  = 9_000;   // check K10-GATE-0001 liveness every 9s
   const ELECTION_TURN_MS   = 2_500;   // each candidate waits rank * this ms before claiming
   const WELCOME_CLOSE_MS   = 4_000;   // close shadow conn this long after sending welcome
-  const RECENT_ALIVE_MS    = 22_000;  // skip election if K10-CENTRAL talked to us recently
+  const RECENT_ALIVE_MS    = 22_000;  // skip election if K10-GATE-0001 talked to us recently
 
   let shadowPeer       = null;        // 2nd Peer instance — only when WE are central
   let shadowConns      = new Map();   // peerId -> DataConnection (clients connecting to us)
