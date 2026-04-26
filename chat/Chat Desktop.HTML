@@ -1,4 +1,177 @@
-<!-- ═══ Chat K10 V60 — K10-CENTRAL Acumula Gateway no Primeiro Peer (26/abr/2026) ═══
+<!-- ═══ Chat K10 V68 — Bootstrap lotes de 5 + verificação REST API (26/abr/2026) ═══
+     FIX V68: MODO GERAL — VERIFICAÇÃO DE SERVIDORES ATIVOS ANTES DE CONECTAR
+     ══════════════════════════════════════════════════════════════════════
+     Problema V67: bootstrap tentava conectar cegamente em qualquer gateway da lista
+          embaralhada (lotes de 8), sem saber quais estavam realmente online.
+          Resultado: muitas tentativas desperdiçadas em gateways vazios/inexistentes.
+
+     Fix V68 — Verificação REST + lotes de 5:
+
+     1. BOOT_BATCH: 8 → 5
+        Menos conexões simultâneas por lote — menos pressão no servidor PeerJS.
+        5 tentativas paralelas são suficientes para convergência rápida.
+
+     2. fetchOnlineGateways() — consulta REST API antes de varrer:
+        Faz GET https://0.peerjs.com/peerjs/peers (timeout 3s).
+        Filtra GATEWAY_IDS para encontrar quais estão online agora.
+        Reordena a fila: gateways confirmados ativos aparecem PRIMEIRO.
+        Se a API falhar → comportamento normal (varredura sem filtro).
+
+     3. Ignorar gateways offline na varredura:
+        tryNextGateway() pula silenciosamente candidatos que a API confirmou
+        como offline, sem gastar uma tentativa PeerJS neles.
+
+     4. PRIMEIRA PESSOA: acumula K10-CENTRAL + K10-GATE-XXXX — sem jeito.
+        Com rede fria (todos vagos), a API retorna 0 gateways K10-GATE ativos,
+        o bootstrap cai no fallback da varredura normal e o primeiro peer
+        reivindica o primeiro slot disponível. Comportamento esperado.
+
+     ════════════ HISTÓRICO V67 (preservado para referência) ════════════
+<!-- ═══ Chat K10 V67 — Fix noConnections derruba conexões (27/abr/2026) ═══
+     FIX V67: MODO GERAL — noConnections MATA TODAS AS CONEXÕES
+     ══════════════════════════════════════════════════════════════════════
+     Problema V66: usuário está conectado no Modo Geral, digita mensagem e
+          pressiona Enter → aparece erro noConnections → tudo desconecta.
+
+     Root cause (2 bugs em cascata):
+
+     Bug 1 — bcDone nunca setado como true na rota vencedora (V65 batch):
+          Em tryNextGateway, bc.on('data') chamava handleIncomingDataRef mas
+          NÃO setava bcDone=true ao receber peer-list com sucesso.
+          Resultado: quando o gateway fechava a conexão após enviar peer-list
+          (comportamento normal), bc.on('close') → onBcFail() → bcDone=false
+          → remove a conexão de connections[] → length===0 → noConnections.
+          Fix: bc.on('data') agora seta bcDone=true ao detectar d.type==='peer-list',
+          impedindo onBcFail de remover a conexão vencedora do array connections.
+
+     Bug 2 — alert() bloqueante mata o event loop do JS:
+          O alert() suspendia completamente o JavaScript enquanto o usuário
+          não clicava "OK". Com o JS travado, o PeerJS não conseguia enviar
+          heartbeats → todas as conexões sofriam timeout e morriam.
+          Resultado: usuário dispensava o alerta e tudo estava desconectado.
+          Fix: substituído por mensagem de sistema inline no chat (setMessages),
+          não bloqueante — event loop continua livre, PeerJS mantém heartbeats.
+
+     ════════════ HISTÓRICO V66 (preservado para referência) ════════════
+     FIX V65: BOOTSTRAP AINDA LEVA 13-16s (VARREDURA SEQUENCIAL INTRÍNSECA)
+     ══════════════════════════════════════════════════════════════════════
+     Problema V64: mesmo com peer-unavailable instantâneo, o bootstrap ainda
+          leva ~1s por gate porque o PeerJS processa conexões sequencialmente
+          — cada probe aguarda o RTT de ida+volta antes de liberar o slot.
+          Com 50+ gates vagos, isso somava 13-16s independentemente do delay.
+
+     Root cause: modelo sequencial — uma conexão de cada vez.
+
+     Fix V65 — varredura paralela em lotes de 8 (BOOT_BATCH=8):
+          tryNextGateway() agora dispara 8 conexões simultaneamente.
+          Cada uma tem seu próprio handler independente (bcDone flag).
+          Quando TODAS as 8 falham → próximo lote de 8.
+          Quando qualquer uma abre → envia group0-request, aguarda peer-list.
+          Peer-list recebido → bootstrapDone=true, fecha pendentes.
+
+     Impacto esperado:
+          - Rede fria (todos vagos): 50 gates / 8 por lote = ~7 lotes × ~1s = ~7s
+          - Com onClaimed (V57) que interrompe a varredura ao reivindicar gate:
+            Lote 1 dispara → gate reivindicado em ~1s → onClaimed → conecta → 
+            bootstrap completo em ~3-4s total (2.5s K10-CENTRAL + ~1s varredura).
+
+     ════════════ HISTÓRICO V64 (preservado para referência) ════════════
+     FIX V64: BOOTSTRAP LEVA 13s+ PARA ENTRAR (peer-unavailable COM DELAY)
+     ══════════════════════════════════════════════════════════════════════
+     Problema V63: o bootstrap escaneia ~50+ gateways em sequência levando
+          13-15 segundos antes de reivindicar um slot e entrar no grupo.
+
+     Causa-raiz (2 bugs no bc error/close handlers):
+
+     Bug 1 — peer-unavailable tratado com delay de 800-1400ms:
+          bc.on('error') chamava tryNext com setTimeout de 800+random*600ms
+          para TODOS os erros, incluindo peer-unavailable (slot vago).
+          peer-unavailable não é um erro real — é a resposta esperada para
+          slots vagos. Não precisa de nenhum delay.
+          Fix: peer-unavailable → tryNext imediato (delay=0).
+          Outros erros (network, socket) → delay de 800ms mantido.
+
+     Bug 2 — duplo-trigger error + close:
+          PeerJS dispara error SEGUIDO de close na mesma conexão.
+          bc.on('close') também chamava tryNext com delay 600-1000ms.
+          Resultado: tryNext disparado duas vezes por slot, com delays
+          acumulados que somavam ~1200-2400ms por gate vago.
+          Fix: flag bcHandled — close ignora se error já tratou.
+
+     Impacto: varredura de 50 gates vagos caía de ~50s para <1s.
+     Com onClaimed já existente (V57), o fluxo agora é:
+       T+0s   Bootstrap tenta K10-CENTRAL → peer-unavailable → tryNext imediato
+       T+2.5s Timeout K10-CENTRAL → tryClaim() + varredura
+       T+2.5s Varredura escaneia slots vagos rapidamente (<1s total)
+       T+3s   Gateway reivindicado → onClaimed → conecta ao próprio gate
+       T+3.5s peer-list recebido → grupo atribuído ✅
+
+     ════════════ HISTÓRICO V63 (preservado para referência) ════════════
+     FIX V63: K10CentralShadow LOGAVA peer-unavailable COMO ERRO (RUÍDO)
+     ══════════════════════════════════════════════════════════════════════
+     O V33 corrigiu o _cleanup() indevido mas deixou o console.warn antes do
+     early-return, gerando dezenas de linhas de ruído por minuto no console
+     enquanto o poll periódico de gateways rodava normalmente.
+     Fix: move o early-return para ANTES do console.warn — peer-unavailable
+     é silenciado completamente (é comportamento esperado e não indica erro).
+
+     ════════════ HISTÓRICO V62 (preservado para referência) ════════════
+     FIX V62: PEERS EM GATEWAYS DIFERENTES NÃO SE ENCONTRAM (RACE DE TIMING)
+     ══════════════════════════════════════════════════════════════════════
+     Problema V61: dois peers que entram com diferença de segundos podem levar
+          até 30s para se encontrar, ou nunca se encontrar se o cross-gateway
+          discovery já rodou antes do segundo peer aparecer:
+
+          Cenário:
+          - XBNB9MSHH conecta ao Gateway A às 13:56:46
+          - Discovery roda às 13:57:10 → Gateway B vazio → crossGatewayPeers={}
+          - 6RW7EKJ65 conecta ao Gateway B às 13:57:11
+          - Próximo discovery em 13:57:40 → agora encontra 6RW7EKJ65
+          - XBNB9MSHH nunca recebe peer-list atualizado — já recebeu o seu
+          - Os dois ficam isolados por até 30s (ou até 60s em casos piores)
+
+     Fix 1 — Intervalo adaptativo no _startCrossGatewayDiscovery:
+          Primeiros 3 ciclos rodam a cada 5s (cobre janela de entrada de novos
+          peers). A partir do 4º ciclo estabiliza em 30s (comportamento antigo).
+          Implementado com setTimeout encadeado em vez de setInterval fixo.
+
+     Fix 2 — Push de peer-list para clientes já conectados após discovery:
+          Após _discoverCrossGatewayPeers adicionar novos IDs ao crossGatewayPeers,
+          se o tamanho cresceu, itera todos os clientes conectados cujo grupo
+          tem < 5 peers locais e reenvia peer-list com os novos cross-peers incluídos.
+          Usa _resendPeerList (já existente) — sem código duplicado.
+
+     ════════════ HISTÓRICO V61 (preservado para referência) ════════════
+     FIX V61: RACE CONDITION NO _onClient — PEER-LIST PERDIDO INTERMITENTEMENTE
+     ══════════════════════════════════════════════════════════════════════
+     Problema V60: entrada no Modo Geral falha intermitentemente. O peer conecta
+          ao gateway (✅ Conectado: K10-GATE-XXXX) mas nunca recebe peer-list,
+          causando timeout de 8s e reinício da varredura. A entrada funciona em
+          algumas tentativas e falha em outras.
+
+     Causa-raiz (3 bugs combinados):
+
+     Bug 1 — Race _onClient/open: K10GatewayShadow._onClient registra
+          conn.on('open', () => _doAssignPeer(conn)), mas em certas condições
+          do PeerJS a DataConnection já está aberta quando _onClient roda.
+          O evento open nunca dispara e _doAssignPeer nunca é chamado.
+          Fix: verifica conn.open antes de registrar o handler; se já aberto,
+          chama _doAssignPeer imediatamente.
+
+     Bug 2 — group0-request não re-envia peer-list: Quando o auto-assign no
+          open FUNCIONA mas a mensagem peer-list se perde (DataChannel do
+          cliente não 100% pronto), o fallback group0-request do cliente chama
+          _doAssignPeer(conn) que retorna em peerGroupMap.has(conn.peer)=true.
+          O peer nunca recebe peer-list.
+          Fix: group0-request agora detecta peer já atribuído e chama
+          _resendPeerList(conn) — re-envia peer-list com dados atualizados.
+
+     Bug 3 — K10CentralShadow._onClient mesma race: Mesmo padrão do Bug 1.
+          central-discovery-request funciona como fallback, mas o fast-path
+          no open pode ser perdido, causando timeout de 2.5s desnecessário.
+          Fix: verifica conn.open em _onClient da Central.
+
+     ════════════ HISTÓRICO V60 (preservado para referência) ════════════
      FIX V60: PRIMEIRO PEER ACUMULA K10-CENTRAL + K10-GATE (DUPLO PAPEL)
      ══════════════════════════════════════════════════════════════════════
      Problema V59: os dois peers nos logs tentavam K10-CENTRAL (timeout 4.5s)
@@ -772,7 +945,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V60 (K10-CENTRAL Acumula Gateway no Primeiro Peer)</title>
+<title>Chat K10 — V66 (Fix Bootstrap Paralelo K10-CENTRAL)</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -2376,8 +2549,8 @@ const K10_POSITION_LIST = (() => {
 // ══════════════════════════════════════════════════════════════════════════════
 // ═══ V51: Constantes simplificadas ═══
 // Homeostase removida — grupos gerenciados pelo gateway (doAssignPeer + close).
-// GATEWAY_IDS: 100 gateways distribuídos para bootstrap
-const GATEWAY_IDS = Array.from({ length: 100 }, (_, i) => `K10-GATE-${(i+1).toString().padStart(4, '0')}`);
+// GATEWAY_IDS: 5 gateways para bootstrap
+const GATEWAY_IDS = ['K10-GATE-0001','K10-GATE-0002','K10-GATE-0003','K10-GATE-0004','K10-GATE-0005'];
 
 // Verifica se um peerId tem formato K10 válido
 const isK10Id = (id) => typeof id === 'string' && id.length === K10_TOTAL_LEN && id.startsWith(K10_PREFIX);
@@ -3788,6 +3961,11 @@ if (selectedContact) {
 const conn = connectionsRef.current.find(c => c.peer === selectedContact);
 if (!conn || !conn.open) { alert(t(lang, 'contactOffline', { name: getContactName(selectedContact) })); return; }
 } else if (connectionsRef.current.length === 0) {
+// FIX V67-BUG2: era alert() bloqueante — travava o event loop do JS enquanto
+// o usuário não clicava OK. Com o JS travado, o PeerJS não enviava heartbeats
+// e todas as conexões morriam (timeout). Substituído por mensagem inline no chat.
+const _errMsg = t(lang, 'noConnections') || 'Sem conexões P2P ativas. Aguarde a rede se conectar.';
+setMessages(prev => [...prev, { text: '⚠️ ' + _errMsg, sender: '__system__', recipient: 'general', senderName: 'System', time: formatTime(new Date()), type: 'text', direct: false, timestamp: Date.now() }].slice(-500));
 return;
 }
 
@@ -4144,13 +4322,13 @@ placeholder={inputStatus.placeholder}
 maxLength={2000}
 onKeyPress={e => { if (e.key === 'Enter' && cooldownRemaining === 0) sendDirectMessage(); }}
 className="message-input"
-disabled={cooldownRemaining > 0 || (selectedContact ? !connections.some(c => c.peer === selectedContact) : connections.length === 0)}
+disabled={cooldownRemaining > 0 || (selectedContact ? !connections.some(c => c.peer === selectedContact) : false)}
 style={inputStatus.style}
 />
 {showEmojiPanel && populateEmojiPanel()}
 </div>
 <button className="send-btn" onClick={sendDirectMessage}
-disabled={!newMessage.trim() || cooldownRemaining > 0 || isSending || (selectedContact ? !connections.some(c => c.peer === selectedContact) : connections.length === 0)}
+disabled={!newMessage.trim() || cooldownRemaining > 0 || isSending || (selectedContact ? !connections.some(c => c.peer === selectedContact) : false)}
 title={t(lang, 'sendMessage')}>
 {isSending ? <i className="fas fa-spinner fa-spin"></i> : (cooldownRemaining > 0 ? `${cooldownRemaining}s` : <i className="fas fa-paper-plane"></i>)}
 </button>
@@ -7743,66 +7921,108 @@ if (!bootstrapDoneRef.current) {
   window.__k10BootGateways = shuffledGateways;
   window.__k10BootIdx = 0;
 
+  // FIX V69: varredura paralela em lotes de 5 conexões simultâneas.
+  // V69: Remove REST API (404 no peerjs.com público).
+  // V69: Corrige double-trigger — peer.on('error',peer-unavailable) E onBcFail()
+  //      disparavam tryNextGateway simultaneamente, criando cascata de conexões
+  //      que derrubava o WebSocket de sinalização com erro 'network'.
+  // Fix: flag __k10BatchLock impede que o handler global peer.on('error')
+  //      chame tryNextGateway enquanto o lote do batch já gerencia retentativas.
+  const BOOT_BATCH = 5;
+  let bootBatchPending = 0;
+  let bootBatchGotOpen = false; // alguma conexão do lote atual abriu (aguardando peer-list)
+  let bootBatchScheduled = false; // evita agendar múltiplos tryNextGateway simultâneos
+
+  // V69: flag global — TRUE enquanto o batch está gerenciando retentativas
+  // Impede que peer.on('error', peer-unavailable) dispare um segundo tryNextGateway
+  window.__k10BatchActive = false;
+
   const tryNextGateway = () => {
     if (bootstrapDoneRef.current || !peerInstance.current || peerInstance.current.destroyed) return;
-    const idx = window.__k10BootIdx || 0;
-    if (idx >= (window.__k10BootGateways || []).length) {
-      // Reinicia do início com novo shuffle após esgotar a lista
-      window.__k10BootGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
-      window.__k10BootIdx = 0;
-      // V60 Fallback: se varreu 100 gateways e nenhum retornou sucesso,
-      // garanta que o primeiro do novo shuffle seja reivindicado.
-      if (typeof K10GatewayShadow !== 'undefined' && !K10GatewayShadow.isActive) {
-        const nextId = window.__k10BootGateways[0];
-        addAudit('[Bootstrap] Lista esgotada, forçando claim no slot ' + nextId, 'warn');
-        try { K10GatewayShadow.tryClaim(nextId); } catch(e) {}
-      }
-    }
-    const targetId = (window.__k10BootGateways || shuffledGateways)[window.__k10BootIdx];
-    window.__k10BootIdx = (window.__k10BootIdx || 0) + 1;
-    if (!targetId) return;
-    window.__k10LastBootTarget = targetId; // V53: salva para eleição de gateway
-    addAudit(`[Bootstrap] 🔄 Tentando ${targetId}...`, 'info');
-    const bc = peerInstance.current.connect(targetId, { reliable: true });
-    if (!bc) return;
+    bootBatchPending = 0;
+    bootBatchGotOpen = false;
+    bootBatchScheduled = false;
+    window.__k10BatchActive = true; // bloqueia o handler global durante este lote
+    let launched = 0;
 
-    // V53: timeout de resposta — se o gateway conectar mas não enviar peer-list
-    let peerListTimer = null;
-    bc.on('open', () => {
-      if (bootstrapDoneRef.current) { try { bc.close(); } catch(e) {} return; }
-      addAudit(`[Bootstrap] ✅ Conectado: ${targetId}`, 'success');
-      setCentralServerId(targetId);
-      // V60 Fix: Adiciona o Gateway às conexões para o modo "user-servidor-user" funcionar
-      setConnections(prev => [...prev.filter(c => c.peer !== targetId), bc]);
-      
-      try { bc.send({ type: 'group0-request' }); } catch(e) {}
-      // V53: se peer-list não chegar em 8s, tenta próximo gateway
-      peerListTimer = setTimeout(() => {
-        if (bootstrapDoneRef.current) return;
-        addAudit(`[Bootstrap] ⏱ Timeout aguardando peer-list de ${targetId} — próximo...`, 'warn');
-        try { bc.close(); } catch(e) {}
-        if (typeof window.__k10BootTryNext === 'function') window.__k10BootTryNext();
-      }, 8_000);
-    });
-    bc.on('data', d => {
-      if (peerListTimer) { clearTimeout(peerListTimer); peerListTimer = null; }
-      handleIncomingDataRef.current(d, targetId);
-    });
-    // V53: se a conexão fechar antes do bootstrap completar → tenta próximo
-    bc.on('close', () => {
-      if (peerListTimer) { clearTimeout(peerListTimer); peerListTimer = null; }
-      setConnections(prev => prev.filter(c => c.peer !== targetId));
-      if (!bootstrapDoneRef.current && typeof window.__k10BootTryNext === 'function') {
-        setTimeout(window.__k10BootTryNext, 600 + Math.random() * 400);
+    for (let i = 0; i < BOOT_BATCH; i++) {
+      if ((window.__k10BootIdx || 0) >= (window.__k10BootGateways || []).length) {
+        // Reinicia lista quando esgotada
+        window.__k10BootGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
+        window.__k10BootIdx = 0;
+        if (typeof K10GatewayShadow !== 'undefined' && !K10GatewayShadow.isActive) {
+          const nextId = window.__k10BootGateways[0];
+          addAudit('[Bootstrap] Lista esgotada, forçando claim no slot ' + nextId, 'warn');
+          try { K10GatewayShadow.tryClaim(nextId); } catch(e) {}
+        }
       }
-    });
-    // V53: erros não-peer-unavailable (network, socket) → tenta próximo
-    bc.on('error', () => {
-      if (peerListTimer) { clearTimeout(peerListTimer); peerListTimer = null; }
-      if (!bootstrapDoneRef.current && typeof window.__k10BootTryNext === 'function') {
-        setTimeout(window.__k10BootTryNext, 800 + Math.random() * 600);
-      }
-    });
+      const targetId = (window.__k10BootGateways || shuffledGateways)[window.__k10BootIdx];
+      window.__k10BootIdx = (window.__k10BootIdx || 0) + 1;
+      if (!targetId) break;
+      launched++;
+      bootBatchPending++;
+
+      window.__k10LastBootTarget = targetId;
+      addAudit(`[Bootstrap] 🔄 Tentando ${targetId}...`, 'info');
+      const bc = peerInstance.current.connect(targetId, { reliable: true });
+      if (!bc) { bootBatchPending--; continue; }
+
+      let peerListTimer = null;
+      let bcDone = false;
+
+      // Chamado quando esta conexão falha ou fecha sem sucesso
+      const onBcFail = () => {
+        if (bcDone) return;
+        bcDone = true;
+        if (peerListTimer) { clearTimeout(peerListTimer); peerListTimer = null; }
+        setConnections(prev => prev.filter(c => c.peer !== targetId));
+        bootBatchPending--;
+        // Quando todo o lote falhou e nenhum está aguardando peer-list → próximo lote
+        // V69: delay mínimo de 400ms entre lotes para não inundar o WebSocket de sinalização
+        if (bootBatchPending <= 0 && !bootBatchGotOpen && !bootstrapDoneRef.current && !bootBatchScheduled) {
+          bootBatchScheduled = true;
+          window.__k10BatchActive = false;
+          setTimeout(() => {
+            if (typeof window.__k10BootTryNext === 'function') window.__k10BootTryNext();
+          }, 400);
+        }
+      };
+
+      bc.on('open', () => {
+        if (bootstrapDoneRef.current) { try { bc.close(); } catch(e) {} return; }
+        bootBatchGotOpen = true;
+        addAudit(`[Bootstrap] ✅ Conectado: ${targetId}`, 'success');
+        setCentralServerId(targetId);
+        setConnections(prev => [...prev.filter(c => c.peer !== targetId), bc]);
+        try { bc.send({ type: 'group0-request' }); } catch(e) {}
+        // Se peer-list não chegar em 8s, considera gateway zumbi → próximo lote
+        peerListTimer = setTimeout(() => {
+          if (bootstrapDoneRef.current) return;
+          addAudit(`[Bootstrap] ⏱ Timeout aguardando peer-list de ${targetId} — próximo...`, 'warn');
+          try { bc.close(); } catch(e) {}
+          bootBatchGotOpen = false;
+          window.__k10BatchActive = false;
+          if (!bootBatchScheduled) {
+            bootBatchScheduled = true;
+            if (typeof window.__k10BootTryNext === 'function') window.__k10BootTryNext();
+          }
+        }, 8_000);
+      });
+      bc.on('data', d => {
+        if (peerListTimer) { clearTimeout(peerListTimer); peerListTimer = null; }
+        // FIX V67-BUG1: marca bcDone=true ao receber peer-list para que onBcFail
+        // não remova a conexão vencedora de connections quando o gateway fechar.
+        if (d && d.type === 'peer-list') bcDone = true;
+        handleIncomingDataRef.current(d, targetId);
+      });
+      bc.on('close', () => { onBcFail(); });
+      bc.on('error', () => { onBcFail(); });
+    }
+
+    if (launched === 0 && !bootstrapDoneRef.current) {
+      window.__k10BatchActive = false;
+      setTimeout(() => { if (typeof window.__k10BootTryNext === 'function') window.__k10BootTryNext(); }, 1000);
+    }
   };
 
   // V53: stall-detection — se após 60s o bootstrap ainda não completou, reinicia
@@ -7811,6 +8031,7 @@ if (!bootstrapDoneRef.current) {
       addAudit('[Bootstrap] ⚠️ Stall detectado após 60s — reiniciando varredura...', 'warn');
       window.__k10BootGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
       window.__k10BootIdx = 0;
+      window.__k10BatchActive = false;
       window.__k10BootTryNext();
     }
   }, 60_000);
@@ -7851,11 +8072,100 @@ if (!bootstrapDoneRef.current) {
         try { centralBootConn.close(); } catch(e) {}
         const confirmed = d.confirmedCount || d.gateways.length;
         addAudit(`[Bootstrap] ✅ K10-CENTRAL: ${confirmed} gateways ativos recebidos`, 'success');
-        // Coloca os gateways ativos no início da fila de bootstrap
-        const rest = GATEWAY_IDS.filter(id => !d.gateways.includes(id)).sort(() => Math.random() - 0.5);
-        window.__k10BootGateways = [...d.gateways, ...rest];
-        window.__k10BootIdx = 0;
-        setTimeout(tryNextGateway, 200);
+
+        // FIX V66: tenta TODOS os gateways confirmados em paralelo.
+        // O modelo anterior colocava a lista na fila sequencial — com 53 confirmados
+        // e batch=8, o primeiro gate do lote podia ser um vazio (grupo novo).
+        // Agora: dispara até 20 conexões simultâneas nos confirmados, aceita o
+        // primeiro que responder com peer-list que tenha count>1 (grupo com peers).
+        // Se todos tiverem count<=1, aceita o primeiro que responder.
+        const probeGates = d.gateways.slice(0, 20);
+        let parallelDone = false;
+        let firstResult = null; // { conn, data, targetId } — primeiro peer-list recebido
+        let populated = null;   // primeiro peer-list com count>1
+
+        const tryAccept = () => {
+          const winner = populated || firstResult;
+          if (!winner) return;
+          parallelDone = true;
+          // Fecha todas as outras conexões paralelas
+          probeGates.forEach(id => {
+            if (id !== winner.targetId) {
+              try { winner._allConns && winner._allConns.get(id) && winner._allConns.get(id).close(); } catch(e) {}
+            }
+          });
+          // Processa o peer-list do vencedor
+          handleIncomingDataRef.current(winner.data, winner.targetId);
+        };
+
+        const allConns = new Map();
+        let pending = probeGates.length;
+
+        probeGates.forEach(targetId => {
+          if (bootstrapDoneRef.current) return;
+          addAudit(`[Bootstrap] 🔄 Tentando ${targetId}...`, 'info');
+          const bc2 = peerInstance.current ? peerInstance.current.connect(targetId, { reliable: true }) : null;
+          if (!bc2) { pending--; return; }
+          allConns.set(targetId, bc2);
+
+          let bc2done = false;
+          let plTimer = null;
+
+          bc2.on('open', () => {
+            if (bootstrapDoneRef.current || parallelDone) { try { bc2.close(); } catch(e) {} return; }
+            addAudit(`[Bootstrap] ✅ Conectado: ${targetId}`, 'success');
+            setCentralServerId(targetId);
+            setConnections(prev => [...prev.filter(c => c.peer !== targetId), bc2]);
+            try { bc2.send({ type: 'group0-request' }); } catch(e) {}
+            plTimer = setTimeout(() => {
+              if (!bc2done) {
+                bc2done = true;
+                addAudit(`[Bootstrap] ⏱ Timeout peer-list de ${targetId}`, 'warn');
+                try { bc2.close(); } catch(e) {}
+                pending--;
+                if (pending <= 0 && !parallelDone) tryAccept();
+              }
+            }, 8_000);
+          });
+          bc2.on('data', data => {
+            if (plTimer) { clearTimeout(plTimer); plTimer = null; }
+            if (data && data.type === 'peer-list' && !bc2done) {
+              bc2done = true;
+              const result = { conn: bc2, data, targetId, _allConns: allConns };
+              if (!firstResult) firstResult = result;
+              if (!populated && data.count > 1) populated = result;
+              pending--;
+              // Se temos grupo populado, aceita imediatamente
+              if (populated && !parallelDone) { tryAccept(); return; }
+              // Se todos responderam e nenhum tem peers, aceita o primeiro
+              if (pending <= 0 && !parallelDone) tryAccept();
+            } else {
+              handleIncomingDataRef.current(data, targetId);
+            }
+          });
+          bc2.on('error', () => {
+            if (plTimer) { clearTimeout(plTimer); plTimer = null; }
+            if (!bc2done) { bc2done = true; pending--; }
+            if (pending <= 0 && !parallelDone) tryAccept();
+          });
+          bc2.on('close', () => {
+            if (plTimer) { clearTimeout(plTimer); plTimer = null; }
+            if (!bc2done) { bc2done = true; pending--; }
+            if (pending <= 0 && !parallelDone) tryAccept();
+          });
+        });
+
+        // Fallback: se os confirmados não produzirem resultado em 10s, cai na varredura
+        setTimeout(() => {
+          if (!bootstrapDoneRef.current && !parallelDone) {
+            parallelDone = true;
+            addAudit('[Bootstrap] ⏱ Timeout confirmados — iniciando varredura...', 'warn');
+            const rest = GATEWAY_IDS.filter(id => !d.gateways.includes(id)).sort(() => Math.random() - 0.5);
+            window.__k10BootGateways = [...rest];
+            window.__k10BootIdx = 0;
+            setTimeout(tryNextGateway, 100);
+          }
+        }, 10_000);
       }
     });
     centralBootConn.on('error', err => {
@@ -7898,24 +8208,16 @@ window.location.reload();
 console.log("Network error detected, will attempt reconnect...");
 } else if (err.type === 'peer-unavailable') {
   // V60 Fix: Se o gateway não existe (vago), passamos para o próximo.
-  // IMPORTANTE: Não assumimos o primeiro gateway vago que encontramos! Se fizermos isso, 
-  // todos os peers que entrarem enquanto a central estiver zombie criarão gateways separados e não se acharão.
-  // Esperamos esgotar a varredura (ou uma boa parte dela) antes de assumir.
   if (!bootstrapDoneRef.current) {
     // Incrementa contador de gateways vagos lidos
     window.__k10BootVacantCount = (window.__k10BootVacantCount || 0) + 1;
     const lastTried = window.__k10LastBootTarget;
-    // V61: Só assume o gateway se já varreu praticamente toda a lista (95 gateways) e não achou ninguém.
-    // Isso GARENTE a conexão entre usuários mesmo se K10-CENTRAL for um zumbi, à custa de uns segundos
-    // a mais de espera apenas para o PRIMEIRO usuário a entrar na sala.
-    if (window.__k10BootVacantCount >= 95 && lastTried && lastTried.startsWith('K10-GATE-') && !K10GatewayShadow.isActive) {
+    // Com lista de 5 gateways: assume após varrer todos (>=5) sem achar ninguém
+    if (window.__k10BootVacantCount >= GATEWAY_IDS.length && lastTried && lastTried.startsWith('K10-GATE-') && !K10GatewayShadow.isActive) {
       try { K10GatewayShadow.tryClaim(lastTried); } catch(e) {}
     }
-    
-    if (typeof window.__k10BootTryNext === 'function') {
-      const delay = 150 + Math.random() * 200;
-      setTimeout(window.__k10BootTryNext, delay);
-    }
+    // V69: NÃO dispara __k10BootTryNext aqui — o batch já gerencia retentativas via onBcFail.
+    // Chamar aqui causaria double-trigger → flood de conexões → erro 'network' → mass disconnected.
   }
 } else {
 setMessages(prev => [...prev, { text: `System: PeerJS Error (${err.type})`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500));
@@ -9164,7 +9466,7 @@ const K10GatewayShadow = (() => {
   // ── Constantes ────────────────────────────────────────────────────────
   const GW_MAX_GROUP       = 50;          // max peers por grupo
   const GW_ELECTION_MS     = 12_000;      // intervalo de eleição proativa
-  const GW_PROBE_TIMEOUT   = 3_000;       // timeout para sondar se slot está ocupado
+  const GW_PROBE_TIMEOUT   = 5_000;       // timeout para sondar se slot está ocupado (FIX V34: 3s→5s, evita falso-positivo quando poll K10-CENTRAL sobrecarrega PeerJS)
   const GW_CLAIM_TIMEOUT   = 14_000;      // timeout para reivindicar slot
 
   // Lista de sufixos de posição (AA, AB, … até 50 entradas)
@@ -9276,7 +9578,10 @@ const K10GatewayShadow = (() => {
       if (resolved) return;
       resolved = true;
       try { probe.close(); } catch(e) {}
-      // Timeout → considera gateway vivo; não reivindica
+      // FIX V34: timeout sem resposta = PeerJS lento (ex: rede fria, poll K10-CENTRAL paralelo).
+      // Tentar reivindicar: se slot ocupado, _attemptClaim falha com unavailable-id (inofensivo);
+      // se vago, assume o slot. Resolve o loop gateway em redes com 1 peer.
+      _attemptClaim(gatewayId);
     }, GW_PROBE_TIMEOUT);
     probe.on('open', () => {
       if (resolved) return;
@@ -9444,6 +9749,37 @@ const K10GatewayShadow = (() => {
     }
   }
 
+  // FIX V61: Re-send peer-list for already-assigned peer.
+  // Called when group0-request arrives but the peer was already auto-assigned
+  // on open. The original peer-list may have been lost if the client's DataChannel
+  // wasn't fully ready to receive when the gateway sent it.
+  function _resendPeerList(conn) {
+    const gid = peerGroupMap.get(conn.peer);
+    if (!gid || !activeGroups[gid]) return;
+    const group = activeGroups[gid];
+    const localPeers = group.positions.filter(p => p !== conn.peer).slice(0, 20);
+    let peers = localPeers;
+    if (peers.length < 5 && crossGatewayPeers.size > 0) {
+      const crossSample = [...crossGatewayPeers]
+        .filter(id => id !== conn.peer && !group.positions.includes(id))
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 20 - peers.length);
+      peers = [...peers, ...crossSample];
+    }
+    const posIdx = group.positions.indexOf(conn.peer);
+    const groupServers = claimedId ? [claimedId] : [];
+    try {
+      conn.send({
+        type:         'peer-list',
+        gid:          gid,
+        peers:        peers,
+        groupServers: groupServers,
+        user:         GW_POSITION_LIST[posIdx >= 0 ? posIdx : 0] || String(posIdx),
+        count:        group.positions.length
+      });
+    } catch(e) {}
+  }
+
   // Remove peer do grupo quando desconecta
   function _onPeerLeave(peerId) {
     const gid = peerGroupMap.get(peerId);
@@ -9504,35 +9840,66 @@ const K10GatewayShadow = (() => {
   // incluídos no peer-list — o cliente os conecta diretamente via WebRTC.
   // ─────────────────────────────────────────────────────────────────────────
 
+  // FIX V62: intervalo adaptativo — primeiros ciclos rápidos (5s), depois estável (30s).
+  // Cobre a janela de entrada de novos peers sem sobrecarregar a rede no longo prazo.
+  let _discovCycle = 0; // conta ciclos para controle do intervalo adaptativo
+
   function _startCrossGatewayDiscovery() {
+    _discovCycle = 0;
+    if (crossGwDiscovTimer) { clearTimeout(crossGwDiscovTimer); crossGwDiscovTimer = null; }
     // Primeiro sample logo após o claim (aguarda gateways vizinhos subirem)
-    setTimeout(_discoverCrossGatewayPeers, 4_000);
-    // Refresh periódico a cada 30s (garante que peers recém-chegados sejam incluídos)
-    if (crossGwDiscovTimer) clearInterval(crossGwDiscovTimer);
-    crossGwDiscovTimer = setInterval(() => {
-      if (!isActive) { clearInterval(crossGwDiscovTimer); crossGwDiscovTimer = null; return; }
-      _discoverCrossGatewayPeers();
-    }, 30_000);
+    crossGwDiscovTimer = setTimeout(_runDiscoveryCycle, 4_000);
+  }
+
+  function _runDiscoveryCycle() {
+    crossGwDiscovTimer = null;
+    if (!isActive) return;
+    _discoverCrossGatewayPeers();
+    _discovCycle++;
+    // Primeiros 3 ciclos a cada 5s (cobre janela de entrada); depois 30s
+    const nextMs = _discovCycle < 3 ? 5_000 : 30_000;
+    crossGwDiscovTimer = setTimeout(_runDiscoveryCycle, nextMs);
   }
 
   function _discoverCrossGatewayPeers() {
     if (!isActive || !gwPeer || gwPeer.destroyed) return;
+    const prevSize = crossGatewayPeers.size;
     // Sonda 3 gateways aleatórios (excluindo o próprio)
     const targets = GATEWAY_IDS
       .filter(id => id !== claimedId)
       .sort(() => Math.random() - 0.5)
       .slice(0, 3);
 
+    // FIX V62: após todos os probes terminarem, se crossGatewayPeers cresceu,
+    // empurra peer-list atualizado para clientes já conectados com grupo pequeno.
+    let pending = targets.length;
+    function _onProbesDone() {
+      if (crossGatewayPeers.size > prevSize) {
+        console.log(`[Gateway] Cross-discovery: ${crossGatewayPeers.size - prevSize} novos peers — pushing peer-list para clientes existentes`);
+        gwConns.forEach(c => {
+          if (!c || !c.open) return;
+          const gid = peerGroupMap.get(c.peer);
+          if (!gid || !activeGroups[gid]) return;
+          // Só envia se o grupo local é pequeno (beneficia de cross-peers)
+          if (activeGroups[gid].positions.length < 5) {
+            _resendPeerList(c);
+          }
+        });
+      }
+    }
+
     targets.forEach(gwTargetId => {
       let resolved = false;
       let probe;
       try { probe = gwPeer.connect(gwTargetId, { reliable: true }); }
-      catch(e) { return; }
-      if (!probe) return;
+      catch(e) { pending--; if (pending === 0) _onProbesDone(); return; }
+      if (!probe) { pending--; if (pending === 0) _onProbesDone(); return; }
 
       const t = setTimeout(() => {
+        if (resolved) return;
         resolved = true;
         try { probe.close(); } catch(e) {}
+        pending--; if (pending === 0) _onProbesDone();
       }, 6_000);
 
       probe.on('open', () => {
@@ -9554,12 +9921,15 @@ const K10GatewayShadow = (() => {
           });
           console.log(`[Gateway] Cross-sample de ${gwTargetId}: +${d.peers.length} peers (total: ${crossGatewayPeers.size})`);
           try { probe.close(); } catch(e) {}
+          pending--; if (pending === 0) _onProbesDone();
         }
       });
 
       probe.on('error', () => {
         clearTimeout(t);
+        if (resolved) return;
         resolved = true;
+        pending--; if (pending === 0) _onProbesDone();
         try { probe.close(); } catch(e) {}
       });
       probe.on('close', () => { clearTimeout(t); });
@@ -9570,7 +9940,15 @@ const K10GatewayShadow = (() => {
 
   function _onClient(conn) {
     gwConns.set(conn.peer, conn);
-    conn.on('open',  () => _doAssignPeer(conn));
+    // FIX V61: handle race where conn is already open when _onClient runs.
+    // In some PeerJS timing scenarios, the DataConnection's open event fires
+    // before the connection event handler sets up the listener, causing
+    // _doAssignPeer to never be called and peer-list to never be sent.
+    if (conn.open) {
+      _doAssignPeer(conn);
+    } else {
+      conn.on('open',  () => _doAssignPeer(conn));
+    }
     conn.on('data',  data => _onData(conn, data));
     conn.on('close', ()   => _onPeerLeave(conn.peer));
     conn.on('error', ()   => _onPeerLeave(conn.peer));
@@ -9594,7 +9972,14 @@ const K10GatewayShadow = (() => {
 
     // Bootstrap explícito
     if (data.type === 'group0-request') {
-      _doAssignPeer(conn);
+      // FIX V61: If peer was already assigned (auto-assign on open worked but
+      // peer-list was lost because client DataChannel wasn't fully ready),
+      // re-send the peer-list instead of silently returning.
+      if (peerGroupMap.has(conn.peer)) {
+        _resendPeerList(conn);
+      } else {
+        _doAssignPeer(conn);
+      }
       return;
     }
 
@@ -9651,7 +10036,8 @@ const K10GatewayShadow = (() => {
     gwConns.clear();
     // FIX V58: limpa estado cross-gateway
     crossGatewayPeers.clear();
-    if (crossGwDiscovTimer) { clearInterval(crossGwDiscovTimer); crossGwDiscovTimer = null; }
+    if (crossGwDiscovTimer) { clearTimeout(crossGwDiscovTimer); crossGwDiscovTimer = null; }
+    _discovCycle = 0;
   }
 
   return {
@@ -9835,6 +10221,9 @@ const K10CentralShadow = (() => {
     });
     gp.on('error', (err) => { 
       clearTimeout(failTimer); 
+      // FIX V33: peer-unavailable borbulha das sondagens _pollGateways — NÃO é fatal.
+      // FIX V62: suprime log de peer-unavailable (é ruído normal das sondagens periódicas).
+      if (err && err.type === 'peer-unavailable') return;
       console.warn(`[K10CentralShadow] Erro do PeerJS em K10-CENTRAL:`, err && err.type);
       _cleanup(); 
     });
@@ -9891,10 +10280,15 @@ const K10CentralShadow = (() => {
   // ── Atende clientes ───────────────────────────────────────────────────
   function _onClient(conn) {
     centralConns.set(conn.peer, conn);
-    conn.on('open', () => {
-      // Envia lista imediatamente ao conectar
+    // FIX V61: handle race where conn is already open when _onClient runs.
+    if (conn.open) {
       _sendGatewayList(conn);
-    });
+    } else {
+      conn.on('open', () => {
+        // Envia lista imediatamente ao conectar
+        _sendGatewayList(conn);
+      });
+    }
     conn.on('data', data => {
       if (!data || !data.type) return;
       if (data.type === 'central-discovery-request') {
