@@ -278,9 +278,9 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
   <div class="health-metrics" id="health-metrics"></div>
   <div id="health-alerts" class="health-alerts" style="display:none"></div>
   <table class="health-table" id="health-table">
-    <thead><tr><th>Timestamp</th><th>Users</th><th>Servers</th><th>Total Nodes</th><th>Groups</th><th>Avg.Size</th><th>Splits</th><th>Merges</th><th>Comp.</th><th>Tutor</th></tr></thead>
+    <thead><tr><th>Timestamp</th><th>Users</th><th>Servers</th><th>Total Nodes</th><th>Groups</th><th>Avg.Size</th><th>Splits</th><th>Merges</th><th>Comp.</th><th>Tutor</th>｜DSML｜</thead>
     <tbody id="health-table-body"></tbody>
-  </table>
+   </table>
 </div>
 
 <!-- ADVANCED METRICS (LEIGHTWEIGHT) -->
@@ -446,15 +446,13 @@ function deriveGroups() {
     const lb = legacyBucket[gid];
     if (now - lb.ts > STALE) { delete legacyBucket[gid]; continue; }
     if (!g[gid]) g[gid] = {n:0, ts:0};
-    g[gid].n  += lb.peers ? [...lb.peers.entries()].filter(([,t])=>now-t<=STALE).length : (lb.n||0); // FIX V2-UNIQUE
+    g[gid].n  += lb.peers ? [...lb.peers.entries()].filter(([,t])=>now-t<=STALE).length : (lb.n||0);
     if (lb.ts > g[gid].ts) g[gid].ts = lb.ts;
   }
   return g;
 }
 
 function totalUsers() {
-  // FIX-BUG8: usa deriveGroups() para evitar dupla contagem entre server reports e legacyBucket.
-  // A função deriveGroups já aplica a regra: server report tem precedência sobre legacyBucket.
   return Object.values(deriveGroups()).reduce((s, g) => s + g.n, 0);
 }
 
@@ -584,7 +582,6 @@ function updateHealthUI() {
 
   let userTrend = 0, serverTrend = 0, nodeTrend = 0, groupTrend = 0;
   if (previous) {
-    // FIX v7-TREND: prev=0 e cur>0 mostrava 0% (parecia estavel). Agora retorna +100% (cresceu do zero).
     const safeTrend = (cur, prev) => prev > 0 ? ((cur - prev) / prev) * 100 : (cur > 0 ? 100 : 0);
     userTrend   = safeTrend(latest.totalUsers,   previous.totalUsers);
     serverTrend = safeTrend(latest.totalServers, previous.totalServers);
@@ -866,115 +863,6 @@ function v8AfterSnapshot() {
   renderHeatmap();
 }
 
-// Hook: hijack handleMsg para capturar eventos de topologia em tempo real
-const _v8OrigHandleMsg = handleMsg;
-handleMsg = function(msg) {
-  _v8OrigHandleMsg.call(this, msg);
-  if (!msg || !msg.type) return;
-  if (msg.type === 'group-split')      pushTimelineEvent('split', `${msg.oldGroupId} → ${msg.newGroupId}`);
-  else if (msg.type === 'group-merge') pushTimelineEvent('merge', `${msg.absorbedGroupId} → ${msg.survivingGroupId}`);
-  else if (msg.type === 'group-compensate') pushTimelineEvent('comp', `${msg.donorGid} → ${msg.receiverGid}`);
-  else if (msg.type === 'group-tutor-status' && msg.active) pushTimelineEvent('tutor', `${msg.childGid} entrou em tutela`);
-};
-
-// Hook: hijack takeHealthSnapshot para alimentar history apos cada ciclo
-const _v8OrigSnapshot = takeHealthSnapshot;
-takeHealthSnapshot = function() {
-  _v8OrigSnapshot.call(this);
-  v8AfterSnapshot();
-};
-
-// Hook: render() tambem atualiza heatmap (em throttle natural)
-const _v8OrigRender = render;
-render = function() {
-  _v8OrigRender.call(this);
-  // Heatmap so atualiza a cada 2s para nao consumir CPU
-  if (!window._v8HeatmapTimer) {
-    window._v8HeatmapTimer = setTimeout(() => { window._v8HeatmapTimer = null; renderHeatmap(); }, 2000);
-  }
-};
-
-// ═══════════════════════════════════════════════════════════════════════
-//  EXPORTAR RELATÓRIOS PARA TXT (inclui métricas avançadas)
-// ═══════════════════════════════════════════════════════════════════════
-window.exportReportsToTxt = function() {
-  if (healthReports.length === 0) {
-    alert("Nenhum relatório disponível ainda. Aguarde o monitor coletar dados.");
-    return;
-  }
-
-  let content = "K10 MONITOR PRO — HEALTH REPORT EXPORT (ADVANCED)\n";
-  content += `Exportado em: ${new Date().toLocaleString()}\n`;
-  content += `Monitor ID: ${document.getElementById('mon-id').value.trim().toUpperCase() || 'K10-MON'}\n`;
-  content += `Status: ${document.getElementById('status').innerText}\n`;
-  content += `Conexões ativas: ${conns.size}\n`;
-  content += `Total de mensagens recebidas: ${msgCount}\n`;
-  content += `Último render: ${document.getElementById('p-lat').innerText}\n`;
-  content += `\n${'='.repeat(80)}\n`;
-  content += `ÚLTIMOS 5 RELATÓRIOS DE SAÚDE (mais recente primeiro)\n`;
-  content += `${'='.repeat(80)}\n\n`;
-
-  healthReports.forEach((r, idx) => {
-    content += `📌 RELATÓRIO #${idx+1} (${new Date(r.ts).toLocaleString()})\n`;
-    content += `   Usuários totais  : ${fmt(r.totalUsers)} (${r.totalUsers.toLocaleString()} exato)\n`;
-    content += `   Servidores ativos: ${r.totalServers}\n`;
-    content += `   TOTAL GERAL (nós) : ${fmt(r.totalNodes)} (${r.totalNodes.toLocaleString()})\n`;
-    content += `   Grupos ativos    : ${r.totalGroups}\n`;
-    content += `   Tamanho médio    : ${fmt(r.avgGroupSize)}\n`;
-    content += `   Splits           : ${r.splits}\n`;
-    content += `   Merges           : ${r.merges}\n`;
-    content += `   Compensações     : ${r.compensates}\n`;
-    content += `   Tutela ativa     : ${r.tutorActive ? 'Sim' : 'Não'}\n`;
-    content += `   --- Métricas Avançadas ---\n`;
-    content += `   Grupos cheios (>=${MAX_GRP}): ${r.advanced.pctFull.toFixed(1)}%\n`;
-    content += `   Grupos pequenos (<10):       ${r.advanced.pctSmall.toFixed(1)}%\n`;
-    content += `   Desvio padrão (usuários):   ${r.advanced.stdDev.toFixed(1)}\n`;
-    content += `   Coeficiente de variação:    ${r.advanced.cv.toFixed(1)}%\n`;
-    content += `   Saturação da rede:          ${r.advanced.saturated.toFixed(1)}%\n`;
-    content += `   Servidores ociosos:         ${r.advanced.idleServers}\n`;
-    content += `   Idade média servidores (s): ${r.advanced.avgAge.toFixed(0)}\n`;
-    content += `   Splits+merges/min:          ${r.advanced.splitMergeRate.toFixed(2)}\n\n`;
-  });
-
-  if (healthReports.length >= 2) {
-    const latest = healthReports[0];
-    const prev = healthReports[1];
-    // FIX v7-TREND-EXPORT: aplica mesma logica safeTrend usada na UI
-    const safeTrend = (cur, p) => p > 0 ? ((cur - p) / p) * 100 : (cur > 0 ? 100 : 0);
-    const userDelta = safeTrend(latest.totalUsers, prev.totalUsers);
-    const serverDelta = safeTrend(latest.totalServers, prev.totalServers);
-    const nodeDelta = safeTrend(latest.totalNodes, prev.totalNodes);
-    const groupDelta = safeTrend(latest.totalGroups, prev.totalGroups);
-    content += `📈 TENDÊNCIAS (último vs penúltimo):\n`;
-    content += `   Usuários : ${userDelta>=0?'+':''}${userDelta.toFixed(2)}%\n`;
-    content += `   Servidores: ${serverDelta>=0?'+':''}${serverDelta.toFixed(2)}%\n`;
-    content += `   TOTAL GERAL: ${nodeDelta>=0?'+':''}${nodeDelta.toFixed(2)}%\n`;
-    content += `   Grupos   : ${groupDelta>=0?'+':''}${groupDelta.toFixed(2)}%\n\n`;
-  }
-
-  const alertsDiv = document.getElementById('health-alerts');
-  if (alertsDiv && alertsDiv.style.display !== 'none') {
-    content += `⚠️ ALERTAS ATUAIS:\n`;
-    const alerts = Array.from(alertsDiv.querySelectorAll('.alert-item')).map(a => a.innerText);
-    alerts.forEach(a => content += `   ${a}\n`);
-    content += `\n`;
-  }
-
-  content += `${'='.repeat(80)}\n`;
-  content += `FIM DO RELATÓRIO\n`;
-
-  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
-  const link = document.createElement('a');
-  const url = URL.createObjectURL(blob);
-  link.href = url;
-  link.download = `k10_health_advanced_${new Date().toISOString().slice(0,19).replace(/:/g, '-')}.txt`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-  log(`📄 Relatório avançado exportado com ${healthReports.length} registros.`, 'ok');
-};
-
 // ═══════════════════════════════════════════════════════════════════════
 //  PROCESSAMENTO DE MENSAGENS (agregado + eventos topologia)
 // ═══════════════════════════════════════════════════════════════════════
@@ -1004,11 +892,8 @@ function handleMsg(msg) {
       document.getElementById('warn-old').classList.add('show');
       log(`⚠ Protocolo legado detectado: ${msg.id} → migre para {t:'s'}`, 'warn');
     }
-    // FIX V2-UNIQUE: conta por peer ID único (Set) em vez de n++ acumulativo
-    // n++ crescia ilimitadamente (77 users × 4 ciclos = 308 após 2min).
-    // Agora: cada peer ID é contado uma única vez por GID.
     if (!legacyBucket[msg.gid]) legacyBucket[msg.gid] = {peers: new Map(), ts: 0};
-    legacyBucket[msg.gid].peers.set(msg.id, Date.now()); // FIX V2-UNIQUE: Map peerId→lastSeen
+    legacyBucket[msg.gid].peers.set(msg.id, Date.now());
     legacyBucket[msg.gid].ts = Date.now();
     scheduleRender();
     return;
@@ -1205,6 +1090,7 @@ function stopMon() {
   clearInterval(footerTimer);
   clearInterval(healthTimer);
   clearTimeout(renderTimer);
+  if (window._v8HeatmapTimer) { clearTimeout(window._v8HeatmapTimer); window._v8HeatmapTimer = null; }
   renderTimer = null;
   if (peer && !peer.destroyed) peer.destroy();
   peer = null;
@@ -1223,6 +1109,30 @@ function stopMon() {
   const adv = computeAdvancedMetrics();
   updateAdvancedUI(adv);
 }
+
+const _v8OrigHandleMsg = handleMsg;
+handleMsg = function(msg) {
+  _v8OrigHandleMsg(msg);
+  if (!msg || !msg.type) return;
+  if (msg.type === 'group-split')      pushTimelineEvent('split', `${msg.oldGroupId} → ${msg.newGroupId}`);
+  else if (msg.type === 'group-merge') pushTimelineEvent('merge', `${msg.absorbedGroupId} → ${msg.survivingGroupId}`);
+  else if (msg.type === 'group-compensate') pushTimelineEvent('comp', `${msg.donorGid} → ${msg.receiverGid}`);
+  else if (msg.type === 'group-tutor-status' && msg.active) pushTimelineEvent('tutor', `${msg.childGid} entrou em tutela`);
+};
+
+const _v8OrigSnapshot = takeHealthSnapshot;
+takeHealthSnapshot = function() {
+  _v8OrigSnapshot();
+  v8AfterSnapshot();
+};
+
+const _v8OrigRender = render;
+render = function() {
+  _v8OrigRender();
+  if (!window._v8HeatmapTimer) {
+    window._v8HeatmapTimer = setTimeout(() => { window._v8HeatmapTimer = null; renderHeatmap(); }, 2000);
+  }
+};
 
 window.addEventListener('unhandledrejection', event => {
   log(`[Promise Rejection] ${event.reason?.message || event.reason}`, 'err');
