@@ -737,15 +737,15 @@
       const [peerId, setPeerId] = useState(() => {
         try {
           const saved = localStorage.getItem(PEER_ID_STORAGE_KEY) || DEFAULT_ID;
-          return saved.startsWith('K10-') ? saved : 'K10-' + saved;
+          return saved.startsWith('K10-GATE-') ? saved : 'K10-GATE-' + saved;
         } catch (e) {
-          return 'K10-' + DEFAULT_ID;
+          return 'K10-GATE-' + DEFAULT_ID;
         }
       });
 
       useEffect(() => {
         try {
-          const formattedId = peerId.startsWith('K10-') ? peerId : 'K10-' + peerId;
+          const formattedId = peerId.startsWith('K10-GATE-') ? peerId : 'K10-GATE-' + peerId;
           if (formattedId !== peerId) {
             setPeerId(formattedId);
             return;
@@ -781,22 +781,23 @@
           alert(t(lang, 'idEmpty'));
           return;
         }
-    // FIX V36-IDVALIDATE: valida formato antes de aceitar ID customizado.
+        // FIX V36-IDVALIDATE: valida formato antes de aceitar ID customizado.
         // Aceita raw (6 chars A–Z 2–9) ou já com sufixo -CENTRAL.
         // IDs inválidos exibem alerta e não prosseguem — previne loop de erro
         // 'invalid-id' no PeerJS sem feedback claro para o operador.
         const trimmed = editableId.trim();
-        const baseId = trimmed.endsWith('-CENTRAL') ? trimmed.slice(0, -8) : trimmed;
+        const baseId = trimmed.startsWith('K10-GATE-') ? trimmed.slice(9) : trimmed;
         if (!/^[A-Z2-9]{6}$/.test(baseId)) {
-          alert('ID inválido! Use exatamente 6 caracteres: letras A–Z (maiúsculas) e números 2–9.\nExemplo: AAAAAA\n(O sufixo -CENTRAL é adicionado automaticamente)');
+          alert('ID inválido! Use exatamente 6 caracteres: letras A–Z (maiúsculas) e números 2–9.\nExemplo: AAAAAA\n(O prefixo K10-GATE- é adicionado automaticamente)');
           return;
         }
-        const normalized = trimmed.endsWith('-CENTRAL') ? trimmed : baseId + '-CENTRAL';
+        const normalized = trimmed.startsWith('K10-GATE-') ? trimmed : 'K10-GATE-' + trimmed;
         if (normalized !== peerId) {
           setPeerId(normalized);
           if (onSaveId) onSaveId(normalized);
         }
         setIsEditing(false);
+      };
 
       return (
         <div className="id-backup-container">
