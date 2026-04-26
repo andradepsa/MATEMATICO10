@@ -1,4 +1,266 @@
-<!-- ═══ Chat K10 V47 — FIX-GROUP-LEGACY + Compatibilidade V40 Servidor (25/abr/2026) ═══
+<!-- ═══ Chat K10 V60 — K10-CENTRAL Acumula Gateway no Primeiro Peer (26/abr/2026) ═══
+     FIX V60: PRIMEIRO PEER ACUMULA K10-CENTRAL + K10-GATE (DUPLO PAPEL)
+     ══════════════════════════════════════════════════════════════════════
+     Problema V59: os dois peers nos logs tentavam K10-CENTRAL (timeout 4.5s)
+          ANTES de qualquer gateway existir. K10-CENTRAL ainda não havia sido
+          reivindicado por ninguém. Resultado: ambos caíam no fallback da
+          varredura, reivindicavam gateways DIFERENTES e nunca se encontravam.
+
+          Timeline V59 (falha):
+            10:20:15  Peer-B tenta K10-CENTRAL → ninguém lá, timeout 4.5s
+            10:20:16  Peer-B tenta K10-GATE-0079 → reivindica
+            10:20:35  Peer-A tenta K10-CENTRAL → ninguém lá, timeout 4.5s
+            10:20:36  Peer-A tenta K10-GATE-0088 → reivindica
+            → Peer-A e Peer-B em gateways isolados, nunca se encontram.
+
+     Fix V60 — Duplo papel: quem reivindica o primeiro K10-GATE também
+          assume K10-CENTRAL imediatamente:
+
+     1. GATEWAYSHADOW NOTIFICA K10-CENTRAL:
+        O callback onClaimed do K10GatewayShadow agora chama
+        K10CentralShadow.claimWithGateway(claimedId) em vez de apenas
+        reconectar o bootstrap.
+        Assim, o peer que ganhou o gateway imediatamente tenta registrar
+        K10-CENTRAL também — sem esperar a eleição proativa de 15s.
+
+     2. K10-CENTRAL CONHECE SEU PRÓPRIO GATEWAY:
+        claimWithGateway(gwId) pré-popula activeGateways com gwId antes
+        mesmo do poll periódico. Quando o segundo peer perguntar
+        "quais gateways estão ativos?", K10-CENTRAL já sabe a resposta.
+
+     3. TIMEOUT REDUZIDO NO BOOTSTRAP:
+        Fast-path timeout: 4.5s → 2.5s.
+        Em redes frias K10-CENTRAL realmente não existe; 2.5s é suficiente
+        para confirmar isso e iniciar a varredura com menos delay.
+
+     4. LÓGICA DE DISTRIBUIÇÃO NATURAL:
+        Com 1 peer: ele é K10-CENTRAL + K10-GATE-XXXX (tudo em um).
+        Com 2 peers: o segundo encontra K10-CENTRAL, recebe o gateway do
+          primeiro e conecta diretamente. Modo Geral funciona.
+        Com N peers: conforme mais gateways são reivindicados, K10-CENTRAL
+          vai adicionando-os via poll. O sistema fica naturalmente distribuído.
+
+     Timeline V60 (correto):
+       T+0s   Peer-B: tenta K10-CENTRAL (vazio) → timeout 2.5s
+       T+0s   Peer-B: inicia varredura → reivindica K10-GATE-0079
+       T+0s   Peer-B: onClaimed → K10CentralShadow.claimWithGateway('K10-GATE-0079')
+       T+0.5s K10-CENTRAL assumido por Peer-B, activeGateways = {K10-GATE-0079}
+       T+10s  Peer-A: tenta K10-CENTRAL → responde! → recebe [K10-GATE-0079]
+       T+10s  Peer-A: conecta K10-GATE-0079 → encontra Peer-B → Modo Geral ✅
+
+     ════════════ HISTÓRICO V59 (preservado para referência) ════════════
+     FIX V59: MODO GERAL — ELEIÇÃO DE K10-CENTRAL COMO HUB DE DESCOBERTA
+     ══════════════════════════════════════════════════════════════════════
+     Problema V58: peers em gateways diferentes ainda não se encontravam de
+          forma confiável. O cross-gateway sampling do V58 só funciona após
+          ~4s do claim e apenas quando o grupo local está pequeno (<5 peers).
+          Redes "frias" (poucos gateways preenchidos) ficavam isoladas porque
+          o bootstrap varria os 100 gateways aleatoriamente sem saber quais
+          estavam ativos.
+
+     Fix V59 — K10-CENTRAL como fast-path de descoberta:
+     1. ELEIÇÃO AUTOMÁTICA DO K10-CENTRAL:
+        K10CentralShadow tenta reivindicar o ID fixo 'K10-CENTRAL' no PeerJS.
+        O peer com menor ID (rank 0 entre todos os conhecidos) tem prioridade.
+        Se a corrida ocorre, PeerJS resolve via unavailable-id — o primeiro
+        open ganha, os demais desistem silenciosamente.
+
+     2. RESPONSABILIDADE DA CENTRAL:
+        Ao assumir K10-CENTRAL, o nó eleito inicia _pollGateways() a cada 25s:
+        sonda até 25 gateways em paralelo e mantém activeGateways (Set).
+        Quando qualquer peer conecta e envia central-discovery-request,
+        responde com central-response {gateways: [...ids ativos]}.
+
+     3. BOOTSTRAP FAST-PATH:
+        O bootstrap agora tenta K10-CENTRAL ANTES de varrer os 100 gateways.
+        Se K10-CENTRAL responder, usa os gateways confirmados ativos no início
+        da fila — bootstrap completa em 1-2 tentativas em vez de dezenas.
+        Se K10-CENTRAL não existir (peer-unavailable): tenta assumi-la via
+        K10CentralShadow.tryClaim() e inicia varredura normal.
+        Timeout de 4.5s: se K10-CENTRAL não responder, varredura normal.
+
+     4. FAILOVER AUTOMÁTICO:
+        Se K10-CENTRAL desconectar, o ID é liberado no PeerJS.
+        Na próxima eleição proativa (a cada 15s), algum peer detecta a ausência
+        e assume. Zero intervenção do usuário — processo 100% silencioso.
+
+     Resultado esperado: em redes com pelo menos 1 peer conectado há >25s,
+     novos clientes localizam gateways ativos em <2s via K10-CENTRAL.
+     Redes frias caem no fallback da varredura normal (comportamento V58).
+
+     ════════════ HISTÓRICO V58 (preservado para referência) ════════════
+     FIX V58: MODO GERAL — PEERS EM GATEWAYS DIFERENTES NUNCA SE DESCOBRIAM
+     ══════════════════════════════════════════════════════════════════════
+     Bug V57: cada gateway elege-se de forma independente e cria grupos
+          isolados. Peer A → K10-GATE-0011 → grupo AAAA. Peer B →
+          K10-GATE-0076 → grupo AAAA. Ambos em "AAAA" mas em universos
+          separados — nunca se conectam, Modo Geral fica vazio.
+     Causa-raiz: a arquitetura de 100 gateways distribui o bootstrap, mas
+          não tem mecanismo de inter-gateway peer exchange.
+
+     Fix — Cross-gateway peer sampling (3 camadas):
+     1. GATEWAY SONDA OUTROS GATEWAYS:
+        Após reivindicar um slot, _startCrossGatewayDiscovery() é chamado.
+        A cada 30s, _discoverCrossGatewayPeers() conecta gwPeer a 3 gateways
+        aleatórios e envia gw-peer-sample-request. Os gateways respondem com
+        até 10 IDs reais de seus clientes, armazenados em crossGatewayPeers.
+
+     2. GATEWAY RESPONDE A SONDAGENS:
+        _onData() agora trata gw-peer-sample-request: responde com amostra
+        de peerGroupMap, remove o probe do grupo local e fecha a conexão
+        (evita poluição dos grupos com conexões transientes).
+
+     3. PEER-LIST ENRIQUECIDA:
+        _doAssignPeer() inclui peers de crossGatewayPeers no peer-list
+        quando o grupo local tem < 5 membros. O cliente recebe esses IDs
+        e os conecta diretamente via WebRTC P2P — sem passar pelo gateway.
+
+     Resultado esperado: após ~4s do claim, qualquer novo cliente recebe
+     no peer-list os IDs de clientes de outros gateways ativos, conecta
+     diretamente a eles via P2P, e o Modo Geral funciona.
+
+     ════════════ HISTÓRICO V57 (preservado para referência) ════════════
+     FIX V57-1: BOOTSTRAP NÃO RECONECTA AO GATEWAY ELEITO (race async)
+     ══════════════════════════════════════════════════════════════════════
+     Bug V56: o bootstrap varre os 100 gateways, recebe peer-unavailable para
+          todos, e chama tryClaim(lastTried). O claim é assíncrono — o open
+          chega segundos depois. O bootstrap já seguiu adiante; ao reiniciar a
+          varredura com novo shuffle, pode levar outras dezenas de tentativas
+          antes de atingir o gateway agora ativo.
+     Fix: K10GatewayShadow.init() agora aceita um 5º argumento onClaimed(id).
+          No open handler de _attemptClaim, após isActive=true, chama
+          onClaimedCb(gatewayId). O callback injeta o claimedId na frente de
+          window.__k10BootGateways e dispara window.__k10BootTryNext() com 300ms
+          de delay — o bootstrap conecta ao próprio gateway dentro de ~1s.
+
+     FIX V57-2: DOUBLE-CLAIM RACE CONDITION
+     ══════════════════════════════════════════════════════════════════════
+     Bug V56: dois tryClaim() podiam disparar antes de qualquer open/error
+          chegar (isActive só é setado dentro do open handler). Resultado:
+          dois Peer(gatewayId) criados simultaneamente — o segundo sobrescrevia
+          gwPeer, orphanando o primeiro. Logs mostraram K10-GATE-0045 e
+          K10-GATE-0061 reivindicados ao mesmo tempo.
+     Fix: adicionado flag claimInProgress (let claimInProgress = false).
+          Setado para true no início de _attemptClaim, liberado em _cleanup()
+          e no open handler. Todos os entry-points (tryClaim, _proactiveElect,
+          _probeAndClaim indiretamente via _attemptClaim) verificam o flag.
+
+     ════════════ HISTÓRICO V56 (preservado para referência) ════════════
+     FIX V56-1: seenMsgIdsRef NÃO DECLARADO — ReferenceError em isDuplicate/floodMessage
+     ══════════════════════════════════════════════════════════════════════
+     Bug V55: isDuplicate() e floodMessage() referenciavam seenMsgIdsRef.current
+          mas o useRef nunca foi declarado no corpo do componente App.
+          Resultado: ReferenceError em TODA chamada ao flooding P2P —
+          heartbeat, directory-announce e relay de mensagens falhavam,
+          podendo prejudicar a eleição distribuída de gateways.
+     Fix: adicionado `const seenMsgIdsRef = useRef(new Map());` junto
+          às demais refs (perto de bannedPeersRef / spamViolationsRef).
+
+     FIX V56-2: LOGS DE DEPURAÇÃO NO K10GatewayShadow
+     ══════════════════════════════════════════════════════════════════════
+     _attemptClaim agora emite console.log/warn em cada etapa relevante:
+       • "Tentando reivindicar <gatewayId>"  — antes de criar o Peer
+       • "Exceção ao criar Peer"              — se new Peer() lançar
+       • "Reivindicado com sucesso"           — no evento open
+       • "Falha ao reivindicar … <err.type>" — no evento error
+       • "Timeout ao reivindicar"             — no failTimer
+     Isso torna visível se a reivindicação está sendo tentada e por qual
+     motivo falha (unavailable-id = outro ganhou; network-error = STUN, etc.)
+
+     ════════════ HISTÓRICO V55 (preservado para referência) ════════════
+     ══════════════════════════════════════════════════════════════════════
+     Bug V54: _probeAndClaim usava typeof peerInstance !== 'undefined' para
+          acessar o peer principal, mas peerInstance é um useRef local do App
+          e não está no escopo global. Resultado: mainPeer sempre null,
+          sondagem sempre falha, eleição proativa nunca ocorre.
+     Fix: init() agora recebe getMainPeer (4º argumento). _probeAndClaim
+          usa getMainPeer() para obter o peer principal corretamente.
+          Chamada atualizada: K10GatewayShadow.init(..., () => peerInstance.current).
+
+     FIX V55-2: REMOÇÃO COMPLETA DO BLOCO initK10Central
+     ══════════════════════════════════════════════════════════════════════
+     Bug V54: o <script> com initK10Central() ainda estava presente no topo
+          do HTML, criando um servidor K10-CENTRAL paralelo e contradizendo
+          a arquitetura dos 100 gateways distribuídos.
+     Fix: bloco <script>…initK10Central…</script> removido integralmente.
+          Substituído por comentário explicativo. Redução de ~9.6 KB.
+
+     FIX V55-3: CAMPO groupServers NO peer-list DO GATEWAY
+     ══════════════════════════════════════════════════════════════════════
+     Bug V54: _doAssignPeer enviava peer-list sem o campo groupServers,
+          impedindo que o cliente identificasse os servidores do grupo
+          (necessário para isMyGroupServer e para o Modo Geral).
+     Fix: peer-list agora inclui groupServers: [claimedId] — o gateway
+          que está servindo o grupo. Campo pronto para receber até 2
+          servidores por grupo conforme a especificação.
+
+     FIX V54: UPGRADE K10GatewayShadow — ELEIÇÃO PROATIVA + SERVIDOR COMPLETO
+     ══════════════════════════════════════════════════════════════════════
+     Bug V53: K10GatewayShadow era puramente reativo (só tentava reivindicar
+          um gateway quando peer-unavailable era detectado no bootstrap).
+          Não tinha lógica completa de servidor: sem controle de grupos de 50,
+          sem group-full / group-reopened, relay enviado para TODOS (não só o grupo),
+          gid fixo 'AAAA', e faltava o fechamento })(); da IIFE.
+     Fix: K10GatewayShadow completamente reescrito:
+          1. ELEIÇÃO PROATIVA: a cada 12s, monta lista global de peers (peers
+             conhecidos + próprio ID), ordena por peerId. Se posição p < 100,
+             sonda GATEWAY_IDS[p] — se vago (peer-unavailable), reivindica.
+          2. ELEIÇÃO REATIVA: mantida para o caso de peer-unavailable no bootstrap.
+          3. GERENCIAMENTO COMPLETO DE GRUPOS: activeGroups, peerGroupMap,
+             doAssignPeer, onPeerLeave. Grupos de 50 usuários com close/reopen.
+          4. MENSAGENS CORRETAS: group-full (ao atingir 50), group-reopened
+             (ao cair para 49), group-state-sync (gossip entre gateways),
+             join-update, pex-update.
+          5. RELAY POR GRUPO: broadcast enviado apenas para membros do mesmo gid.
+          6. SINCRONIZAÇÃO: state-request / state-response para novos gateways.
+          7. CORREÇÃO DE BUG: IIFE agora fecha corretamente com })();
+
+     FIX V53-1: ELEIÇÃO DISTRIBUÍDA DOS 100 GATEWAYS
+     ══════════════════════════════════════════════════════════════════════
+     Bug V52: cliente apenas conectava a gateways dedicados. Se todos os
+          K10-GATE-XXXX estivessem vagos (rede fria), o bootstrap travava.
+     Fix: adicionado K10GatewayShadow — quando peer-unavailable é recebido
+          para K10-GATE-XXXX, o cliente tenta reivindicar aquele PeerJS ID
+          (segundo Peer, mesma mecânica do K10GroupShadow). Se open: serve
+          group0-request para outros clientes. Se unavailable-id: outro ganhou,
+          bootstrap pula ao próximo normalmente.
+     Resultado: qualquer slot vago é preenchido imediatamente por quem detecta.
+
+     FIX V53-2: REMOÇÃO DO K10ShadowCentral (PONTO CENTRAL CONTRADIZ V52)
+     ══════════════════════════════════════════════════════════════════════
+     Bug V52: K10ShadowCentral elegia clientes para servir como K10-CENTRAL,
+          criando exatamente o ponto central que os 100 gateways distribuídos
+          deveriam eliminar. Além disso usava 2 instâncias Peer por cliente.
+     Fix: K10ShadowCentral removido integralmente. K10GatewayShadow cobre
+          o caso de uso legítimo (bootstrap) sem ponto central fixo.
+
+     FIX V53-3: RETRY PERIÓDICO DO BOOTSTRAP
+     ══════════════════════════════════════════════════════════════════════
+     Bug V52: se nenhum gateway respondia (todos ocupados/sem peer-list),
+          o bootstrap silenciosamente pendurava para sempre:
+          - bc.on('close') sem erro → não retentava
+          - bc.on('error') não-peer-unavailable → não retentava
+          - peer-list timeout → não detectado
+     Fix 1: bc.on('close') com bootstrap pendente → dispara tryNextGateway.
+     Fix 2: bc.on('error') com bootstrap pendente → dispara tryNextGateway.
+     Fix 3: timeout de 8s dentro de bc.on('open') aguardando peer-list.
+     Fix 4: stall-detection global: se após 60s o bootstrap ainda não
+          completou, reinicia a varredura com novo shuffle da lista.
+     Fix 5: cancelamento do stall timer quando peer-list chega.
+
+     FIX V53-4: LIMPEZA DE HANDLERS OBSOLETOS
+     ══════════════════════════════════════════════════════════════════════
+     Bug V52: pex-family, group-tutor-status, group-alert, group-compensate,
+          group-orphan-rescue, group-size-report, gid-promote ainda
+          executavam relay P2P mesmo sem nenhum servidor V51+ emiti-los.
+          Tráfego residual de versões antigas atravessava a rede.
+     Fix: bloco de relay removido. Tipos descartados silenciosamente (return
+          imediato). Sem custo de TTL, sem propagação de lixo de rede.
+     ══════════════════════════════════════════════════════════════════════
+     V53 mantém compatibilidade total com ServidorChatK10 V40+.
+     Correções V47 mantidas integralmente.
+     ══════════════════════════════════════════════════════════════════════
+═══ Chat K10 V47 — FIX-GROUP-LEGACY + Compatibilidade V40 Servidor (25/abr/2026) ═══
      BUG CORRIGIDO: FIX V47-GROUP-LEGACY
      ══════════════════════════════════════════════════════════════════════
      O handler de peer-list legado (campo data.groupId) ainda tinha a
@@ -12,7 +274,7 @@
      V47 mantém compatibilidade total com ServidorChatK10 V40.
      Correções V46 mantidas integralmente.
      ══════════════════════════════════════════════════════════════════════
-<!-- ═══ Chat K10 V47 — Limites PeerJS Público (24/abr/2026) ═══
+═══ Chat K10 V47 — Limites PeerJS Público (24/abr/2026) ═══
      NOVO V46 — AJUSTE DE CONSTANTES HOMEOSTÁTICAS PARA SERVIDOR PEERJS PÚBLICO
      ══════════════════════════════════════════════════════════════════════
      CONTEXT V46: Mesma razão do ServidorChatK10 V38. O peerjs.com público
@@ -36,7 +298,7 @@
      ══════════════════════════════════════════════════════════════════════
      Correções anteriores V45 mantidas integralmente.
      ══════════════════════════════════════════════════════════════════════
-<!-- ═══ Chat K10 V45 — Bancada Fix (23/abr/2026) ═══
+═══ Chat K10 V45 — Bancada Fix (23/abr/2026) ═══
      NOVO V45 — FIX CRÍTICO: PRUNING DO seenMessagesRef PRINCIPAL
      ══════════════════════════════════════════════════════════════════════
      FIX V45-SEENPRUNE: seenMessagesRef principal não tinha limite de tamanho.
@@ -70,7 +332,7 @@
      ══════════════════════════════════════════════════════════════════════
      Correções anteriores V44 mantidas integralmente.
      ══════════════════════════════════════════════════════════════════════
-     FIX V44-GENERAL-SERVERLIST: K10-GATE-0001 e servidores da lista de contatos
+     FIX V44-GENERAL-SERVERLIST: K10-CENTRAL e servidores da lista de contatos
           não apareciam na aba Geral
           - Bug V43: filtro usava isMyGroupServer(c.peer), que só retorna true
             para servidores presentes em groupServersRef.current (vindo do peer-list).
@@ -82,7 +344,7 @@
           - Fix: filtro da lista de servidores alterado de isMyGroupServer → isCentralServer.
             Qualquer conexão com ID terminado em -CENTRAL aparece na aba Geral,
             seja vinda do peer-list ou conectada manualmente pela lista de contatos.
-          - K10-GATE-0001 e servidores adicionados como contato agora sempre aparecem.
+          - K10-CENTRAL e servidores adicionados como contato agora sempre aparecem.
 
      FIX V44-GENERAL-USERLIST: lista de usuários do Modo Geral sumia ao enviar mensagem
           - Bug V43/V44: ao clicar em um servidor na aba Geral, setSelectedContact(serverId)
@@ -124,7 +386,7 @@
      ══════════════════════════════════════════════════════════════════════
      FIX V41-RELAY-DEDUP: relayMessage não deduplicava por msgId — causava
           double-delivery confirmado nos testes V5/V6.
-          - Bug V40: quando K10-GATE-0001 distribuía um broadcast para todos os
+          - Bug V40: quando K10-CENTRAL distribuía um broadcast para todos os
             peers (bots + usuários reais), os usuários reais recebiam a mensagem
             do servidor e imediatamente faziam relay P2P para os bots — que já
             tinham recebido diretamente do servidor. Cada bot recebia 2 cópias.
@@ -186,20 +448,20 @@
 
      NOTA: Aba YouTube continua funcionando normalmente (sem alterações)
      ══════════════════════════════════════════════════════════════════════
-          - Causa: quando K10-GATE-0001 retransmite (relay) uma mensagem de outro peer,
-            o handler definia recipient = pId = 'K10-GATE-0001' (isFromSrv=true)
+          - Causa: quando K10-CENTRAL retransmite (relay) uma mensagem de outro peer,
+            o handler definia recipient = pId = 'K10-CENTRAL' (isFromSrv=true)
             em vez de recipient = 'general'
           - filteredMessages filtra: msg.recipient === 'general'
             → mensagens relay ficavam invisíveis para o destinatário!
-          - Causa secundária: sender = pId = 'K10-GATE-0001' em vez de data.sender
+          - Causa secundária: sender = pId = 'K10-CENTRAL' em vez de data.sender
             → nome do remetente mostrava o servidor em vez do usuário original
           - Fix 1 (mensagens normais): recipient sempre 'general' para data.direct=false
           - Fix 2 (mensagens poll): mesma correção no baseMessage de enquetes
           - Fix 3 (mensagens quiz): mesma correção no baseQuizMsg
           - Fix geral: sender = data.sender || pId (usa remetente original do payload)
           - Resultado: mensagens de todos os peers aparecem corretamente no Chat Geral
-            mesmo quando roteadas via K10-GATE-0001 ✅
-     NOTA DESIGN: K10-GATE-0001 é o Portal Grupo 0 (sempre ativo) E o servidor do grupo
+            mesmo quando roteadas via K10-CENTRAL ✅
+     NOTA DESIGN: K10-CENTRAL é o Portal Grupo 0 (sempre ativo) E o servidor do grupo
           em setups com servidor único — o FIX V32 (connectToPeer permanente) é correto
           para este caso. O bug era apenas no roteamento de mensagens relay.
      ══════════════════════════════════════════════════════════════════════
@@ -510,7 +772,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V50 (Shadow Central + Group Shadow)</title>
+<title>Chat K10 — V60 (K10-CENTRAL Acumula Gateway no Primeiro Peer)</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -1135,277 +1397,7 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 </head>
 <body>
 
-<script>
-  (function() {
-    if (window.__k10CentralLoaded) return;
-    window.__k10CentralLoaded = true;
-
-    // FIX: O bloco <script> roda ANTES dos externos (PeerJS carrega na linha ~1209).
-    // Envolvemos tudo em initK10Central() e esperamos Peer estar disponível via polling.
-    function initK10Central() {
-      console.log('[K10] Iniciando servidor central K10-GATE-0001 (todos no mesmo grupo)...');
-
-      const PEER_ID = 'K10-GATE-0001';
-      const MAX_PEERS = 5000;
-      const connections = new Map(); // peerId -> { conn, lastSeen }
-      const GROUP_ID = 'AAAA';      // grupo fixo para todos os clientes
-      let totalUsersHint = 0;
-
-      const peer = new Peer(PEER_ID, {
-        host: '0.peerjs.com',
-        port: 443,
-        secure: true,
-        debug: 0
-      });
-
-      peer.on('open', () => {
-        console.log('✅ Servidor K10-GATE-0001 online (modo grupo único)');
-      });
-
-      peer.on('error', (err) => {
-        if (err.type === 'unavailable-id') {
-          console.warn('⚠️ ID K10-GATE-0001 já em uso. Outro servidor já está rodando.');
-        } else {
-          console.error('Erro no servidor:', err);
-        }
-      });
-
-      // Retransmite mensagens para todos os peers (exceto o remetente)
-      // FIX-DIRECT-ROUTING: mensagens diretas (direct:true + recipient) vão SOMENTE ao destinatário
-      // Portado do FIX-DIRECT-ROUTING do V34-ServidorChatK10
-      // FIX V41-RELAY-DEDUP: Set de msgIds já vistos para dedup no relay P2P.
-      // Impede double-delivery quando a mesma mensagem chega via servidor E via
-      // caminho P2P (usuário real → relay → bot), bug confirmado nos testes V5/V6.
-      // Cleanup automático ao atingir 2000 entradas (evita memory leak de longa sessão).
-      const relaySeenMessages = new Set();
-      // FIX V45-RELAYPRUNE: substituído clear() por slice(-1000) — evita que duplicatas com alta
-      // latência passem logo após o clear (mesmo padrão do pruneSeenClient do seenMessagesRef principal).
-      const pruneRelaySeen = () => {
-        if (relaySeenMessages.size > 2000) {
-          const keep = [...relaySeenMessages].slice(-1000);
-          relaySeenMessages.clear();
-          keep.forEach(id => relaySeenMessages.add(id));
-        }
-      };
-
-      function relayMessage(conn, data, senderId) {
-        if (!data || typeof data !== 'object') return;
-        if (data.type !== 'message') return;
-        if (data._relayed) return;
-
-        // FIX V40-TTL-RELAY: descartar mensagens com TTL esgotado antes de qualquer relay P2P.
-        // Espelha o guard de distributeMessage do servidor — impede bypass via caminho P2P.
-        const relayTtl = data.ttl !== undefined ? (parseInt(data.ttl) || 0) : 15;
-        let clampedTtl = isNaN(relayTtl) ? 15 : Math.min(Math.max(0, relayTtl), 15);
-        if (clampedTtl <= 0) return;
-        
-        // FIX-AUDIT-CLI: sanitize before relay
-        data.ttl = clampedTtl - 1; // BUG FIX: TTL deve ser decrementado a cada hop (era clampedTtl sem -1)
-        if (typeof data.senderName === 'string') {
-          data.senderName = data.senderName.replace(/[<>]/g, '').slice(0, 60);
-        }
-
-        // FIX V41-RELAY-DEDUP: descartar se este msgId já foi relay-ado por este peer.
-        // Cenário corrigido: servidor envia broadcast para usuário real E para bots;
-        // o usuário real, ao receber do servidor, tentaria relay P2P para os bots
-        // novamente — causando double-delivery. Com o dedup, a segunda chegada
-        // (via qualquer outro caminho) é descartada antes do relay.
-        if (data.id) {
-          if (relaySeenMessages.has(data.id)) return;
-          relaySeenMessages.add(data.id);
-          pruneRelaySeen();
-        }
-
-        data._relayed = true;
-
-        // Mensagem direta → entrega SOMENTE ao destinatário (nunca broadcast)
-        if (data.direct === true && data.recipient && typeof data.recipient === 'string') {
-          const target = connections.get(data.recipient);
-          if (target && target.conn && target.conn.open && data.recipient !== senderId) {
-            try { target.conn.send(data); } catch(e) {}
-          }
-          return; // não faz broadcast
-        }
-
-        // Broadcast para todos (modo geral)
-        for (const [pid, target] of connections.entries()) {
-          if (pid === senderId) continue;
-          if (target.conn && target.conn.open) {
-            try { target.conn.send(data); } catch(e) {}
-          }
-        }
-      }
-
-      // Envia lista de peers (peer-list) para um cliente recém-conectado
-      // FIX: usa campo 'gid' (V25+ protocol) além de 'groupId' para compatibilidade com testes
-      function sendPeerList(conn) {
-        const peerIds = Array.from(connections.keys()).filter(id => id !== conn.peer);
-        if (peerIds.length === 0) return;
-        try {
-          conn.send({
-            type: 'peer-list',
-            peers: peerIds,
-            gid: GROUP_ID,       // FIX: campo esperado pelo teste e pelo protocolo V25+
-            groupId: GROUP_ID,   // compat retroativa
-            user: conn.peer.slice(-2), // FIX V40: sufixo de 2 chars — compatível com K10_POS do protocolo
-            count: connections.size
-          });
-          console.log(`📋 Enviada lista de ${peerIds.length} peers para ${conn.peer}`);
-        } catch(e) {}
-      }
-
-      // Anuncia nova conexão para todos os peers já conectados (join-update)
-      function broadcastJoinUpdate() {
-        const joinMsg = {
-          type: 'join-update',
-          gid: GROUP_ID,
-          count: connections.size
-        };
-        for (const [pid, target] of connections.entries()) {
-          if (target.conn && target.conn.open) {
-            try { target.conn.send(joinMsg); } catch(e) {}
-          }
-        }
-      }
-
-      // Envia uma mensagem de sistema para todos os peers (opcional)
-      function broadcastSystemMessage(text) {
-        const sysMsg = {
-          type: 'message',
-          id: 'sys_welcome_' + Date.now(), // BUG FIX: sem id, dedup era bypassado e msg podia duplicar
-          text: text,
-          senderName: '🚀 K10-GATE-0001',
-          direct: false,
-          timestamp: Date.now(),
-          time: new Date().toLocaleTimeString()
-        };
-        for (const [pid, target] of connections.entries()) {
-          if (target.conn && target.conn.open) {
-            try { target.conn.send(sysMsg); } catch(e) {}
-          }
-        }
-      }
-
-      peer.on('connection', (conn) => {
-        if (connections.size >= MAX_PEERS) {
-          console.warn(`❌ Conexão recusada: limite ${MAX_PEERS} atingido`);
-          conn.close();
-          return;
-        }
-
-        const peerId = conn.peer;
-        connections.set(peerId, { conn, lastSeen: Date.now() });
-        console.log(`🔗 Conectado: ${peerId} (total: ${connections.size})`);
-
-        conn.on('open', () => {
-          // 1. Envia group0-welcome (para compatibilidade com o cliente V38)
-          //    - totalUsers é usado pelo cliente para calcular o grupo.
-          //    - Como queremos todos no mesmo grupo, forçamos totalUsers
-          //      a um valor que resulte no GROUP_ID desejado.
-          //    - Vamos usar totalUsers = 0 → índice 0 → GID 'AAAA'.
-          try {
-            conn.send({
-              type: 'group0-welcome',
-              totalUsers: 0,  // força índice 0 -> GID 'AAAA'
-              servers: []     // sem servidores externos
-            });
-          } catch(e) {}
-
-          // 2. Envia a lista de peers já conectados (após um pequeno delay)
-          setTimeout(() => {
-            sendPeerList(conn);
-            broadcastJoinUpdate(); // anuncia para todos que há novo peer
-          }, 500);
-        });
-
-        conn.on('data', (data) => {
-          const entry = connections.get(peerId);
-          if (entry) entry.lastSeen = Date.now();
-
-          // Responde a group0-request (caso o cliente reenvie)
-          if (data && data.type === 'group0-request') {
-            try {
-              conn.send({
-                type: 'group0-welcome',
-                totalUsers: 0,
-                servers: []
-              });
-            } catch(e) {}
-            return;
-          }
-
-          // Relay de mensagens (modo geral)
-          relayMessage(conn, data, peerId);
-        });
-
-        conn.on('close', () => {
-          connections.delete(peerId);
-          console.log(`🔌 Desconectado: ${peerId} (restam: ${connections.size})`);
-
-          // Anuncia a saída para os demais peers (pex-update)
-          const leaveMsg = {
-            type: 'pex-update',
-            gid: GROUP_ID,
-            user: peerId,
-            ttl: 5
-          };
-          for (const [pid, target] of connections.entries()) {
-            if (target.conn && target.conn.open) {
-              try { target.conn.send(leaveMsg); } catch(e) {}
-            }
-          }
-        });
-
-        conn.on('error', (err) => {
-          console.warn(`⚠️ Erro na conexão com ${peerId}: ${err.message}`);
-          connections.delete(peerId);
-        });
-      });
-
-      // Atualiza a estimativa de usuários (não usado, mas mantido)
-      setInterval(() => {
-        totalUsersHint = connections.size;
-      }, 10000);
-
-      // A cada 30 segundos, envia uma atualização da lista de peers para todos (pex)
-      setInterval(() => {
-        const peerIds = Array.from(connections.keys());
-        if (peerIds.length === 0) return;
-        for (const [pid, target] of connections.entries()) {
-          if (target.conn && target.conn.open) {
-            try {
-              target.conn.send({
-                type: 'pex',
-                peers: peerIds.filter(id => id !== pid),
-                groupId: GROUP_ID,
-                groupSize: connections.size
-              });
-            } catch(e) {}
-          }
-        }
-      }, 30000);
-
-      // Opcional: envia uma mensagem de boas-vindas quando o servidor inicia
-      setTimeout(() => {
-        broadcastSystemMessage('🎉 Servidor K10-GATE-0001 ativo! Todos os usuários estão no mesmo grupo.');
-      }, 2000);
-    } // fim initK10Central
-
-    // Aguarda PeerJS carregar (é um <script> externo que vem depois deste bloco)
-    if (typeof Peer !== 'undefined') {
-      initK10Central();
-    } else {
-      var _k10PeerPoll = setInterval(function() {
-        if (typeof Peer !== 'undefined') {
-          clearInterval(_k10PeerPoll);
-          initK10Central();
-        }
-      }, 50);
-      // Segurança: cancela após 30s se PeerJS nunca carregar (ex: sem internet)
-      setTimeout(function() { clearInterval(_k10PeerPoll); }, 30000);
-    }
-  })();
-</script>
+<!-- K10-CENTRAL removido (V55): arquitetura baseada apenas nos 100 gateways distribuídos -->
 
 
 
@@ -3435,7 +3427,7 @@ return (
 </div>
 ))}
 </div>
-<a href="https://andradepsa.github.io/MATEMATICO10/chat/Chat%20Desktop.HTML?portas=K10-GATE-0001" style={{ display: 'block', marginTop: '15px', color: 'var(--primary)', fontSize: '14px', textDecoration: 'underline', fontWeight: 600 }}>Abrir Chat Desktop K10-GATE-0001</a>
+<a href="https://andradepsa.github.io/MATEMATICO10/chat/Chat%20Desktop.HTML?portas=K10-CENTRAL" style={{ display: 'block', marginTop: '15px', color: 'var(--primary)', fontSize: '14px', textDecoration: 'underline', fontWeight: 600 }}>Abrir Chat Desktop K10-CENTRAL</a>
 </div>
 );
 };
@@ -3925,7 +3917,7 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
 
 
 <div className="chat-main-container">
-{/* V46: sidebar única — contatos salvos + quem mandou msg direta. K10-GATE-0001 oculto da UI */}
+{/* V46: sidebar única — contatos salvos + quem mandou msg direta. K10-CENTRAL oculto da UI */}
 <div className="conversations-list">
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
     <h4 style={{ margin: 0 }}>{t(lang, 'conversations')}</h4>
@@ -3935,9 +3927,9 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
   </div>
   {(() => {
     // V46: só aparece na lista: (1) contatos salvos, (2) quem mandou msg direta
-    // APENAS K10-GATE-0001 fica oculto — todos os outros contatos/servidores aparecem normalmente
+    // APENAS K10-CENTRAL fica oculto — todos os outros contatos/servidores aparecem normalmente
     const visibleConns = connections.filter(conn =>
-      conn.peer !== 'K10-GATE-0001' && (
+      conn.peer !== 'K10-CENTRAL' && conn.peer !== 'K10-HUB-V62' && (
         contacts.some(c => c.peerId === conn.peer) ||
         (directPeers && directPeers.has(conn.peer)) ||
         (directPeersRef && directPeersRef.current.has(conn.peer))
@@ -3945,7 +3937,7 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
     );
     // selectedContact em andamento (connectToPeer ainda não abriu)
     const selectedInList = visibleConns.some(c => c.peer === selectedContact);
-    const pendingEntry = (selectedContact && selectedContact !== 'K10-GATE-0001' && !selectedInList &&
+    const pendingEntry = (selectedContact && selectedContact !== 'K10-CENTRAL' && selectedContact !== 'K10-HUB-V62' && !selectedInList &&
       (contacts.some(c => c.peerId === selectedContact) || (directPeersRef && directPeersRef.current.has(selectedContact)))) ?
       [{ peer: selectedContact, open: false, _pending: true }] : [];
     const finalConns = [...pendingEntry, ...visibleConns];
@@ -5250,9 +5242,8 @@ const setIsSuperNode = (v) => {
 // FIX BUG-2: refs always hold the latest value, solving stale-closure inside useEffect([peerId])
 const isSuperNodeRef = useRef(false);
 useEffect(() => { isSuperNodeRef.current = isSuperNode; }, [isSuperNode]);
-// K10 V29 FIX: flag anti-loop group0-request — declarada como ref para ser acessível
-// em handleIncomingData (escopo externo) E dentro de initPeer/connectToPeer
-const group0WelcomeReceivedRef = useRef(false);
+// V52: flag anti-loop bootstrap — impede re-tentativa após alocação bem-sucedida
+const bootstrapDoneRef = useRef(false);
 // V35 FIX-BOOTSTRAP: ref sempre atualizada para a versão mais recente de handleIncomingData
 // Resolve stale closure: event handlers registrados em initPeer() capturavam a versão
 // antiga de handleIncomingData (com isPeerInitialized=false), fazendo connectToPeer retornar
@@ -5905,7 +5896,7 @@ const pendingRadioFiles = useRef({});
 const radioIntervalRef = useRef(null);
 const knownUsersRef = useRef(new Set());
 const peerIdRef = useRef(null);
-// ── K10 MONITOR: ID fixo, oculto — igual ao K10-GATE-0001 ──────────────────────
+// ── K10 MONITOR: ID fixo, oculto — igual ao K10-CENTRAL ──────────────────────
 const K10_MONITOR_ID = 'K10-MON';
 const monitorTimerRef = useRef(null);
 const stopMonitorReporting = () => {
@@ -5933,6 +5924,10 @@ const startMonitorReporting = () => {
 const lastMessageTimeRef = useRef(new Map());
 const bannedPeersRef = useRef(new Set());
 const spamViolationsRef = useRef(new Map());
+// FIX V56: seenMsgIdsRef não estava declarado — causava ReferenceError em
+// isDuplicate() e floodMessage(), quebrando flooding P2P e heartbeat.
+// Map<msgId, expiryTs> — LRU com hard-cap 5000 + GC por TTL (usado em isDuplicate).
+const seenMsgIdsRef = useRef(new Map());
 const CHUNK_SIZE = 16 * 1024;
 
 // ── HYDRA FASE-2/3: Estado distribuído de grupos ─────────────────────────────
@@ -5944,67 +5939,8 @@ const groupServersRef = useRef(null); // V42: null=não recebido ainda (compat l
 const myPositionIdxRef = useRef(-1);
 // Diretório global: { [groupId]: { reservados: string[], groupSize: number } }
 const directoryGlobalRef = useRef({});
-// V26 binário: mapa de presença por grupo (1800 bits = 225 bytes)
+// V26 binário: mapa de presença por grupo (bits por posição)
 const groupPresenceBitsRef = useRef({});
-// FASE-3/Caso2: locks de operações em andamento { [groupId]: expiryTimestamp }
-const lockedGroupsRef = useRef({});
-// FASE-3/Caso2: flag local de operação em andamento
-const groupOperationInProgressRef = useRef(false);
-const groupOperationExpiryRef = useRef(0);
-
-// ── HYDRA V6: Estruturas para correcao P1-P8 ─────────────────────────────
-// P8: cache de deduplicacao para flooding (msgId -> expiry)
-const seenMsgIdsRef = useRef(new Map());
-// P1+P2: heartbeats ativos por peer { peerId: { lastSeen, groupId, isReservado } }
-const peerHeartbeatsRef = useRef(new Map());
-// P6: estado de consenso por epoca { epoch: number, leader: string|null, leaderExpiry: number }
-const consensusStateRef = useRef({ epoch: 0, leader: null, leaderExpiry: 0 });
-// P5: tick logico (epoca) - incrementa a cada 60s, alinhado por NTP-like sync
-// V4 FIX BUG#2: epochRef agora é DERIVADO do tempo (nunca mutado) e há ref
-//               dedicada lastSplitEpochRef para "já executei nesta época".
-const epochRef = useRef(Math.floor(Date.now() / 60000));
-const lastSplitEpochRef = useRef(0);
-// Atualiza epochRef a cada segundo a partir do relógio (sem mutações externas)
-useEffect(() => {
-  const iv = setInterval(() => {
-    epochRef.current = Math.floor(Date.now() / 60000);
-  }, 1000);
-  return () => clearInterval(iv);
-}, []);
-// P4: salt de colisao para retry de groupId
-const groupSaltRef = useRef(0);
-
-// ══════════════════════════════════════════════════════════════════════════════
-// V27: REFS HOMEOSTÁTICOS — Mitose, Tutela, Compensação, Fusão
-// INVARIANTE: peerIdRef.current NUNCA é modificado por estas operações.
-// Apenas myGroupIdRef e directoryGlobalRef são afetados.
-// ══════════════════════════════════════════════════════════════════════════════
-
-// Estado de tutela do grupo filho { childGid, childSize, parentGid } | null
-const groupTutorStateRef = useRef(null);
-
-// Debounce de fusão: { gid1, gid2, since } — guarda o instante em que
-// a soma Pai+Filho desceu abaixo do limiar. Fusão só ocorre após K10_MERGE_DEBOUNCE_MS.
-const groupMergeDebounceRef = useRef(null);
-
-// Timer do debounce de fusão (clearTimeout antes de qualquer nova avaliação)
-const groupMergeTimerRef = useRef(null);
-
-// Registro de operações de grupo já processadas (deduplicação por msgId)
-const groupOpSeenRef = useRef(new Set());
-
-// ── Função auxiliar: verifica se um msgId de operação de grupo é duplicado ──
-const isGroupOpDuplicate = (msgId) => {
-  if (!msgId) return false;
-  if (groupOpSeenRef.current.has(msgId)) return true;
-  groupOpSeenRef.current.add(msgId);
-  // Limita o set a 256 entradas para evitar vazamento de memória
-  if (groupOpSeenRef.current.size > 256) {
-    const iter = groupOpSeenRef.current.values();
-    groupOpSeenRef.current.delete(iter.next().value);
-  }
-  return false;
-};
 
 // ── Função auxiliar: retorna o tamanho atual de um grupo no diretório ──
 const getGroupSize = (gid) => {
@@ -6082,7 +6018,8 @@ return () => clearTimeout(timer);
 }, [cooldownRemaining]);
 
 
-const isCentralServer = (id) => id && id.startsWith('K10-GATE-');
+// V59: K10-CENTRAL (hub de descoberta eleito) também é servidor central
+const isCentralServer = (id) => id && (id.startsWith('K10-GATE-') || (id === 'K10-CENTRAL' || id === 'K10-HUB-V62'));
 // V48: rastreia servidores que operam em Router Mode (não devem virar centralServerId)
 const routerModeServersRef = useRef(new Set());
 // V42: servidor do MEU grupo
@@ -6222,8 +6159,6 @@ return sent;
 };
 
 const handleIncomingData = (data, pId) => {
-  // V49: nota que o K10-GATE-0001 real (ou shadow eleito) esta vivo para evitar re-eleicao desnecessaria
-  if (pId === 'K10-GATE-0001') { try { K10ShadowCentral.noteCentralAlive(); } catch(e) {} }
 
 const maxConnections = isSuperNode ? 50 : 15;
 
@@ -6420,177 +6355,12 @@ if (data.type === 'handshake') {
   return; 
 }
 
-// ── K10 V28: GRUPO 0 — Recebe totalUsers e calcula GID alvo localmente ─────
-// O servidor Group 0 envia apenas 1 mensagem: { type:'group0-welcome', totalUsers, servers:[] }
-// O cliente calcula LOCALMENTE o grupo destino — zero flood, zero coordenação.
-//
-// ALGORITMO DETERMINÍSTICO (idêntico ao nextSequentialGid() do servidor):
-//   Charset: K10_CHARS base62 = 'A'-'Z' + 'a'-'z' + '0'-'9'
-//   groupIdx = Math.floor(totalUsers / K10_MAX_GROUP)  (= floor(N / 50))
-//   GID = K10_CHARS base62 de groupIdx, padding 4 chars
-//
-// EXEMPLOS:
-//   totalUsers=0      → groupIdx=0   → GID='AAAA' (primeiro grupo)
-//   totalUsers=1800   → groupIdx=1   → GID='AAAB' (segundo grupo)
-//   totalUsers=3600   → groupIdx=2   → GID='AAAC'
-//   totalUsers=111600 → groupIdx=62  → GID='AABA'
-//   totalUsers=1M+    → groupIdx=555 → qualquer GID base62
-//
-// GARANTIA: este cálculo converge com o servidor porque o servidor preenche
-// grupos sequencialmente (AAAA → AAAB → AAAC...) via nextSequentialGid().
-// ─────────────────────────────────────────────────────────────────────────────
+// V52: group0-welcome — legado: ignorado silenciosamente (gateway agora envia peer-list direto)
 if (data.type === 'group0-welcome') {
-  // ── K10 V29: seta flag anti-loop — impede reenvio de group0-request
-  group0WelcomeReceivedRef.current = true;
-
-  // V29: indexa grupos recebidos no diretório local antes de redirecionar
-  if (Array.isArray(data.groups) && data.groups.length > 0) {
-    data.groups.forEach(function(g) {
-      var gid = g.gid; var sz = g.size;
-      if (gid && typeof sz === 'number') {
-        if (!directoryGlobalRef.current[gid]) {
-          directoryGlobalRef.current[gid] = { reservados: [], groupSize: 0 };
-        }
-        if (sz > (directoryGlobalRef.current[gid].groupSize || 0)) {
-          directoryGlobalRef.current[gid].groupSize = sz;
-        }
-      }
-    });
-    addAudit('[Grupo 0] 🗂️ ' + data.groups.length + ' grupos indexados no diretório', 'info');
-  }
-
-  // Valida totalUsers — rejeita valores absurdos
-  const rawTotal = data.totalUsers;
-  if (typeof rawTotal !== 'number' || rawTotal < 0 || rawTotal > 1e9) {
-    addAudit(`[Grupo 0] ⚠️ totalUsers inválido recebido: ${rawTotal}`, 'warn');
-    return;
-  }
-
-  const totalUsers = Math.floor(rawTotal);
-  const groupIdx   = Math.floor(totalUsers / K10_MAX_GROUP);
-
-  // ── Cálculo determinístico do GID alvo ──────────────────────────────────
-  // Exatamente o mesmo algoritmo de nextSequentialGid() no servidor:
-  //   n=0 → 'AAAA', n=1 → 'AAAB', n=62 → 'AABA', etc.
-  let n = groupIdx;
-  let targetGid = '';
-  for (let i = 0; i < K10_GID_LEN; i++) {
-    targetGid = K10_CHARS[n % K10_CHARS.length] + targetGid;
-    n = Math.floor(n / K10_CHARS.length);
-  }
-  // ─────────────────────────────────────────────────────────────────────────
-
-  addAudit(
-    `[Grupo 0] ✅ Recebido: totalUsers=${totalUsers.toLocaleString()} ` +
-    `→ índice=${groupIdx} → GID alvo: ${targetGid}`,
-    'ok'
-  );
-
-  // Informa o usuário no chat (mensagem de sistema)
-  setMessages(prev => [...prev, {
-    type: 'text',
-    sender: '__system__',
-    senderName: '🚪 Grupo 0',
-    time: new Date().toLocaleTimeString(),
-    timestamp: Date.now(),
-    recipient: 'you',
-    direct: true,
-    text: `🌐 Rede com ${totalUsers.toLocaleString()} usuário(s) → Seu grupo destino: ${targetGid} (índice ${groupIdx})`
-  }].slice(-500));
-
-  // ── Redirecionamento: conecta a um servidor real da lista ─────────────
-  // O servidor Grupo 0 envia sua lista de vizinhos conhecidos.
-  // O cliente escolhe um aleatoriamente para distribuir a carga.
-  const servers = Array.isArray(data.servers) ? data.servers : [];
-  const candidates = servers.filter(s =>
-    s && typeof s === 'string' &&
-    s !== peerIdRef.current &&
-    // Não conecta a um servidor ao qual já está conectado
-    !connectionsRef.current.some(c => c.peer === s && c.open)
-  );
-
-  if (candidates.length > 0) {
-    // Escolhe servidor aleatório (distribui carga)
-    const pick = candidates[Math.floor(Math.random() * candidates.length)];
-    addAudit(`[Grupo 0] 🔀 Redirecionando para servidor real: ${pick}`, 'info');
-
-    setTimeout(() => {
-      if (peerInstance.current && !peerInstance.current.destroyed) {
-        try {
-          // FIX V30-BUG1: setupConnection não existe no cliente — usar connectToPeer
-          connectToPeer(pick);
-          addAudit(`[Grupo 0] 🔗 Conexão iniciada com ${pick}`, 'ok');
-        } catch(e) {
-          addAudit(`[Grupo 0] ❌ Falha ao conectar em ${pick}: ${e.message}`, 'err');
-        }
-      }
-    }, 600); // 600ms: tempo para o peer-close do Grupo 0 completar
-
-  } else {
-    // Sem servidores na lista — usuário ainda está conectado ao Grupo 0,
-    // que funcionará como servidor normal até que ele encontre outro.
-    addAudit(
-      `[Grupo 0] ℹ️ Nenhum servidor alternativo disponível — permanecendo conectado.`,
-      'info'
-    );
-  }
-
-  // ── FIX V32: sem peers[] E sem servers[] → conecta permanentemente ao servidor de origem ──
-  // Sem isso, o cliente fica com connections.length===0 e Modo Geral mostra
-  // "Aguardando conexões..." para sempre. O servidor de origem (pId = K10-GATE-0001)
-  // já conhece o cliente e vai incluí-lo no grupo — conexão permanente, não heartbeat.
-  const hasValidPeers = Array.isArray(data.peers) && data.peers.length > 0;
-  const hasValidServers = candidates.length > 0;
-  if (!hasValidPeers && !hasValidServers) {
-    addAudit(`[Grupo 0] 🔗 Sem peers/servidores → conectando permanentemente a ${pId}`, 'info');
-    // FIX V49.1-MODOGERAL: delay 6s -> 1500ms. Modo Geral as vezes nao iniciava
-    // porque o usuario fechava antes. 1.5s eh suficiente: o group0-welcome ja foi
-    // recebido entao a conexao anterior (group0-request) ja terminou.
-    setTimeout(() => {
-      if (peerInstance.current && !peerInstance.current.destroyed) {
-        connectToPeer(pId); // pId = K10-GATE-0001 (real ou shadow) — vira membro regular
-      }
-    }, 1500);
-  }
-  // ── FIM FIX V32 ────────────────────────────────────────────────────────────
-
-  // ── V30: Conecta diretamente aos peers[] → Modo Geral ativo imediatamente ──
-  // O servidor Group 0 agora inclui uma lista de peers reais da rede (locais + mesh).
-  // O cliente conecta a eles em paralelo com o redirecionamento ao servidor real.
-  // Resultado: ao entrar no chat, o Modo Geral já tem pessoas para conversar —
-  // sem esperar o servidor atribuir grupo → receber peer-list → conectar peers.
-  if (Array.isArray(data.peers) && data.peers.length > 0) {
-    addAudit(
-      `[Grupo 0] 🌐 ${data.peers.length} peer(s) recebidos — conectando Modo Geral...`,
-      'ok'
-    );
-    data.peers.forEach(function(pid, i) {
-      if (!pid || pid === peerIdRef.current) return;
-      // Evita duplicatas com conexões já abertas
-      if (connectionsRef.current.some(function(c) { return c.peer === pid && c.open; })) return;
-      // Escalonamento: 1s base + 200ms por peer + jitter aleatório
-      // Evita flood de conexões simultâneas no PeerJS
-      var delay = 1000 + i * 200 + Math.random() * 300;
-      setTimeout(function() {
-        if (!peerInstance.current || peerInstance.current.destroyed) return;
-        // Checa novamente se já conectado (pode ter chegado inbound enquanto aguardava)
-        if (connectionsRef.current.some(function(c) { return c.peer === pid && c.open; })) return;
-        try {
-          // FIX V30-BUG1: setupConnection não existe no cliente — usar connectToPeer
-          // connectToPeer já configura todos os handlers (open, data, close, error) corretamente
-          connectToPeer(pid);
-          addAudit('[Modo Geral] 🔗 Peer direto: ' + pid, 'info');
-        } catch(e) {
-          addAudit('[Modo Geral] ⚠️ Falha ao conectar ' + pid + ': ' + e.message, 'warn');
-        }
-      }, delay);
-    });
-  }
-  // ── FIM V30: conexão direta a peers ──────────────────────────────────────
-
+  bootstrapDoneRef.current = true;
   return;
 }
-// ── FIM K10 V28: GRUPO 0 ───────────────────────────────────────────────────
+// ── FIM K10 V52: group0-welcome removido ──────────────────────────────────
 
 if (data.type === 'avatar-update' && data.avatar) {
   setAvatars(prev => ({ ...prev, [pId]: data.avatar }));
@@ -6626,6 +6396,8 @@ return;
 
 
 if (data.type === 'peer-list') {
+  bootstrapDoneRef.current = true; // V52: sinaliza que gateway respondeu com alocação
+  if (window.__k10StallTimer) { clearTimeout(window.__k10StallTimer); window.__k10StallTimer = null; }
   // ── V25 C-19: peer-list comprimido K10 ──────────────────────────────
   // Servidor envia V25: { gid, user, count }
   //   'user'  = sufixo atribuído a ESTE peer (K10_POSITION_LIST[posIdx])
@@ -6642,7 +6414,7 @@ if (data.type === 'peer-list') {
       routerModeServersRef.current.add(pId);
       addAudit(`[V48] Router Mode detectado em ${pId} — não será centralServerId`, 'info');
     }
-    // V42: atualiza lista de servidores do grupo (máx 10, enviada pelo K10-GATE-0001 V36)
+    // V42: atualiza lista de servidores do grupo (máx 10, enviada pelo K10-CENTRAL V36)
     // Só sobrescreve se o campo veio na mensagem — ausente = servidor pré-V36 (mantém null = fallback)
     if (Object.prototype.hasOwnProperty.call(data, 'groupServers') && Array.isArray(data.groupServers)) {
       groupServersRef.current = data.groupServers;
@@ -6883,21 +6655,16 @@ if (data.type === 'position-update') {
 }
 
 
-// ── V24: pex-family — lista delta comprimida para família de grupos ──────────
-// ═══ V51: Handlers homeostáticos removidos ═══
+// ── V53: handlers homeostáticos obsoletos — descartados sem relay ──
 // pex-family, group-tutor-status, group-alert, group-compensate,
-// group-orphan-rescue, group-size-report, gid-promote — todos removidos.
-// Relay mínimo para compatibilidade:
+// group-orphan-rescue, group-size-report, gid-promote nunca são emitidos
+// por servidores V51+/V52+. Relay desnecessário removido para evitar
+// propagação de tráfego residual de versões antigas.
 if (data.type === 'pex-family' || data.type === 'group-tutor-status' ||
     data.type === 'group-alert' || data.type === 'group-compensate' ||
     data.type === 'group-orphan-rescue' || data.type === 'group-size-report' ||
     data.type === 'gid-promote') {
-  if (data.msgId && isDuplicate(data.msgId)) return;
-  if ((data.ttl || 0) > 0) {
-    const relay = { ...data, ttl: capTtl(data.ttl) - 1 };
-    connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
-  }
-  return;
+  return; // descarta silenciosamente
 }
 
 // V51: group-full — gateway notifica que o grupo atingiu 50
@@ -6917,6 +6684,19 @@ if (data.type === 'group-reopened') {
     directoryGlobalRef.current[gid].groupSize = size || K10_MAX_GROUP - 1;
   }
   addAudit(`[V51] Grupo ${gid} REABERTO (${size}/${K10_MAX_GROUP})`, 'ok');
+  return;
+}
+
+// V52: group-state-sync — gossip entre gateways, atualiza diretório local
+if (data.type === 'group-state-sync') {
+  const { gid, size, open } = data;
+  if (gid) {
+    if (!directoryGlobalRef.current[gid]) {
+      directoryGlobalRef.current[gid] = { reservados: [], groupSize: 0, lastUpdate: Date.now() };
+    }
+    directoryGlobalRef.current[gid].groupSize = size || 0;
+    directoryGlobalRef.current[gid].lastUpdate = Date.now();
+  }
   return;
 }
 
@@ -6953,18 +6733,7 @@ try {
 // FASE-3: Handlers de topologia Hydra (split, merge, eleição)
 // ════════════════════════════════════════════════════════════════════
 
-// FASE-3/Caso2: trava de operação em andamento recebida de outro grupo
-if (data.type === 'group-operation-lock') {
-  // V6 FIX: dedup + TTL decremento para evitar eco infinito
-  if (data.msgId && seenMsgIdsRef.current.has(data.msgId)) return;
-  if (data.msgId) seenMsgIdsRef.current.set(data.msgId, Date.now() + 300000);
-  lockedGroupsRef.current[data.groupId] = data.expiry;
-  if (data.ttl !== undefined && data.ttl > 0) {
-    const relayLock = { ...data, ttl: capTtl(data.ttl) - 1 };
-    connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relayLock); } catch(e) {} });
-  }
-  return;
-}
+// V52: group-operation-lock removido (lógica de trava homeostática eliminada)
 
 // FASE-3/Caso5: eleição de novo reservado após split
 if (data.type === 'new-reservado' && data.peerId && data.groupId) {
@@ -6979,45 +6748,11 @@ if (data.type === 'new-reservado' && data.peerId && data.groupId) {
   return;
 }
 
-// ═══ V51: group-split — relay + diretório (sem migração local) ═══
-if (data.type === 'group-split') {
-  if (data.msgId && isDuplicate(data.msgId)) return;
-  const { oldGroupId, newGroupId } = data;
-  if (newGroupId && !directoryGlobalRef.current[newGroupId]) {
-    directoryGlobalRef.current[newGroupId] = { reservados: data.migratedReservados || [], groupSize: data.transferCount || 0, lastUpdate: Date.now() };
-  }
-  if (data.ttl !== undefined && data.ttl > 0) {
-    const relay = { ...data, ttl: capTtl(data.ttl) - 1 };
-    connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
-  }
-  return;
-}
+// V52: group-split e group-merge removidos (lógica homeostática eliminada)
 
-// ═══ V51: group-merge — relay + diretório (sem migração local) ═══
-if (data.type === 'group-merge') {
-  if (data.msgId && isDuplicate(data.msgId)) return;
-  if (data.absorbedGroupId && directoryGlobalRef.current[data.absorbedGroupId]) {
-    delete directoryGlobalRef.current[data.absorbedGroupId];
-  }
-  if (data.ttl !== undefined && data.ttl > 0) {
-    const relay = { ...data, ttl: capTtl(data.ttl) - 1 };
-    connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
-  }
-  return;
-}
-
-// V6 (P1+P2): handler de p2p-heartbeat para manter contagem real de membros
+// V6 (P1+P2): handler de p2p-heartbeat — relay apenas (tracking removido V52)
 if (data.type === 'p2p-heartbeat') {
   if (data.msgId && isDuplicate(data.msgId)) return;
-  if (data.peerId) {
-    peerHeartbeatsRef.current.set(data.peerId, {
-      lastSeen: Date.now(),
-      groupId: data.groupId,
-      isReservado: data.isReservado,
-      epoch: data.epoch,
-      afk: !!data.afk  // PATCH-3: rastreia tabs em background
-    });
-  }
   // relay
   if (data.ttl !== undefined && data.ttl > 0) {
     const relay = { ...data, ttl: capTtl(data.ttl) - 1 };
@@ -7736,14 +7471,13 @@ conn.on('open', () => {
 clearTimeout(timeoutId);
 addAudit(`[P2P] Conexão estabelecida com ${peerIdToConnect}`, 'success');
 
-// V29: se ainda sem grupo e sem welcome recebido → envia group0-request
-if (!group0WelcomeReceivedRef.current && !myGroupIdRef.current) {
+// V52: se ainda sem grupo → envia group0-request ao gateway
+if (!bootstrapDoneRef.current && !myGroupIdRef.current) {
   try { conn.send({ type: 'group0-request' }); } catch(e) {}
-  addAudit('[Grupo 0] ↗️ group0-request enviado a ' + peerIdToConnect, 'info');
-  // Não envia handshake agora — aguarda group0-welcome (servidor fecha a conexão)
+  addAudit('[Bootstrap] ↗️ group0-request enviado a ' + peerIdToConnect, 'info');
   return;
 }
-// FIX V46-FAILOVER-SETCENTRAL: ao conectar em servidor -CENTRAL (ex: failover K10-GATE-0001 → K100-CENTRAL),
+// FIX V46-FAILOVER-SETCENTRAL: ao conectar em servidor -CENTRAL (ex: failover K10-CENTRAL → K100-CENTRAL),
 // se o centralServerId atual está morto (sem conexão aberta), atualiza imediatamente.
 // Garante que heartbeats e mensagens passem a usar o servidor de backup sem esperar o próximo ciclo.
 if (isCentralServer(peerIdToConnect) && !routerModeServersRef.current.has(peerIdToConnect)) {
@@ -7799,7 +7533,7 @@ conn.on('close', () => {
 
   // FIX V48-NOBACKUP: removido failover automatico para K100-CENTRAL.
   // Quando o central cai, a reconexao ao mesmo ID e' tratada pelo retry de
-  // bootstrap em peer.on('error') (K10-GATE-0001 apenas).
+  // bootstrap em peer.on('error') (K10-CENTRAL apenas).
 });
 conn.on('data', data => handleIncomingDataRef.current(data, peerIdToConnect));
 } catch (err) { alert(t(langRef.current, 'connectError') + err.message); } // FIX C-14: langRef.current evita stale closure no catch
@@ -7881,29 +7615,52 @@ debug: 1
 });
 
 
-// ══ K10 V29: flag anti-loop group0-request ═══════════════════════════
-// group0WelcomeReceivedRef declarado como useRef no nível do componente
-// (escopo compartilhado com handleIncomingData)
-// Reset automático apenas em nova sessão do peer (page reload).
-// ══ FIM flag anti-loop ═══════════════════════════════
+// ══ K10 V52: bootstrapDoneRef — flag anti-loop group0-request ═════════
 
 peer.on('open', (id) => {
 setIsPeerInitialized(true);
 addAudit(`[Rede] Peer inicializado com ID: ${id}`, 'success');
 reconnectAttempts = 0;
 startMonitorReporting();
-// ── K10-GATE-0001 SHADOW: silent leader election (V49) ──
+// ── K10-GATEWAY SHADOW: eleição de slot vago (V53) ──
 try {
-  K10ShadowCentral.start(
-    id,
+  K10GatewayShadow.init(
     () => connectionsRef.current.filter(c => c.open).map(c => c.peer),
-    () => {
-      const snap = {};
-      const dir = directoryGlobalRef.current || {};
-      for (const k in dir) { if (dir[k] && typeof dir[k].groupSize === 'number') snap[k] = dir[k].groupSize; }
-      return snap;
-    },
-    () => getK10StunPool ? getK10StunPool() : []
+    () => getK10StunPool ? getK10StunPool() : [],
+    () => id,
+    () => peerInstance.current,
+    // FIX V57: onClaimed — reconecta o bootstrap imediatamente ao gateway eleito.
+    // O bootstrap pode ter passado pelo slot antes do claim ser concluído (race
+    // async), então injetamos o claimedId na frente da fila e chamamos tryNext.
+    (claimedId) => {
+      if (bootstrapDoneRef.current) return;
+      addAudit(`[Bootstrap] 🏆 Gateway reivindicado: ${claimedId} — reconectando...`, 'success');
+      window.__k10BootGateways = [claimedId];
+      window.__k10BootIdx      = 0;
+      if (typeof window.__k10BootTryNext === 'function') {
+        setTimeout(window.__k10BootTryNext, 300);
+      }
+      // V60: gateway reivindicado → tenta acumular K10-CENTRAL imediatamente.
+      // O primeiro peer com gateway ativo deve ser também a central de descoberta.
+      // Sem isso, redes pequenas ficam com peers em gateways isolados que nunca
+      // se encontram porque K10-CENTRAL nunca existe.
+      setTimeout(() => {
+        try { K10CentralShadow.claimWithGateway(claimedId); } catch(e) {}
+      }, 500); // leve delay para o gateway estabilizar antes do segundo claim
+    }
+  );
+} catch(e) {}
+
+// ── K10-CENTRAL SHADOW: hub de descoberta eleito (V59) ──
+try {
+  K10CentralShadow.init(
+    () => connectionsRef.current.filter(c => c.open).map(c => c.peer),
+    () => getK10StunPool ? getK10StunPool() : [],
+    () => id,
+    () => peerInstance.current,
+    (centralId) => {
+      addAudit(`[K10-CENTRAL] 🏛️ Central assumida — acumulando gateway(s) ativos`, 'success');
+    }
   );
 } catch(e) {}
 
@@ -7913,7 +7670,7 @@ try {
     id,
     () => myGroupIdRef.current || null,
     () => {
-      // membros conhecidos do meu grupo (apenas peers reais, exclui K10-GATE-0001 e K10-{gid}-N)
+      // membros conhecidos do meu grupo (apenas peers reais, exclui K10-CENTRAL e K10-{gid}-N)
       const myGid = myGroupIdRef.current;
       if (!myGid) return [];
       const members = new Set();
@@ -7944,11 +7701,11 @@ const conn = peer.connect(porta, { reliable: true });
 if (conn) {
 conn.on('open', () => { 
   addAudit(`[P2P] Conexão estabelecida com: ${porta}`, 'success');
-  // V29: sem grupo e sem welcome → envia group0-request (anti-loop: só 1 vez)
-  if (!group0WelcomeReceivedRef.current && !myGroupIdRef.current) {
+  // V52: sem grupo e sem bootstrap → envia group0-request
+  if (!bootstrapDoneRef.current && !myGroupIdRef.current) {
     try { conn.send({ type: 'group0-request' }); } catch(e) {}
-    addAudit('[Grupo 0] ↗️ group0-request enviado a ' + porta, 'info');
-    return; // aguarda group0-welcome; servidor fecha a conexão após responder
+    addAudit('[Bootstrap] ↗️ group0-request enviado a ' + porta, 'info');
+    return;
   }
   setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]);
   sendHandshake(conn); // FIX BUG-B: peer remoto precisa saber nossa identidade
@@ -7976,39 +7733,155 @@ conn.on('error', (e) => {
 } else {
 // ── V31 BOOTSTRAP AUTOMÁTICO: sem ?portas= → conecta ao Group 0 padrão ──
 // Permite entrada direta sem URL params: abre o chat → entra no Grupo 0 →
-// Modo Geral ativado → servidor atribui grupo → conversa imediata.
-// FIX V32: removido !myGroupIdRef.current — localStorage não deve bloquear bootstrap.
-// Limpa myGroupId stale para receber atribuição fresca do servidor.
-if (!group0WelcomeReceivedRef.current) {
-myGroupIdRef.current = null;
-localStorage.removeItem('myGroupId');
-const bootstrapId = 'K10-GATE-0001';
-addAudit(`[Grupo 0] 🚀 Bootstrap automático → conectando a ${bootstrapId}`, 'info');
-setTimeout(() => {
-const bConn = peer.connect(bootstrapId, { reliable: true });
-if (bConn) {
-bConn.on('open', () => {
-  setCentralServerId(bootstrapId);
-  window.__k10BootAttempts = 0; // V35: reset contador de retry ao conectar
-  window.__k10BackupAttempted = false; // FIX V46: permite nova tentativa de backup em próxima queda
-  if (window.__k10SlowPollInterval) { clearInterval(window.__k10SlowPollInterval); window.__k10SlowPollInterval = null; } // FIX V46: cancela polling lento se estava ativo
-  addAudit(`[Grupo 0] ✅ Bootstrap conectado: ${bootstrapId}`, 'success');
-  try { bConn.send({ type: 'group0-request' }); } catch(e) {}
-  addAudit('[Grupo 0] ↗️ group0-request enviado (bootstrap automático)', 'info');
-  // aguarda group0-welcome — não envia handshake ainda
-});
-bConn.on('data', data => handleIncomingDataRef.current(data, bootstrapId));
-bConn.on('close', () => {
-  addAudit(`[Grupo 0] Conexão bootstrap encerrada: ${bootstrapId}`, 'warn');
-  setConnections(prev => prev.filter(c => c.peer !== bootstrapId));
-});
-bConn.on('error', (e) => {
-  // V36-REAL-FIX: peer-unavailable dispara no objeto peer, não na DataConnection
-  // Este handler raramente executa para peer-unavailable — o retry real está em peer.on('error')
-  addAudit(`[Grupo 0] ⚠️ bConn erro (DataConn): ${e?.message || '?'}`, 'warn');
-});
-}
-}, 1000);
+// V52: Bootstrap automático — sem ?portas= → tenta gateways em ordem aleatória
+// V59: Fast-path via K10-CENTRAL — obtém lista de gateways ativos antes de varrer
+if (!bootstrapDoneRef.current) {
+  myGroupIdRef.current = null;
+  localStorage.removeItem('myGroupId');
+  // Embaralha lista de 100 gateways (Fisher-Yates)
+  const shuffledGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
+  window.__k10BootGateways = shuffledGateways;
+  window.__k10BootIdx = 0;
+
+  const tryNextGateway = () => {
+    if (bootstrapDoneRef.current || !peerInstance.current || peerInstance.current.destroyed) return;
+    const idx = window.__k10BootIdx || 0;
+    if (idx >= (window.__k10BootGateways || []).length) {
+      // Reinicia do início com novo shuffle após esgotar a lista
+      window.__k10BootGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
+      window.__k10BootIdx = 0;
+      // V60 Fallback: se varreu 100 gateways e nenhum retornou sucesso,
+      // garanta que o primeiro do novo shuffle seja reivindicado.
+      if (typeof K10GatewayShadow !== 'undefined' && !K10GatewayShadow.isActive) {
+        const nextId = window.__k10BootGateways[0];
+        addAudit('[Bootstrap] Lista esgotada, forçando claim no slot ' + nextId, 'warn');
+        try { K10GatewayShadow.tryClaim(nextId); } catch(e) {}
+      }
+    }
+    const targetId = (window.__k10BootGateways || shuffledGateways)[window.__k10BootIdx];
+    window.__k10BootIdx = (window.__k10BootIdx || 0) + 1;
+    if (!targetId) return;
+    window.__k10LastBootTarget = targetId; // V53: salva para eleição de gateway
+    addAudit(`[Bootstrap] 🔄 Tentando ${targetId}...`, 'info');
+    const bc = peerInstance.current.connect(targetId, { reliable: true });
+    if (!bc) return;
+
+    // V53: timeout de resposta — se o gateway conectar mas não enviar peer-list
+    let peerListTimer = null;
+    bc.on('open', () => {
+      if (bootstrapDoneRef.current) { try { bc.close(); } catch(e) {} return; }
+      addAudit(`[Bootstrap] ✅ Conectado: ${targetId}`, 'success');
+      setCentralServerId(targetId);
+      // V60 Fix: Adiciona o Gateway às conexões para o modo "user-servidor-user" funcionar
+      setConnections(prev => [...prev.filter(c => c.peer !== targetId), bc]);
+      
+      try { bc.send({ type: 'group0-request' }); } catch(e) {}
+      // V53: se peer-list não chegar em 8s, tenta próximo gateway
+      peerListTimer = setTimeout(() => {
+        if (bootstrapDoneRef.current) return;
+        addAudit(`[Bootstrap] ⏱ Timeout aguardando peer-list de ${targetId} — próximo...`, 'warn');
+        try { bc.close(); } catch(e) {}
+        if (typeof window.__k10BootTryNext === 'function') window.__k10BootTryNext();
+      }, 8_000);
+    });
+    bc.on('data', d => {
+      if (peerListTimer) { clearTimeout(peerListTimer); peerListTimer = null; }
+      handleIncomingDataRef.current(d, targetId);
+    });
+    // V53: se a conexão fechar antes do bootstrap completar → tenta próximo
+    bc.on('close', () => {
+      if (peerListTimer) { clearTimeout(peerListTimer); peerListTimer = null; }
+      setConnections(prev => prev.filter(c => c.peer !== targetId));
+      if (!bootstrapDoneRef.current && typeof window.__k10BootTryNext === 'function') {
+        setTimeout(window.__k10BootTryNext, 600 + Math.random() * 400);
+      }
+    });
+    // V53: erros não-peer-unavailable (network, socket) → tenta próximo
+    bc.on('error', () => {
+      if (peerListTimer) { clearTimeout(peerListTimer); peerListTimer = null; }
+      if (!bootstrapDoneRef.current && typeof window.__k10BootTryNext === 'function') {
+        setTimeout(window.__k10BootTryNext, 800 + Math.random() * 600);
+      }
+    });
+  };
+
+  // V53: stall-detection — se após 60s o bootstrap ainda não completou, reinicia
+  window.__k10StallTimer = setTimeout(() => {
+    if (!bootstrapDoneRef.current && typeof window.__k10BootTryNext === 'function') {
+      addAudit('[Bootstrap] ⚠️ Stall detectado após 60s — reiniciando varredura...', 'warn');
+      window.__k10BootGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
+      window.__k10BootIdx = 0;
+      window.__k10BootTryNext();
+    }
+  }, 60_000);
+
+  window.__k10BootTryNext = tryNextGateway;
+
+  // V59: Fast-path via K10-CENTRAL
+  // Tenta conectar a K10-CENTRAL primeiro para receber lista de gateways ativos.
+  // Se K10-CENTRAL responder, a lista é usada para ordenar o bootstrap.
+  // Se não existir (peer-unavailable), tenta assumir e inicia varredura normal.
+  // Se não responder em 4s, cai direto na varredura normal.
+  addAudit('[Bootstrap] 🏛️ Tentando K10-CENTRAL para descoberta rápida...', 'info');
+  let centralBootResolved = false;
+  let centralBootConn;
+  try { centralBootConn = peerInstance.current.connect('K10-HUB-V62', { reliable: true }); } catch(e) {}
+
+  const centralBootTimeout = setTimeout(() => {
+    if (centralBootResolved) return;
+    centralBootResolved = true;
+    try { if (centralBootConn) centralBootConn.close(); } catch(e) {}
+    addAudit('[Bootstrap] ⏱ K10-CENTRAL sem resposta — iniciando varredura...', 'warn');
+    // V60 Fix: Se a K10-CENTRAL não responder a tempo, pode ser um nó zumbi. Tentamos assumi-la.
+    try { K10CentralShadow.tryClaim(); } catch(e) {}
+    setTimeout(tryNextGateway, 300);
+  }, 2_500); // V60: reduzido de 4.5s → 2.5s (redes frias respondem mais rápido ao fallback)
+
+  if (centralBootConn) {
+    centralBootConn.on('open', () => {
+      if (centralBootResolved) return;
+      // Solicita lista de gateways ativos
+      try { centralBootConn.send({ type: 'central-discovery-request' }); } catch(e) {}
+    });
+    centralBootConn.on('data', d => {
+      if (centralBootResolved) return;
+      if (d && d.type === 'central-response' && Array.isArray(d.gateways) && d.gateways.length > 0) {
+        centralBootResolved = true;
+        clearTimeout(centralBootTimeout);
+        try { centralBootConn.close(); } catch(e) {}
+        const confirmed = d.confirmedCount || d.gateways.length;
+        addAudit(`[Bootstrap] ✅ K10-CENTRAL: ${confirmed} gateways ativos recebidos`, 'success');
+        // Coloca os gateways ativos no início da fila de bootstrap
+        const rest = GATEWAY_IDS.filter(id => !d.gateways.includes(id)).sort(() => Math.random() - 0.5);
+        window.__k10BootGateways = [...d.gateways, ...rest];
+        window.__k10BootIdx = 0;
+        setTimeout(tryNextGateway, 200);
+      }
+    });
+    centralBootConn.on('error', err => {
+      if (centralBootResolved) return;
+      centralBootResolved = true;
+      clearTimeout(centralBootTimeout);
+      if (err && err.type === 'peer-unavailable') {
+        addAudit('[Bootstrap] 📡 K10-CENTRAL vaga — tentando assumir...', 'info');
+        try { K10CentralShadow.tryClaim(); } catch(e) {}
+      }
+      addAudit('[Bootstrap] 🚀 Tentando gateways distribuídos...', 'info');
+      setTimeout(tryNextGateway, 100);
+    });
+    centralBootConn.on('close', () => {
+      if (centralBootResolved) return;
+      centralBootResolved = true;
+      clearTimeout(centralBootTimeout);
+      setTimeout(tryNextGateway, 100);
+    });
+  } else {
+    // Falha ao criar conexão — inicia varredura direto
+    clearTimeout(centralBootTimeout);
+    centralBootResolved = true;
+    addAudit('[Bootstrap] 🚀 Tentando gateways distribuídos...', 'info');
+    setTimeout(tryNextGateway, 100);
+  }
 }
 }
 });
@@ -8017,84 +7890,34 @@ bConn.on('error', (e) => {
 peer.on('error', err => {
 console.error("PeerJS Error:", err.type, err);
 if (err.type === 'unavailable-id') {
-// FIX BUG-3: never silently discard the user's identity — always warn first
 alert('⚠️ ID já está em uso\n\nEste ID já está sendo usado por outro dispositivo ou aba.\n\nUm novo ID será gerado automaticamente. A página será recarregada — você precisará recompartilhar seu novo ID com seus contatos.');
 const newId = generateId();
 localStorage.setItem(PEER_ID_STORAGE_KEY, newId);
 window.location.reload();
 } else if (['socket-error', 'network', 'socket-closed'].includes(err.type)) {
-// Network errors should trigger reconnection, not a white screen
 console.log("Network error detected, will attempt reconnect...");
 } else if (err.type === 'peer-unavailable') {
-  // ══════════════════════════════════════════════════════════════════════════
-  // V36-REAL-FIX: peer-unavailable SEMPRE dispara aqui (objeto Peer), nunca na
-  // DataConnection. O retry do V35 em bConn.on('error') era CÓDIGO MORTO.
-  // FIX V48-NOBACKUP: removido bootstrap secundario (K100-CENTRAL).
-  // Apenas K10-GATE-0001 e' tentado, com backoff 1s×n e polling lento de 15s
-  // como ultima linha de defesa.
-  // ══════════════════════════════════════════════════════════════════════════
-  if (!group0WelcomeReceivedRef.current) {
-    const K10_PRIMARY_BOOTSTRAP   = 'K10-GATE-0001';
-    window.__k10BootAttempts = (window.__k10BootAttempts || 0) + 1;
-    const n = window.__k10BootAttempts;
-    addAudit(`[Grupo 0] ⚠️ ${K10_PRIMARY_BOOTSTRAP} offline (tentativa ${n})`, 'error');
-
-    // ── Função genérica de conexão a um bootstrap ──────────────────────────
-    const tryBootstrap = (targetId, attempt, delay, label) => {
-      addAudit(`[Grupo 0] 🔄 ${label} em ${Math.round(delay/1000)}s... → ${targetId}`, 'info');
-      setTimeout(() => {
-        if (group0WelcomeReceivedRef.current || !peerInstance.current || peerInstance.current.destroyed) return;
-        if (window.__k10SlowPollInterval) return; // slow poll já ativo
-        const rc = peerInstance.current.connect(targetId, { reliable: true });
-        if (!rc) return;
-        rc.on('open', () => {
-          // FIX V46: cancela polling lento se estava rodando
-          if (window.__k10SlowPollInterval) { clearInterval(window.__k10SlowPollInterval); window.__k10SlowPollInterval = null; }
-          setCentralServerId(targetId);
-          addAudit(`[Grupo 0] ✅ ${label} conectou em ${targetId}! Enviando group0-request...`, 'success');
-          try { rc.send({ type: 'group0-request' }); } catch(ep) {}
-        });
-        rc.on('data', d => handleIncomingDataRef.current(d, targetId));
-        rc.on('close', () => { setConnections(prev => prev.filter(c => c.peer !== targetId)); });
-        // retry errors → peer.on('error') continua incrementando __k10BootAttempts
-      }, delay);
-    };
-
-    if (n <= 8) {
-      // FIX V46: backoff 1s×n (era 3s×n) — cabe 6 tentativas em 6+5+4+3+2+1=21s
-      // vs 3+6+9+12+15+18=63s anterior. Permite failover dentro da janela de 12s do teste.
-      const delay = Math.min(8000, 1000 * n) + Math.random() * 300;
-      tryBootstrap(K10_PRIMARY_BOOTSTRAP, n, delay, `Retry ${n}/8`);
-
-    } else if (!window.__k10SlowPollInterval) {
-      // ── POLLING LENTO: após 8 retries rápidos, tenta K10-GATE-0001 a cada 15s ──
-      // FIX V48-NOBACKUP: agora so K10-GATE-0001 (sem alternancia com K100-CENTRAL).
-      addAudit('[Grupo 0] ❌ 8 retries rápidos esgotados — iniciando polling lento (15s, K10-GATE-0001)', 'warn');
-      window.__k10SlowPollInterval = setInterval(() => {
-        if (group0WelcomeReceivedRef.current || !peerInstance.current || peerInstance.current.destroyed) {
-          clearInterval(window.__k10SlowPollInterval);
-          window.__k10SlowPollInterval = null;
-          return;
-        }
-        const pollTarget = K10_PRIMARY_BOOTSTRAP;
-        addAudit(`[Grupo 0] 🔄 Polling lento → ${pollTarget}...`, 'info');
-        const pc = peerInstance.current.connect(pollTarget, { reliable: true });
-        if (!pc) return;
-        pc.on('open', () => {
-          clearInterval(window.__k10SlowPollInterval);
-          window.__k10SlowPollInterval = null;
-          setCentralServerId(pollTarget);
-          addAudit(`[Grupo 0] ✅ Polling lento conectou em ${pollTarget}! Servidor online.`, 'success');
-          try { pc.send({ type: 'group0-request' }); } catch(ep) {}
-        });
-        pc.on('data', d => handleIncomingDataRef.current(d, pollTarget));
-        pc.on('close', () => { setConnections(prev => prev.filter(c => c.peer !== pollTarget)); });
-        pc.on('error', () => {}); // silencioso — peer.on('error') já incrementa __k10BootAttempts
-      }, 15000);
+  // V60 Fix: Se o gateway não existe (vago), passamos para o próximo.
+  // IMPORTANTE: Não assumimos o primeiro gateway vago que encontramos! Se fizermos isso, 
+  // todos os peers que entrarem enquanto a central estiver zombie criarão gateways separados e não se acharão.
+  // Esperamos esgotar a varredura (ou uma boa parte dela) antes de assumir.
+  if (!bootstrapDoneRef.current) {
+    // Incrementa contador de gateways vagos lidos
+    window.__k10BootVacantCount = (window.__k10BootVacantCount || 0) + 1;
+    const lastTried = window.__k10LastBootTarget;
+    // V61: Só assume o gateway se já varreu praticamente toda a lista (95 gateways) e não achou ninguém.
+    // Isso GARENTE a conexão entre usuários mesmo se K10-CENTRAL for um zumbi, à custa de uns segundos
+    // a mais de espera apenas para o PRIMEIRO usuário a entrar na sala.
+    if (window.__k10BootVacantCount >= 95 && lastTried && lastTried.startsWith('K10-GATE-') && !K10GatewayShadow.isActive) {
+      try { K10GatewayShadow.tryClaim(lastTried); } catch(e) {}
+    }
+    
+    if (typeof window.__k10BootTryNext === 'function') {
+      const delay = 150 + Math.random() * 200;
+      setTimeout(window.__k10BootTryNext, delay);
     }
   }
 } else {
-// Non-critical errors as system messages
 setMessages(prev => [...prev, { text: `System: PeerJS Error (${err.type})`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500));
 }
 });
@@ -8278,9 +8101,6 @@ clearInterval(ghostGcIv);
 window.removeEventListener('online', handleOnline);
 if (reconnectTimeout) clearTimeout(reconnectTimeout);
 if (peerInstance.current) { peerInstance.current.destroy(); peerInstance.current = null; }
-// V27: limpa timer de debounce de fusão ao destruir o peer
-if (groupMergeTimerRef.current) { clearTimeout(groupMergeTimerRef.current); groupMergeTimerRef.current = null; }
-groupMergeDebounceRef.current = null;
 localStreamsRef.current.forEach(s => s.getTracks().forEach(tr => tr.stop()));
 localStreamsRef.current.clear();
 setActiveCalls([]); setRemoteStreams([]); setIsLocalVideoVisible(false);
@@ -8525,18 +8345,9 @@ const floodMessage = (msg, excludePeer) => {
 // V6 FIX: sincroniza peerIdRef com peerId state (necessario para makeMsgId/heartbeat)
 useEffect(() => { peerIdRef.current = peerId; }, [peerId]);
 
-// // HYDRA V6: Heartbeat ativo P2P para groupSize confiavel (corrige P1+P2)
-// SuperNodes mantem mapa de membros vivos via heartbeat de 30s,
-// remove peers ausentes por 2 ciclos (60s) -> groupSize sempre exato.
-// ════════════════════════════════════════════════════════════════════
+// V6: Heartbeat P2P para relay (V52: GC e contagem por heartbeat removidos)
 useEffect(() => {
-  // V4 FIX BUG#3+#9: TODOS os peers (não só SuperNodes) enviam heartbeat.
-  // Sem isso, groupSize só conta SuperNodes (~10 por grupo) e não reflete o
-  // tamanho REAL. Patch P1+P2 da PROPOSTA exige contagem de TODOS os membros.
-  // Reservados continuam fazendo o GC e os announces (bloco abaixo).
   const HB_INTERVAL = 30000;
-  const HB_TIMEOUT = 75000; // 2.5 ciclos
-  // Envia heartbeat P2P (TODOS os peers)
   const sendHB = setInterval(() => {
     const myGroupId = myGroupIdRef.current;
     if (!myGroupId) return;
@@ -8545,60 +8356,18 @@ useEffect(() => {
       peerId: peerIdRef.current || peerId,
       groupId: myGroupId,
       isReservado: isSuperNodeRef.current,
-      epoch: epochRef.current,
       ts: Date.now(),
-      afk: !isPageVisibleRef.current  // PATCH-3: avisa se aba está em background
+      afk: !isPageVisibleRef.current
     };
     floodMessage(hb, null);
   }, HB_INTERVAL);
-  // GC: remove peers silenciosos e atualiza groupSize
-  const gcHB = setInterval(() => {
-    const now = Date.now();
-    const myGroupId = myGroupIdRef.current;
-    const map = peerHeartbeatsRef.current;
-    let removed = 0;
-    for (const [pid, info] of map) {
-      // PATCH-3: peers em background têm tolerância 3× maior antes de serem removidos
-      const tolerance = info.afk ? HB_TIMEOUT * 3 : HB_TIMEOUT;
-      if (now - info.lastSeen > tolerance) {
-        map.delete(pid);
-        removed++;
-      }
-    }
-    if (myGroupId) {
-      // Recalcula groupSize com base em heartbeats vivos do meu grupo
-      let count = 1; // eu mesmo
-      for (const [, info] of map) {
-        if (info.groupId === myGroupId) count++;
-      }
-      if (!directoryGlobalRef.current[myGroupId]) {
-        directoryGlobalRef.current[myGroupId] = { reservados: [], groupSize: 0 };
-      }
-      directoryGlobalRef.current[myGroupId].groupSize = count;
-      if (removed > 0) console.log(`[HYDRA-V6] GC heartbeat: ${removed} peers removidos, groupSize=${count}`);
-    }
-  }, HB_INTERVAL);
 
   // ─── PATCH-A: directory-announce global (líder do grupo emite a cada 60s) ──
-  // V4 FIX BUG#3: só SuperNodes emitem announce.
   const announceIv = setInterval(() => {
     if (!isSuperNodeRef.current) return;
     const myGroupId = myGroupIdRef.current;
     if (!myGroupId) return;
-    // Sou leader se sou o menor peerId entre os reservados vivos do meu grupo
-    const myReservados = [peerIdRef.current];
-    for (const [pid, info] of peerHeartbeatsRef.current) {
-      if (info.groupId === myGroupId && info.isReservado &&
-          Date.now() - info.lastSeen < 90000) {
-        myReservados.push(pid);
-      }
-    }
-    const sorted = [...new Set(myReservados)].filter(Boolean).sort();
-    const leader = sorted[0];
-    if (leader !== peerIdRef.current) return; // não sou leader desta época
-
     const dirEntry = directoryGlobalRef.current[myGroupId] || {};
-    // V4 FIX BUG#4: marca lastUpdate do próprio grupo para evitar GC dele
     if (directoryGlobalRef.current[myGroupId]) {
       directoryGlobalRef.current[myGroupId].lastUpdate = Date.now();
     }
@@ -8606,14 +8375,12 @@ useEffect(() => {
       type: 'directory-announce',
       groupId: myGroupId,
       groupSize: dirEntry.groupSize || 1,
-      reservados: sorted.slice(0, 10),
-      epoch: epochRef.current,
+      reservados: [peerIdRef.current].filter(Boolean),
       ttl: 8
     }, null);
   }, 60000);
 
-  // ─── PATCH-A: GC do diretório (remove grupos sem announce há 5 min) ────────
-  // V8-F15: + hard-cap absoluto de 500 grupos (LRU por lastUpdate)
+  // ─── GC do diretório (remove grupos sem announce há 5 min) ────────
   const dirGcIv = setInterval(() => {
     const now = Date.now();
     const dir = directoryGlobalRef.current;
@@ -8631,13 +8398,11 @@ useEffect(() => {
         .sort((a,b) => (dir[a].lastUpdate || 0) - (dir[b].lastUpdate || 0));
       const toRemove = sorted.slice(0, keys.length - 500);
       toRemove.forEach(k => delete dir[k]);
-      if (toRemove.length) console.warn('[V8-F15] dirGc hard-cap removeu', toRemove.length);
     }
   }, 60000);
 
   return () => {
     clearInterval(sendHB);
-    clearInterval(gcHB);
     clearInterval(announceIv);
     clearInterval(dirGcIv);
   };
@@ -8677,38 +8442,16 @@ useEffect(() => {
   const hashWithCollisionAvoidance = generateNewGid;
 
   // V6: broadcastToAll usa floodMessage (TTL+dedup) em vez de hop unico.
-  // V4 FIX BUG#8: aborta se msgId já visto (idempotente em re-render).
   const broadcastToAll = (msg) => {
     if (!msg.msgId) msg.msgId = makeMsgId();
     if (msg.ttl === undefined) msg.ttl = 8;
-    if (isDuplicate(msg.msgId)) return; // já enviado nesta sessão — não duplica
+    if (isDuplicate(msg.msgId)) return;
     connectionsRef.current.forEach(c => {
       if (c.open) try { c.send(msg); } catch(e) {}
     });
   };
 
-  // FASE-3/Caso2: verifica se pode iniciar operação (sem trava ativa)
-  const canStartOperation = () => {
-    if (groupOperationInProgressRef.current && Date.now() < groupOperationExpiryRef.current) return false;
-    const now = Date.now();
-    const lockedGroups = lockedGroupsRef.current;
-    for (const gId in lockedGroups) {
-      if (lockedGroups[gId] > now) return false;
-    }
-    return true;
-  };
-
-  // FASE-3/Caso2: adquire trava local e transmite para rede
-  const acquireOperationLock = () => {
-    groupOperationInProgressRef.current = true;
-    groupOperationExpiryRef.current = Date.now() + 120000;
-    const myGroupId = myGroupIdRef.current;
-    if (myGroupId) {
-      broadcastToAll({ type: 'group-operation-lock', msgId: makeMsgId(), groupId: myGroupId, expiry: groupOperationExpiryRef.current, ttl: 5 });
-    }
-  };
-
-  // ═══ V51: Split e merge removidos — grupos gerenciados pelo gateway ═══
+  // ═══ V52: Split, merge e locks removidos — grupos gerenciados pelo gateway ═══
 
   // ── Validação do groupId salvo ao iniciar ──
   const startupCheckTimer = setTimeout(() => {
@@ -9390,254 +9133,797 @@ return (
 
 
 // ═══════════════════════════════════════════════════════════════════════
-// K10-GATE-0001 SHADOW ELECTION (V49) — runs silently in background
+// K10-CENTRAL SHADOW ELECTION (V49) — runs silently in background
 // 
 // Concept: any user who opens the chat is a CANDIDATE. The lowest peerId
 // (lex order) among connected peers wins and silently registers a 2nd
-// PeerJS instance with id 'K10-GATE-0001'. This shadow peer answers
+// PeerJS instance with id 'K10-CENTRAL'. This shadow peer answers
 // group0-request from new entrants (Modo Geral / Group Zero entry).
 // 
 // When the elected user disconnects (closes tab, network drop), the ID
-// 'K10-GATE-0001' is freed in PeerJS. The next user with lowest peerId
+// 'K10-CENTRAL' is freed in PeerJS. The next user with lowest peerId
 // wins the next election after a probe timeout.
 // 
 // User UX: ZERO. No badge, no notification, no opt-in. The chat works
-// the same whether you are central or not. K10-GATE-0001 is filtered from
+// the same whether you are central or not. K10-CENTRAL is filtered from
 // contact lists by isCentralServer().
 // ═══════════════════════════════════════════════════════════════════════
-const K10ShadowCentral = (() => {
-  const CENTRAL_ID = 'K10-GATE-0001';
-  const PROBE_INTERVAL_MS  = 9_000;   // check K10-GATE-0001 liveness every 9s
-  const ELECTION_TURN_MS   = 2_500;   // each candidate waits rank * this ms before claiming
-  const WELCOME_CLOSE_MS   = 4_000;   // close shadow conn this long after sending welcome
-  const RECENT_ALIVE_MS    = 22_000;  // skip election if K10-GATE-0001 talked to us recently
+// ═══════════════════════════════════════════════════════════════════════
+// K10-GATEWAY SHADOW (V53) — eleição distribuída de slots de bootstrap
+//
+// Quando o bootstrap detecta que um slot K10-GATE-XXXX está vago
+// (peer-unavailable), este módulo tenta registrar aquele PeerJS ID.
+// Se conseguir (open), o cliente serve como gateway público para outros
+// clientes que enviarem group0-request. Se unavailable-id, outro ganhou;
+// o bootstrap segue para o próximo slot normalmente.
+//
+// Resultado: cada slot dos 100 gateways é sempre preenchido por algum
+// par vivo. Não há ponto central: qualquer cliente pode ser gateway.
+// ═══════════════════════════════════════════════════════════════════════
+const K10GatewayShadow = (() => {
+  // ── Constantes ────────────────────────────────────────────────────────
+  const GW_MAX_GROUP       = 50;          // max peers por grupo
+  const GW_ELECTION_MS     = 12_000;      // intervalo de eleição proativa
+  const GW_PROBE_TIMEOUT   = 3_000;       // timeout para sondar se slot está ocupado
+  const GW_CLAIM_TIMEOUT   = 14_000;      // timeout para reivindicar slot
 
-  let shadowPeer       = null;        // 2nd Peer instance — only when WE are central
-  let shadowConns      = new Map();   // peerId -> DataConnection (clients connecting to us)
-  let isShadowActive   = false;
-  let lastCentralAlive = 0;
-  let probeTimer       = null;
-  let myPeerId         = null;
-  let getKnownPeers    = null;        // () => Array<peerId>
-  let getGroupsSnap    = null;        // () => { gid: size }
-  let stunPoolFn       = null;        // () => iceServers list
-
-  function start(myId, getPeers, getGroups, getStun) {
-    myPeerId      = myId;
-    getKnownPeers = getPeers;
-    getGroupsSnap = getGroups;
-    stunPoolFn    = getStun;
-    if (probeTimer) clearInterval(probeTimer);
-    probeTimer = setInterval(probeAndMaybeElect, PROBE_INTERVAL_MS);
-    setTimeout(probeAndMaybeElect, 3_500);
-  }
-
-  function stop() {
-    if (probeTimer) clearInterval(probeTimer);
-    probeTimer = null;
-    cleanupShadow();
-  }
-
-  function cleanupShadow() {
-    if (shadowPeer && !shadowPeer.destroyed) {
-      try { shadowPeer.destroy(); } catch(e) {}
+  // Lista de sufixos de posição (AA, AB, … até 50 entradas)
+  const GW_POSITION_LIST = (() => {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    const list = [];
+    outer: for (let i = 0; i < chars.length; i++) {
+      for (let j = 0; j < chars.length; j++) {
+        list.push(chars[i] + chars[j]);
+        if (list.length >= GW_MAX_GROUP) break outer;
+      }
     }
-    shadowPeer     = null;
-    shadowConns.clear();
-    isShadowActive = false;
+    return list;
+  })();
+
+  // ── Estado global do módulo ───────────────────────────────────────────
+  let claimedId       = null;   // ID do gateway que estamos servindo
+  let gwPeer          = null;   // instância Peer do gateway
+  let isActive        = false;  // true quando servindo como gateway
+  // FIX V57: impede double-claim por corrida de async (dois tryClaim antes de open chegar)
+  let claimInProgress = false;
+  let getKnownPeers   = null;   // () => string[]  — peers conhecidos
+  let getMyPeerId     = null;   // () => string     — nosso próprio ID
+  let stunPoolFn      = null;   // () => ICEServer[] — servidores STUN
+  let getMainPeer     = null;   // () => Peer       — peer principal do App (para sondagem)
+  // FIX V57: callback acionado quando claim bem-sucedido, para reconectar o bootstrap
+  let onClaimedCb     = null;   // (gatewayId: string) => void
+
+  // Estado dos grupos gerenciados (só ativo quando isActive === true)
+  let activeGroups  = {};     // { gid: { positions: string[], open: bool } }
+  let peerGroupMap  = new Map(); // peerId → gid
+  let gwConns       = new Map(); // peerId → conn (todos os clientes conectados)
+  let gidCounter    = 0;     // contador sequencial para GIDs
+
+  // FIX V58: peers descobertos em outros gateways via cross-gateway sampling.
+  // Incluídos no peer-list quando o grupo local está vazio/pequeno, permitindo
+  // que clientes de gateways diferentes se conectem diretamente entre si.
+  let crossGatewayPeers = new Set(); // peerId (não-K10) de outros gateways
+  let crossGwDiscovTimer = null;
+
+  // Timer de eleição proativa
+  let electionTimer = null;
+
+  // ── API pública ───────────────────────────────────────────────────────
+
+  // Inicializa o módulo. Chamado uma vez quando o Peer principal abre.
+  function init(getPeers, getStun, getOwnId, getMain, onClaimed) {
+    console.log(`[K10GatewayShadow] init chamado. getKnownPeers=${!!getPeers}, getMain=${!!getMain}`);
+    getKnownPeers = getPeers;
+    stunPoolFn    = getStun;
+    getMyPeerId   = getOwnId;
+    getMainPeer   = getMain;
+    // FIX V57: callback de reconexão pós-claim
+    if (typeof onClaimed === 'function') onClaimedCb = onClaimed;
+    // Inicia eleição proativa periódica
+    if (electionTimer) clearInterval(electionTimer);
+    electionTimer = setInterval(_proactiveElect, GW_ELECTION_MS);
+    // Primeira eleição após estabilização inicial
+    setTimeout(_proactiveElect, 8_000);
   }
 
-  function noteCentralAlive() {
-    lastCentralAlive = Date.now();
+  // Reivindicação reativa (chamada pelo bootstrap quando peer-unavailable)
+  function tryClaim(gatewayId) {
+    // FIX V57: guarda duplo — isActive E claimInProgress evitam race condition
+    if (isActive || claimInProgress) return;
+    _attemptClaim(gatewayId);
   }
 
-  async function probeAndMaybeElect() {
-    if (isShadowActive) return;                                  // already serving
-    if (!peerInstance.current || peerInstance.current.destroyed) return;
-    if (myPeerId === CENTRAL_ID) return;                         // never re-elect ourselves
-    if (Date.now() - lastCentralAlive < RECENT_ALIVE_MS) return; // central seems alive
-
-    const alive = await probeCentral();
-    if (alive) { lastCentralAlive = Date.now(); return; }
-
-    const peers = (getKnownPeers && getKnownPeers()) || [];
-    const candidates = [...new Set([...peers, myPeerId])]
-      .filter(id => id && id !== CENTRAL_ID)
+  // ── Eleição proativa ──────────────────────────────────────────────────
+  // A cada ciclo: monta lista global de peers, ordena por peerId.
+  // Se minha posição p < 100, verifico se GATEWAY_IDS[p] está vago.
+  // Se estiver, reivindico o slot.
+  function _proactiveElect() {
+    if (isActive || claimInProgress) return;
+    const myId = getMyPeerId && getMyPeerId();
+    if (!myId) return;
+    const known = (getKnownPeers && getKnownPeers()) || [];
+    // Inclui apenas peers reais (exclui IDs K10-*)
+    const allPeers = [...new Set([...known, myId])]
+      .filter(p => p && !p.startsWith('K10-'))
       .sort();
-    const myRank = candidates.indexOf(myPeerId);
-    if (myRank < 0) return;
-
-    const turnDelay = myRank * ELECTION_TURN_MS + Math.random() * 600;
-    await sleep(turnDelay);
-
-    if (isShadowActive) return;
-    const stillDead = !(await probeCentral());
-    if (!stillDead) { lastCentralAlive = Date.now(); return; }
-
-    await tryClaimCentral();
+    const myRank = allPeers.indexOf(myId);
+    console.log(`[Gateway] _proactiveElect myRank=${myRank} in allPeers=${allPeers.length}`);
+    if (myRank < 0 || myRank >= 100) return;
+    const targetGw = GATEWAY_IDS[myRank];
+    if (!targetGw) return;
+    console.log(`[Gateway] _proactiveElect targetGw=${targetGw}`);
+    _probeAndClaim(targetGw);
   }
 
-  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-  function probeCentral() {
-    return new Promise(resolve => {
-      const p = peerInstance.current;
-      if (!p || p.destroyed) return resolve(false);
-      let resolved = false;
-      let test;
-      try { test = p.connect(CENTRAL_ID, { reliable: true }); }
-      catch(e) { return resolve(false); }
-      if (!test) return resolve(false);
-      const t = setTimeout(() => {
-        if (resolved) return;
-        resolved = true;
-        try { test.close(); } catch(e) {}
-        resolve(false);
-      }, 5_000);
-      test.on('open', () => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(t);
-        try { test.close(); } catch(e) {}
-        resolve(true);
-      });
-      test.on('error', () => {
-        if (resolved) return;
-        resolved = true;
-        clearTimeout(t);
-        resolve(false);
-      });
+  // Sonda se o gateway está ocupado; se não estiver, reivindica.
+  function _probeAndClaim(gatewayId) {
+    if (isActive) return;
+    const mainPeer = getMainPeer ? getMainPeer() : null;
+    if (!mainPeer || mainPeer.destroyed) {
+      console.warn(`[Gateway] _probeAndClaim: mainPeer indisponível para sondar ${gatewayId}`);
+      return;
+    }
+    let resolved = false;
+    let probe;
+    try { probe = mainPeer.connect(gatewayId, { reliable: true }); }
+    catch(e) { 
+      console.warn(`[Gateway] Exceção ao sondar ${gatewayId}`, e);
+      return; 
+    }
+    if (!probe) return;
+    console.log(`[Gateway] Sondando ${gatewayId}...`);
+    const t = setTimeout(() => {
+      if (resolved) return;
+      resolved = true;
+      try { probe.close(); } catch(e) {}
+      // Timeout → considera gateway vivo; não reivindica
+    }, GW_PROBE_TIMEOUT);
+    probe.on('open', () => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(t);
+      try { probe.close(); } catch(e) {}
+      // Gateway vivo — nada a fazer
     });
-  }
-
-  function tryClaimCentral() {
-    return new Promise(resolve => {
-      let resolved = false;
-      try {
-        const iceServers = (stunPoolFn && stunPoolFn()) || [];
-        shadowPeer = new Peer(CENTRAL_ID, {
-          host: '0.peerjs.com', port: 443, secure: true, debug: 0,
-          config: { iceServers }
-        });
-
-        const failTimer = setTimeout(() => {
-          if (resolved) return;
-          resolved = true;
-          cleanupShadow();
-          resolve(false);
-        }, 12_000);
-
-        shadowPeer.on('open', () => {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(failTimer);
-          isShadowActive = true;
-          shadowPeer.on('connection', handleShadowClient);
-          // SILENT: no audit, no UI, no log visible to user
-          resolve(true);
-        });
-
-        shadowPeer.on('error', err => {
-          // unavailable-id = somebody else won the election; back off
-          // invalid-id    = misconfig; back off
-          if (err && (err.type === 'unavailable-id' || err.type === 'invalid-id')) {
-            if (resolved) return;
-            resolved = true;
-            clearTimeout(failTimer);
-            cleanupShadow();
-            resolve(false);
-          } else {
-            // network/socket errors: tear down so we re-try later
-            cleanupShadow();
-          }
-        });
-
-        shadowPeer.on('disconnected', () => { /* PeerJS will retry signaling */ });
-        shadowPeer.on('close', () => { cleanupShadow(); });
-      } catch(e) {
-        cleanupShadow();
-        resolve(false);
+    probe.on('error', err => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(t);
+      console.log(`[Gateway] Sondagem ${gatewayId} falhou (provavelmente vago):`, err && err.type);
+      if (err && err.type === 'peer-unavailable') {
+        // Slot vago! Reivindicar.
+        _attemptClaim(gatewayId);
       }
     });
   }
 
-  function handleShadowClient(conn) {
-    shadowConns.set(conn.peer, conn);
-    conn.on('data',  data => handleShadowClientData(conn, data));
-    conn.on('close', ()   => shadowConns.delete(conn.peer));
-    conn.on('error', ()   => shadowConns.delete(conn.peer));
+  // ── Reivindicação de slot ─────────────────────────────────────────────
+  function _attemptClaim(gatewayId) {
+    if (isActive || claimInProgress) return;
+    if (!gatewayId) return;
+    // FIX V57: marca claim em progresso antes de qualquer await/async
+    claimInProgress = true;
+    console.log('[Gateway] Tentando reivindicar', gatewayId);
+    const ice = (stunPoolFn && stunPoolFn()) || [];
+    let resolved = false;
+    let gp;
+    try {
+      gp = new Peer(gatewayId, {
+        host: '0.peerjs.com', port: 443, secure: true, debug: 0,
+        config: { iceServers: ice }
+      });
+    } catch(e) {
+      console.warn('[Gateway] Exceção ao criar Peer para', gatewayId, e);
+      return;
+    }
+    gwPeer = gp;
+
+    const failTimer = setTimeout(() => {
+      if (resolved) return;
+      resolved = true;
+      console.warn('[Gateway] Timeout ao reivindicar', gatewayId);
+      _cleanup();
+    }, GW_CLAIM_TIMEOUT);
+
+    gp.on('open', () => {
+      if (resolved) return;
+      resolved = true;
+      console.log('[Gateway] Reivindicado com sucesso:', gatewayId);
+      clearTimeout(failTimer);
+      isActive        = true;
+      claimInProgress = false;  // FIX V57: libera flag (claim concluído)
+      claimedId       = gatewayId;
+      // Reinicia estado dos grupos
+      activeGroups = {};
+      peerGroupMap.clear();
+      gwConns.clear();
+      gidCounter = 0;
+      // Começa a aceitar conexões
+      gp.on('connection', _onClient);
+      // FIX V57: notifica o bootstrap para reconectar imediatamente ao
+      // gateway recém-eleito (resolve o race bootstrap × claim async)
+      try { if (typeof onClaimedCb === 'function') onClaimedCb(gatewayId); } catch(e) {}
+      // FIX V58: inicia descoberta cross-gateway para o Modo Geral funcionar
+      _startCrossGatewayDiscovery();
+    });
+
+    gp.on('error', (err) => {
+      // unavailable-id = outro ganhou a corrida — desiste silenciosamente
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(failTimer);
+      console.warn('[Gateway] Falha ao reivindicar:', gatewayId, err && err.type);
+      _cleanup();
+    });
+
+    gp.on('close',        () => _cleanup());
+    gp.on('disconnected', () => { /* PeerJS reconecta automaticamente */ });
   }
 
-  function handleShadowClientData(conn, data) {
+  // ── Gerenciamento de grupos ───────────────────────────────────────────
+
+  // Gera o próximo GID sequencial (AAAA, AAAB, …)
+  function _nextGid() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    let n = gidCounter++;
+    let gid = '';
+    for (let i = 0; i < 4; i++) {
+      gid = chars[n % chars.length] + gid;
+      n = Math.floor(n / chars.length);
+    }
+    return gid;
+  }
+
+  // Encontra um grupo aberto com vaga
+  function _findOpenGroup() {
+    for (const gid in activeGroups) {
+      const g = activeGroups[gid];
+      if (g.open && g.positions.length < GW_MAX_GROUP) return gid;
+    }
+    return null;
+  }
+
+  // Atribui um peer recém-conectado a um grupo, envia peer-list
+  function _doAssignPeer(conn) {
+    // Evita dupla atribuição
+    if (peerGroupMap.has(conn.peer)) return;
+
+    let gid = _findOpenGroup();
+    if (!gid) {
+      gid = _nextGid();
+      activeGroups[gid] = { positions: [], open: true };
+    }
+    const group = activeGroups[gid];
+    const posIdx = group.positions.length;
+    group.positions.push(conn.peer);
+    peerGroupMap.set(conn.peer, gid);
+
+    // Envia peer-list ao novo cliente (até 20 peers do mesmo grupo)
+    const localPeers = group.positions.filter(p => p !== conn.peer).slice(0, 20);
+    // FIX V58: se grupo local pequeno, completa com peers de outros gateways
+    // (cross-gateway sampling). Permite que clientes de gateways diferentes
+    // se encontrem e se conectem diretamente via WebRTC P2P.
+    let peers = localPeers;
+    if (peers.length < 5 && crossGatewayPeers.size > 0) {
+      const crossSample = [...crossGatewayPeers]
+        .filter(id => id !== conn.peer && !group.positions.includes(id))
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 20 - peers.length);
+      peers = [...peers, ...crossSample];
+    }
+    // Servidores do grupo: o próprio gateway que está servindo (máx 2 no futuro)
+    const groupServers = claimedId ? [claimedId] : [];
+    try {
+      conn.send({
+        type:         'peer-list',
+        gid:          gid,
+        peers:        peers,
+        groupServers: groupServers,
+        user:         GW_POSITION_LIST[posIdx] || String(posIdx),
+        count:        group.positions.length
+      });
+    } catch(e) {}
+
+    // Anuncia entrada para os demais membros do grupo
+    const joinMsg = { type: 'join-update', gid, count: group.positions.length };
+    group.positions.forEach(pid => {
+      if (pid === conn.peer) return;
+      const c = gwConns.get(pid);
+      if (c && c.open) try { c.send(joinMsg); } catch(e) {}
+    });
+
+    // Grupo atingiu 50? Fechar e notificar
+    if (group.positions.length >= GW_MAX_GROUP) {
+      group.open = false;
+      const fullMsg = { type: 'group-full', gid, size: group.positions.length };
+      group.positions.forEach(pid => {
+        const c = gwConns.get(pid);
+        if (c && c.open) try { c.send(fullMsg); } catch(e) {}
+      });
+      _gossipState(gid, group);
+    }
+  }
+
+  // Remove peer do grupo quando desconecta
+  function _onPeerLeave(peerId) {
+    const gid = peerGroupMap.get(peerId);
+    peerGroupMap.delete(peerId);
+    gwConns.delete(peerId);
+    if (!gid || !activeGroups[gid]) return;
+    const group = activeGroups[gid];
+    const idx = group.positions.indexOf(peerId);
+    if (idx !== -1) {
+      // Swap-remove para manter array denso
+      const last = group.positions.pop();
+      if (idx < group.positions.length) group.positions[idx] = last;
+    }
+    // Grupo estava cheio e agora tem vaga? Reabrir e notificar
+    if (!group.open && group.positions.length < GW_MAX_GROUP) {
+      group.open = true;
+      const reopenMsg = { type: 'group-reopened', gid, size: group.positions.length };
+      group.positions.forEach(pid => {
+        const c = gwConns.get(pid);
+        if (c && c.open) try { c.send(reopenMsg); } catch(e) {}
+      });
+      _gossipState(gid, group);
+    }
+    // Anuncia saída (pex-update)
+    if (group.positions.length > 0) {
+      const leaveMsg = { type: 'pex-update', gid, user: peerId, ttl: 5 };
+      group.positions.forEach(pid => {
+        const c = gwConns.get(pid);
+        if (c && c.open) try { c.send(leaveMsg); } catch(e) {}
+      });
+    }
+    // Remove grupo vazio
+    if (group.positions.length === 0) delete activeGroups[gid];
+  }
+
+  // Propaga estado do grupo para todos os clientes conectados (gossip)
+  function _gossipState(gid, group) {
+    const syncMsg = {
+      type:      'group-state-sync',
+      gid:       gid,
+      size:      group.positions.length,
+      open:      group.open,
+      timestamp: Date.now()
+    };
+    gwConns.forEach(c => {
+      if (c && c.open) try { c.send(syncMsg); } catch(e) {}
+    });
+  }
+
+  // ── Cross-gateway peer discovery (FIX V58) ───────────────────────────
+  //
+  // Problema: cada gateway elege-se de forma independente e cria grupos
+  // isolados. Peers em gateways diferentes nunca se descobrem.
+  //
+  // Solução: gwPeer sonda 3 gateways aleatórios via DataConnection, envia
+  // gw-peer-sample-request e armazena os IDs recebidos em crossGatewayPeers.
+  // Quando um novo cliente conecta e o grupo local está vazio, esses IDs são
+  // incluídos no peer-list — o cliente os conecta diretamente via WebRTC.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  function _startCrossGatewayDiscovery() {
+    // Primeiro sample logo após o claim (aguarda gateways vizinhos subirem)
+    setTimeout(_discoverCrossGatewayPeers, 4_000);
+    // Refresh periódico a cada 30s (garante que peers recém-chegados sejam incluídos)
+    if (crossGwDiscovTimer) clearInterval(crossGwDiscovTimer);
+    crossGwDiscovTimer = setInterval(() => {
+      if (!isActive) { clearInterval(crossGwDiscovTimer); crossGwDiscovTimer = null; return; }
+      _discoverCrossGatewayPeers();
+    }, 30_000);
+  }
+
+  function _discoverCrossGatewayPeers() {
+    if (!isActive || !gwPeer || gwPeer.destroyed) return;
+    // Sonda 3 gateways aleatórios (excluindo o próprio)
+    const targets = GATEWAY_IDS
+      .filter(id => id !== claimedId)
+      .sort(() => Math.random() - 0.5)
+      .slice(0, 3);
+
+    targets.forEach(gwTargetId => {
+      let resolved = false;
+      let probe;
+      try { probe = gwPeer.connect(gwTargetId, { reliable: true }); }
+      catch(e) { return; }
+      if (!probe) return;
+
+      const t = setTimeout(() => {
+        resolved = true;
+        try { probe.close(); } catch(e) {}
+      }, 6_000);
+
+      probe.on('open', () => {
+        if (resolved) return;
+        // Solicita amostra de peers do gateway remoto
+        try { probe.send({ type: 'gw-peer-sample-request' }); } catch(e) {}
+      });
+
+      probe.on('data', d => {
+        if (resolved) return;
+        // Aguarda especificamente gw-peer-sample-response (ignora peer-list etc.)
+        if (d && d.type === 'gw-peer-sample-response' && Array.isArray(d.peers)) {
+          resolved = true;
+          clearTimeout(t);
+          d.peers.forEach(id => {
+            if (id && typeof id === 'string' && !id.startsWith('K10-')) {
+              crossGatewayPeers.add(id);
+            }
+          });
+          console.log(`[Gateway] Cross-sample de ${gwTargetId}: +${d.peers.length} peers (total: ${crossGatewayPeers.size})`);
+          try { probe.close(); } catch(e) {}
+        }
+      });
+
+      probe.on('error', () => {
+        clearTimeout(t);
+        resolved = true;
+        try { probe.close(); } catch(e) {}
+      });
+      probe.on('close', () => { clearTimeout(t); });
+    });
+  }
+
+  // ── Handlers de conexão ───────────────────────────────────────────────
+
+  function _onClient(conn) {
+    gwConns.set(conn.peer, conn);
+    conn.on('open',  () => _doAssignPeer(conn));
+    conn.on('data',  data => _onData(conn, data));
+    conn.on('close', ()   => _onPeerLeave(conn.peer));
+    conn.on('error', ()   => _onPeerLeave(conn.peer));
+  }
+
+  function _onData(conn, data) {
     if (!data || !data.type) return;
 
-    // ── 1. group0-request: bootstrap (welcome + manter conexao para relay) ──
+    // FIX V58: Cross-gateway peer sampling — outro gateway sonda nossos peers.
+    // Responde com até 10 IDs reais (não-K10), depois remove o probe do grupo
+    // e fecha a conexão para não poluir os grupos locais.
+    if (data.type === 'gw-peer-sample-request') {
+      const allPeers = [...peerGroupMap.keys()].filter(id => id !== conn.peer && !id.startsWith('K10-'));
+      const sample   = allPeers.sort(() => Math.random() - 0.5).slice(0, 10);
+      try { conn.send({ type: 'gw-peer-sample-response', peers: sample }); } catch(e) {}
+      // Remove o probe do grupo (foi auto-atribuído no open) e fecha a conexão
+      _onPeerLeave(conn.peer);
+      setTimeout(() => { try { conn.close(); } catch(e) {} }, 800);
+      return;
+    }
+
+    // Bootstrap explícito
     if (data.type === 'group0-request') {
-      const groupsSnap = (getGroupsSnap && getGroupsSnap()) || {};
-      const groupsList = Object.entries(groupsSnap)
-        .map(([gid, size]) => ({ gid, size }))
-        .sort((a, b) => b.size - a.size)
-        .slice(0, 50);
-      const peers = (getKnownPeers && getKnownPeers()) || [];
-      const peersForClient = peers
-        .filter(p => p && p !== conn.peer && p !== CENTRAL_ID)
-        .slice(0, 20);
-      const totalUsers = Math.max(peersForClient.length + 1, shadowConns.size + 1);
-      try {
-        conn.send({
-          type: 'group0-welcome',
-          totalUsers,
-          groups: groupsList,
-          peers: peersForClient,
-          servers: []
-        });
-      } catch(e) {}
-      // V49.1-RELAY: NAO fecha a conexao — mantem para retransmitir mensagens.
-      // Isso resolve USER-SERVER-USER quando shadow eh o unico ponto disponivel.
+      _doAssignPeer(conn);
       return;
     }
 
-    // ── 2. handshake: responde para cliente saber que estamos vivos ──
+    // Handshake silencioso
     if (data.type === 'handshake') {
-      try { conn.send({ type: 'handshake', peerId: CENTRAL_ID }); } catch(e) {}
+      try { conn.send({ type: 'handshake', peerId: claimedId }); } catch(e) {}
       return;
     }
 
-    // ── 3. message broadcast: relay para todas as outras conexoes do shadow ──
-    // Mensagens diretas (direct+recipient) vao apenas ao destinatario.
-    // Outras vao para todos exceto o sender (com TTL decrementado, dedup pelo client).
-    if (data.type === 'message' || data.type === 'youtube-chat-start' || data.type === 'youtube-chat-stop' || data.type === 'radio-start' || data.type === 'radio-chunk') {
-      const rawTtl = (typeof data.ttl === 'number') ? data.ttl : 8;
-      const ttl = Math.min(Math.max(0, rawTtl), 15);
+    // Novo gateway solicitando estado completo (sincronização inicial)
+    if (data.type === 'state-request') {
+      try {
+        conn.send({ type: 'state-response', groups: activeGroups, timestamp: Date.now() });
+      } catch(e) {}
+      return;
+    }
+
+    // Relay de mensagens dentro do grupo (broadcast e diretas) com TTL
+    if (data.type === 'message' || data.type === 'youtube-chat-start' ||
+        data.type === 'youtube-chat-stop' || data.type === 'radio-start' ||
+        data.type === 'radio-chunk') {
+      const rawTtl = typeof data.ttl === 'number' ? data.ttl : 8;
+      const ttl    = Math.min(Math.max(0, rawTtl), 15);
       if (ttl <= 0) return;
       const relay = Object.assign({}, data, { ttl: ttl - 1 });
-
-      // Mensagem direta: so para o destinatario
       if (data.direct && data.recipient) {
-        const target = shadowConns.get(data.recipient);
+        const target = gwConns.get(data.recipient);
         if (target && target.open && data.recipient !== conn.peer) {
           try { target.send(relay); } catch(e) {}
         }
         return;
       }
-
-      // Broadcast: para todos exceto sender
-      shadowConns.forEach((c, pid) => {
-        if (pid !== conn.peer && c.open) {
-          try { c.send(relay); } catch(e) {}
-        }
-      });
-      return;
+      // Broadcast apenas para membros do mesmo grupo
+      const gid = peerGroupMap.get(conn.peer);
+      if (gid && activeGroups[gid]) {
+        activeGroups[gid].positions.forEach(pid => {
+          if (pid === conn.peer) return;
+          const c = gwConns.get(pid);
+          if (c && c.open) try { c.send(relay); } catch(e) {}
+        });
+      }
     }
+  }
 
-    // ── 4. Outros tipos (pex-update, peer-list, etc): silenciosamente ignora ──
-    // Shadow nao implementa logica de grupos completa, apenas relay de chat.
+  // ── Limpeza ───────────────────────────────────────────────────────────
+  function _cleanup() {
+    if (gwPeer && !gwPeer.destroyed) { try { gwPeer.destroy(); } catch(e) {} }
+    gwPeer              = null;
+    isActive            = false;
+    claimInProgress     = false;  // FIX V57: libera flag ao limpar estado
+    claimedId           = null;
+    activeGroups        = {};
+    peerGroupMap.clear();
+    gwConns.clear();
+    // FIX V58: limpa estado cross-gateway
+    crossGatewayPeers.clear();
+    if (crossGwDiscovTimer) { clearInterval(crossGwDiscovTimer); crossGwDiscovTimer = null; }
   }
 
   return {
-    start, stop, noteCentralAlive,
-    get isActive() { return isShadowActive; }
+    init, tryClaim,
+    get isActive()  { return isActive; },
+    get claimedId() { return claimedId; }
   };
+})();
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// K10-CENTRAL SHADOW (V59) — Hub de descoberta eleito
+//
+// CONCEITO: O primeiro peer que detecta K10-CENTRAL vago tenta reivindicar
+// o ID. Se conseguir (PeerJS open), torna-se a Central. Se outro ganhou
+// a corrida (unavailable-id), desiste silenciosamente.
+//
+// RESPONSABILIDADE DA CENTRAL:
+//   1. Pinga periodicamente os 100 gateways para saber quais estão ativos.
+//   2. Quando um novo peer conecta e envia central-discovery-request,
+//      responde com a lista dos gateways confirmados ativos.
+//   3. O bootstrap usa K10-CENTRAL como fast-path: recebe a lista e
+//      conecta direto aos gateways ativos, sem varrer todos os 100.
+//
+// FAILOVER AUTOMÁTICO: ao cair, K10-CENTRAL libera o ID no PeerJS.
+// O próximo peer que detectar a ausência assume automaticamente.
+// Nenhum usuário percebe — o processo é 100% silencioso.
+// ═══════════════════════════════════════════════════════════════════════
+const K10CentralShadow = (() => {
+  const CENTRAL_ID = 'K10-HUB-V62';
+  const POLL_MS         = 25_000;   // re-verifica gateways ativos a cada 25s
+  const ELECT_MS        = 15_000;   // tenta eleição a cada 15s
+  const CLAIM_TIMEOUT   = 14_000;   // timeout para reivindicar o ID
+  const PROBE_TIMEOUT   = 2_000;    // V60: reduzido 3s→2s (sonda rápida)
+
+  let centralPeer     = null;   // instância Peer com id 'K10-CENTRAL'
+  let isActive        = false;  // true quando somos a central
+  let claimInProgress = false;
+  let electionTimer   = null;
+  let pollTimer       = null;
+  let centralConns    = new Map(); // peerId → DataConnection
+
+  // Gateways confirmados ativos pelo último poll
+  let activeGateways = new Set();
+
+  let getKnownPeers   = null; // () => string[]
+  let getMyPeerId     = null; // () => string
+  let stunPoolFn      = null; // () => ICEServer[]
+  let getMainPeer     = null; // () => Peer
+  let onCentralUpCb   = null; // (id) => void — chamado ao assumir a central
+
+  // ── API pública ───────────────────────────────────────────────────────
+  function init(getPeers, getStun, getOwnId, getMain, onCentralUp) {
+    console.log(`[K10CentralShadow] init chamado.`);
+    getKnownPeers = getPeers;
+    stunPoolFn    = getStun;
+    getMyPeerId   = getOwnId;
+    getMainPeer   = getMain;
+    if (typeof onCentralUp === 'function') onCentralUpCb = onCentralUp;
+    if (electionTimer) clearInterval(electionTimer);
+    electionTimer = setInterval(_proactiveElect, ELECT_MS);
+    // V60: primeira tentativa imediata — claimWithGateway pode ser chamado
+    // antes desta linha pelo onClaimed do K10GatewayShadow, então aqui
+    // fazemos apenas a eleição proativa para casos onde nenhum gateway foi
+    // ainda reivindicado (rede completamente fria).
+    setTimeout(_proactiveElect, 6_000);
+  }
+
+  // Reivindicação reativa — chamada pelo bootstrap quando detecta peer-unavailable
+  function tryClaim() {
+    if (isActive || claimInProgress) {
+      console.log(`[K10CentralShadow] tryClaim ignorado: isActive=${isActive}, claimInProgress=${claimInProgress}`);
+      return;
+    }
+    console.log(`[K10CentralShadow] tryClaim chamado. Acionando _attemptClaim()`);
+    _attemptClaim();
+  }
+
+  // V60: Reivindicação com gateway pré-conhecido.
+  // Chamada pelo K10GatewayShadow quando este assume um K10-GATE-XXXX.
+  // O peer acumula os dois papéis: central de descoberta + gateway de grupo.
+  // Assim, quando o próximo peer perguntar "quem está ativo?", K10-CENTRAL
+  // já sabe a resposta (seu próprio gateway) sem precisar esperar o poll.
+  function claimWithGateway(gwId) {
+    if (gwId) {
+      // Pré-popula activeGateways com o próprio gateway do peer.
+      // Mesmo que K10-CENTRAL já esteja ativo (outro peer ganhou a corrida),
+      // o gwId fica disponível para o próximo poll.
+      activeGateways.add(gwId);
+      console.log(`[K10CentralShadow] claimWithGateway: ${gwId} adicionado a activeGateways`);
+    }
+    if (isActive || claimInProgress) return; // já é central ou em processo
+    console.log(`[K10CentralShadow] claimWithGateway agendando _attemptClaim()`);
+    _attemptClaim();
+  }
+
+  // ── Eleição proativa ──────────────────────────────────────────────────
+  function _proactiveElect() {
+    if (isActive || claimInProgress) return;
+    const myId = getMyPeerId && getMyPeerId();
+    if (!myId) return;
+    // Qualquer peer tenta sondar K10-CENTRAL; PeerJS resolve a corrida.
+    // Para reduzir colisões, o peer com menor ID tem prioridade:
+    // verifica se é o menor entre os conhecidos antes de sondar.
+    const known = (getKnownPeers && getKnownPeers()) || [];
+    const realPeers = [...new Set([...known, myId])].filter(p => p && !p.startsWith('K10-')).sort();
+    const myRank = realPeers.indexOf(myId);
+    // Rank 0 = menor ID → tenta sempre. Rank 1 só tenta se rank 0 não assumiu em tempo.
+    // Ranks maiores têm jitter crescente para deixar os menores tentarem primeiro.
+    if (myRank < 0) return;
+    const delay = myRank === 0 ? 0 : myRank * 2000 + Math.random() * 1000;
+    setTimeout(() => {
+      if (isActive || claimInProgress) return;
+      _probeAndMaybeClaim();
+    }, delay);
+  }
+
+  // Sonda se K10-CENTRAL existe; se não existir, reivindica.
+  function _probeAndMaybeClaim() {
+    if (isActive || claimInProgress) return;
+    const mainPeer = getMainPeer ? getMainPeer() : null;
+    if (!mainPeer || mainPeer.destroyed) return;
+    let resolved = false, probe;
+    try { probe = mainPeer.connect(CENTRAL_ID, { reliable: true }); }
+    catch(e) { return; }
+    if (!probe) return;
+    const t = setTimeout(() => {
+      if (resolved) return;
+      resolved = true;
+      try { probe.close(); } catch(e) {}
+      // Timeout = central existe mas lenta; não tenta assumir
+    }, PROBE_TIMEOUT);
+    probe.on('open', () => {
+      if (resolved) return;
+      resolved = true; clearTimeout(t);
+      try { probe.close(); } catch(e) {}
+      // K10-CENTRAL viva — nada a fazer
+    });
+    probe.on('error', err => {
+      if (resolved) return;
+      resolved = true; clearTimeout(t);
+      if (err && err.type === 'peer-unavailable') {
+        _attemptClaim(); // slot vago — tenta reivindicar
+      }
+    });
+    probe.on('close', () => { clearTimeout(t); });
+  }
+
+  // ── Reivindicação ─────────────────────────────────────────────────────
+  function _attemptClaim() {
+    if (isActive || claimInProgress) return;
+    claimInProgress = true;
+    console.log(`[K10CentralShadow] Iniciando nova instância PeerJS para K10-CENTRAL...`);
+    const ice = (stunPoolFn && stunPoolFn()) || [];
+    let gp;
+    try {
+      gp = new Peer(CENTRAL_ID, {
+        host: '0.peerjs.com', port: 443, secure: true, debug: 0,
+        config: { iceServers: ice }
+      });
+    } catch(e) { 
+      claimInProgress = false; 
+      console.warn(`[K10CentralShadow] Exceção em new Peer(K10-CENTRAL):`, e);
+      return; 
+    }
+    centralPeer = gp;
+    const failTimer = setTimeout(() => {
+      console.warn(`[K10CentralShadow] Timeout (14s) tentando reivindicar K10-CENTRAL`);
+      _cleanup();
+    }, CLAIM_TIMEOUT);
+    gp.on('open', () => {
+      clearTimeout(failTimer);
+      isActive = true;
+      claimInProgress = false;
+      console.log(`[K10CentralShadow] K10-CENTRAL assumida com sucesso!`);
+      // Começa a aceitar clientes
+      gp.on('connection', _onClient);
+      // Inicia poll periódico dos gateways
+      _startGatewayPoll();
+      try { if (typeof onCentralUpCb === 'function') onCentralUpCb(CENTRAL_ID); } catch(e) {}
+    });
+    gp.on('error', (err) => { 
+      clearTimeout(failTimer); 
+      console.warn(`[K10CentralShadow] Erro do PeerJS em K10-CENTRAL:`, err && err.type);
+      _cleanup(); 
+    });
+    gp.on('close', () => {
+      console.log(`[K10CentralShadow] K10-CENTRAL fechada`);
+      _cleanup()
+    });
+    gp.on('disconnected', () => { /* PeerJS reconecta */ });
+  }
+
+  // ── Poll periódico dos gateways ───────────────────────────────────────
+  function _startGatewayPoll() {
+    setTimeout(_pollGateways, 1_500); // poll inicial rápido
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(() => {
+      if (!isActive) { clearInterval(pollTimer); pollTimer = null; return; }
+      _pollGateways();
+    }, POLL_MS);
+  }
+
+  function _pollGateways() {
+    if (!isActive || !centralPeer || centralPeer.destroyed) return;
+    // Sonda até 25 gateways em paralelo; atualiza activeGateways
+    const batch = GATEWAY_IDS.sort(() => Math.random() - 0.5).slice(0, 25);
+    batch.forEach(gwId => {
+      let probe, resolved = false;
+      try { probe = centralPeer.connect(gwId, { reliable: true }); }
+      catch(e) { return; }
+      if (!probe) return;
+      const t = setTimeout(() => {
+        if (resolved) return; resolved = true;
+        // Timeout sem open/error: o gateway existe mas está ocupado = ativo
+        activeGateways.add(gwId);
+        try { probe.close(); } catch(e) {}
+      }, 4_500);
+      probe.on('open', () => {
+        if (resolved) return; resolved = true; clearTimeout(t);
+        activeGateways.add(gwId);
+        try { probe.close(); } catch(e) {}
+      });
+      probe.on('error', err => {
+        if (resolved) return; resolved = true; clearTimeout(t);
+        if (err && err.type === 'peer-unavailable') {
+          activeGateways.delete(gwId); // gateway vago (não serve como bootstrap)
+        } else {
+          activeGateways.add(gwId); // erro de rede: assume ativo
+        }
+        try { probe.close(); } catch(e) {}
+      });
+      probe.on('close', () => clearTimeout(t));
+    });
+  }
+
+  // ── Atende clientes ───────────────────────────────────────────────────
+  function _onClient(conn) {
+    centralConns.set(conn.peer, conn);
+    conn.on('open', () => {
+      // Envia lista imediatamente ao conectar
+      _sendGatewayList(conn);
+    });
+    conn.on('data', data => {
+      if (!data || !data.type) return;
+      if (data.type === 'central-discovery-request') {
+        _sendGatewayList(conn);
+      }
+    });
+    conn.on('close', () => centralConns.delete(conn.peer));
+    conn.on('error', () => centralConns.delete(conn.peer));
+  }
+
+  function _sendGatewayList(conn) {
+    // Prefere gateways confirmados ativos; se poucos, completa com lista estática
+    const confirmed = [...activeGateways];
+    const fallback  = GATEWAY_IDS.filter(id => !activeGateways.has(id)).sort(() => Math.random() - 0.5);
+    const gateways  = [...confirmed, ...fallback].slice(0, 30);
+    try {
+      conn.send({ type: 'central-response', gateways, confirmedCount: confirmed.length });
+    } catch(e) {}
+  }
+
+  // ── Limpeza ───────────────────────────────────────────────────────────
+  function _cleanup() {
+    if (centralPeer && !centralPeer.destroyed) { try { centralPeer.destroy(); } catch(e) {} }
+    centralPeer = null; isActive = false; claimInProgress = false;
+    activeGateways.clear(); centralConns.clear();
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  }
+
+  return { init, tryClaim, claimWithGateway, get isActive() { return isActive; } };
 })();
 
 
