@@ -1,5 +1,20 @@
-<!-- ═══ Chat K10 V70 — Direct-message fallback gateway + Quiz lock V69 (28/abr/2026) ═══
-     FIX V70: DIRECT MESSAGE FALLBACK VIA GATEWAY
+<!-- ═══ Chat K10 V71 — Fix Quiz: MIN_QUIZ_INTERVAL=60s (vigilância), DEFAULT_QUIZ_INTERVAL=120s (exibição) (28/abr/2026) ═══
+     FIX V71: SEPARAÇÃO DE CONSTANTES DE TEMPO DO QUIZ
+     ══════════════════════════════════════════════════
+     Problema V70: MIN_QUIZ_INTERVAL=120s era usada TANTO como trava de vigilância
+     (bloqueio anti-spam entre perguntas) QUANTO como mínimo no input do UI e valor
+     padrão do intervalo. Isso causava o bloqueio legítimo do quiz porque o sistema
+     de vigilância comparava `elapsed < 120s` — mas o próprio timer do quiz rodava
+     exatamente 120s, então qualquer latência de rede (mesmo 100ms) causava rejeição.
+
+     Fix V71:
+     - MIN_QUIZ_INTERVAL = 60s  → trava de vigilância anti-spam (1 minuto)
+     - DEFAULT_QUIZ_INTERVAL = 120s → padrão do input UI e valor inicial do estado
+     - safeQuizInterval() ainda clampeia em MIN_QUIZ_INTERVAL (60s) para evitar abuse
+     - O UI ainda inicia em 120s e não deixa o usuário colocar menos que DEFAULT (120s)
+     - A vigilância P2P só bloqueia se alguém tentar spammar com < 60s de intervalo
+
+     ════════════ HISTÓRICO V70 ════════════
      ══════════════════════════════════════════════
      Problema V69: peer em gateway diferente → erro "Connection lost".
      Fix: fallback para conn gateway aberta com direct:true + recipient.
@@ -5956,7 +5971,8 @@ function buildAlternatives(pool, correct) {
   return [all, correctIdx];
 }
 
-const MIN_QUIZ_INTERVAL = 120; // TRAVA: mínimo absoluto de 2 minutos — não remova
+const MIN_QUIZ_INTERVAL = 60;  // TRAVA de vigilância: mínimo de 1 minuto entre perguntas (anti-spam)
+const DEFAULT_QUIZ_INTERVAL = 120; // Tempo padrão de exibição da pergunta: 2 minutos
 
 const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizIntervalInput, setQuizIntervalInput, quizDiscipline, setQuizDiscipline, serverQuizBotActive, notifyServer, quizJitterTimerRef, broadcastToggle, sendQuizHandoff, quizServerOwnerId, globalQuizOwner, setGlobalQuizOwner, quizMasterIdRef, peerId }) => {
   const langName = getLangName(lang);
@@ -6004,7 +6020,7 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
             value={quizIntervalInput} 
             onChange={e => setQuizIntervalInput(Number(e.target.value))} 
             onBlur={() => {
-              const val = Math.max(MIN_QUIZ_INTERVAL, quizIntervalInput);
+              const val = Math.max(DEFAULT_QUIZ_INTERVAL, quizIntervalInput);
               setQuizIntervalInput(val);
               setQuizInterval(val);
             }}
@@ -6242,11 +6258,11 @@ const addAudit = (msg, type = 'info') => {
 };
 
 const [quizBotActive, setQuizBotActive] = useState(false);
-const [quizInterval, setQuizInterval] = useState(MIN_QUIZ_INTERVAL);
-const [quizIntervalInput, setQuizIntervalInput] = useState(MIN_QUIZ_INTERVAL); // Local state for UI
-const quizIntervalRef = useRef(MIN_QUIZ_INTERVAL); // Ref to avoid stale closures in timers
+const [quizInterval, setQuizInterval] = useState(DEFAULT_QUIZ_INTERVAL);
+const [quizIntervalInput, setQuizIntervalInput] = useState(DEFAULT_QUIZ_INTERVAL); // Local state for UI
+const quizIntervalRef = useRef(DEFAULT_QUIZ_INTERVAL); // Ref to avoid stale closures in timers
 useEffect(() => { quizIntervalRef.current = Math.max(MIN_QUIZ_INTERVAL, quizInterval); }, [quizInterval]);
-const safeQuizInterval = () => quizIntervalRef.current; // FIX BUG-L1: sempre >= 120s (MIN_QUIZ_INTERVAL), lê sempre valor atual via ref
+const safeQuizInterval = () => quizIntervalRef.current; // FIX BUG-L1: sempre >= MIN_QUIZ_INTERVAL (60s), lê sempre valor atual via ref
 const [quizDiscipline, setQuizDiscipline] = useState('mat');
 const quizDisciplineRef = useRef('mat');
 useEffect(() => { quizDisciplineRef.current = quizDiscipline; }, [quizDiscipline]);
@@ -6277,7 +6293,7 @@ useEffect(() => { selectedContactRef.current = selectedContact; }, [selectedCont
 const quizLastSeenRef = useRef({}); // { peerId: timestampMs }
 const lastQuizTimeRef = useRef(0); // Rastreia o ÚLTIMO quiz enviado/recebido na REDE (Global Role Tracking)
 const quizSeenNoncesRef = useRef(new Set()); // Para impedir ataques de Repetição de Mensagem (Replay Avoidance)
-// FIX BUG-E: QUIZ_VIGILANCE_MIN_MS era declarada mas nunca usada; comentário dizia "60 000 ms" mas MIN_QUIZ_INTERVAL=120 → 120 000 ms. Constante removida.
+// FIX BUG-E: MIN_QUIZ_INTERVAL=60 (vigilância anti-spam). DEFAULT_QUIZ_INTERVAL=120 (padrão de exibição).
 
 // Embaralha array in-place (Fisher-Yates)
 function shuffleArray(arr) {
