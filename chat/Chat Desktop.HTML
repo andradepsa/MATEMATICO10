@@ -72,7 +72,7 @@
      Fix: fallback para conn gateway aberta com direct:true + recipient.
      K10GatewayShadow já rota mensagens direct+recipient (linha ~10792).
      ════════════ HISTÓRICO V69 ════════════
-<!-- ═══ Chat K10 V69 — Lock de Quiz reforçado: dono exclusivo, Stop exclusivo, auto-stop por disconnect (28/abr/2026) ═══
+     ═══ Chat K10 V69 — Lock de Quiz reforçado: dono exclusivo, Stop exclusivo, auto-stop por disconnect (28/abr/2026) ═══
      FIX V69: SISTEMA DE LOCK DO QUIZ BOT — 3 REQUISITOS REFORÇADOS
      ══════════════════════════════════════════════════════════════════════
 
@@ -110,7 +110,7 @@
         peer que entre depois da ativação recebe o lock imediatamente.
 
      ════════════ HISTÓRICO V68 (preservado para referência) ════════════
-<!-- ═══ Chat K10 V68 — Bootstrap lotes de 5 + verificação REST API (26/abr/2026) ═══
+     ═══ Chat K10 V68 — Bootstrap lotes de 5 + verificação REST API (26/abr/2026) ═══
      FIX V68: MODO GERAL — VERIFICAÇÃO DE SERVIDORES ATIVOS ANTES DE CONECTAR
      ══════════════════════════════════════════════════════════════════════
      Problema V67: bootstrap tentava conectar cegamente em qualquer gateway da lista
@@ -139,7 +139,7 @@
         reivindica o primeiro slot disponível. Comportamento esperado.
 
      ════════════ HISTÓRICO V67 (preservado para referência) ════════════
-<!-- ═══ Chat K10 V67 — Fix noConnections derruba conexões (27/abr/2026) ═══
+     ═══ Chat K10 V67 — Fix noConnections derruba conexões (27/abr/2026) ═══
      FIX V67: MODO GERAL — noConnections MATA TODAS AS CONEXÕES
      ══════════════════════════════════════════════════════════════════════
      Problema V66: usuário está conectado no Modo Geral, digita mensagem e
@@ -7506,6 +7506,10 @@ if (data.type === 'peer-list') {
     localStorage.setItem('myGroupId', newGid);
     sendUserToMonitor();
 
+    if (typeof K10GroupShadow !== 'undefined' && K10GroupShadow.probeAndElect) {
+      setTimeout(() => K10GroupShadow.probeAndElect(), 500);
+    }
+
     // FIX V26→V23: Peer ID NUNCA muda. Apenas registra posição se sufixo atribuído.
     if (assignedSuffix && assignedSuffix.length === K10_SUFFIX_LEN) {
       const posIdx = K10_POSITION_LIST.indexOf(assignedSuffix);
@@ -11729,7 +11733,7 @@ const K10GroupShadow = (() => {
   const ELECT_JITTER_MS  = 1_500;
   const RECENT_ALIVE_MS  = 18_000;
 
-  const slots = new Map();   // slotId -> { peer, conns:Map, isActive:bool, alive:number }
+  const slots = new Map();   // slotId -> { peer, conns:Map, isActive:bool, alive:number, hbTimer }
   let probeTimer = null;
   let myPeerId   = null;
   let getMyGid   = null;
@@ -11749,7 +11753,10 @@ const K10GroupShadow = (() => {
   function stop() {
     if (probeTimer) clearInterval(probeTimer);
     probeTimer = null;
-    slots.forEach(s => { try { if (s.peer && !s.peer.destroyed) s.peer.destroy(); } catch(e) {} });
+    for (const [slotId, s] of slots) {
+      if (s.hbTimer) clearInterval(s.hbTimer);
+      try { if (s.peer && !s.peer.destroyed) s.peer.destroy(); } catch(e) {}
+    }
     slots.clear();
   }
 
@@ -11764,7 +11771,6 @@ const K10GroupShadow = (() => {
     if (!peerInstance.current || peerInstance.current.destroyed) return;
     const gid = getMyGid && getMyGid();
     if (!gid) {
-      // Sem grupo — libera todos os slots (era de outro grupo)
       for (const slotId of [...slots.keys()]) releaseSlot(slotId);
       return;
     }
@@ -11773,29 +11779,25 @@ const K10GroupShadow = (() => {
     const sortedAll = [...new Set([...members, myPeerId])].filter(Boolean).sort();
     const myRank = sortedAll.indexOf(myPeerId);
 
-    // Libera slots que nao deveriamos mais ter (mudou de grupo, mudou rank)
+    // Libera slots que não me pertencem mais
     for (const slotId of [...slots.keys()]) {
       const m = slotId.match(/^K10-(.+)-(\d)$/);
       if (!m) { releaseSlot(slotId); continue; }
       const slotGid = m[1];
       const slotNum = parseInt(m[2]);
-      if (slotGid !== gid || myRank !== (slotNum - 1)) {
-        releaseSlot(slotId);
-      }
+      if (slotGid !== gid || myRank !== (slotNum - 1)) releaseSlot(slotId);
     }
 
-    // Para cada slot 1 e 2, verifica se eu deveria ocupa-lo
+    // Tenta ocupar slots 1 e 2
     for (let slotNum = 1; slotNum <= 2; slotNum++) {
       const slotId = `K10-${gid}-${slotNum}`;
-      const expectedHolder = sortedAll[slotNum - 1]; // rank 0 -> slot 1, rank 1 -> slot 2
+      const expectedHolder = sortedAll[slotNum - 1];
       if (myPeerId !== expectedHolder) continue;
-      if (slots.has(slotId) && slots.get(slotId).isActive) continue; // ja sou
-      // Verifica se ja existe (alguem mais o tem)
+      if (slots.has(slotId) && slots.get(slotId).isActive) continue;
       const alive = await probeId(slotId);
       if (alive) continue;
-      // Tenta reivindicar (com jitter por slotNum)
       await sleep(slotNum * ELECT_JITTER_MS + Math.random() * 400);
-      if (!getMyGid || getMyGid() !== gid) return; // gid mudou durante a espera
+      if (!getMyGid || getMyGid() !== gid) return;
       const stillDead = !(await probeId(slotId));
       if (stillDead) await tryClaimSlot(slotId);
     }
@@ -11806,23 +11808,19 @@ const K10GroupShadow = (() => {
       const p = peerInstance.current;
       if (!p || p.destroyed) return resolve(false);
       let test, resolved = false;
-      try { test = p.connect(targetId, { reliable: true }); }
-      catch(e) { return resolve(false); }
+      try { test = p.connect(targetId, { reliable: true }); } catch(e) { return resolve(false); }
       if (!test) return resolve(false);
       const t = setTimeout(() => {
-        if (resolved) return;
-        resolved = true;
-        try { test.close(); } catch(e) {}
-        resolve(false);
+        if (!resolved) { resolved = true; try{test.close();}catch(e){} resolve(false); }
       }, 4500);
-      test.on('open',  () => { if (!resolved) { resolved = true; clearTimeout(t); try{test.close();}catch(e){} resolve(true);  } });
+      test.on('open',  () => { if (!resolved) { resolved = true; clearTimeout(t); try{test.close();}catch(e){} resolve(true); } });
       test.on('error', () => { if (!resolved) { resolved = true; clearTimeout(t); resolve(false); } });
     });
   }
 
   function tryClaimSlot(slotId) {
     return new Promise(resolve => {
-      const slot = { peer: null, conns: new Map(), isActive: false, alive: Date.now() };
+      const slot = { peer: null, conns: new Map(), isActive: false, alive: Date.now(), hbTimer: null };
       slots.set(slotId, slot);
       let resolved = false;
       try {
@@ -11843,6 +11841,32 @@ const K10GroupShadow = (() => {
           clearTimeout(failTimer);
           slot.isActive = true;
           slot.peer.on('connection', conn => onClientConn(slotId, conn));
+          // 🔥 HEARTBEAT PARA O MONITOR
+          const monitorId = 'K10-MON';
+          const sendHeartbeat = () => {
+            if (!slot.isActive || !slot.peer || slot.peer.destroyed) return;
+            const gid = slotId.match(/^K10-(\w{4})-\d$/)?.[1];
+            if (!gid) return;
+            let groupSize = 1;
+            try {
+              if (typeof directoryGlobalRef !== 'undefined' && directoryGlobalRef.current && directoryGlobalRef.current[gid]) {
+                groupSize = directoryGlobalRef.current[gid].groupSize || 1;
+              } else if (typeof getGroupSize === 'function') {
+                groupSize = getGroupSize(gid) || 1;
+              }
+            } catch(e) { groupSize = 1; }
+            const payload = { t: 's', id: slotId, total: groupSize, groups: { [gid]: groupSize } };
+            try {
+              const monConn = slot.peer.connect(monitorId, { reliable: true });
+              monConn.on('open', () => {
+                try { monConn.send(payload); } catch(e) {}
+                setTimeout(() => { try { monConn.close(); } catch(e) {} }, 1000);
+              });
+              monConn.on('error', () => {});
+            } catch(e) {}
+          };
+          slot.hbTimer = setInterval(sendHeartbeat, 30000);
+          sendHeartbeat(); // envia imediatamente
           resolve(true);
         });
         slot.peer.on('error', err => {
@@ -11867,6 +11891,7 @@ const K10GroupShadow = (() => {
   function releaseSlot(slotId) {
     const s = slots.get(slotId);
     if (!s) return;
+    if (s.hbTimer) clearInterval(s.hbTimer);
     try { if (s.peer && !s.peer.destroyed) s.peer.destroy(); } catch(e) {}
     slots.delete(slotId);
   }
@@ -11876,22 +11901,19 @@ const K10GroupShadow = (() => {
     if (!s) return;
     s.conns.set(conn.peer, conn);
     conn.on('data',  data => onClientData(slotId, conn, data));
-    conn.on('close', ()   => { const ss = slots.get(slotId); if (ss) ss.conns.delete(conn.peer); });
-    conn.on('error', ()   => { const ss = slots.get(slotId); if (ss) ss.conns.delete(conn.peer); });
+    conn.on('close', () => { const ss = slots.get(slotId); if (ss) ss.conns.delete(conn.peer); });
+    conn.on('error', () => { const ss = slots.get(slotId); if (ss) ss.conns.delete(conn.peer); });
   }
 
   function onClientData(slotId, conn, data) {
     if (!data || !data.type) return;
     const s = slots.get(slotId);
     if (!s) return;
-
-    // Handshake silencioso
     if (data.type === 'handshake') {
       try { conn.send({ type: 'handshake', peerId: slotId }); } catch(e) {}
       return;
     }
-
-    // Relay de mensagens dentro da salinha (com TTL e dedup pelo cliente)
+    // Relay de mensagens (broadcast P2P)
     if (data.type === 'message' || data.type === 'youtube-chat-start' || data.type === 'youtube-chat-stop' || data.type === 'radio-start' || data.type === 'radio-chunk') {
       const rawTtl = (typeof data.ttl === 'number') ? data.ttl : 8;
       const ttl = Math.min(Math.max(0, rawTtl), 15);
@@ -11913,10 +11935,11 @@ const K10GroupShadow = (() => {
   }
 
   return {
-    start, stop, noteAlive,
+    start, stop, noteAlive, probeAndElect,
     get activeSlots() { return [...slots.keys()].filter(k => slots.get(k).isActive); }
   };
 })();
+window.K10GroupShadow = K10GroupShadow;
 
 // ── K10 MONITOR PRO — opens the standalone K10_Monitor_Pro.html file ──
 // FIX V47-MONITOR-EXTRACT: o template inline anterior (script type=text/plain
