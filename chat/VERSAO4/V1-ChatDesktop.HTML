@@ -1,3 +1,10 @@
+<!-- ═══ Chat K10 V70 — Direct-message fallback gateway + Quiz lock V69 (28/abr/2026) ═══
+     FIX V70: DIRECT MESSAGE FALLBACK VIA GATEWAY
+     ══════════════════════════════════════════════
+     Problema V69: peer em gateway diferente → erro "Connection lost".
+     Fix: fallback para conn gateway aberta com direct:true + recipient.
+     K10GatewayShadow já rota mensagens direct+recipient (linha ~10792).
+     ════════════ HISTÓRICO V69 ════════════
 <!-- ═══ Chat K10 V69 — Lock de Quiz reforçado: dono exclusivo, Stop exclusivo, auto-stop por disconnect (28/abr/2026) ═══
      FIX V69: SISTEMA DE LOCK DO QUIZ BOT — 3 REQUISITOS REFORÇADOS
      ══════════════════════════════════════════════════════════════════════
@@ -3651,7 +3658,7 @@ return (
 </div>
 ))}
 </div>
-<a href="https://andradepsa.github.io/MATEMATICO10/chat/Chat%20Desktop.HTML?portas=K10-CENTRAL" style={{ display: 'block', marginTop: '15px', color: 'var(--primary)', fontSize: '14px', textDecoration: 'underline', fontWeight: 600 }}>Abrir Chat Desktop K10-CENTRAL</a>
+
 
 {/* ── Seção de Grupos ── */}
 <div style={{ marginTop: '24px' }}>
@@ -4560,9 +4567,12 @@ textToSend = GROUP_E2EE_PREFIX + await encryptMsg(newMessage, serverE2EE[selecte
 } else if (!selectedIsServer && canSendPrivate) {
 textToSend = E2EE_PREFIX + await encryptMsg(newMessage, e2eeState[selectedContact].mySecret);
 }
-const conn = connectionsRef.current.find(c => c.peer === selectedContact); // FIX N-8 V20: era connections.find (stale pós-await encryptMsg)
-if (!conn || !conn.open) throw new Error('Connection lost during encryption. Please try again.');
-conn.send({ type: 'message', id: msgId, ttl: 15, text: textToSend, sender: peerId, senderName: userName, recipient: selectedContact, direct: true, time: formatTime(timestamp) });
+const conn = connectionsRef.current.find(c => c.peer === selectedContact && c.open); // FIX N-8 V20: era connections.find (stale pós-await encryptMsg)
+// V70-DIRECT-FALLBACK: sem conexão direta, roteia pelo gateway (K10GatewayShadow faz relay por recipient)
+const fallbackConn = conn ? null : connectionsRef.current.find(c => c.open && isCentralServer(c.peer));
+const sendConn = conn || fallbackConn;
+if (!sendConn) throw new Error('Connection lost during encryption. Please try again.');
+sendConn.send({ type: 'message', id: msgId, ttl: 15, text: textToSend, sender: peerId, senderName: userName, recipient: selectedContact, direct: true, time: formatTime(timestamp) });
 const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
 setMessages(prev => {
 const updated = [...prev, newMsgObj].slice(-500);
