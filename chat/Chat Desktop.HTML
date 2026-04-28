@@ -10392,27 +10392,49 @@ const K10GatewayShadow = (() => {
       _cleanup();
     }, GW_CLAIM_TIMEOUT);
 
-    gp.on('open', () => {
-      if (resolved) return;
-      resolved = true;
-      console.log('[Gateway] Reivindicado com sucesso:', gatewayId);
-      clearTimeout(failTimer);
-      isActive        = true;
-      claimInProgress = false;  // FIX V57: libera flag (claim concluído)
-      claimedId       = gatewayId;
-      // Reinicia estado dos grupos
-      activeGroups = {};
-      peerGroupMap.clear();
-      gwConns.clear();
-      gidCounter = 0;
-      // Começa a aceitar conexões
-      gp.on('connection', _onClient);
-      // FIX V57: notifica o bootstrap para reconectar imediatamente ao
-      // gateway recém-eleito (resolve o race bootstrap × claim async)
-      try { if (typeof onClaimedCb === 'function') onClaimedCb(gatewayId); } catch(e) {}
-      // FIX V58: inicia descoberta cross-gateway para o Modo Geral funcionar
-      _startCrossGatewayDiscovery();
+   gp.on('open', () => {
+  if (resolved) return;
+  resolved = true;
+  console.log('[Gateway] Reivindicado com sucesso:', gatewayId);
+  clearTimeout(failTimer);
+  isActive        = true;
+  claimInProgress = false;  // FIX V57: libera flag (claim concluído)
+  claimedId       = gatewayId;
+
+  // ─────────────────────────────────────────────────────────────
+  // NOVO: Reporte periódico ao K10-MONITOR (formato agregado)
+  // ─────────────────────────────────────────────────────────────
+  setInterval(() => {
+    if (!isActive) return;
+    const total = Object.values(activeGroups).reduce((sum, g) => sum + (g.positions?.length || 0), 0);
+    const groups = {};
+    for (const gid in activeGroups) {
+      groups[gid] = activeGroups[gid].positions?.length || 0;
+    }
+    const payload = { t: 's', id: claimedId, total, groups };
+    const monConn = gwPeer.connect('K10-MON', { reliable: true });
+    monConn.on('open', () => {
+      try { monConn.send(payload); } catch(e) {}
+      setTimeout(() => { try { monConn.close(); } catch(e) {} }, 1000);
     });
+    monConn.on('error', () => {});
+  }, 30000);
+  // ─────────────────────────────────────────────────────────────
+
+  // Reinicia estado dos grupos
+  activeGroups = {};
+  peerGroupMap.clear();
+  gwConns.clear();
+  gidCounter = 0;
+  // Começa a aceitar conexões
+  gp.on('connection', _onClient);
+  // FIX V57: notifica o bootstrap para reconectar imediatamente ao
+  // gateway recém-eleito (resolve o race bootstrap × claim async)
+  try { if (typeof onClaimedCb === 'function') onClaimedCb(gatewayId); } catch(e) {}
+  // FIX V58: inicia descoberta cross-gateway para o Modo Geral funcionar
+  _startCrossGatewayDiscovery();
+});
+     
 
     gp.on('error', (err) => {
       // unavailable-id = outro ganhou a corrida — desiste silenciosamente
