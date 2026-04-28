@@ -1,3 +1,41 @@
+<!-- ═══ Chat K10 V69 — Lock de Quiz reforçado: dono exclusivo, Stop exclusivo, auto-stop por disconnect (28/abr/2026) ═══
+     FIX V69: SISTEMA DE LOCK DO QUIZ BOT — 3 REQUISITOS REFORÇADOS
+     ══════════════════════════════════════════════════════════════════════
+
+     Problema V68: sistema de lock do Quiz Bot tinha três falhas graves:
+
+     1. Bug de Stop propagation — handler quiz-bot-global-toggle filtrava
+        `data.owner !== peerId` mas 'peerId' era o RECEPTOR, não o dono.
+        Resultado: não-donos ignoravam corretamente os stops, mas o próprio
+        stop do dono também era ignorado por eles (peerId deles !== dono).
+        Fix V69-LOCK-1: compara `data.owner !== globalQuizOwnerRef.current`
+        (quem iniciou o quiz) em vez de peerId do receptor.
+
+     2. Botão Stop visível para não-donos — ao receber toggle de outro peer,
+        não-donos viam o botão desabilitado com label "🔒 Bot em uso", que
+        é idêntico em DOM ao Stop Bot do dono. Apenas cursor/cor diferia.
+        Fix V69-LOCK-2: não-donos recebem um painel estático (div) em vez
+        do botão — o elemento <button> literalmente não existe para eles.
+
+     3. Quiz não parava quando o dono desconectava — ao detectar peer close,
+        checkAndAssumeQuizMaster rodava e o menor peerId assumia a master,
+        perpetuando o quiz indefinidamente sem dono.
+        Fix V69-LOCK-3: ao detectar close de um peer que é o globalQuizOwner,
+        inicia timer de 15s. Se ao final o dono não reconectou (globalQuizOwnerRef
+        ainda aponta para ele e quizBotActive ainda true), para o quiz localmente
+        e faz broadcast quiz-bot-global-toggle{active:false} para todos os peers.
+        Adicionado globalQuizOwnerRef (useRef) para acesso sem stale closure
+        nos close handlers.
+
+     4. Late-joiners não recebiam o estado do quiz — quiz-bot-global-toggle é
+        enviado uma única vez ao ativar, mas peers que conectam depois nunca
+        sabiam que o quiz estava ativo e viam o botão desbloqueado.
+        Fix V69-LOCK-4: sendHandshake() agora inclui quiz-bot-global-toggle
+        {active:true, owner} quando o quiz está ativo. Como sendHandshake é
+        chamado em TODAS as novas conexões (outgoing + incoming), qualquer
+        peer que entre depois da ativação recebe o lock imediatamente.
+
+     ════════════ HISTÓRICO V68 (preservado para referência) ════════════
 <!-- ═══ Chat K10 V68 — Bootstrap lotes de 5 + verificação REST API (26/abr/2026) ═══
      FIX V68: MODO GERAL — VERIFICAÇÃO DE SERVIDORES ATIVOS ANTES DE CONECTAR
      ══════════════════════════════════════════════════════════════════════
@@ -962,6 +1000,7 @@
 --text-muted: #64748b;
 --bubble-sent: #2563eb;
 --bubble-recv: #f1f5f9;
+--bg-secondary: #f8fafc;
 }
 * { box-sizing: border-box; }
 body { font-family: 'Inter', sans-serif; margin: 0; padding: 0; background-color: var(--bg); color: var(--text); }
@@ -1232,7 +1271,7 @@ text-shadow: 0 0 8px rgba(74, 222, 128, 0.3);
 
 
 /* DARK MODE */
-body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #e2e8f0; --text-muted: #94a3b8; --bubble-recv: #293548; }
+body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #e2e8f0; --text-muted: #94a3b8; --bubble-recv: #293548; --bg-secondary: #293548; }
 
 /* Chat area */
 .dark-mode .chat-messages { background: #0f172a; }
@@ -1650,6 +1689,7 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
+<script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
 <script>
   // FIX file:// — esbuild-wasm usa Workers internos que o Chrome bloqueia
   // quando a página roda via file:// (cada file:// é origem única → CORS).
@@ -3545,11 +3585,22 @@ disabled={disabled} title={t(lang, 'recordAudio')}>
 // ================================================================
 // ContactsScreen
 // ================================================================
-const ContactsScreen = ({ lang, contacts, setContacts, onBack, onSelectContact, avatars }) => {
+const ContactsScreen = ({ lang, contacts, setContacts, onBack, onSelectContact, onSelectGroup, avatars }) => {
 const [newName, setNewName] = useState('');
 const [newPeerId, setNewPeerId] = useState('');
 const [nameError, setNameError] = useState('');
 const [idError, setIdError] = useState('');
+// Lê grupos e canais frescos do localStorage via useState (garante snapshot correto ao montar)
+const K10_OFFICIAL = 'Chat K10 Oficial';
+const [groupHist] = useState(() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem('_ablyHist') || '[]');
+    return saved.includes(K10_OFFICIAL) ? saved : [K10_OFFICIAL, ...saved];
+  } catch { return [K10_OFFICIAL]; }
+});
+const [groupChannels] = useState(() => {
+  try { return JSON.parse(localStorage.getItem('_ablyGroupCh') || '{}'); } catch { return {}; }
+});
 
 
 const handleAddContact = (e) => {
@@ -3601,6 +3652,40 @@ return (
 ))}
 </div>
 <a href="https://andradepsa.github.io/MATEMATICO10/chat/Chat%20Desktop.HTML?portas=K10-CENTRAL" style={{ display: 'block', marginTop: '15px', color: 'var(--primary)', fontSize: '14px', textDecoration: 'underline', fontWeight: 600 }}>Abrir Chat Desktop K10-CENTRAL</a>
+
+{/* ── Seção de Grupos ── */}
+<div style={{ marginTop: '24px' }}>
+  <h3 style={{ marginTop: 0, marginBottom: '12px', fontSize: '14px', fontWeight: 700, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+    🔒 Grupos
+    <span style={{ fontSize: '11px', fontWeight: 400, color: 'var(--text-muted)' }}>— clique para entrar</span>
+  </h3>
+  {groupHist.length === 0 ? (
+    <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Nenhum grupo criado ainda. Use Ferramentas → Grupos.</p>
+  ) : (
+    <div className="connected-peers">
+      {groupHist.map((name, i) => {
+        const isOfficial = name === 'Chat K10 Oficial';
+        const chId = isOfficial ? null : (groupChannels[name] || 1);
+        const chLabel = isOfficial ? 'Grupo oficial' : `Canal ${chId}`;
+        return (
+          <div key={i} className="peer-item"
+            onClick={() => onSelectGroup && onSelectGroup(name, chId)}
+            style={{ cursor: 'pointer', background: isOfficial ? 'linear-gradient(135deg,#eff6ff,#dbeafe)' : 'var(--surface)', border: isOfficial ? '1.5px solid #2563eb' : '1px solid var(--border)', borderRadius: '8px', marginBottom: '4px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
+              <span style={{ fontSize: '20px' }}>{isOfficial ? '⭐' : '🔒'}</span>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: isOfficial ? '#1d4ed8' : 'var(--text)' }}>{name}</div>
+                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '1px' }}>📡 {chLabel}</div>
+              </div>
+            </div>
+            <i className="fas fa-chevron-right" style={{ fontSize: '11px', color: 'var(--text-muted)' }}></i>
+          </div>
+        );
+      })}
+    </div>
+  )}
+</div>
+
 </div>
 );
 };
@@ -3615,6 +3700,462 @@ const m = date.getMinutes().toString().padStart(2,'0');
 const s = date.getSeconds().toString().padStart(2,'0');
 return `${h}:${m}:${s}`;
 };
+
+
+
+
+// ═══════════════════════════════════════════════════════════════════
+// ABLY GRUPO — componentes novos, zero dependência do código antigo
+// ═══════════════════════════════════════════════════════════════════
+
+// ─── Chave do Chat Oficial (somente para o grupo "Chat K10 Oficial") ───
+const _ABLY_KEY = 'Pjjhig.aJTA8Q:oOvv1_Cp2jJ-WJqodNWW9KfiwSNTHiP0t6hgXm5ZIxk';
+
+// ─── 10 Canais para criação de grupos de usuários ───────────────────────
+// Cada canal usa uma chave Ably independente.
+// Ao criar/entrar num grupo, o usuário escolhe um canal (1–10).
+// Grupos no mesmo canal compartilham a mesma chave — mais privacidade
+// significa escolher canais diferentes para grupos diferentes.
+const _ABLY_CHANNELS = [
+  { id: 1,  label: 'Canal 1',  key: 'x0eTIA.CJWt0g:nfl8wCEozp4xIkI2CEWEsUoOsGEWcAc-cf_STDkzYYY' },
+  { id: 2,  label: 'Canal 2',  key: 'v983ng.8dYRGg:FXTLm6drwmVyvjJ1xPuUniGibGtvrk35NBMfKV3syug'  },
+  { id: 3,  label: 'Canal 3',  key: 'ALtHcw.5UWBKA:jZhC3269giqHr6lEkQKLIz0DBndHP1eqRqN9DZrg48Q' },
+  { id: 4,  label: 'Canal 4',  key: '9MqamQ.kzu-zQ:oL9Szi4-w_F9gDHDnOyChcH1N70Ow3_zWSeCTQ8SQc8' },
+  { id: 5,  label: 'Canal 5',  key: 'hTy1Eg.bQnIYw:AMc6bYN1l9ZUajzdXBDfXEaz4zXNr41U6baKrYMM_OY' },
+  { id: 6,  label: 'Canal 6',  key: '5Njhjg.m_swpQ:Y8p23eCjZ5bv9S-SJCsTbRm6NfqsPiC7GodGBwS1Inw' },
+  { id: 7,  label: 'Canal 7',  key: 'rhUCZQ.NoOg7g:o_vDDseU4Y_1PFKUGFEThNGpRIZb8SN1VC8LGDu5YO4' },
+  { id: 8,  label: 'Canal 8',  key: 'NunKPw.kSQlbw:u06zdCpZG3cDTw2XarIbTJlrGhujTM3xdPCEXzvQlpo' },
+  { id: 9,  label: 'Canal 9',  key: 'C7_5qw.-b58SA:2Sk_bdsBTzmbZxMB-7HvhTAGmI0J4Ml2UW5wKEvx4VM' },
+  { id: 10, label: 'Canal 10', key: '7k2MkQ.XZknvA:aQf2CmC1wvPYp0t-iaSPp6Jc2EG07dkIL5fIN3Q4tQc' },
+];
+
+// Retorna a chave correta: oficial para K10_OFFICIAL, canal escolhido para o resto
+const _getAblyKey = (groupName, channelId) => {
+  if (groupName === 'Chat K10 Oficial') return _ABLY_KEY;
+  const ch = _ABLY_CHANNELS.find(c => c.id === channelId);
+  return ch ? ch.key : _ABLY_CHANNELS[0].key;
+};
+
+// hash: mesmo nome → mesmo canal em qualquer máquina
+const _nameToChannel = name => {
+  let h = 5381, s = name.trim().toLowerCase();
+  for (let i = 0; i < s.length; i++) h = (((h << 5) + h) + s.charCodeAt(i)) | 0;
+  return 'gc_' + (h >>> 0).toString(36);
+};
+
+// ID único por aba
+const _getMyId = () => {
+  let id = sessionStorage.getItem('_ablyUid');
+  if (!id) { id = Math.random().toString(36).slice(2,14); sessionStorage.setItem('_ablyUid', id); }
+  return id;
+};
+
+const AblyGroupWindow = ({ groupName, channelId, onClose }) => {
+  const [msgs,  setMsgs]  = useState([]);
+  const [input, setInput] = useState('');
+  const [conn,  setConn]  = useState('Conectando...');
+  const chRef     = useRef(null);
+  const bottomRef = useRef(null);
+  const myId      = useRef(_getMyId());
+
+  useEffect(() => {
+    const ably = new Ably.Realtime({ key: _getAblyKey(groupName, channelId), clientId: myId.current });
+    ably.connection.on('connected',    () => setConn('Conectado'));
+    ably.connection.on('disconnected', () => setConn('Reconectando...'));
+    ably.connection.on('failed',       () => setConn('Erro'));
+
+    const ch = ably.channels.get(_nameToChannel(groupName));
+    chRef.current = ch;
+
+    ch.subscribe('m', msg => {
+      const d = msg.data;
+      if (!d || d.uid === myId.current) return;
+      setMsgs(prev => [...prev, { who: d.who || d.uid.slice(0,6), text: d.text, me: false, t: d.t }]);
+    });
+
+    return () => { try { ably.close(); } catch(e) {} };
+  }, [groupName]);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:'smooth' }); }, [msgs]);
+
+  const send = () => {
+    const t = input.trim();
+    if (!t || !chRef.current) return;
+    const time = new Date().toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+    chRef.current.publish('m', { uid: myId.current, who: 'Anon', text: t, t: time });
+    setMsgs(prev => [...prev, { who: 'Você', text: t, me: true, t: time }]);
+    setInput('');
+  };
+
+  return (
+    <div onClick={e => e.target===e.currentTarget && onClose()}
+      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:10000,
+               display:'flex', alignItems:'center', justifyContent:'center' }}>
+      <div style={{ width:'min(95vw,560px)', height:'min(85vh,600px)', background:'var(--surface)',
+                    borderRadius:'14px', display:'flex', flexDirection:'column',
+                    boxShadow:'0 24px 80px rgba(0,0,0,0.45)', overflow:'hidden',
+                    border:'1px solid var(--border)' }}>
+        {/* Header */}
+        <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--border)',
+                      display:'flex', justifyContent:'space-between', alignItems:'center',
+                      background:'linear-gradient(135deg,#1e40af 0%,#2563eb 100%)' }}>
+          <div>
+            <div style={{ fontWeight:700, fontSize:'15px', color:'#fff' }}>{'🔒 ' + groupName}</div>
+            <div style={{ fontSize:'11px', marginTop:'2px',
+                          color: conn === 'Conectado' ? '#4ade80' : '#fbbf24' }}>{'● ' + conn}</div>
+          </div>
+          <button onClick={onClose}
+            style={{ background:'rgba(255,255,255,0.15)', border:'1px solid rgba(255,255,255,0.25)',
+                      borderRadius:'8px', fontSize:'16px', cursor:'pointer', color:'#fff',
+                      width:'32px', height:'32px', display:'flex', alignItems:'center', justifyContent:'center' }}>×</button>
+        </div>
+        {/* Messages */}
+        <div style={{ flex:1, overflowY:'auto', padding:'14px',
+                      display:'flex', flexDirection:'column', gap:'8px', background:'var(--bg)' }}>
+          {msgs.length === 0 && (
+            <div style={{ textAlign:'center', color:'var(--text-muted)',
+                          fontSize:'13px', marginTop:'60px' }}>
+              Nenhuma mensagem ainda.
+            </div>
+          )}
+          {msgs.map((m,i) => (
+            <div key={i} style={{ alignSelf: m.me?'flex-end':'flex-start', maxWidth:'78%' }}>
+              {!m.me && <div style={{ fontSize:'10px', color:'var(--text-muted)', marginBottom:'2px', fontWeight:600 }}>{m.who}</div>}
+              <div style={{ padding:'9px 13px', borderRadius:'14px', fontSize:'14px', wordBreak:'break-word',
+                            background: m.me ? 'var(--bubble-sent)' : 'var(--surface)',
+                            color: m.me ? '#fff' : 'var(--text)',
+                            boxShadow: m.me ? 'none' : '0 1px 3px rgba(0,0,0,0.08)',
+                            border: m.me ? 'none' : '1px solid var(--border)' }}>{m.text}</div>
+              <div style={{ fontSize:'10px', color:'var(--text-muted)', marginTop:'3px',
+                            textAlign: m.me?'right':'left' }}>{m.t}</div>
+            </div>
+          ))}
+          <div ref={bottomRef} />
+        </div>
+        {/* Input */}
+        <div style={{ padding:'10px 14px', borderTop:'1px solid var(--border)', display:'flex', gap:'8px', background:'var(--surface)' }}>
+          <input value={input} onChange={e => setInput(e.target.value)}
+            onKeyDown={e => { if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); send(); } }}
+            placeholder={'Mensagem em "' + groupName + '"...'}
+            autoFocus
+            style={{ flex:1, padding:'9px 14px', borderRadius:'20px', fontSize:'14px',
+                      border:'1.5px solid var(--border)', fontFamily:'inherit',
+                      background:'var(--bg)', color:'var(--text)', outline:'none',
+                      transition:'border-color 0.2s' }}
+            onFocus={e => e.target.style.borderColor='#2563eb'}
+            onBlur={e => e.target.style.borderColor='var(--border)'} />
+          <button onClick={send}
+            style={{ background:'#2563eb', color:'#fff', border:'none', borderRadius:'50%',
+                      width:'38px', height:'38px', cursor:'pointer', fontWeight:700, fontSize:'16px',
+                      display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
+                      transition:'background 0.15s' }}
+            onMouseEnter={e => e.currentTarget.style.background='#1d4ed8'}
+            onMouseLeave={e => e.currentTarget.style.background='#2563eb'}>
+            <i className="fas fa-paper-plane" style={{ fontSize:'14px' }}></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const AblyGroupSection = ({ onGroupOpen } = {}) => {
+  const [open,        setOpen]        = useState(false);
+  const [draft,       setDraft]       = useState('');
+  const [selChannel,  setSelChannel]  = useState(1);   // canal escolhido (1–10)
+  const [active,      setActive]      = useState(null);
+  const K10_OFFICIAL = 'Chat K10 Oficial';
+  const [hist, setHist] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('_ablyHist') || '[]');
+      return saved.includes(K10_OFFICIAL) ? saved : [K10_OFFICIAL, ...saved];
+    } catch { return [K10_OFFICIAL]; }
+  });
+  // Salva canal por grupo: { [groupName]: channelId }
+  const [groupChannels, setGroupChannels] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('_ablyGroupCh') || '{}'); } catch { return {}; }
+  });
+
+  const join = (name, chId) => {
+    const n   = (name || draft).trim();
+    if (!n) return;
+    const cId = n === K10_OFFICIAL ? null : (chId || selChannel);
+
+    // ── PERSISTE DE FORMA SÍNCRONA antes de qualquer setState ──────────
+    // Motivo: onGroupOpen chama setShowGruposPanel(false), desmontando este
+    // componente. Salvar dentro do callback do setState é arriscado — o React
+    // pode descartar o callback se o componente desmontar antes de ele rodar.
+    if (n !== K10_OFFICIAL && cId) {
+      try {
+        const savedCh = JSON.parse(localStorage.getItem('_ablyGroupCh') || '{}');
+        savedCh[n] = cId;
+        localStorage.setItem('_ablyGroupCh', JSON.stringify(savedCh));
+      } catch {}
+    }
+    try {
+      const savedHist = JSON.parse(localStorage.getItem('_ablyHist') || '[]');
+      const others = savedHist.filter(x => x !== n && x !== K10_OFFICIAL);
+      const u = [K10_OFFICIAL, ...(n !== K10_OFFICIAL ? [n] : []), ...others].slice(0, 9);
+      localStorage.setItem('_ablyHist', JSON.stringify(u));
+    } catch {}
+    // ────────────────────────────────────────────────────────────────────
+
+    setDraft('');
+    setOpen(false);
+    // Sincroniza o state local com o que já foi persistido
+    if (n !== K10_OFFICIAL && cId) {
+      setGroupChannels(prev => ({ ...prev, [n]: cId }));
+    }
+    setHist(() => {
+      try {
+        const saved = JSON.parse(localStorage.getItem('_ablyHist') || '[]');
+        return saved.includes(K10_OFFICIAL) ? saved : [K10_OFFICIAL, ...saved];
+      } catch { return [K10_OFFICIAL]; }
+    });
+    if (onGroupOpen) { onGroupOpen(n, cId); } else { setActive({ name: n, channelId: cId }); }
+  };
+
+  return (
+    <React.Fragment>
+      <div style={{ borderTop:'1px solid var(--border)', paddingTop:'12px', marginTop:'8px', paddingLeft:'14px', paddingRight:'14px', paddingBottom:'8px' }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'8px' }}>
+          <span style={{ fontSize:'11px', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.08em' }}>
+            🔒 Grupos
+          </span>
+          <button onClick={() => setOpen(v => !v)}
+            style={{ background: open ? '#1d4ed8' : '#2563eb', border:'none', borderRadius:'6px', color:'#fff',
+                      padding:'4px 10px', fontSize:'11px', cursor:'pointer', fontWeight:600, transition:'background 0.15s' }}>
+            {open ? '✕ Fechar' : '+ Entrar'}
+          </button>
+        </div>
+
+        {open && (
+          <div style={{ marginBottom:'10px', background:'#f8fafc', border:'1px solid var(--border)', borderRadius:'10px', padding:'10px' }}>
+            {/* Explicação sobre canais */}
+            <div style={{ fontSize:'11px', color:'#64748b', marginBottom:'8px', lineHeight:'1.5', background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:'6px', padding:'7px 9px' }}>
+              <b style={{ color:'#1d4ed8' }}>ℹ️ Como funcionam os canais:</b><br/>
+              Escolha um <b>canal (1–10)</b> e dê um nome ao grupo. Pessoas no <b>mesmo canal + mesmo nome</b> entram na mesma sala.
+              O <b>Chat K10 Oficial</b> usa um canal exclusivo próprio.
+            </div>
+            {/* Seletor de canal */}
+            <div style={{ display:'flex', alignItems:'center', gap:'6px', marginBottom:'8px', flexWrap:'wrap' }}>
+              <span style={{ fontSize:'11px', fontWeight:700, color:'var(--text-muted)', whiteSpace:'nowrap' }}>Canal:</span>
+              <div style={{ display:'flex', gap:'4px', flexWrap:'wrap' }}>
+                {_ABLY_CHANNELS.map(c => (
+                  <button key={c.id} onClick={() => setSelChannel(c.id)}
+                    style={{ background: selChannel === c.id ? '#2563eb' : '#e2e8f0',
+                              color: selChannel === c.id ? '#fff' : '#475569',
+                              border:'none', borderRadius:'6px', padding:'3px 8px',
+                              fontSize:'11px', fontWeight:700, cursor:'pointer', transition:'all 0.12s' }}>
+                    {c.id}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {/* Input nome */}
+            <div style={{ display:'flex', gap:'6px' }}>
+              <input value={draft} onChange={e => setDraft(e.target.value)}
+                onKeyDown={e => e.key==='Enter' && join()}
+                placeholder="Nome do grupo..." autoFocus
+                style={{ flex:1, padding:'8px 10px', borderRadius:'8px', fontSize:'13px',
+                          border:'1.5px solid var(--primary,#2563eb)', background:'var(--surface)', outline:'none',
+                          color:'var(--text)', fontFamily:'inherit' }} />
+              <button onClick={() => join()}
+                style={{ background:'#2563eb', color:'#fff', border:'none', borderRadius:'8px',
+                          padding:'8px 14px', cursor:'pointer', fontSize:'13px', fontWeight:700 }}>
+                OK
+              </button>
+            </div>
+          </div>
+        )}
+
+        {hist.length > 0 && hist.map(name => {
+          const isOfficial = name === K10_OFFICIAL;
+          const chId       = isOfficial ? null : (groupChannels[name] || 1);
+          const chLabel    = isOfficial ? null : `Canal ${chId}`;
+          return (
+          <div key={name}
+            style={{ display:'flex', alignItems:'center', gap:'8px', padding:'8px 10px', borderRadius:'8px',
+                      fontSize:'13px', color:'var(--text)', marginBottom:'4px',
+                      border: isOfficial ? '1.5px solid #2563eb' : '1px solid var(--border)',
+                      background: isOfficial ? 'linear-gradient(135deg,#eff6ff,#dbeafe)' : 'var(--surface)',
+                      transition:'opacity 0.15s' }}
+            onMouseEnter={e => { e.currentTarget.style.opacity='0.85'; }}
+            onMouseLeave={e => { e.currentTarget.style.opacity='1'; }}>
+            <div onClick={() => join(name, chId)}
+              style={{ display:'flex', alignItems:'center', gap:'8px', flex:1, minWidth:0, cursor:'pointer' }}>
+              <span style={{ fontSize:'15px', flexShrink:0 }}>{isOfficial ? '⭐' : '🔒'}</span>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontWeight:700, fontSize:'13px', color: isOfficial ? '#1d4ed8' : 'var(--text)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{name}</div>
+                {isOfficial
+                  ? <div style={{ fontSize:'10px', color:'#3b82f6', marginTop:'1px' }}>Grupo oficial do Chat K10</div>
+                  : <div style={{ fontSize:'10px', color:'#64748b', marginTop:'1px' }}>📡 {chLabel}</div>
+                }
+              </div>
+              <i className="fas fa-chevron-right" style={{ fontSize:'10px', color: isOfficial ? '#3b82f6' : 'var(--text-muted)', flexShrink:0 }}></i>
+            </div>
+            {!isOfficial && (
+              <button
+                onClick={e => {
+                  e.stopPropagation();
+                  setHist(prev => {
+                    const u = prev.filter(x => x !== name);
+                    localStorage.setItem('_ablyHist', JSON.stringify(u));
+                    return u;
+                  });
+                }}
+                title="Excluir grupo"
+                style={{ flexShrink:0, background:'none', border:'none', cursor:'pointer',
+                          color:'#ef4444', padding:'4px 6px', borderRadius:'6px',
+                          fontSize:'13px', lineHeight:1, opacity:0.6, transition:'opacity 0.15s' }}
+                onMouseEnter={e => e.currentTarget.style.opacity='1'}
+                onMouseLeave={e => e.currentTarget.style.opacity='0.6'}>
+                <i className="fas fa-trash-alt"></i>
+              </button>
+            )}
+          </div>
+          );
+        })}
+        {hist.length === 0 && !open && (
+          <div style={{ fontSize:'12px', color:'var(--text-muted)', textAlign:'center', padding:'8px 0' }}>
+            Nenhum grupo ainda
+          </div>
+        )}
+      </div>
+      {active && <AblyGroupWindow groupName={active.name} channelId={active.channelId} onClose={() => setActive(null)} />}
+    </React.Fragment>
+  );
+};
+
+const AblyGroupChatInline = ({ groupName, channelId, onClose }) => {
+  const [msgs,      setMsgs]      = useState([]);
+  const [input,     setInput]     = useState('');
+  const [conn,      setConn]      = useState('Conectando...');
+  const [showEmoji, setShowEmoji] = useState(false);
+  const chRef     = useRef(null);
+  const bottomRef = useRef(null);
+  const inputRef  = useRef(null);
+  const myId      = useRef(_getMyId());
+
+  const GROUP_EMOJIS = ["😀","😁","😂","🤣","😃","😄","😅","😆","😉","😊","😋","😎","😍","😘","🥰","😗","😙","😚","🙂","🤗","🤩","🤔","🤨","😐","😑","😶","🙄","😏","😣","😥","😮","🤐","😴","😪","😵","😤","😭","😡","🤯","🥵","👍","👎","👌","✌️","🤞","👋","🤚","🖐️","👏","🙌","👐","🤲","🙏","💪","🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🙈","🙉","🙊","🍇","🍈","🍉","🍊","🍋","🍌","🍍","🥭","🍎","🍏","🍐","🍑","🍒","🍓","🥝","🍔","🍟","🍕","🌭","🥪","🌮","🌯","🍜","🍝","🍣","🍤","🍦","🍧","🍨","🍩","🍪","🎂","🍰","🧁","🍫","🍬","🍭","☕","🍵","🍷","🍸","🍹","🍺","🏠","🏡","🏢","🏰","🚂","🚗","✈️","🚀","🌍","🌈","⭐","🌙","☀️","❤️","💙","💚","💛","🧡","💜","🖤","🤍","💔","💯","🔥","⚡","✨","🎉","🎊","🎈","🎁","🏆","🥇","🎯","🎮","🎵","🎶","📱","💻","⌚","📷","🔑","💡","🔒","🔓","🛒","💰","📚","✏️","📝","🗓️"];
+
+  const insertEmoji = (em) => {
+    const el = inputRef.current;
+    if (!el) { setInput(prev => prev + em); return; }
+    const start = el.selectionStart ?? input.length;
+    const end   = el.selectionEnd   ?? input.length;
+    const next  = input.slice(0, start) + em + input.slice(end);
+    setInput(next);
+    setTimeout(() => { el.focus(); el.setSelectionRange(start + em.length, start + em.length); }, 0);
+  };
+
+  useEffect(() => {
+    const ably = new Ably.Realtime({ key: _getAblyKey(groupName, channelId), clientId: myId.current });
+    ably.connection.on('connected',    () => setConn('Conectado'));
+    ably.connection.on('disconnected', () => setConn('Reconectando...'));
+    ably.connection.on('failed',       () => setConn('Erro'));
+    const ch = ably.channels.get(_nameToChannel(groupName));
+    chRef.current = ch;
+    ch.subscribe('m', msg => {
+      const d = msg.data;
+      if (!d || d.uid === myId.current) return;
+      setMsgs(prev => [...prev, { who: d.who || d.uid.slice(0,6), text: d.text, me: false, t: d.t }]);
+    });
+    return () => { try { ably.close(); } catch(e) {} };
+  }, [groupName, channelId]);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
+
+  const send = () => {
+    const t = input.trim();
+    if (!t || !chRef.current) return;
+    const time = new Date().toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
+    chRef.current.publish('m', { uid: myId.current, who: 'Anon', text: t, t: time });
+    setMsgs(prev => [...prev, { who: 'Você', text: t, me: true, t: time }]);
+    setInput('');
+    setShowEmoji(false);
+  };
+
+  return (
+    <div style={{ display:'flex', flexDirection:'column', flex:1, overflow:'hidden', background:'var(--bg)' }}>
+      {/* Status bar */}
+      <div style={{ padding:'6px 16px', background:'var(--surface)', borderBottom:'1px solid var(--border)',
+                    display:'flex', alignItems:'center', gap:'8px', fontSize:'12px' }}>
+        <span style={{ width:'8px', height:'8px', borderRadius:'50%', flexShrink:0, display:'inline-block',
+                        background: conn === 'Conectado' ? '#22c55e' : '#f59e0b' }}></span>
+        <span style={{ color:'var(--text-muted)' }}>{conn}</span>
+        <span style={{ color:'var(--text-muted)', marginLeft:'auto', fontSize:'11px' }}>
+          🔒 Grupo: <b style={{ color:'var(--text)' }}>{groupName}</b>
+        </span>
+      </div>
+      {/* Messages */}
+      <div style={{ flex:1, overflowY:'auto', padding:'16px', display:'flex', flexDirection:'column', gap:'8px' }}
+           onClick={() => setShowEmoji(false)}>
+        {msgs.length === 0 && (
+          <div style={{ textAlign:'center', color:'var(--text-muted)', fontSize:'13px', marginTop:'60px' }}>
+            Nenhuma mensagem ainda.<br/>
+            <span style={{ fontSize:'11px' }}>Quem entrar em <b>{groupName}</b> verá as mensagens.</span>
+          </div>
+        )}
+        {msgs.map((m, i) => (
+          <div key={i} style={{ alignSelf: m.me ? 'flex-end' : 'flex-start', maxWidth:'78%' }}>
+            {!m.me && (
+              <div style={{ fontSize:'11px', color:'var(--text-muted)', marginBottom:'2px', fontWeight:600 }}>{m.who}</div>
+            )}
+            <div style={{ padding:'9px 13px', borderRadius:'14px', fontSize:'14px', wordBreak:'break-word',
+                          background: m.me ? 'var(--bubble-sent)' : 'var(--surface)',
+                          color: m.me ? '#fff' : 'var(--text)',
+                          boxShadow: m.me ? 'none' : '0 1px 3px rgba(0,0,0,0.08)',
+                          border: m.me ? 'none' : '1px solid var(--border)' }}>
+              {m.text}
+            </div>
+            <div style={{ fontSize:'10px', color:'var(--text-muted)', marginTop:'3px',
+                          textAlign: m.me ? 'right' : 'left' }}>{m.t}</div>
+          </div>
+        ))}
+        <div ref={bottomRef} />
+      </div>
+      {/* Emoji Panel */}
+      {showEmoji && (
+        <div className="emoji-panel" style={{ position:'relative', bottom:'unset', left:'unset', width:'100%', maxHeight:'160px', borderRadius:'0', borderLeft:'none', borderRight:'none', boxShadow:'0 -4px 12px rgba(0,0,0,0.08)' }}>
+          <div className="emoji-panel-header">😊 Emojis</div>
+          <div className="emoji-panel-content">
+            {GROUP_EMOJIS.map((em, i) => (
+              <span key={i} className="emoji-item" onClick={() => insertEmoji(em)}>{em}</span>
+            ))}
+          </div>
+          <div className="emoji-panel-footer">Clique para inserir · ESC fecha</div>
+        </div>
+      )}
+      {/* Input */}
+      <div className="chat-input-container" style={{ position:'relative' }}>
+        <button
+          className="emoji-button"
+          onClick={e => { e.stopPropagation(); setShowEmoji(v => !v); }}
+          title="Emojis"
+          style={{ color: showEmoji ? '#2563eb' : undefined }}
+        >😊</button>
+        <input
+          ref={inputRef}
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Escape') { setShowEmoji(false); return; }
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+          }}
+          placeholder={"Mensagem em \"" + groupName + "\"..."}
+          autoFocus
+          className="message-input"
+        />
+        <button onClick={send} className="send-btn" disabled={!input.trim()}>
+          <i className="fas fa-paper-plane"></i>
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════
 
 
 // ================================================================
@@ -3637,19 +4178,39 @@ currentQuizQuestionRef,
 connectionsRef: connectionsRefProp,
 directPeersRef,
 directPeers,
-isSuperNode
+activatedContactsRef,
+activatedContacts,
+isSuperNode,
+pendingGroup,
+setPendingGroup,
+quizBotActive,
+onOpenQuizBot
 }) => {
 // FIX: usa connectionsRef recebido via prop (do App) para evitar stale closure no sendDirectMessage
 // Se não recebeu a prop (compatibilidade), cria um ref local sincronizado com connections
 const _localConnRef = useRef(connections);
 useEffect(() => { _localConnRef.current = connections; }, [connections]);
 const connectionsRef = connectionsRefProp || _localConnRef;
+
 const messagesEndRef = useRef(null);
 const messagesContainerRef = useRef(null);
 const [showSendSecretModal, setShowSendSecretModal] = useState(false);
 const [showServerE2EEModal, setShowServerE2EEModal] = useState(false);
 const [hiddenMessages, setHiddenMessages] = useState(new Set());
 const [activeChatTab, setActiveChatTab] = useState('native');
+const [activeGroupName,    setActiveGroupName]    = useState(null);
+const [activeGroupChannel, setActiveGroupChannel] = useState(null); // channelId do grupo ativo
+// Grupos abertos pelo usuário — aparecem na lista de conversas apenas quando selecionados
+const [openedGroups, setOpenedGroups] = useState([]);
+const handleGroupSelected = (name, chId) => {
+  setOpenedGroups(prev => {
+    if (prev.some(g => g.name === name)) return prev;
+    return [...prev, { name, chId }];
+  });
+  setActiveGroupName(name);
+  setActiveGroupChannel(chId);
+  setActiveChatTab('group');
+};
 // V46: sistema de uma aba só — sem sidebarTab
 
 
@@ -3732,6 +4293,17 @@ const handleQuizAnswer = (quizId, optionIndex) => {
 useEffect(() => {
 if (!youtubeChatId) setActiveChatTab('native');
 }, [youtubeChatId]);
+useEffect(() => {
+if (!activeGroupName && activeChatTab === 'group') setActiveChatTab('native');
+}, [activeGroupName]);
+
+// Abre grupo solicitado via ContactsScreen ou Ferramentas (pendingGroup vem do App)
+useEffect(() => {
+  if (pendingGroup) {
+    handleGroupSelected(pendingGroup.name, pendingGroup.chId);
+    if (setPendingGroup) setPendingGroup(null);
+  }
+}, [pendingGroup]);
 
 
 const [isSending, setIsSending] = useState(false);
@@ -4106,9 +4678,14 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
   {(() => {
     // V46: só aparece na lista: (1) contatos salvos, (2) quem mandou msg direta
     // APENAS K10-CENTRAL fica oculto — todos os outros contatos/servidores aparecem normalmente
+    // FIX-CONTACTS-LIST: aparece na lista SOMENTE se o usuário selecionou explicitamente
+    // o contato (activatedContacts) OU se o contato fez uma chamada/enviou mensagem direta (directPeers).
+    // Removido: contacts.some(c => c.peerId === conn.peer) — esta condição fazia qualquer contato
+    // salvo aparecer ao se conectar automaticamente via mesh (peer-list/pex), sem ação do usuário.
     const visibleConns = connections.filter(conn =>
       conn.peer !== 'K10-CENTRAL' && conn.peer !== 'K10-HUB-V62' && (
-        contacts.some(c => c.peerId === conn.peer) ||
+        (activatedContacts && activatedContacts.has(conn.peer)) ||
+        (activatedContactsRef && activatedContactsRef.current.has(conn.peer)) ||
         (directPeers && directPeers.has(conn.peer)) ||
         (directPeersRef && directPeersRef.current.has(conn.peer))
       )
@@ -4116,7 +4693,7 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
     // selectedContact em andamento (connectToPeer ainda não abriu)
     const selectedInList = visibleConns.some(c => c.peer === selectedContact);
     const pendingEntry = (selectedContact && selectedContact !== 'K10-CENTRAL' && selectedContact !== 'K10-HUB-V62' && !selectedInList &&
-      (contacts.some(c => c.peerId === selectedContact) || (directPeersRef && directPeersRef.current.has(selectedContact)))) ?
+      ((activatedContactsRef && activatedContactsRef.current.has(selectedContact)) || (directPeersRef && directPeersRef.current.has(selectedContact)))) ?
       [{ peer: selectedContact, open: false, _pending: true }] : [];
     const finalConns = [...pendingEntry, ...visibleConns];
     if (finalConns.length === 0) return (
@@ -4193,29 +4770,102 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
       );
     });
   })()}
+
+{/* ── Grupos abertos — aparecem aqui só quando selecionados ── */}
+{openedGroups.length > 0 && (
+  <div style={{ borderTop:'1px solid var(--border)', marginTop:'8px', paddingTop:'8px' }}>
+    <div style={{ fontSize:'11px', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.08em', padding:'0 14px 6px' }}>
+      🔒 Grupos
+    </div>
+    {openedGroups.map((g, i) => {
+      const isOfficial = g.name === 'Chat K10 Oficial';
+      const isActiveGrp = activeGroupName === g.name && activeChatTab === 'group';
+      return (
+        <div key={i}
+          className={'conversation-item' + (isActiveGrp ? ' selected' : '')}
+          onClick={() => handleGroupSelected(g.name, g.chId)}
+          style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+            <span style={{ fontSize:'18px' }}>{isOfficial ? '⭐' : '🔒'}</span>
+            <div>
+              <div className="conversation-name" style={{ color: isOfficial ? '#1d4ed8' : 'var(--text)' }}>{g.name}</div>
+              <div className="conversation-peer-id">{isOfficial ? 'Grupo oficial' : 'Canal ' + (g.chId || 1)}</div>
+            </div>
+          </div>
+          <button
+            title="Remover da lista"
+            onClick={e => {
+              e.stopPropagation();
+              setOpenedGroups(prev => {
+                return prev.filter(x => x.name !== g.name);
+              });
+              if (activeGroupName === g.name) { setActiveGroupName(null); setActiveChatTab('native'); }
+            }}
+            style={{ background:'none', border:'none', cursor:'pointer', color:'#94a3b8', padding:'4px 6px', fontSize:'12px', borderRadius:'4px' }}
+            onMouseEnter={e => e.currentTarget.style.color='#ef4444'}
+            onMouseLeave={e => e.currentTarget.style.color='#94a3b8'}>
+            <i className="fas fa-times"></i>
+          </button>
+        </div>
+      );
+    })}
+  </div>
+)}
 </div>
 
 <div className="chat-messages-container">
-{/* V46: aba YouTube no topo da área de chat — igual ao modelo antigo */}
-{youtubeChatId && (
-  <div style={{ display: 'flex', background: '#f1f5f9', borderBottom: '1px solid var(--border)' }}>
+{/* Tab bar — Chat Nativo / YouTube / Grupo */}
+{(youtubeChatId || activeGroupName) && (
+  <div style={{ display: 'flex', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)', flexShrink:0 }}>
     <button
       onClick={() => setActiveChatTab('native')}
-      style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'native' ? 'white' : 'transparent', borderBottom: activeChatTab === 'native' ? '2px solid #3b82f6' : '2px solid transparent', fontWeight: activeChatTab === 'native' ? 'bold' : 'normal', cursor: 'pointer', color: activeChatTab === 'native' ? '#3b82f6' : '#64748b' }}
+      style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'native' ? 'var(--surface)' : 'transparent', borderBottom: activeChatTab === 'native' ? '2px solid #3b82f6' : '2px solid transparent', fontWeight: activeChatTab === 'native' ? '700' : 'normal', cursor: 'pointer', color: activeChatTab === 'native' ? '#3b82f6' : 'var(--text-muted)', fontSize:'13px' }}
     >
-      Chat Nativo
+      💬 Chat
     </button>
-    <button
-      onClick={() => setActiveChatTab('youtube')}
-      style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'youtube' ? 'white' : 'transparent', borderBottom: activeChatTab === 'youtube' ? '2px solid #ef4444' : '2px solid transparent', fontWeight: activeChatTab === 'youtube' ? 'bold' : 'normal', cursor: 'pointer', color: activeChatTab === 'youtube' ? '#ef4444' : '#64748b' }}
-    >
-      <i className="fab fa-youtube"></i> Chat YouTube
-    </button>
+    {youtubeChatId && (
+      <button
+        onClick={() => setActiveChatTab('youtube')}
+        style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'youtube' ? 'var(--surface)' : 'transparent', borderBottom: activeChatTab === 'youtube' ? '2px solid #ef4444' : '2px solid transparent', fontWeight: activeChatTab === 'youtube' ? '700' : 'normal', cursor: 'pointer', color: activeChatTab === 'youtube' ? '#ef4444' : 'var(--text-muted)', fontSize:'13px' }}
+      >
+        <i className="fab fa-youtube"></i> YouTube
+      </button>
+    )}
+    {activeGroupName && (
+      <button
+        onClick={() => setActiveChatTab('group')}
+        style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'group' ? 'var(--surface)' : 'transparent', borderBottom: activeChatTab === 'group' ? '2px solid #2563eb' : '2px solid transparent', fontWeight: activeChatTab === 'group' ? '700' : 'normal', cursor: 'pointer', color: activeChatTab === 'group' ? '#2563eb' : 'var(--text-muted)', fontSize:'13px', display:'flex', alignItems:'center', justifyContent:'center', gap:'5px' }}
+      >
+        🔒 {activeGroupName}
+        <span
+          onClick={e => { e.stopPropagation(); setActiveGroupName(null); setActiveChatTab('native'); }}
+          style={{ marginLeft:'4px', fontSize:'12px', color:'var(--text-muted)', lineHeight:1, cursor:'pointer' }}
+          title="Fechar grupo"
+        >✕</span>
+      </button>
+    )}
   </div>
 )}
 {activeChatTab === 'native' ? (
 
 <>
+{/* ── Banner Quiz Bot ativo no Modo Geral ─────────────────────── */}
+{!selectedContact && quizBotActive && (
+  <div style={{ display:'flex', alignItems:'center', gap:'8px', padding:'6px 16px',
+                background:'linear-gradient(90deg,#064e3b,#065f46)', borderBottom:'1px solid #10b981',
+                fontSize:'12px', color:'#6ee7b7', fontWeight:600 }}>
+    <span style={{ animation:'pulse 1.5s ease-in-out infinite', display:'inline-block' }}>🤖</span>
+    <span>Quiz Bot ativo no Modo Geral</span>
+    <span style={{ marginLeft:'auto', opacity:0.7, fontWeight:400 }}>
+      Perguntas sendo enviadas para toda a rede P2P
+    </span>
+    <button onClick={onOpenQuizBot}
+      style={{ background:'#10b981', border:'none', borderRadius:'6px', color:'#fff',
+                padding:'3px 10px', cursor:'pointer', fontSize:'11px', fontWeight:700 }}>
+      Gerenciar
+    </button>
+  </div>
+)}
 <div className="chat-messages" ref={messagesContainerRef}>
 {filteredMessages.length === 0 && (
 <div style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px', marginTop: '40px' }}>
@@ -4314,6 +4964,31 @@ disabled={selectedIsServer}
 title={selectedIsServer ? t(lang, 'serverSecret') : t(lang, 'sendSecret')}>
 🔑
 </button>
+{/* ── Botão Quiz Bot — visível no Modo Geral (sem contato selecionado) ── */}
+{!selectedContact && connections.length > 0 && onOpenQuizBot && (
+  <button
+    onClick={onOpenQuizBot}
+    title={quizBotActive ? 'Quiz Bot ativo — clique para gerenciar' : 'Iniciar Quiz Bot no Modo Geral'}
+    style={{
+      background: quizBotActive ? '#10b981' : 'transparent',
+      border: `1.5px solid ${quizBotActive ? '#10b981' : 'var(--border)'}`,
+      borderRadius: '8px',
+      color: quizBotActive ? '#fff' : 'var(--text-muted)',
+      padding: '6px 10px',
+      cursor: 'pointer',
+      fontSize: '13px',
+      fontWeight: 700,
+      display: 'flex',
+      alignItems: 'center',
+      gap: '4px',
+      transition: 'all 0.2s',
+      whiteSpace: 'nowrap',
+      flexShrink: 0
+    }}
+  >
+    🤖{quizBotActive ? <span style={{ fontSize: '10px' }}>ON</span> : null}
+  </button>
+)}
 <div className="message-input-container">
 <button className="emoji-button" onClick={() => setShowEmojiPanel(!showEmojiPanel)} title={t(lang, 'emojis')}>😊</button>
 <input type="text" value={newMessage}
@@ -4334,6 +5009,12 @@ title={t(lang, 'sendMessage')}>
 </button>
 </div>
 </>
+) : activeChatTab === 'group' ? (
+<AblyGroupChatInline
+  groupName={activeGroupName}
+  channelId={activeGroupChannel}
+  onClose={() => { setActiveGroupName(null); setActiveGroupChannel(null); setActiveChatTab('native'); }}
+/>
 ) : (
 <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
 <iframe
@@ -5274,10 +5955,26 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
 
         <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: 'auto' }}>
           {(() => {
-            const peerP2POwner = quizBotActive && globalQuizOwner && globalQuizOwner !== peerId && quizMasterIdRef.current !== peerId;
+            // V69-LOCK-2: dono = quem ativou via P2P ou via servidor
+            const peerP2POwner = quizBotActive && globalQuizOwner && globalQuizOwner !== peerId;
             const isLockedByServer = serverQuizBotActive && quizServerOwnerId !== peerId;
             const isLocked = peerP2POwner || isLockedByServer;
-            const iAmOwner = (quizBotActive && (globalQuizOwner === peerId || quizMasterIdRef.current === peerId)) || (serverQuizBotActive && quizServerOwnerId === peerId);
+            const iAmOwner = (quizBotActive && globalQuizOwner === peerId) ||
+                             (serverQuizBotActive && quizServerOwnerId === peerId);
+
+            // V69-LOCK-2: não-donos NUNCA veem o botão Stop — apenas um painel de bloqueio
+            if (isLocked) {
+              return (
+                <div style={{
+                  width: '100%', padding: '14px 16px', borderRadius: '10px',
+                  background: '#f1f5f9', border: '1.5px solid #e2e8f0',
+                  textAlign: 'center', color: '#64748b', fontSize: '13px', fontWeight: 600,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+                }}>
+                  🔒 Quiz Bot em uso por outro usuário
+                </div>
+              );
+            }
 
             return (
           <button 
@@ -5304,10 +6001,9 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
                 if (quizJitterTimerRef.current) clearTimeout(quizJitterTimerRef.current);
               }
             }}
-            disabled={isLocked}
-            style={{ background: iAmOwner ? '#ef4444' : isLocked ? '#94a3b8' : '#10b981', width: '100%', cursor: isLocked ? 'not-allowed' : 'pointer' }}
+            style={{ background: iAmOwner ? '#ef4444' : '#10b981', width: '100%' }}
           >
-            {iAmOwner ? 'Stop Bot' : isLocked ? '🔒 Bot em uso por outro usuário' : 'Start Bot'}
+            {iAmOwner ? 'Stop Bot' : 'Start Bot'}
           </button>
             );
           })()}
@@ -5384,6 +6080,11 @@ const directPeersRef = useRef(new Set());
 // V43-FIX: directPeers como STATE (além do ref) para que o React re-renderize a aba Privado
 // quando um novo peer direto é registrado. directPeersRef mantém para leituras síncronas.
 const [directPeers, setDirectPeers] = useState(new Set());
+// FIX-CONTACTS-LIST: rastreia contatos EXPLICITAMENTE abertos pelo usuário (seleção na lista de contatos).
+// Impede que contatos que se conectam automaticamente via mesh apareçam na lista de conversas.
+const activatedContactsRef = useRef(new Set());
+const [activatedContacts, setActivatedContacts] = useState(new Set());
+const [pendingGroup, setPendingGroup] = useState(null); // { name, chId } — abre grupo no ChatManager
 const [messages, setMessages] = useState([]);
 const [newMessage, setNewMessage] = useState('');
 const [showContacts, setShowContacts] = useState(false);
@@ -5456,6 +6157,7 @@ useEffect(() => { userRadiosRef.current = userRadios; }, [userRadios]);
 
 const [showYoutubeGrid, setShowYoutubeGrid] = useState(false);
 const [showMediaControls, setShowMediaControls] = useState(false);
+const [showGruposPanel, setShowGruposPanel] = useState(false);
 const [showPollCreator, setShowPollCreator] = useState(false);
 const [showMarkdownEditor, setShowMarkdownEditor] = useState(false);
 const [showQuizBot, setShowQuizBot] = useState(false);
@@ -5489,6 +6191,8 @@ const quizBotActiveRef = useRef(false); // FIX: ref para evitar stale closure no
 const [serverQuizBotActive, setServerQuizBotActive] = useState(false); // outro usuário tem bot ativo no servidor
 const [quizServerOwnerId, setQuizServerOwnerId] = useState(null); // V46: peerId de quem tem a responsabilidade do quiz
 const [globalQuizOwner, setGlobalQuizOwner] = useState(null); // V48: tracking of who started bot via P2P
+const globalQuizOwnerRef = useRef(null); // V69: ref síncrono para uso em closures (close handlers, timers)
+useEffect(() => { globalQuizOwnerRef.current = globalQuizOwner; }, [globalQuizOwner]); // mantém ref em sync automático
 const worldQuizStageRef    = useRef(0);    // 0=idle, 1=etapa1 rodando, 2=etapa2 rodando
 const worldQuizPlaceRef    = useRef(null); // lugar atual { query, country, state, place }
 const worldQuizImageRef    = useRef(null); // URL da imagem (reutilizada na etapa 2)
@@ -5872,7 +6576,12 @@ const broadcastQuizViolation = (violatorId, violatorName, elapsedSec) => {
 const checkAndAssumeQuizMaster = () => {
   if (!quizBotActiveRef.current) return false;
   // Pega todos os peers conectados + nós mesmos
-  const peers = [peerId, ...connectionsRef.current.filter(c => c.open).map(c => c.peer)];
+  // FIX: exclui servidores K10-GATE / K10-CENTRAL da eleição — eles nunca rodam quiz
+  // Sem esse filtro, 'K10-GATE-XXXX' ganha sempre (alfanumérico 'K' < maioria dos IDs)
+  // e o usuário nunca vira mestre, então askNextQuestion retorna sem enviar perguntas.
+  const peers = [peerId, ...connectionsRef.current
+    .filter(c => c.open && !isCentralServer(c.peer))
+    .map(c => c.peer)];
   peers.sort(); // Eleição alfanumérica
   const isMaster = peers[0] === peerId;
   const wasMaster = quizMasterIdRef.current === peerId;
@@ -6278,6 +6987,11 @@ try { conn.send({ type: 'handshake', peerId, avatar: userAvatarRef.current }); }
 if (youtubeChatIdRef.current) {
   try { conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 }); } catch(e) {}
 }
+// V69-LOCK-4: sincroniza estado do quiz para peers que entram depois da ativação
+// Sem isso, late-joiners nunca recebem o toggle e veem o botão desbloqueado
+if (quizBotActiveRef.current && globalQuizOwnerRef.current) {
+  try { conn.send({ type: 'quiz-bot-global-toggle', active: true, owner: globalQuizOwnerRef.current }); } catch(e) {}
+}
 };
 
 
@@ -6464,15 +7178,17 @@ if (data.type === 'quiz-buffer-sync' && data.hits) {
 }
 
 if (data.type === 'quiz-bot-global-toggle') {
-  // V46: só o dono pode parar o quiz — ignora stop vindo de quem não é responsável
-  if (!data.active && data.owner && data.owner !== peerId) return;
+  // V69-LOCK-1: só o dono atual pode parar — ignora stop vindo de quem não é o globalQuizOwner
+  if (!data.active && data.owner && data.owner !== globalQuizOwnerRef.current) return;
   setQuizBotActive(data.active);
   quizBotActiveRef.current = data.active;
   if (data.active) {
-    setGlobalQuizOwner(data.owner); 
-    setTimeout(checkAndAssumeQuizMaster, 2000); // Wait a bit then check master
+    setGlobalQuizOwner(data.owner);
+    globalQuizOwnerRef.current = data.owner;
+    setTimeout(checkAndAssumeQuizMaster, 2000);
   } else {
     setGlobalQuizOwner(null);
+    globalQuizOwnerRef.current = null;
   }
   return;
 }
@@ -7559,6 +8275,8 @@ const updated = [...prev, messageToAdd].slice(-500);
 return updated;
 });
 }
+
+
 };
 // V35: mantém ref sempre apontando para a versão mais recente (sem stale closure)
 handleIncomingDataRef.current = handleIncomingData;
@@ -7703,11 +8421,32 @@ conn.on('close', () => {
   worldQuizSubscribersRef.current.delete(peerIdToConnect);
   setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect));
   // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact no close de conexão.
-  // Limpar disparava setSidebarTab('general') no useEffect, tirando o usuário do chat privado
-  // durante reconexões (que usam backoff automático logo abaixo).
   setTimeout(checkAndAssumeQuizMaster, 1000);
   // V8-BUG#9: reset contador em close limpo
   if (window.__v8ReconAttempts) window.__v8ReconAttempts.delete(peerIdToConnect);
+
+  // V69-LOCK-3: dono desconectou → para o quiz automaticamente após 15s de graça
+  if (quizBotActiveRef.current && globalQuizOwnerRef.current && globalQuizOwnerRef.current === peerIdToConnect) {
+    const ownerWas = peerIdToConnect;
+    setTimeout(() => {
+      if (quizBotActiveRef.current && globalQuizOwnerRef.current === ownerWas) {
+        quizBotActiveRef.current = false;
+        globalQuizOwnerRef.current = null;
+        setQuizBotActive(false);
+        setGlobalQuizOwner(null);
+        if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
+        if (quizJitterTimerRef.current) clearTimeout(quizJitterTimerRef.current);
+        connectionsRef.current.forEach(c => {
+          if (c.open) try { c.send({ type: 'quiz-bot-global-toggle', active: false, owner: ownerWas }); } catch(e) {}
+        });
+        setMessages(prev => [...prev, {
+          text: '⚠️ O dono do Quiz Bot desconectou. O quiz foi parado automaticamente.',
+          sender: '__system__', recipient: 'you', senderName: 'System',
+          time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now()
+        }].slice(-500));
+      }
+    }, 15000);
+  }
 
   // FIX V48-NOBACKUP: removido failover automatico para K100-CENTRAL.
   // Quando o central cai, a reconexao ao mesmo ID e' tratada pelo retry de
@@ -7896,7 +8635,30 @@ conn.on('close', () => {
   worldQuizSubscribersRef.current.delete(porta); 
   setConnections(prev => prev.filter(c => c.peer !== porta)); 
   // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact — desconexão não deve jogar para aba Geral.
-  setTimeout(checkAndAssumeQuizMaster, 1000); 
+  setTimeout(checkAndAssumeQuizMaster, 1000);
+
+  // V69-LOCK-3: dono desconectou → para o quiz automaticamente após 15s de graça
+  if (quizBotActiveRef.current && globalQuizOwnerRef.current && globalQuizOwnerRef.current === porta) {
+    const ownerWas = porta;
+    setTimeout(() => {
+      if (quizBotActiveRef.current && globalQuizOwnerRef.current === ownerWas) {
+        quizBotActiveRef.current = false;
+        globalQuizOwnerRef.current = null;
+        setQuizBotActive(false);
+        setGlobalQuizOwner(null);
+        if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
+        if (quizJitterTimerRef.current) clearTimeout(quizJitterTimerRef.current);
+        connectionsRef.current.forEach(c => {
+          if (c.open) try { c.send({ type: 'quiz-bot-global-toggle', active: false, owner: ownerWas }); } catch(e) {}
+        });
+        setMessages(prev => [...prev, {
+          text: '⚠️ O dono do Quiz Bot desconectou. O quiz foi parado automaticamente.',
+          sender: '__system__', recipient: 'you', senderName: 'System',
+          time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now()
+        }].slice(-500));
+      }
+    }, 15000);
+  }
 });
 conn.on('error', (e) => { 
   addAudit(`[P2P] Erro na conexão com ${porta}: ${e?.message || '?' }`, 'error');
@@ -10576,6 +11338,22 @@ return (
 
 
 {showWorldRadios && <WorldRadiosModal lang={lang} onClose={() => setShowWorldRadios(false)} onBroadcast={startWorldRadioBroadcast} />}
+{showGruposPanel && (
+  <div className="media-controls-overlay" onClick={e => { if (e.target === e.currentTarget) setShowGruposPanel(false); }}>
+    <div className="media-controls-modal" style={{ maxWidth:'480px', width:'95vw', maxHeight:'85vh', overflowY:'auto' }}>
+      <div className="media-controls-header">
+        <h2>🔒 Grupos</h2>
+        <button className="tutorial-close" onClick={() => setShowGruposPanel(false)}>×</button>
+      </div>
+      <div style={{ padding:'12px' }}>
+        <AblyGroupSection onGroupOpen={(name, chId) => {
+          setShowGruposPanel(false);
+          setPendingGroup({ name, chId });
+        }} />
+      </div>
+    </div>
+  </div>
+)}
 {showMediaControls && (
   <div className="media-controls-overlay" onClick={e => { if (e.target === e.currentTarget) setShowMediaControls(false); }}>
   <div className="media-controls-modal">
@@ -10584,6 +11362,15 @@ return (
       <button className="tutorial-close" onClick={() => setShowMediaControls(false)}>×</button>
     </div>
       <div className="media-controls-options">
+
+        {/* ─── GROUP 0: GRUPOS ────────────────────────────────── */}
+        <div style={{ fontSize: '9px', letterSpacing: '2px', color: '#475569', fontWeight: '700', paddingBottom: '4px', borderBottom: '1px solid #334155', marginBottom: '4px' }}>
+          ◉ GRUPOS
+        </div>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowGruposPanel(true); }}>
+          <i className="fas fa-users" style={{color:'#818cf8'}}></i>
+          <div><div>🔒 Grupos</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Criar · entrar · gerenciar grupos</div></div>
+        </button>
 
         {/* ─── GROUP 1: COLLABORATION ─────────────────────────── */}
         <div style={{ fontSize: '9px', letterSpacing: '2px', color: '#475569', fontWeight: '700', paddingBottom: '4px', borderBottom: '1px solid #334155', marginBottom: '4px' }}>
@@ -11010,7 +11797,18 @@ onClose={handleYoutubeRadio}
 
 {showContacts ? (
 <ContactsScreen lang={lang} contacts={contacts} setContacts={setContacts} onBack={() => setShowContacts(false)}
-onSelectContact={(pId) => { connectToPeer(pId); setSelectedContact(pId); setShowContacts(false); }} avatars={avatars} />
+onSelectContact={(pId) => {
+  if (!activatedContactsRef.current.has(pId)) {
+    activatedContactsRef.current.add(pId);
+    setActivatedContacts(prev => { const s = new Set(prev); s.add(pId); return s; });
+  }
+  connectToPeer(pId); setSelectedContact(pId); setShowContacts(false);
+}}
+onSelectGroup={(name, chId) => {
+  setShowContacts(false);
+  setPendingGroup({ name, chId });
+}}
+avatars={avatars} />
 ) : (
 <ChatManager
 lang={lang}
@@ -11045,7 +11843,13 @@ currentQuizQuestionRef={currentQuizQuestionRef}
 connectionsRef={connectionsRef}
 directPeersRef={directPeersRef}
 directPeers={directPeers}
+activatedContactsRef={activatedContactsRef}
+activatedContacts={activatedContacts}
 isSuperNode={isSuperNode}
+pendingGroup={pendingGroup}
+setPendingGroup={setPendingGroup}
+quizBotActive={quizBotActive}
+onOpenQuizBot={() => setShowQuizBot(true)}
 />
 )}
 
