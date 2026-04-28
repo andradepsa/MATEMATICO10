@@ -10454,21 +10454,36 @@ const K10GatewayShadow = (() => {
   let crossGatewayPeers = new Set(); // peerId (não-K10) de outros gateways
   let crossGwDiscovTimer = null;
 
-  // ── V70: DUAL-SERVER PER GROUP ────────────────────────────────────────
+  // ── V70: DUAL-SERVER PER GROUP (MIRROR MODEL) ──────────────────────────
   // Cada sala com 2+ usuários deve ter DOIS servidores (primary + secondary).
-  // O primary é o gateway que criou o grupo.
-  // O secondary é recrutado entre gateways ociosos/com menos carga.
   //
-  // Quando somos PRIMARY:
-  //   groupSecondary[gid] = { gwId, conn, alive }
-  // Quando somos SECONDARY:
-  //   secondaryForGroups[gid] = { primaryId, positions: [...], conn }
+  // ARQUITETURA: cada gateway mantém UMA conexão persistente com outro
+  // gateway (o "mirror"). Todos os grupos com ≥2 users são espelhados
+  // nessa única conexão — sem abrir 1 conn por grupo.
+  //
+  // Com 5 gateways e 1000 salas: apenas 5 conexões de mirror no total.
+  //
+  // Quando somos PRIMARY (temos o mirror):
+  //   mirrorGwId, mirrorConn — conexão única ao mirror
+  //   mirroredGroups — Set<gid> — quais grupos estão sendo espelhados
+  //
+  // Quando somos MIRROR (espelhando grupos de outro primary):
+  //   mirrorPrimaries — Map<primaryGwId, { conn, groups: {gid: {positions}}, lastPing }>
   // ─────────────────────────────────────────────────────────────────────
-  let groupSecondary     = {};           // gid → { gwId, conn, alive, lastPing }
-  let secondaryForGroups = {};           // gid → { primaryId, positions, conn }
-  const GW_SECONDARY_PING_MS  = 15_000; // ping primary↔secondary
-  const GW_SECONDARY_TIMEOUT  = 40_000; // promove secondary se primary sumiu
-  let secondaryHealthTimer    = null;    // timer de health-check
+  let mirrorGwId          = null;    // ID do gateway que espelha nossos grupos
+  let mirrorConn          = null;    // DataConnection única ao mirror
+  let mirrorAlive         = false;
+  let mirrorLastPing      = 0;
+  let mirroredGroups      = new Set(); // gids com ≥2 users que estamos espelhando
+
+  // Quando somos o MIRROR de outro primary:
+  let mirrorPrimaries     = new Map(); // primaryGwId → { conn, groups: {gid: positions[]}, lastPing }
+
+  const GW_MIRROR_SYNC_MS     = 10_000; // sync completo periódico
+  const GW_MIRROR_PING_MS     = 15_000; // ping de health
+  const GW_MIRROR_TIMEOUT     = 40_000; // timeout para promoção
+  let mirrorSyncTimer         = null;
+  let mirrorHealthTimer       = null;
   // ─────────────────────────────────────────────────────────────────────
 
   // Timer de eleição proativa
@@ -10605,7 +10620,7 @@ const K10GatewayShadow = (() => {
 
   // ─────────────────────────────────────────────────────────────
   // NOVO: Reporte periódico ao K10-MONITOR (formato agregado)
-  // V70: inclui grupos onde somos secondary no reporte
+  // V70: inclui grupos espelhados (mirror) no reporte
   // ─────────────────────────────────────────────────────────────
   setInterval(() => {
     if (!isActive) return;
@@ -10615,28 +10630,23 @@ const K10GatewayShadow = (() => {
     for (const gid in activeGroups) {
       groups[gid] = activeGroups[gid].positions?.length || 0;
     }
-    // V70: Adiciona grupos onde somos secondary
-    for (const gid in secondaryForGroups) {
-      const secInfo = secondaryForGroups[gid];
-      const secCount = secInfo.positions ? secInfo.positions.length : 0;
-      if (!groups[gid]) {
-        groups[gid] = secCount;
-        total += secCount;
+    // V70: Adiciona grupos onde somos mirror de outro primary
+    mirrorPrimaries.forEach((info, primaryId) => {
+      for (const gid in (info.groups || {})) {
+        const mCount = info.groups[gid]?.length || 0;
+        if (!groups[gid]) {
+          groups[gid] = mCount;
+          total += mCount;
+        }
       }
-    }
-    // V70: inclui role e secondaryInfo no payload
-    const secondaryOf = {};
-    for (const gid in groupSecondary) {
-      secondaryOf[gid] = groupSecondary[gid].gwId;
-    }
-    const payload = {
-      t: 's', id: claimedId, total, groups,
-      dualServer: {
-        primaryFor: Object.keys(groupSecondary),
-        secondaryFor: Object.keys(secondaryForGroups),
-        secondaryMap: secondaryOf
-      }
+    });
+    // V70: inclui info de mirror no payload
+    const mirrorInfo = {
+      mirrorOf: mirrorGwId || null,
+      mirroringGroups: [...mirroredGroups],
+      mirrorForPrimaries: [...mirrorPrimaries.keys()]
     };
+    const payload = { t: 's', id: claimedId, total, groups, dualServer: mirrorInfo };
     const monConn = gwPeer.connect('K10-MON', { reliable: true });
     monConn.on('open', () => {
       try { monConn.send(payload); } catch(e) {}
@@ -10676,19 +10686,20 @@ const K10GatewayShadow = (() => {
 
   // ── Gerenciamento de grupos ───────────────────────────────────────────
 
-  // V70: retorna array com [primary, secondary?] para o grupo
+  // V70: retorna array com [primary, mirror?] para o grupo
   function _getGroupServers(gid) {
     const servers = claimedId ? [claimedId] : [];
-    // Se somos primary e temos secondary para este gid
-    if (groupSecondary[gid] && groupSecondary[gid].alive) {
-      servers.push(groupSecondary[gid].gwId);
+    // Se somos primary e temos mirror ativo espelhando este grupo
+    if (mirrorGwId && mirrorAlive && mirroredGroups.has(gid)) {
+      servers.push(mirrorGwId);
     }
-    // Se somos secondary para este gid, incluir primary + nós
-    if (secondaryForGroups[gid]) {
-      const primary = secondaryForGroups[gid].primaryId;
-      if (primary && !servers.includes(primary)) servers.unshift(primary);
-      if (claimedId && !servers.includes(claimedId)) servers.push(claimedId);
-    }
+    // Se somos mirror para este grupo de algum primary
+    mirrorPrimaries.forEach((info, primaryId) => {
+      if (info.groups && info.groups[gid]) {
+        if (!servers.includes(primaryId)) servers.unshift(primaryId);
+        if (claimedId && !servers.includes(claimedId)) servers.push(claimedId);
+      }
+    });
     return servers;
   }
 
@@ -10764,24 +10775,18 @@ const K10GatewayShadow = (() => {
       if (c && c.open) try { c.send(joinMsg); } catch(e) {}
     });
 
-    // V70: Recruta secondary quando grupo atinge 2+ usuários
-    if (group.positions.length >= 2 && !groupSecondary[gid]) {
-      console.log(`[Gateway V70] Grupo ${gid} atingiu ${group.positions.length} users — recrutando secondary`);
-      _recruitSecondary(gid);
-    }
-
-    // V70: Sincroniza join com secondary existente
-    if (groupSecondary[gid] && groupSecondary[gid].alive && groupSecondary[gid].conn) {
-      try {
-        groupSecondary[gid].conn.send({
-          type: 'gw-secondary-sync',
-          action: 'join',
-          gid: gid,
-          peerId: conn.peer,
-          positions: group.positions.slice(),
-          count: group.positions.length
-        });
-      } catch(e) { console.warn('[Gateway V70] Falha ao sincronizar join com secondary', e); }
+    // V70: Quando grupo atinge 2+ usuários, espelha no mirror
+    if (group.positions.length >= 2) {
+      // Estabelece mirror se ainda não temos
+      if (!mirrorGwId) _establishMirror();
+      // Adiciona grupo ao set de espelhados
+      if (!mirroredGroups.has(gid)) {
+        mirroredGroups.add(gid);
+        console.log(`[Gateway V70] Grupo ${gid} agora espelhado (${group.positions.length} users)`);
+        _broadcastGroupServersUpdate(gid);
+      }
+      // Sync incremental ao mirror
+      _syncGroupToMirror(gid);
     }
 
     // Grupo atingiu 50? Fechar e notificar
@@ -10841,31 +10846,16 @@ const K10GatewayShadow = (() => {
       if (idx < group.positions.length) group.positions[idx] = last;
     }
 
-    // V70: Sincroniza leave com secondary existente
-    if (groupSecondary[gid] && groupSecondary[gid].alive && groupSecondary[gid].conn) {
-      try {
-        groupSecondary[gid].conn.send({
-          type: 'gw-secondary-sync',
-          action: 'leave',
-          gid: gid,
-          peerId: peerId,
-          positions: group.positions.slice(),
-          count: group.positions.length
-        });
-      } catch(e) {}
+    // V70: Sincroniza leave com mirror
+    if (mirroredGroups.has(gid)) {
+      _syncGroupToMirror(gid);
     }
 
-    // V70: Se grupo ficou com <2 usuários, libera secondary
-    if (group.positions.length < 2 && groupSecondary[gid]) {
-      console.log(`[Gateway V70] Grupo ${gid} com ${group.positions.length} users — liberando secondary ${groupSecondary[gid].gwId}`);
-      try {
-        if (groupSecondary[gid].conn && groupSecondary[gid].conn.open) {
-          groupSecondary[gid].conn.send({ type: 'gw-secondary-release', gid });
-          setTimeout(() => { try { groupSecondary[gid].conn.close(); } catch(e) {} }, 500);
-        }
-      } catch(e) {}
-      delete groupSecondary[gid];
-      // Atualiza groupServers para todos os clientes
+    // V70: Se grupo ficou com <2 usuários, remove do espelhamento
+    if (group.positions.length < 2 && mirroredGroups.has(gid)) {
+      console.log(`[Gateway V70] Grupo ${gid} com ${group.positions.length} users — removendo do mirror`);
+      mirroredGroups.delete(gid);
+      _syncGroupToMirror(gid); // envia com 0/1 para mirror remover
       _broadcastGroupServersUpdate(gid);
     }
 
@@ -10905,126 +10895,159 @@ const K10GatewayShadow = (() => {
     });
   }
 
-  // ── V70: Dual-server recruitment & management ─────────────────────────
+  // ── V70: Mirror Gateway — funções core ─────────────────────────────────
   //
-  // _recruitSecondary(gid): primary procura um gateway ocioso/disponível
-  //   e pede que ele se torne secondary para o grupo gid.
-  // _broadcastGroupServersUpdate(gid): envia a lista atualizada de
-  //   groupServers a todos os clientes do grupo (após recruit/release).
-  // _startSecondaryHealthCheck(): pings periódicos primary↔secondary.
+  // _establishMirror(): conecta a UM outro gateway como espelho. UMA conexão
+  //   para TODOS os grupos — escala a 1000+ salas sem problema.
+  // _syncGroupToMirror(gid): envia estado de um grupo ao mirror.
+  // _syncAllGroupsToMirror(): envia estado de TODOS os grupos espelhados.
+  // _broadcastGroupServersUpdate(gid): notifica clientes de mudança de servers.
+  // _startMirrorHealth(): health check periódico.
+  // _onMirrorLost(): mirror morreu — tenta outro.
+  // _promoteMirrorToPrimary(primaryId): primary morreu — assumimos.
   // ─────────────────────────────────────────────────────────────────────
 
-  function _recruitSecondary(gid) {
+  function _establishMirror() {
     if (!isActive || !gwPeer || gwPeer.destroyed) return;
-    if (groupSecondary[gid]) return; // já tem secondary
+    if (mirrorConn && mirrorAlive) return; // já temos mirror
 
-    // Tenta recrutar gateways na ordem, excluindo o próprio
+    // Escolhe o candidato com round-robin simples (exclui a si mesmo)
     const candidates = GATEWAY_IDS.filter(id => id !== claimedId);
-    let pending = candidates.length;
-    let recruited = false;
+    if (candidates.length === 0) return;
 
-    candidates.forEach(candidateId => {
-      if (recruited) return;
+    let resolved = false;
+    let attempts = 0;
 
-      let resolved = false;
+    function _tryNextCandidate() {
+      if (resolved || attempts >= candidates.length) return;
+      const candidateId = candidates[attempts++];
+
       let probe;
       try { probe = gwPeer.connect(candidateId, { reliable: true }); }
-      catch(e) { pending--; return; }
-      if (!probe) { pending--; return; }
+      catch(e) { _tryNextCandidate(); return; }
+      if (!probe) { _tryNextCandidate(); return; }
 
       const t = setTimeout(() => {
         if (resolved) return;
-        resolved = true;
         try { probe.close(); } catch(e) {}
-        pending--;
+        _tryNextCandidate();
       }, 6_000);
 
       probe.on('open', () => {
-        if (resolved || recruited) { resolved = true; clearTimeout(t); try { probe.close(); } catch(e) {} return; }
-        // Envia pedido de recrutamento
+        if (resolved) { clearTimeout(t); try { probe.close(); } catch(e) {} return; }
+        // Pede para ser nosso mirror
         try {
           probe.send({
-            type: 'gw-secondary-recruit',
-            gid: gid,
-            primaryId: claimedId,
-            positions: activeGroups[gid] ? activeGroups[gid].positions.slice() : [],
-            count: activeGroups[gid] ? activeGroups[gid].positions.length : 0
+            type: 'gw-mirror-request',
+            primaryId: claimedId
           });
-        } catch(e) { resolved = true; clearTimeout(t); try { probe.close(); } catch(e2) {} return; }
+        } catch(e) { clearTimeout(t); try { probe.close(); } catch(e2) {} _tryNextCandidate(); return; }
       });
 
       probe.on('data', d => {
-        if (resolved || recruited) return;
-        // Aceitou ser secondary
-        if (d && d.type === 'gw-secondary-accept' && d.gid === gid) {
+        if (resolved) return;
+        if (d && d.type === 'gw-mirror-accept') {
           resolved = true;
-          recruited = true;
           clearTimeout(t);
-          console.log(`[Gateway V70] Secondary recrutado: ${candidateId} para grupo ${gid}`);
-          groupSecondary[gid] = {
-            gwId: candidateId,
-            conn: probe,
-            alive: true,
-            lastPing: Date.now()
-          };
+          mirrorGwId = candidateId;
+          mirrorConn = probe;
+          mirrorAlive = true;
+          mirrorLastPing = Date.now();
+          console.log(`[Gateway V70] Mirror estabelecido: ${candidateId} (1 conexão para todos os grupos)`);
 
-          // Escuta desconexão do secondary
-          probe.on('close', () => _onSecondaryLost(gid, candidateId));
-          probe.on('error', () => _onSecondaryLost(gid, candidateId));
-
-          // Escuta pings e mensagens relay do secondary
-          probe.on('data', secData => {
-            if (!secData || !secData.type) return;
-            if (secData.type === 'gw-secondary-ping') {
-              groupSecondary[gid].lastPing = Date.now();
-              try { probe.send({ type: 'gw-secondary-pong', gid }); } catch(e) {}
+          // Listener de dados do mirror (pongs, relays)
+          probe.on('data', mirrorData => {
+            if (!mirrorData || !mirrorData.type) return;
+            if (mirrorData.type === 'gw-mirror-pong') {
+              mirrorLastPing = Date.now();
             }
-            // Relay de mensagem vinda de um cliente no secondary
-            if (secData.type === 'gw-secondary-relay') {
-              const relayData = secData.payload;
-              if (relayData && gid && activeGroups[gid]) {
+            if (mirrorData.type === 'gw-mirror-relay') {
+              // Relay de mensagem vinda de cliente no mirror
+              const gid = mirrorData.gid;
+              const payload = mirrorData.payload;
+              if (payload && gid && activeGroups[gid]) {
                 activeGroups[gid].positions.forEach(pid => {
-                  if (pid === secData.originPeer) return;
+                  if (pid === mirrorData.originPeer) return;
                   const c = gwConns.get(pid);
-                  if (c && c.open) try { c.send(relayData); } catch(e) {}
+                  if (c && c.open) try { c.send(payload); } catch(e) {}
                 });
               }
             }
           });
 
-          // Avisa todos os clientes do grupo que agora há 2 servidores
-          _broadcastGroupServersUpdate(gid);
+          // Listener de desconexão
+          probe.on('close', () => _onMirrorLost());
+          probe.on('error', () => _onMirrorLost());
 
-          // Inicia health check periódico se ainda não rodando
-          if (!secondaryHealthTimer) _startSecondaryHealthCheck();
+          // Sync inicial completo de todos os grupos
+          _syncAllGroupsToMirror();
+          // Broadcast groupServers para todos os grupos espelhados
+          mirroredGroups.forEach(gid => _broadcastGroupServersUpdate(gid));
+          // Inicia health check
+          if (!mirrorHealthTimer) _startMirrorHealth();
+          return;
         }
-        // Recusou (ocupado, etc.)
-        if (d && d.type === 'gw-secondary-reject' && d.gid === gid) {
-          resolved = true;
+        if (d && d.type === 'gw-mirror-reject') {
           clearTimeout(t);
           try { probe.close(); } catch(e) {}
-          pending--;
+          _tryNextCandidate();
         }
       });
 
       probe.on('error', () => {
         if (resolved) return;
-        resolved = true;
         clearTimeout(t);
-        pending--;
+        _tryNextCandidate();
       });
-    });
+    }
+
+    _tryNextCandidate();
   }
 
-  function _onSecondaryLost(gid, lostGwId) {
-    if (!groupSecondary[gid] || groupSecondary[gid].gwId !== lostGwId) return;
-    console.log(`[Gateway V70] Secondary ${lostGwId} perdido para grupo ${gid} — re-recrutando`);
-    delete groupSecondary[gid];
-    _broadcastGroupServersUpdate(gid);
-    // Re-recruta se grupo ainda tem 2+ users
-    if (activeGroups[gid] && activeGroups[gid].positions.length >= 2) {
-      setTimeout(() => _recruitSecondary(gid), 2_000);
+  function _syncGroupToMirror(gid) {
+    if (!mirrorConn || !mirrorConn.open || !mirrorAlive) return;
+    const group = activeGroups[gid];
+    try {
+      mirrorConn.send({
+        type: 'gw-mirror-sync',
+        gid: gid,
+        positions: group ? group.positions.slice() : [],
+        count: group ? group.positions.length : 0,
+        active: mirroredGroups.has(gid)
+      });
+    } catch(e) { console.warn('[Gateway V70] Falha ao sincronizar grupo', gid, e); }
+  }
+
+  function _syncAllGroupsToMirror() {
+    if (!mirrorConn || !mirrorConn.open) return;
+    const allGroups = {};
+    for (const gid of mirroredGroups) {
+      if (activeGroups[gid]) {
+        allGroups[gid] = activeGroups[gid].positions.slice();
+      }
     }
+    try {
+      mirrorConn.send({
+        type: 'gw-mirror-full-sync',
+        primaryId: claimedId,
+        groups: allGroups
+      });
+    } catch(e) { console.warn('[Gateway V70] Falha no full-sync ao mirror', e); }
+  }
+
+  function _onMirrorLost() {
+    if (!mirrorGwId) return;
+    console.log(`[Gateway V70] Mirror ${mirrorGwId} perdido — tentando outro`);
+    const lostId = mirrorGwId;
+    mirrorGwId = null;
+    mirrorConn = null;
+    mirrorAlive = false;
+    // Notifica clientes que ficaram com 1 servidor
+    mirroredGroups.forEach(gid => _broadcastGroupServersUpdate(gid));
+    // Tenta estabelecer novo mirror após 3s
+    setTimeout(() => {
+      if (isActive && mirroredGroups.size > 0) _establishMirror();
+    }, 3_000);
   }
 
   function _broadcastGroupServersUpdate(gid) {
@@ -11035,70 +11058,72 @@ const K10GatewayShadow = (() => {
       const c = gwConns.get(pid);
       if (c && c.open) try { c.send(updateMsg); } catch(e) {}
     });
-    console.log(`[Gateway V70] Broadcast groupServers para ${gid}: [${servers.join(', ')}]`);
+    console.log(`[Gateway V70] Broadcast groupServers ${gid}: [${servers.join(', ')}]`);
   }
 
-  function _startSecondaryHealthCheck() {
-    if (secondaryHealthTimer) return;
-    secondaryHealthTimer = setInterval(() => {
+  function _startMirrorHealth() {
+    if (mirrorHealthTimer) return;
+    mirrorHealthTimer = setInterval(() => {
       const now = Date.now();
 
-      // PRIMARY: pinga secondaries
-      for (const gid in groupSecondary) {
-        const sec = groupSecondary[gid];
-        if (!sec.alive) continue;
-        if (sec.conn && sec.conn.open) {
-          try { sec.conn.send({ type: 'gw-secondary-ping', gid }); } catch(e) {}
-        }
-        // Timeout: secondary não responde há muito tempo
-        if (now - sec.lastPing > GW_SECONDARY_TIMEOUT) {
-          console.warn(`[Gateway V70] Secondary ${sec.gwId} timeout para grupo ${gid}`);
-          _onSecondaryLost(gid, sec.gwId);
+      // PRIMARY → ping mirror
+      if (mirrorConn && mirrorConn.open && mirrorAlive) {
+        try { mirrorConn.send({ type: 'gw-mirror-ping' }); } catch(e) {}
+        if (now - mirrorLastPing > GW_MIRROR_TIMEOUT) {
+          console.warn(`[Gateway V70] Mirror ${mirrorGwId} timeout`);
+          _onMirrorLost();
         }
       }
 
-      // SECONDARY: pinga primaries
-      for (const gid in secondaryForGroups) {
-        const info = secondaryForGroups[gid];
+      // MIRROR → ping primaries
+      mirrorPrimaries.forEach((info, primaryId) => {
         if (info.conn && info.conn.open) {
-          try { info.conn.send({ type: 'gw-secondary-ping', gid }); } catch(e) {}
+          try { info.conn.send({ type: 'gw-mirror-ping' }); } catch(e) {}
         }
-        // Timeout: primary sumiu → promover para primary
-        if (now - (info.lastPing || 0) > GW_SECONDARY_TIMEOUT) {
-          console.warn(`[Gateway V70] Primary ${info.primaryId} timeout — promovendo para primary no grupo ${gid}`);
-          _promoteSecondaryToPrimary(gid);
+        if (now - (info.lastPing || 0) > GW_MIRROR_TIMEOUT) {
+          console.warn(`[Gateway V70] Primary ${primaryId} timeout — promovendo`);
+          _promoteMirrorToPrimary(primaryId);
         }
-      }
+      });
 
-      // Se não temos mais nenhum papel dual, parar o timer
-      if (Object.keys(groupSecondary).length === 0 && Object.keys(secondaryForGroups).length === 0) {
-        clearInterval(secondaryHealthTimer);
-        secondaryHealthTimer = null;
+      // Se não temos papel dual, parar timer
+      if (!mirrorGwId && mirrorPrimaries.size === 0) {
+        clearInterval(mirrorHealthTimer);
+        mirrorHealthTimer = null;
       }
-    }, GW_SECONDARY_PING_MS);
+    }, GW_MIRROR_PING_MS);
+
+    // SYNC periódico — envia estado completo ao mirror a cada ciclo
+    if (!mirrorSyncTimer) {
+      mirrorSyncTimer = setInterval(() => {
+        if (mirrorConn && mirrorConn.open && mirrorAlive) {
+          _syncAllGroupsToMirror();
+        }
+      }, GW_MIRROR_SYNC_MS);
+    }
   }
 
-  function _promoteSecondaryToPrimary(gid) {
-    const info = secondaryForGroups[gid];
+  function _promoteMirrorToPrimary(primaryId) {
+    const info = mirrorPrimaries.get(primaryId);
     if (!info) return;
-    console.log(`[Gateway V70] PROMOÇÃO: agora somos primary do grupo ${gid} (era secondary)`);
-    // Migra estado para activeGroups como se fôssemos primary
-    if (!activeGroups[gid]) {
-      activeGroups[gid] = { positions: info.positions || [], open: true };
-      // Mapeia peers no peerGroupMap
-      (info.positions || []).forEach(pid => peerGroupMap.set(pid, gid));
-    }
-    // Limpa estado de secondary
-    try { if (info.conn && info.conn.open) info.conn.close(); } catch(e) {}
-    delete secondaryForGroups[gid];
-    // Tenta recrutar um NOVO secondary
-    setTimeout(() => {
-      if (activeGroups[gid] && activeGroups[gid].positions.length >= 2) {
-        _recruitSecondary(gid);
+    console.log(`[Gateway V70] PROMOÇÃO: assumindo ${Object.keys(info.groups || {}).length} grupos do primary ${primaryId}`);
+    // Migra todos os grupos para activeGroups
+    for (const gid in (info.groups || {})) {
+      const positions = info.groups[gid] || [];
+      if (!activeGroups[gid] && positions.length > 0) {
+        activeGroups[gid] = { positions: positions, open: positions.length < GW_MAX_GROUP };
+        positions.forEach(pid => peerGroupMap.set(pid, gid));
+        if (positions.length >= 2) mirroredGroups.add(gid);
       }
-    }, 3_000);
-    // Broadcast nova lista de servidores
-    _broadcastGroupServersUpdate(gid);
+      _broadcastGroupServersUpdate(gid);
+    }
+    // Limpa
+    try { if (info.conn && info.conn.open) info.conn.close(); } catch(e) {}
+    mirrorPrimaries.delete(primaryId);
+    // Estabelece nosso próprio mirror para os novos grupos
+    if (mirroredGroups.size > 0 && !mirrorGwId) {
+      setTimeout(() => _establishMirror(), 3_000);
+    }
   }
 
   // ── Cross-gateway peer discovery (FIX V58) ───────────────────────────
@@ -11242,86 +11267,80 @@ const K10GatewayShadow = (() => {
       return;
     }
 
-    // ── V70: Protocolo dual-server ─────────────────────────────────────
-    // Outro gateway quer que nós sejamos secondary para um grupo
-    if (data.type === 'gw-secondary-recruit') {
-      const gid = data.gid;
+    // ── V70: Protocolo mirror gateway ───────────────────────────────────
+    // Outro gateway quer que nós sejamos seu mirror (UMA conexão → todos os grupos)
+    if (data.type === 'gw-mirror-request') {
       const primaryId = data.primaryId;
-      // Remove conn do grupo local (foi auto-atribuído no open pelo _doAssignPeer)
-      _onPeerLeave(conn.peer);
+      console.log(`[Gateway V70] Mirror request de ${primaryId}`);
+      // Aceitar sempre (sem limite — é apenas 1 conexão)
+      try { conn.send({ type: 'gw-mirror-accept', mirrorId: claimedId }); } catch(e) {}
 
-      // Aceitar se estamos ociosos OU com pouca carga (< 2 grupos como secondary)
-      const secCount = Object.keys(secondaryForGroups).length;
-      if (secCount >= 3) {
-        // Recusar — já somos secondary de muitos grupos
-        try { conn.send({ type: 'gw-secondary-reject', gid, reason: 'overloaded' }); } catch(e) {}
-        setTimeout(() => { try { conn.close(); } catch(e) {} }, 500);
-        return;
-      }
-
-      console.log(`[Gateway V70] Aceitando ser secondary para grupo ${gid} (primary: ${primaryId})`);
-      secondaryForGroups[gid] = {
-        primaryId: primaryId,
-        positions: data.positions || [],
+      mirrorPrimaries.set(primaryId, {
         conn: conn,
+        groups: {},
         lastPing: Date.now()
-      };
-
-      try { conn.send({ type: 'gw-secondary-accept', gid, secondaryId: claimedId }); } catch(e) {}
-
-      // Escuta atualizações do primary
-      conn.on('close', () => {
-        console.log(`[Gateway V70] Conexão com primary ${primaryId} perdida para grupo ${gid}`);
-        if (secondaryForGroups[gid]) {
-          // Timeout irá detectar e promover se necessário
-          secondaryForGroups[gid].conn = null;
-        }
       });
 
-      // Inicia health check
-      if (!secondaryHealthTimer) _startSecondaryHealthCheck();
+      // Escuta desconexão do primary
+      conn.on('close', () => {
+        console.log(`[Gateway V70] Primary ${primaryId} desconectou`);
+        // Timeout irá detectar e promover se necessário
+        const info = mirrorPrimaries.get(primaryId);
+        if (info) info.conn = null;
+      });
+
+      // Inicia health check se não rodando
+      if (!mirrorHealthTimer) _startMirrorHealth();
       return;
     }
+    if (data.type === 'gw-mirror-reject') return; // noop, tratado no callback
 
-    // Sync de estado do primary → secondary (join/leave)
-    if (data.type === 'gw-secondary-sync') {
-      const gid = data.gid;
-      if (secondaryForGroups[gid]) {
-        if (data.action === 'join' || data.action === 'leave') {
-          secondaryForGroups[gid].positions = data.positions || [];
-          console.log(`[Gateway V70] Sync ${data.action} para grupo ${gid}: ${secondaryForGroups[gid].positions.length} users`);
+    // Sync incremental: um grupo mudou no primary
+    if (data.type === 'gw-mirror-sync') {
+      const senderId = conn.peer;
+      const info = mirrorPrimaries.get(senderId);
+      if (info) {
+        info.lastPing = Date.now();
+        if (data.active && data.positions && data.positions.length > 0) {
+          info.groups[data.gid] = data.positions;
+        } else {
+          delete info.groups[data.gid]; // grupo removido do espelhamento
         }
-        secondaryForGroups[gid].lastPing = Date.now();
       }
       return;
     }
 
-    // Primary liberou o secondary (grupo ficou com <2 users)
-    if (data.type === 'gw-secondary-release') {
-      const gid = data.gid;
-      console.log(`[Gateway V70] Liberado como secondary do grupo ${gid}`);
-      delete secondaryForGroups[gid];
+    // Sync completo: todos os grupos do primary de uma vez
+    if (data.type === 'gw-mirror-full-sync') {
+      const primaryId = data.primaryId || conn.peer;
+      const info = mirrorPrimaries.get(primaryId);
+      if (info) {
+        info.groups = data.groups || {};
+        info.lastPing = Date.now();
+        console.log(`[Gateway V70] Full-sync de ${primaryId}: ${Object.keys(info.groups).length} grupos espelhados`);
+      }
       return;
     }
 
-    // Pings de health check
-    if (data.type === 'gw-secondary-ping') {
-      // Atualizar lastPing no lado correto
-      const gid = data.gid;
-      if (secondaryForGroups[gid]) secondaryForGroups[gid].lastPing = Date.now();
-      try { conn.send({ type: 'gw-secondary-pong', gid }); } catch(e) {}
+    // Pings de health
+    if (data.type === 'gw-mirror-ping') {
+      // Atualizar lastPing
+      const info = mirrorPrimaries.get(conn.peer);
+      if (info) info.lastPing = Date.now();
+      if (conn.peer === mirrorGwId) mirrorLastPing = Date.now();
+      try { conn.send({ type: 'gw-mirror-pong' }); } catch(e) {}
       return;
     }
-    if (data.type === 'gw-secondary-pong') {
-      const gid = data.gid;
-      if (groupSecondary[gid]) groupSecondary[gid].lastPing = Date.now();
-      if (secondaryForGroups[gid]) secondaryForGroups[gid].lastPing = Date.now();
+    if (data.type === 'gw-mirror-pong') {
+      const info = mirrorPrimaries.get(conn.peer);
+      if (info) info.lastPing = Date.now();
+      if (conn.peer === mirrorGwId) mirrorLastPing = Date.now();
       return;
     }
 
-    // Relay de mensagem: secondary recebeu de um cliente e envia ao primary para broadcast
-    if (data.type === 'gw-secondary-relay') {
-      // Já tratado no listener do probe no _recruitSecondary
+    // Relay de mensagem (mirror → primary)
+    if (data.type === 'gw-mirror-relay') {
+      // Já tratado no listener da mirrorConn em _establishMirror
       return;
     }
     // ── Fim V70 ────────────────────────────────────────────────────────
@@ -11394,25 +11413,25 @@ const K10GatewayShadow = (() => {
     crossGatewayPeers.clear();
     if (crossGwDiscovTimer) { clearTimeout(crossGwDiscovTimer); crossGwDiscovTimer = null; }
     _discovCycle = 0;
-    // V70: limpa estado dual-server
-    for (const gid in groupSecondary) {
-      try { if (groupSecondary[gid].conn && groupSecondary[gid].conn.open) groupSecondary[gid].conn.close(); } catch(e) {}
-    }
-    groupSecondary = {};
-    for (const gid in secondaryForGroups) {
-      try { if (secondaryForGroups[gid].conn && secondaryForGroups[gid].conn.open) secondaryForGroups[gid].conn.close(); } catch(e) {}
-    }
-    secondaryForGroups = {};
-    if (secondaryHealthTimer) { clearInterval(secondaryHealthTimer); secondaryHealthTimer = null; }
+    // V70: limpa estado mirror
+    try { if (mirrorConn && mirrorConn.open) mirrorConn.close(); } catch(e) {}
+    mirrorGwId = null; mirrorConn = null; mirrorAlive = false;
+    mirroredGroups.clear();
+    mirrorPrimaries.forEach(info => { try { if (info.conn && info.conn.open) info.conn.close(); } catch(e) {} });
+    mirrorPrimaries.clear();
+    if (mirrorHealthTimer) { clearInterval(mirrorHealthTimer); mirrorHealthTimer = null; }
+    if (mirrorSyncTimer)   { clearInterval(mirrorSyncTimer);   mirrorSyncTimer = null; }
   }
 
   return {
     init, tryClaim,
     get isActive()  { return isActive; },
     get claimedId() { return claimedId; },
-    // V70: expõe estado dual-server para debugging/monitor
-    get groupSecondary()     { return groupSecondary; },
-    get secondaryForGroups() { return secondaryForGroups; }
+    // V70: expõe estado mirror para debugging/monitor
+    get mirrorGwId()        { return mirrorGwId; },
+    get mirrorAlive()       { return mirrorAlive; },
+    get mirroredGroups()    { return mirroredGroups; },
+    get mirrorPrimaries()   { return mirrorPrimaries; }
   };
 })();
 
