@@ -1,4 +1,31 @@
-<!-- ═══ Chat K10 V71 — Fix Quiz: MIN_QUIZ_INTERVAL=60s (vigilância), DEFAULT_QUIZ_INTERVAL=120s (exibição) (28/abr/2026) ═══
+<!-- ═══ Chat K10 V72 — NTP Clock Sync: elimina falsos positivos de vigilância do Quiz por dessincronismo de relógio (28/abr/2026) ═══
+     FIX V72: SINCRONIZAÇÃO DE RELÓGIO VIA NTP (worldtimeapi.org + timeapi.io)
+     ═══════════════════════════════════════════════════════════════════════════
+     Problema V71: cada peer usava Date.now() local para calcular o elapsed entre
+     quizzes. Dispositivos sem sincronização NTP (celulares em roaming, VMs, etc.)
+     podem ter relógios com drift de vários segundos a dezenas de segundos entre si.
+     Resultado: peers com relógios adiantados calculavam elapsed menor que o real
+     e disparavam broadcastQuizViolation mesmo que o intervalo fosse legítimo.
+     Exemplo observado: Brasil→16s, TESTE1→36s, F1-LOVE→45s para o mesmo evento.
+
+     Fix V72 — syncClock() com fallback em cascata:
+     1. fetchWithTimeout() com AbortController (3 s por API)
+     2. Tenta worldtimeapi.org/api/ip → extrai datetime ISO + compensa RTT/2
+     3. Fallback → timeapi.io/api/time/current/zone?timeZone=UTC
+     4. Calcula clockOffset = serverTime - Date.now() (inclui compensação de RTT)
+     5. trueNow() = Date.now() + clockOffsetRef.current — usado em TODO código
+        de vigilância e cooldown do quiz em vez de Date.now() puro
+     6. Re-sincroniza automaticamente a cada 5 minutos
+     7. Guard de sanidade: aceita offset apenas se |offset| < 30 s
+        (rejeita respostas corrompidas ou com latência absurda)
+     8. Em caso de falha total, clockOffset=0 → comportamento idêntico ao V71
+
+     Locais alterados:
+     - sendQuizQuestion(): lastQuizTimeRef.current = trueNow()
+     - askNextQuestion() cooldown: const now = trueNow()
+     - handleIncomingData __QUIZ__ vigilância: const now = trueNow()
+
+     ════════════ HISTÓRICO V71 ════════════
      FIX V71: SEPARAÇÃO DE CONSTANTES DE TEMPO DO QUIZ
      ══════════════════════════════════════════════════
      Problema V70: MIN_QUIZ_INTERVAL=120s era usada TANTO como trava de vigilância
