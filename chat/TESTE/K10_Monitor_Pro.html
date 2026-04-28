@@ -953,6 +953,187 @@ function render() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
+//  FUNÇÃO DE EXPORTAÇÃO DE RELATÓRIO DETALHADO (CORRIGIDA)
+// ═══════════════════════════════════════════════════════════════════════
+function exportReportsToTxt() {
+  const now = new Date();
+  const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, -5);
+  const filename = `K10_MONITOR_REPORT_${timestamp}.txt`;
+  let content = '';
+
+  // Cabeçalho
+  content += '=' .repeat(80) + '\n';
+  content += `K10 MONITOR PRO v8 - RELATÓRIO COMPLETO\n`;
+  content += `Gerado em: ${now.toLocaleString('pt-BR')}\n`;
+  content += `Monitor ID: ${document.getElementById('mon-id').value.trim() || 'K10-MON'}\n`;
+  content += `PeerID atual: ${peer ? (peer.id || 'não conectado') : 'desconectado'}\n`;
+  content += `Status: ${isRunning ? 'ONLINE' : 'OFFLINE'}\n`;
+  content += '=' .repeat(80) + '\n\n';
+
+  // Métricas gerais atuais
+  const groups = deriveGroups();
+  const totalUsersVal = totalUsers();
+  const totalGroupsVal = Object.keys(groups).length;
+  const gatewaysVal = totalGateways();
+  const groupServersVal = totalGroupServers();
+  const peakVal = peakUsers;
+  content += '📍 MÉTRICAS GERAIS (momento atual)\n';
+  content += '-'.repeat(40) + '\n';
+  content += `Total de usuários: ${fmt(totalUsersVal)} (${totalUsersVal.toLocaleString('pt-BR')})\n`;
+  content += `Grupos ativos: ${totalGroupsVal}\n`;
+  content += `Gateways ativos: ${gatewaysVal}\n`;
+  content += `Servidores de grupo (primário/secundário): ${groupServersVal}\n`;
+  content += `Pico de usuários na sessão: ${fmt(peakVal)} (${peakVal.toLocaleString('pt-BR')})\n`;
+  const avgSize = totalGroupsVal ? (totalUsersVal / totalGroupsVal).toFixed(1) : 0;
+  content += `Média de usuários por grupo: ${avgSize}\n`;
+  content += '\n';
+
+  // Sparklines (últimos valores)
+  content += '📈 SPARKLINES (últimos 30 ciclos de 30s = 15 min)\n';
+  content += '-'.repeat(40) + '\n';
+  content += `Usuários (histórico): ${userHistory.map(v => fmt(v)).join(' → ')}\n`;
+  content += `Grupos (histórico): ${groupHistory.join(' → ')}\n`;
+  content += `Gateways (histórico): ${serverHistory.join(' → ')}\n`;
+  content += `Eventos (splits+merges cumulativo): ${eventHistory.join(' → ')}\n`;
+  content += '\n';
+
+  // Health Score atual
+  const { score, breakdown, level } = computeHealthScore();
+  content += '🩺 HEALTH SCORE ATUAL\n';
+  content += '-'.repeat(40) + '\n';
+  content += `Score: ${score !== null ? score : 'indisponível'}/100 (${level.toUpperCase()})\n`;
+  if (breakdown && Object.keys(breakdown).length) {
+    content += `Breakdown: ${Object.entries(breakdown).map(([k, v]) => `${k}: ${v >= 0 ? '+' : ''}${v}`).join(', ')}\n`;
+  }
+  content += '\n';
+
+  // Health reports (últimos 5 snapshots)
+  content += '🔍 HEALTH REPORTS (últimos 5 ciclos de 30s)\n';
+  content += '-'.repeat(40) + '\n';
+  if (healthReports.length === 0) content += 'Nenhum relatório disponível ainda.\n';
+  else {
+    healthReports.forEach((r, idx) => {
+      content += `--- Snapshot ${idx+1} (${new Date(r.ts).toLocaleString('pt-BR')}) ---\n`;
+      content += `Usuários: ${fmt(r.totalUsers)} | Gateways: ${r.totalGateways} | Group Servers: ${r.totalGroupServers}\n`;
+      content += `Grupos: ${r.totalGroups} | Média: ${fmt(r.avgGroupSize)} | Splits: ${r.splits} | Merges: ${r.merges} | Compensates: ${r.compensates}\n`;
+      if (r.advanced) {
+        content += `   Avançadas: Grupos cheios: ${r.advanced.pctFull.toFixed(1)}% | Pequenos: ${r.advanced.pctSmall.toFixed(1)}% | CV: ${r.advanced.cv.toFixed(1)}% | Saturação: ${r.advanced.saturated.toFixed(1)}%\n`;
+      }
+      content += '\n';
+    });
+  }
+
+  // Grupos ativos detalhados
+  content += '◈ GRUPOS ATIVOS\n';
+  content += '-'.repeat(40) + '\n';
+  const sortedGroups = Object.entries(groups).sort((a, b) => b[1].n - a[1].n);
+  if (sortedGroups.length === 0) content += 'Nenhum grupo ativo.\n';
+  else {
+    sortedGroups.forEach(([gid, g]) => {
+      const pct = ((g.n / MAX_GRP) * 100).toFixed(1);
+      const entry = groupServersMap.get(gid);
+      const hasPrimary = entry && entry.primary && (Date.now() - entry.primary.ts) <= STALE;
+      const hasSecondary = entry && entry.secondary && (Date.now() - entry.secondary.ts) <= STALE;
+      let redundancy = '';
+      if (hasPrimary && hasSecondary) redundancy = '🛡️ (two servers)';
+      else if (hasPrimary && g.n >= 2) redundancy = '⚠️ (missing secondary)';
+      else if (hasPrimary) redundancy = '🔹 (only primary)';
+      else redundancy = '◻️ (no group server)';
+      content += `${gid}: ${fmt(g.n)}/${MAX_GRP} usuários (${pct}%) — ${redundancy}\n`;
+    });
+  }
+  content += '\n';
+
+  // Gateways detalhados
+  content += '◉ GATEWAYS ATIVOS (K10-GATE-*)\n';
+  content += '-'.repeat(40) + '\n';
+  const gwList = Object.keys(servers).filter(sid => sid.includes('-GATE-') && (Date.now() - servers[sid].ts) <= STALE);
+  if (gwList.length === 0) content += 'Nenhum gateway ativo.\n';
+  else {
+    gwList.forEach(sid => {
+      const s = servers[sid];
+      content += `${sid}: usuários=${fmt(s.total||0)}, grupos=${Object.keys(s.groups||{}).length}, último heartbeat há ${ago(s.ts)}\n`;
+    });
+  }
+  content += '\n';
+
+  // Group servers (2 por sala) detalhados
+  content += '◉ GROUP SERVERS (PRIMARY/SECONDARY POR SALA)\n';
+  content += '-'.repeat(40) + '\n';
+  const gsGids = Array.from(groupServersMap.keys()).sort();
+  if (gsGids.length === 0) content += 'Nenhum servidor de grupo ativo.\n';
+  else {
+    gsGids.forEach(gid => {
+      const entry = groupServersMap.get(gid);
+      const groupSize = groups[gid] ? groups[gid].n : 0;
+      content += `${gid} (${fmt(groupSize)} users):\n`;
+      content += `   PRIMARY: ${entry.primary ? entry.primary.id : '—'} ${entry.primary && (Date.now() - entry.primary.ts) <= STALE ? '' : '(offline)'}\n`;
+      content += `   SECONDARY: ${entry.secondary ? entry.secondary.id : '—'} ${entry.secondary && (Date.now() - entry.secondary.ts) <= STALE ? '' : '(offline)'}\n`;
+    });
+  }
+  content += '\n';
+
+  // Métricas avançadas atuais
+  const adv = computeAdvancedMetrics();
+  content += '📈 MÉTRICAS AVANÇADAS ATUAIS\n';
+  content += '-'.repeat(40) + '\n';
+  content += `Grupos cheios (≥${MAX_GRP}): ${adv.pctFull.toFixed(1)}%\n`;
+  content += `Grupos pequenos (<10): ${adv.pctSmall.toFixed(1)}%\n`;
+  content += `Desvio padrão dos tamanhos: ${adv.stdDev.toFixed(1)}\n`;
+  content += `Coeficiente de variação: ${adv.cv.toFixed(1)}%\n`;
+  content += `Saturação da rede: ${adv.saturated.toFixed(1)}%\n`;
+  content += `Servidores ociosos (total=0): ${adv.idleServers}\n`;
+  content += `Idade média dos heartbeats: ${adv.avgAge.toFixed(0)}s\n`;
+  content += `Taxa de splits+merges por minuto: ${adv.splitMergeRate.toFixed(2)}\n`;
+  content += '\n';
+
+  // Timeline de eventos
+  content += '⏱ TIMELINE DE EVENTOS DE TOPOLOGIA\n';
+  content += '-'.repeat(40) + '\n';
+  if (topologyTimeline.length === 0) content += 'Nenhum evento registrado.\n';
+  else {
+    topologyTimeline.slice(0, 50).forEach(e => {
+      const time = new Date(e.ts).toLocaleString('pt-BR');
+      content += `[${time}] ${e.kind.toUpperCase()}: ${e.msg}\n`;
+    });
+  }
+  content += '\n';
+
+  // Anomalias detectadas
+  content += '⚠️ ANOMALIAS DETECTADAS\n';
+  content += '-'.repeat(40) + '\n';
+  if (anomalies.length === 0) content += 'Nenhuma anomalia.\n';
+  else {
+    anomalies.forEach(a => {
+      const time = new Date(a.ts).toLocaleString('pt-BR');
+      content += `[${time}] ${a.msg}\n`;
+    });
+  }
+  content += '\n';
+
+  // Log de sistema (últimas 20 linhas)
+  content += '◎ LOG DO SISTEMA (últimas 50 linhas)\n';
+  content += '-'.repeat(40) + '\n';
+  logs.slice(-50).forEach(l => {
+    content += `[${l.ts}] ${l.msg}\n`;
+  });
+  content += '\n';
+
+  // Rodapé
+  content += '=' .repeat(80) + '\n';
+  content += 'Fim do relatório. Coleta completa dos servidores de grupo e gateways.\n';
+
+  // Download
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(link.href);
+  log(`Relatório exportado: ${filename}`, 'ok');
+}
+
+// ═══════════════════════════════════════════════════════════════════════
 //  START / STOP
 // ═══════════════════════════════════════════════════════════════════════
 function startMon() {
