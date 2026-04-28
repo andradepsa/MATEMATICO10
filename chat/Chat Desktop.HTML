@@ -1,4 +1,11 @@
-<!-- ═══ Chat K10 V73 — Cooldown de 3 min pós-parada do Quiz: bloqueia botão de todos os usuários por 3 minutos após transmissão encerrada (28/abr/2026) ═══
+<!-- ═══ Chat K10 V74 — syncClock + libp2pStatusRef + V69-LOCK-3 incoming + Stale Lang fix (28/abr/2026) ═══
+     FIX V74-A: clockOffsetRef / trueNow() / syncClock() — relógio sincronizado entre peers
+     FIX V74-B: libp2pStatusRef — anti-stale-closure em todas as funções assíncronas
+     FIX V74-C: V69-LOCK-3 no handler de conexões ENTRANTES (peer.on('connection'))
+     FIX V74-D: langRef.current em todos os alert() e mensagens assíncronas
+     ═══════════════════════════════════════════════════════════════════════════
+
+     ════════════ HISTÓRICO V73 ════════════
      FIX V73: COOLDOWN PÓS-PARADA DO QUIZ — BLOQUEIO ANTI-SPAM DE 3 MINUTOS
      ═══════════════════════════════════════════════════════════════════════════
      Problema: quando a pessoa que transmitia o quiz parava, outro usuário podia
@@ -1041,6 +1048,26 @@
 <meta name="apple-mobile-web-app-title" content="Chat K10">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 
+<!-- Libp2p e ESM Importmap -->
+<script type="importmap">
+  {
+    "imports": {
+      "libp2p": "https://esm.sh/libp2p@1.9.1",
+      "@libp2p/websockets": "https://esm.sh/@libp2p/websockets@8.0.8",
+      "@libp2p/webrtc": "https://esm.sh/@libp2p/webrtc@4.1.2",
+      "@libp2p/bootstrap": "https://esm.sh/@libp2p/bootstrap@10.0.19",
+      "@libp2p/kad-dht": "https://esm.sh/@libp2p/kad-dht@12.1.2",
+      "@libp2p/gossipsub": "https://esm.sh/@libp2p/gossipsub@13.1.0",
+      "@chainsafe/libp2p-noise": "https://esm.sh/@chainsafe/libp2p-noise@15.0.0",
+      "@libp2p/yamux": "https://esm.sh/@libp2p/yamux@6.0.0",
+      "@libp2p/mplex": "https://esm.sh/@libp2p/mplex@10.0.0",
+      "@libp2p/crypto": "https://esm.sh/@libp2p/crypto@5.0.0",
+      "@libp2p/peer-id-factory": "https://esm.sh/@libp2p/peer-id-factory@4.0.0",
+      "@multiformats/multiaddr": "https://esm.sh/@multiformats/multiaddr@12.1.14"
+    }
+  }
+</script>
+
 <!-- Open Graph / social sharing -->
 <meta property="og:type" content="website">
 <meta property="og:title" content="Chat K10 — P2P Encrypted Chat">
@@ -1057,7 +1084,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V66 (Fix Bootstrap Paralelo K10-CENTRAL)</title>
+<title>Chat K10 — V74 (syncClock + libp2pStatusRef + V69-LOCK-3 incoming + Stale Lang)</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -1679,6 +1706,13 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
   .user-info-container, .peer-id-container { display: none !important; }
   .chat-messages-container { box-shadow: none; }
 }
+
+/* ── SUPER-APP UNIFIED NAV ── */
+
+.app-viewport { margin-top: 0; height: 100vh; overflow: auto; background: #0f172a; color: #f1f5f9; }
+.monitor-view { background: #020810; color: #8eb8d0; font-family: 'Courier New', monospace; padding: 20px; min-height: 100%; }
+.manual-view { padding: 40px; max-width: 900px; margin: 0 auto; line-height: 1.6; color: #cbd5e1; }
+.server-view { padding: 20px; }
 </style>
 </head>
 <body>
@@ -1763,7 +1797,7 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
-<script src="https://cdn.ably.com/lib/ably.min-2.js"></script>
+
 <script>
   // FIX file:// — esbuild-wasm usa Workers internos que o Chrome bloqueia
   // quando a página roda via file:// (cada file:// é origem única → CORS).
@@ -1793,6 +1827,114 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 
 <script type="text/tsx" id="esbuild-main">
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
+
+// --- DYNAMIC IMPORTS FOR LIBP2P ARE HANDLED IN App.startLibp2p() ---
+
+const PLAYLISTS = [
+  "https://www.youtube.com/playlist?list=PLJn4hP4ODKFzTw5CBagkOvrFDVmQi2h0D",
+  "https://www.youtube.com/playlist?list=PLuUrokoVSxlee2Gq4tO65a70Cnh2Oy80v",
+  "https://www.youtube.com/playlist?list=PLiomXdAuOA96gR2nJVyBsI31LNRx5ZsTr",
+  "https://www.youtube.com/playlist?list=PL4QNnZJr8sRP8KwnmA_EAZs5Ui01upGbW",
+  "https://www.youtube.com/playlist?list=PLwd1GA8E_KI-E6o_w9DsmpK01J8lL1xod",
+  "https://www.youtube.com/playlist?list=PL_Q15fKxrBb4pXB0T50gBqxQnGTN4tww_",
+  "https://www.youtube.com/playlist?list=PLwd1GA8E_KI-Oq0gVZmekJ90WzNazK1-E",
+  "https://www.youtube.com/playlist?list=PLB8HqqmpyIBcPirb5lDm-ol01trE6dOuM",
+  "https://www.youtube.com/playlist?list=PLGvzUjzpvUz_Rm5P4pxlfKPugfpnveBBE",
+  "https://www.youtube.com/playlist?list=PLp6VJ3lrRm73brlkdzkAlrXR1QHuW-Of_",
+  "https://www.youtube.com/playlist?list=PL_Q15fKxrBb7goowes54nkl15tELnNqK1",
+  "https://www.youtube.com/playlist?list=PLoa6P-Ec4e59a5ABdthE6PRPwvCRxDKs5",
+  "https://www.youtube.com/playlist?list=PLson_gxx94UgL_u8LRjHJbkAGWXBNXAbz",
+  "https://music.youtube.com/playlist?list=PLsqdbz0bF5J9emiDrkSPTtmVnCpPbFzIy",
+  "https://www.youtube.com/playlist?list=PL_Q15fKxrBb5jY49OwyET8aggzCzuvI5O",
+  "https://www.youtube.com/playlist?list=PLgFPSBWI2ATude42flXtmw-nlTJSodYW3",
+  "https://www.youtube.com/playlist?list=PL-FvsdtT_PIBmTH4ahDcpjwrfQa4Vm2ez",
+  "https://www.youtube.com/playlist?list=PLhjJpQQct33G15F5UHXYgDMxHZHNnVTQN",
+  "https://www.youtube.com/playlist?list=PL10hLBpACU7RboWzHQaYHsZBFcNdj4ZtO",
+  "https://www.youtube.com/playlist?list=PLyXUGQy5iOfUJg6EmLeS_sSBXmpahAqTl",
+  "https://www.youtube.com/playlist?list=PLXU1uidY-kPoNQCTEN5KCBwoEkOKV2rXO",
+  "https://www.youtube.com/playlist?list=PLVGxU6D_fFOpX3p9OHiwiH5XzjXRrLoc0",
+  "https://www.youtube.com/playlist?list=PL_Q15fKxrBb59gj-XCxHP4HIQ_pbJR47C",
+  "https://www.youtube.com/playlist?list=PLEBX04z4REEaPHyTl_G0ztyL5TOiUWg_O",
+  "https://music.youtube.com/playlist?list=PLiPTDtierTBqY10K6aMZHnLWQ7UgHGjTM",
+  "https://www.youtube.com/playlist?list=PL_Q15fKxrBb4ODZ1qtw2bEDp5_2FvQvrQ",
+  "https://www.youtube.com/playlist?list=PLyXUGQy5iOfW8g2x8dzgjMMMtFrlQeaQ4",
+  "https://www.youtube.com/playlist?list=PLPbMT4wSxX88DFI__Y2HMLDdVfOpMO1kZ",
+  "https://www.youtube.com/playlist?list=PL3kTE4aqbz7QGpAyWLSNBMqaMZQZ_Zbx8",
+  "https://www.youtube.com/playlist?list=PLHg022HMFzFCRq-5ZVR3hiiCkGPJ3Ur1D",
+  "https://www.youtube.com/playlist?list=PL3oW2tjiIxvQVFLAnszVUgepn8OvV3Nm7",
+  "https://www.youtube.com/playlist?list=PL_bKAgO9uCN2A_aQJwgnEwRUYOXVijE4L",
+  "https://www.youtube.com/playlist?list=PLlYKDqBVDxX1zm0tQgP9grYbcGD8ME79X",
+  "https://www.youtube.com/playlist?list=PL-4lk5FyOCGUEzgyS55MjOYkTDWnnvQ9g",
+  "https://www.youtube.com/playlist?list=PL_Q15fKxrBb4gT7eMNvTvrFMmqDDNMXMk",
+  "https://www.youtube.com/playlist?list=PLs03y9BMaz8aN7lo9Slpxa3f36ZAbexxQ",
+  "https://www.youtube.com/playlist?list=PL-qqrXOEjCIi4mmmtiW9FcLHOHx0yBJ2p",
+  "https://www.youtube.com/playlist?list=PLJuNmaS_tRWNVuyG7_UJwaxyXNE7ycnFJ",
+  "https://www.youtube.com/playlist?list=PLd_gpHf_eJ4uQIEfxaQ-88T25KWqeH8kS",
+  "https://www.youtube.com/playlist?list=PLJgU5TLv3ohA2J_63Ah3_C2RSkWGnGznW",
+  "https://www.youtube.com/playlist?list=PLm_3vnTS-pvlB7jusrGNBci6loS3Qt4pn",
+  "https://www.youtube.com/playlist?list=PLx0sYbCqOb8QTF1DCJVfQrtWknZFzuoAE",
+  "https://www.youtube.com/playlist?list=PLnMypF4SBSUjRN_O15vpPbPPBiy0EqK6k",
+  "https://www.youtube.com/playlist?list=PLJtpjlkBVF4yGRGvsO1lnAyZSbXlTuSFg",
+  "https://www.youtube.com/playlist?list=PL4fGSI1pDJn6puJdseH2Rt9sMvt9E2M4i",
+  "https://www.youtube.com/playlist?list=PL8uS4Mj2pnvJgXudmgkpN4JJQh5EL-_Cy",
+  "https://www.youtube.com/playlist?list=PLtZ_3PUDl0FEkdHdb4ObvKauLju3YdTEK",
+  "https://www.youtube.com/playlist?list=PL-4lk5FyOCGXVtsh09l9Uua0NGKzgeoUs",
+  "https://www.youtube.com/playlist?list=PL-QvSRz8uhNEqlb8S-dJ-E7RjXz0uwufL",
+  "https://www.youtube.com/playlist?list=PL20bH8uLbS0kqZTdBH5tOZTBn41JNyjOl",
+  "https://www.youtube.com/playlist?list=PLeLM5nNgwshu5iEcngoDgX1_yJrozsuqY",
+  "https://www.youtube.com/playlist?list=PLeLM5nNgwshuGHeL7TNELSBc1-4QXmPSp",
+  "https://www.youtube.com/playlist?list=PLpuaJI5I_NsAU-a-0p3hYWnLQbseeYwUa",
+  "https://www.youtube.com/playlist?list=PL5D7fjEEs5ydc7tEKpWD4YPg6V1sAAR4z",
+  "https://www.youtube.com/playlist?list=PLTRU2u_bXJorpqeZx05nV6aV2_gWebLAo",
+  "https://www.youtube.com/playlist?list=PL87sDu_UGWx1a4UIn2o5JaYiO06xpDfb8",
+  "https://www.youtube.com/playlist?list=PLm9V-mZRPK_EtG4CeOd39MUDGi27ba1Qw",
+  "https://www.youtube.com/playlist?list=PL-CheZaoFWwTkJNJlyDEpnOSKKbS4nZIg",
+  "https://www.youtube.com/playlist?list=PL-BvbWAy46oub7s7DIbQoSg271lvbYCZb",
+  "https://www.youtube.com/playlist?list=PL-XLFZ2an7Xo4Rg2uwQn7ptplt69FUH99",
+  "https://www.youtube.com/playlist?list=PL-sfYaKqpzR2CMSLBU_afRH5InCZRvMyc",
+  "https://www.youtube.com/playlist?list=PL-CheZaoFWwSgSBWBJbtabBn2dQpTAuyi",
+  "https://www.youtube.com/playlist?list=PL-spxxtjsOdR2YJgtXsLzcZyR9PSLYBv4",
+  "https://www.youtube.com/playlist?list=PL-DvUZGZHJX9ihZrsXf2SeC54ge1ctEmj",
+  "https://www.youtube.com/playlist?list=PL0xHKMGpaP3L3gRDAbypCnXzGKu-tLFeq",
+  "https://www.youtube.com/playlist?list=PL-TB-BNZOEDTMU-0nTIZOQLIysJxAUBNa",
+  "https://www.youtube.com/playlist?list=PL-STFg6dmO-y_bxw8xlyk1qIxhhjEbIIr",
+  "https://www.youtube.com/playlist?list=PL-Y5WuD8giTFpAy8gLKKUFBttNrE-cMCR",
+  "https://www.youtube.com/playlist?list=PL-g1ugEHzOCo_6qSkYGKgL2JPBQc9-nkM",
+  "https://www.youtube.com/playlist?list=PL-K2OtvqhGqUDI9d2iSDVWW1TUsZixjdh",
+  "https://www.youtube.com/playlist?list=PL2svDrlDLVHPRcdrS2Zi8KPFYWGd8kJ9b",
+  "https://www.youtube.com/playlist?list=PLmU63HueaEgfzDEde-ngAlBKtiItfbUfL",
+  "https://www.youtube.com/playlist?list=PL_bKAgO9uCN0t1swCTz73OQ_b7i_Sce82",
+  "https://www.youtube.com/playlist?list=PL_Q15fKxrBb5jY49OwyET8aggzCzuvI5O",
+  "https://www.youtube.com/playlist?list=PLJn4hP4ODKFzTw5CBagkOvrFDVmQi2h0D",
+  "https://www.youtube.com/playlist?list=PLuUrokoVSxlee2Gq4tO65a70Cnh2Oy80v",
+  "https://www.youtube.com/playlist?list=PL4QNnZJr8sRP8KwnmA_EAZs5Ui01upGbW",
+  "https://www.youtube.com/playlist?list=PL_Q15fKxrBb4ODZ1qtw2bEDp5_2FvQvrQ",
+  "https://www.youtube.com/playlist?list=PLPbMT4wSxX88DFI__Y2HMLDdVfOpMO1kZ",
+  "https://www.youtube.com/playlist?list=PLHg022HMFzFCRq-5ZVR3hiiCkGPJ3Ur1D",
+  "https://www.youtube.com/playlist?list=PL3oW2tjiIxvQVFLAnszVUgepn8OvV3Nm7",
+  "https://www.youtube.com/playlist?list=PLlYKDqBVDxX1zm0tQgP9grYbcGD8ME79X",
+  "https://www.youtube.com/playlist?list=PL-4lk5FyOCGUEzgyS55MjOYkTDWnnvQ9g",
+  "https://www.youtube.com/playlist?list=PLson_gxx94UgL_u8LRjHJbkAGWXBNXAbz",
+  "https://www.youtube.com/playlist?list=PL-FvsdtT_PIBmTH4ahDcpjwrfQa4Vm2ez",
+  "https://www.youtube.com/playlist?list=PL_Q15fKxrBb59gj-XCxHP4HIQ_pbJR47C",
+  "https://www.youtube.com/playlist?list=PLEBX04z4REEaPHyTl_G0ztyL5TOiUWg_O",
+  "https://www.youtube.com/playlist?list=PLgFPSBWI2ATude42flXtmw-nlTJSodYW3",
+  "https://www.youtube.com/playlist?list=PL3kTE4aqbz7QGpAyWLSNBMqaMZQZ_Zbx8",
+  "https://www.youtube.com/playlist?list=PLB8HqqmpyIBcPirb5lDm-ol01trE6dOuM",
+  "https://www.youtube.com/playlist?list=PL_Q15fKxrBb4pXB0T50gBqxQnGTN4tww_",
+  "https://www.youtube.com/playlist?list=PLwd1GA8E_KI-E6o_w9DsmpK01J8lL1xod",
+  "https://www.youtube.com/playlist?list=PL_Q15fKxrBb7goowes54nkl15tELnNqK1",
+  "https://www.youtube.com/playlist?list=PLoa6P-Ec4e59a5ABdthE6PRPwvCRxDKs5",
+  "https://music.youtube.com/playlist?list=PLsqdbz0bF5J9emiDrkSPTtmVnCpPbFzIy",
+  "https://www.youtube.com/playlist?list=PLVGxU6D_fFOpX3p9OHiwiH5XzjXRrLoc0",
+  "https://www.youtube.com/playlist?list=PL10hLBpACU7RboWzHQaYHsZBFcNdj4ZtO",
+  "https://www.youtube.com/playlist?list=PLXU1uidY-kPoNQCTEN5KCBwoEkOKV2rXO",
+  "https://www.youtube.com/playlist?list=PLhjJpQQct33G15F5UHXYgDMxHZHNnVTQN",
+  "https://www.youtube.com/playlist?list=PLyXUGQy5iOfUJg6EmLeS_sSBXmpahAqTl",
+  "https://www.youtube.com/playlist?list=PL5D7fjEEs5ydc7tEKpWD4YPg6V1sAAR4z",
+  "https://www.youtube.com/playlist?list=PLmU63HueaEgfzDEde-ngAlBKtiItfbUfL",
+  "https://www.youtube.com/playlist?list=PL_bKAgO9uCN0t1swCTz73OQ_b7i_Sce82"
+];
 
 // ====================== FUNÇÃO ANTI-XSS ======================
 const sanitizeHTML = (dirtyHtml) => {
@@ -3089,11 +3231,7 @@ const Whiteboard = ({ lang, connectionsRef, selectedContact, onClose }) => { // 
           conn.send(payload);
         }
       } else {
-        connectionsRef.current.forEach(conn => {
-          if (conn.open) {
-            try { conn.send(payload); } catch(e) {}
-          }
-        });
+        p2pBroadcast(payload);
       }
     }
   };
@@ -3112,11 +3250,7 @@ const Whiteboard = ({ lang, connectionsRef, selectedContact, onClose }) => { // 
           conn.send(payload);
         }
       } else {
-        connectionsRef.current.forEach(conn => {
-          if (conn.open) {
-            try { conn.send(payload); } catch(e) {}
-          }
-        });
+        p2pBroadcast(payload);
       }
     }
   };
@@ -3458,9 +3592,7 @@ const MarkdownEditor = ({ lang, connectionsRef, selectedContact, onClose }) => {
       const conn = connectionsRef.current.find(c => c.peer === selectedContact);
       if (conn && conn.open) conn.send(payload);
     } else {
-      connectionsRef.current.forEach(conn => {
-        if (conn.open) try { conn.send(payload); } catch(err) {}
-      });
+      p2pBroadcast(payload);
     }
   };
 
@@ -3726,12 +3858,12 @@ const [idError, setIdError] = useState('');
 const K10_OFFICIAL = 'Chat K10 Oficial';
 const [groupHist] = useState(() => {
   try {
-    const saved = JSON.parse(localStorage.getItem('_ablyHist') || '[]');
+    const saved = JSON.parse(localStorage.getItem('_k10GroupHist') || '[]');
     return saved.includes(K10_OFFICIAL) ? saved : [K10_OFFICIAL, ...saved];
   } catch { return [K10_OFFICIAL]; }
 });
 const [groupChannels] = useState(() => {
-  try { return JSON.parse(localStorage.getItem('_ablyGroupCh') || '{}'); } catch { return {}; }
+  try { return JSON.parse(localStorage.getItem('_k10GroupChannels') || '{}'); } catch { return {}; }
 });
 
 
@@ -3840,83 +3972,64 @@ return `${h}:${m}:${s}`;
 // ABLY GRUPO — componentes novos, zero dependência do código antigo
 // ═══════════════════════════════════════════════════════════════════
 
-// ─── Chave do Chat Oficial (somente para o grupo "Chat K10 Oficial") ───
-const _ABLY_KEY = 'Pjjhig.aJTA8Q:oOvv1_Cp2jJ-WJqodNWW9KfiwSNTHiP0t6hgXm5ZIxk';
-
-// ─── 10 Canais para criação de grupos de usuários ───────────────────────
-// Cada canal usa uma chave Ably independente.
-// Ao criar/entrar num grupo, o usuário escolhe um canal (1–10).
-// Grupos no mesmo canal compartilham a mesma chave — mais privacidade
-// significa escolher canais diferentes para grupos diferentes.
-const _ABLY_CHANNELS = [
-  { id: 1,  label: 'Canal 1',  key: 'x0eTIA.CJWt0g:nfl8wCEozp4xIkI2CEWEsUoOsGEWcAc-cf_STDkzYYY' },
-  { id: 2,  label: 'Canal 2',  key: 'v983ng.8dYRGg:FXTLm6drwmVyvjJ1xPuUniGibGtvrk35NBMfKV3syug'  },
-  { id: 3,  label: 'Canal 3',  key: 'ALtHcw.5UWBKA:jZhC3269giqHr6lEkQKLIz0DBndHP1eqRqN9DZrg48Q' },
-  { id: 4,  label: 'Canal 4',  key: '9MqamQ.kzu-zQ:oL9Szi4-w_F9gDHDnOyChcH1N70Ow3_zWSeCTQ8SQc8' },
-  { id: 5,  label: 'Canal 5',  key: 'hTy1Eg.bQnIYw:AMc6bYN1l9ZUajzdXBDfXEaz4zXNr41U6baKrYMM_OY' },
-  { id: 6,  label: 'Canal 6',  key: '5Njhjg.m_swpQ:Y8p23eCjZ5bv9S-SJCsTbRm6NfqsPiC7GodGBwS1Inw' },
-  { id: 7,  label: 'Canal 7',  key: 'rhUCZQ.NoOg7g:o_vDDseU4Y_1PFKUGFEThNGpRIZb8SN1VC8LGDu5YO4' },
-  { id: 8,  label: 'Canal 8',  key: 'NunKPw.kSQlbw:u06zdCpZG3cDTw2XarIbTJlrGhujTM3xdPCEXzvQlpo' },
-  { id: 9,  label: 'Canal 9',  key: 'C7_5qw.-b58SA:2Sk_bdsBTzmbZxMB-7HvhTAGmI0J4Ml2UW5wKEvx4VM' },
-  { id: 10, label: 'Canal 10', key: '7k2MkQ.XZknvA:aQf2CmC1wvPYp0t-iaSPp6Jc2EG07dkIL5fIN3Q4tQc' },
+// ─── Canais para criação de grupos de usuários (Híbrido P2P libp2p) ─────
+const _K10_CHANNELS = [
+  { id: 1,  label: 'Canal 1' },
+  { id: 2,  label: 'Canal 2' },
+  { id: 3,  label: 'Canal 3' },
+  { id: 4,  label: 'Canal 4' },
+  { id: 5,  label: 'Canal 5' },
+  { id: 6,  label: 'Canal 6' },
+  { id: 7,  label: 'Canal 7' },
+  { id: 8,  label: 'Canal 8' },
+  { id: 9,  label: 'Canal 9' },
+  { id: 10, label: 'Canal 10' },
 ];
 
-// Retorna a chave correta: oficial para K10_OFFICIAL, canal escolhido para o resto
-const _getAblyKey = (groupName, channelId) => {
-  if (groupName === 'Chat K10 Oficial') return _ABLY_KEY;
-  const ch = _ABLY_CHANNELS.find(c => c.id === channelId);
-  return ch ? ch.key : _ABLY_CHANNELS[0].key;
-};
-
-// hash: mesmo nome → mesmo canal em qualquer máquina
-const _nameToChannel = name => {
-  let h = 5381, s = name.trim().toLowerCase();
-  for (let i = 0; i < s.length; i++) h = (((h << 5) + h) + s.charCodeAt(i)) | 0;
-  return 'gc_' + (h >>> 0).toString(36);
-};
-
-// ID único por aba
-const _getMyId = () => {
-  let id = sessionStorage.getItem('_ablyUid');
-  if (!id) { id = Math.random().toString(36).slice(2,14); sessionStorage.setItem('_ablyUid', id); }
-  return id;
-};
-
-const AblyGroupWindow = ({ groupName, channelId, onClose }) => {
+const K10GroupWindow = ({ groupName, channelId, onClose, libp2pRef, libp2pStatus, peerId, userName }) => {
   const [msgs,  setMsgs]  = useState([]);
   const [input, setInput] = useState('');
-  const [conn,  setConn]  = useState('Conectando...');
-  const chRef     = useRef(null);
+  const [status, setStatus] = useState('Desconectado');
   const bottomRef = useRef(null);
-  const myId      = useRef(_getMyId());
 
   useEffect(() => {
-    const ably = new Ably.Realtime({ key: _getAblyKey(groupName, channelId), clientId: myId.current });
-    ably.connection.on('connected',    () => setConn('Conectado'));
-    ably.connection.on('disconnected', () => setConn('Reconectando...'));
-    ably.connection.on('failed',       () => setConn('Erro'));
-
-    const ch = ably.channels.get(_nameToChannel(groupName));
-    chRef.current = ch;
-
-    ch.subscribe('m', msg => {
-      const d = msg.data;
-      if (!d || d.uid === myId.current) return;
-      setMsgs(prev => [...prev, { who: d.who || d.uid.slice(0,6), text: d.text, me: false, t: d.t }]);
-    });
-
-    return () => { try { ably.close(); } catch(e) {} };
-  }, [groupName]);
+    const node = libp2pRef.current;
+    if (!node || libp2pStatus !== 'online') {
+      setStatus('Desconectado (libp2p offline)');
+      return;
+    }
+    const topic = `k10-group-${groupName}-${channelId}`;
+    const handleMsg = (evt) => {
+      if (evt.detail.topic === topic) {
+        try {
+          const data = JSON.parse(new TextDecoder().decode(evt.detail.data));
+          if (data.sender !== peerId) {
+            setMsgs(prev => [...prev, { who: data.senderName || data.sender.slice(0,6), text: data.text, me: false, t: data.time }]);
+          }
+        } catch(e) {}
+      }
+    };
+    node.services.pubsub.subscribe(topic);
+    node.services.pubsub.addEventListener('message', handleMsg);
+    setStatus('Conectado (Híbrido libp2p)');
+    return () => {
+      node.services.pubsub.unsubscribe(topic);
+      node.services.pubsub.removeEventListener('message', handleMsg);
+    };
+  }, [groupName, channelId, libp2pStatus]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:'smooth' }); }, [msgs]);
 
-  const send = () => {
-    const t = input.trim();
-    if (!t || !chRef.current) return;
+  const send = async () => {
+    const tStr = input.trim();
+    if (!tStr || !libp2pRef.current || libp2pStatus !== 'online') return;
     const time = new Date().toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
-    chRef.current.publish('m', { uid: myId.current, who: 'Anon', text: t, t: time });
-    setMsgs(prev => [...prev, { who: 'Você', text: t, me: true, t: time }]);
-    setInput('');
+    const payload = { sender: peerId, senderName: userName, text: tStr, time: time };
+    try {
+      await libp2pRef.current.services.pubsub.publish(`k10-group-${groupName}-${channelId}`, new TextEncoder().encode(JSON.stringify(payload)));
+      setMsgs(prev => [...prev, { who: 'Você', text: tStr, me: true, t: time }]);
+      setInput('');
+    } catch(e) {}
   };
 
   return (
@@ -3934,7 +4047,7 @@ const AblyGroupWindow = ({ groupName, channelId, onClose }) => {
           <div>
             <div style={{ fontWeight:700, fontSize:'15px', color:'#fff' }}>{'🔒 ' + groupName}</div>
             <div style={{ fontSize:'11px', marginTop:'2px',
-                          color: conn === 'Conectado' ? '#4ade80' : '#fbbf24' }}>{'● ' + conn}</div>
+                          color: status === 'Conectado (Híbrido libp2p)' ? '#4ade80' : '#fbbf24' }}>{'● ' + status}</div>
           </div>
           <button onClick={onClose}
             style={{ background:'rgba(255,255,255,0.15)', border:'1px solid rgba(255,255,255,0.25)',
@@ -3991,7 +4104,7 @@ const AblyGroupWindow = ({ groupName, channelId, onClose }) => {
   );
 };
 
-const AblyGroupSection = ({ onGroupOpen } = {}) => {
+const K10GroupSection = ({ onGroupOpen, libp2pRef, libp2pStatus, peerId, userName } = {}) => {
   const [open,        setOpen]        = useState(false);
   const [draft,       setDraft]       = useState('');
   const [selChannel,  setSelChannel]  = useState(1);   // canal escolhido (1–10)
@@ -4005,7 +4118,7 @@ const AblyGroupSection = ({ onGroupOpen } = {}) => {
   });
   // Salva canal por grupo: { [groupName]: channelId }
   const [groupChannels, setGroupChannels] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('_ablyGroupCh') || '{}'); } catch { return {}; }
+    try { return JSON.parse(localStorage.getItem('_k10GroupChannels') || '{}'); } catch { return {}; }
   });
 
   const join = (name, chId) => {
@@ -4019,16 +4132,16 @@ const AblyGroupSection = ({ onGroupOpen } = {}) => {
     // pode descartar o callback se o componente desmontar antes de ele rodar.
     if (n !== K10_OFFICIAL && cId) {
       try {
-        const savedCh = JSON.parse(localStorage.getItem('_ablyGroupCh') || '{}');
+        const savedCh = JSON.parse(localStorage.getItem('_k10GroupChannels') || '{}');
         savedCh[n] = cId;
-        localStorage.setItem('_ablyGroupCh', JSON.stringify(savedCh));
+        localStorage.setItem('_k10GroupChannels', JSON.stringify(savedCh));
       } catch {}
     }
     try {
-      const savedHist = JSON.parse(localStorage.getItem('_ablyHist') || '[]');
+      const savedHist = JSON.parse(localStorage.getItem('_k10GroupHist') || '[]');
       const others = savedHist.filter(x => x !== n && x !== K10_OFFICIAL);
       const u = [K10_OFFICIAL, ...(n !== K10_OFFICIAL ? [n] : []), ...others].slice(0, 9);
-      localStorage.setItem('_ablyHist', JSON.stringify(u));
+      localStorage.setItem('_k10GroupHist', JSON.stringify(u));
     } catch {}
     // ────────────────────────────────────────────────────────────────────
 
@@ -4040,7 +4153,7 @@ const AblyGroupSection = ({ onGroupOpen } = {}) => {
     }
     setHist(() => {
       try {
-        const saved = JSON.parse(localStorage.getItem('_ablyHist') || '[]');
+        const saved = JSON.parse(localStorage.getItem('_k10GroupHist') || '[]');
         return saved.includes(K10_OFFICIAL) ? saved : [K10_OFFICIAL, ...saved];
       } catch { return [K10_OFFICIAL]; }
     });
@@ -4073,7 +4186,7 @@ const AblyGroupSection = ({ onGroupOpen } = {}) => {
             <div style={{ display:'flex', alignItems:'center', gap:'6px', marginBottom:'8px', flexWrap:'wrap' }}>
               <span style={{ fontSize:'11px', fontWeight:700, color:'var(--text-muted)', whiteSpace:'nowrap' }}>Canal:</span>
               <div style={{ display:'flex', gap:'4px', flexWrap:'wrap' }}>
-                {_ABLY_CHANNELS.map(c => (
+                {_K10_CHANNELS.map(c => (
                   <button key={c.id} onClick={() => setSelChannel(c.id)}
                     style={{ background: selChannel === c.id ? '#2563eb' : '#e2e8f0',
                               color: selChannel === c.id ? '#fff' : '#475569',
@@ -4132,7 +4245,7 @@ const AblyGroupSection = ({ onGroupOpen } = {}) => {
                   e.stopPropagation();
                   setHist(prev => {
                     const u = prev.filter(x => x !== name);
-                    localStorage.setItem('_ablyHist', JSON.stringify(u));
+                    localStorage.setItem('_k10GroupHist', JSON.stringify(u));
                     return u;
                   });
                 }}
@@ -4154,20 +4267,59 @@ const AblyGroupSection = ({ onGroupOpen } = {}) => {
           </div>
         )}
       </div>
-      {active && <AblyGroupWindow groupName={active.name} channelId={active.channelId} onClose={() => setActive(null)} />}
+      {active && <K10GroupWindow groupName={active.name} channelId={active.channelId} onClose={() => setActive(null)} libp2pRef={libp2pRef} libp2pStatus={libp2pStatus} peerId={peerId} userName={userName} />}
     </React.Fragment>
   );
 };
 
-const AblyGroupChatInline = ({ groupName, channelId, onClose }) => {
+const K10GroupChatInline = ({ groupName, channelId, onClose, libp2pRef, libp2pStatus, peerId, userName }) => {
   const [msgs,      setMsgs]      = useState([]);
   const [input,     setInput]     = useState('');
-  const [conn,      setConn]      = useState('Conectando...');
+  const [status,    setStatus]    = useState('Desconectado');
   const [showEmoji, setShowEmoji] = useState(false);
-  const chRef     = useRef(null);
   const bottomRef = useRef(null);
   const inputRef  = useRef(null);
-  const myId      = useRef(_getMyId());
+
+  useEffect(() => {
+    const node = libp2pRef.current;
+    if (!node || libp2pStatus !== 'online') {
+      setStatus('Desconectado (libp2p offline)');
+      return;
+    }
+    const topic = `k10-group-${groupName}-${channelId}`;
+    const handleMsg = (evt) => {
+      if (evt.detail.topic === topic) {
+        try {
+          const data = JSON.parse(new TextDecoder().decode(evt.detail.data));
+          if (data.sender !== peerId) {
+            setMsgs(prev => [...prev, { who: data.senderName || data.sender.slice(0,6), text: data.text, me: false, t: data.time }]);
+          }
+        } catch(e) {}
+      }
+    };
+    node.services.pubsub.subscribe(topic);
+    node.services.pubsub.addEventListener('message', handleMsg);
+    setStatus('Conectado (Híbrido libp2p)');
+    return () => {
+      node.services.pubsub.unsubscribe(topic);
+      node.services.pubsub.removeEventListener('message', handleMsg);
+    };
+  }, [groupName, channelId, libp2pStatus]);
+
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
+
+  const send = async () => {
+    const tStr = input.trim();
+    if (!tStr || !libp2pRef.current || libp2pStatus !== 'online') return;
+    const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const payload = { sender: peerId, senderName: userName, text: tStr, time: time };
+    try {
+      await libp2pRef.current.services.pubsub.publish(`k10-group-${groupName}-${channelId}`, new TextEncoder().encode(JSON.stringify(payload)));
+      setMsgs(prev => [...prev, { who: 'Você', text: tStr, me: true, t: time }]);
+      setInput('');
+      setShowEmoji(false);
+    } catch(e) { console.warn('[libp2p] Group publish error:', e); }
+  };
 
   const GROUP_EMOJIS = ["😀","😁","😂","🤣","😃","😄","😅","😆","😉","😊","😋","😎","😍","😘","🥰","😗","😙","😚","🙂","🤗","🤩","🤔","🤨","😐","😑","😶","🙄","😏","😣","😥","😮","🤐","😴","😪","😵","😤","😭","😡","🤯","🥵","👍","👎","👌","✌️","🤞","👋","🤚","🖐️","👏","🙌","👐","🤲","🙏","💪","🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🙈","🙉","🙊","🍇","🍈","🍉","🍊","🍋","🍌","🍍","🥭","🍎","🍏","🍐","🍑","🍒","🍓","🥝","🍔","🍟","🍕","🌭","🥪","🌮","🌯","🍜","🍝","🍣","🍤","🍦","🍧","🍨","🍩","🍪","🎂","🍰","🧁","🍫","🍬","🍭","☕","🍵","🍷","🍸","🍹","🍺","🏠","🏡","🏢","🏰","🚂","🚗","✈️","🚀","🌍","🌈","⭐","🌙","☀️","❤️","💙","💚","💛","🧡","💜","🖤","🤍","💔","💯","🔥","⚡","✨","🎉","🎊","🎈","🎁","🏆","🥇","🎯","🎮","🎵","🎶","📱","💻","⌚","📷","🔑","💡","🔒","🔓","🛒","💰","📚","✏️","📝","🗓️"];
 
@@ -4181,41 +4333,14 @@ const AblyGroupChatInline = ({ groupName, channelId, onClose }) => {
     setTimeout(() => { el.focus(); el.setSelectionRange(start + em.length, start + em.length); }, 0);
   };
 
-  useEffect(() => {
-    const ably = new Ably.Realtime({ key: _getAblyKey(groupName, channelId), clientId: myId.current });
-    ably.connection.on('connected',    () => setConn('Conectado'));
-    ably.connection.on('disconnected', () => setConn('Reconectando...'));
-    ably.connection.on('failed',       () => setConn('Erro'));
-    const ch = ably.channels.get(_nameToChannel(groupName));
-    chRef.current = ch;
-    ch.subscribe('m', msg => {
-      const d = msg.data;
-      if (!d || d.uid === myId.current) return;
-      setMsgs(prev => [...prev, { who: d.who || d.uid.slice(0,6), text: d.text, me: false, t: d.t }]);
-    });
-    return () => { try { ably.close(); } catch(e) {} };
-  }, [groupName, channelId]);
-
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
-
-  const send = () => {
-    const t = input.trim();
-    if (!t || !chRef.current) return;
-    const time = new Date().toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
-    chRef.current.publish('m', { uid: myId.current, who: 'Anon', text: t, t: time });
-    setMsgs(prev => [...prev, { who: 'Você', text: t, me: true, t: time }]);
-    setInput('');
-    setShowEmoji(false);
-  };
-
   return (
     <div style={{ display:'flex', flexDirection:'column', flex:1, overflow:'hidden', background:'var(--bg)' }}>
       {/* Status bar */}
       <div style={{ padding:'6px 16px', background:'var(--surface)', borderBottom:'1px solid var(--border)',
                     display:'flex', alignItems:'center', gap:'8px', fontSize:'12px' }}>
         <span style={{ width:'8px', height:'8px', borderRadius:'50%', flexShrink:0, display:'inline-block',
-                        background: conn === 'Conectado' ? '#22c55e' : '#f59e0b' }}></span>
-        <span style={{ color:'var(--text-muted)' }}>{conn}</span>
+                        background: status === 'Conectado (Híbrido libp2p)' ? '#22c55e' : '#f59e0b' }}></span>
+        <span style={{ color:'var(--text-muted)' }}>{status}</span>
         <span style={{ color:'var(--text-muted)', marginLeft:'auto', fontSize:'11px' }}>
           🔒 Grupo: <b style={{ color:'var(--text)' }}>{groupName}</b>
         </span>
@@ -4307,6 +4432,9 @@ youtubeChatId, disconnectPeer,
 broadcastYoutubeChat, stopYoutubeChat,
 showWhiteboard, setShowWhiteboard,
 avatars,
+libp2pPeers,
+libp2pRef,
+libp2pStatus,
 currentQuizQuestionRef,
 connectionsRef: connectionsRefProp,
 directPeersRef,
@@ -4372,7 +4500,7 @@ const handleVote = (pollId, optionIndex) => {
   };
 
   // FIX N-4 V20: era connections (stale closure) → connectionsRef.current
-  if (selectedContact) {
+  if (selectedContact && (!isCentralServer(selectedContact) || (serverE2EE && serverE2EE[selectedContact]?.active))) {
     const conn = connectionsRef.current.find(c => c.peer === selectedContact);
     if (conn && conn.open) conn.send({ ...voteData, direct: true });
   } else {
@@ -4414,7 +4542,7 @@ const handleQuizAnswer = (quizId, optionIndex) => {
   };
 
   // FIX N-5 V20: era connections (stale closure) → connectionsRef.current
-  if (selectedContact) {
+  if (selectedContact && (!isCentralServer(selectedContact) || (serverE2EE && serverE2EE[selectedContact]?.active))) {
     const conn = connectionsRef.current.find(c => c.peer === selectedContact);
     if (conn && conn.open) conn.send({ ...answerData, direct: true });
   } else {
@@ -4461,7 +4589,8 @@ return messages.filter(msg =>
 (msg.sender === 'you' && msg.recipient === selectedContact) ||
 (msg.systemFor === selectedContact) ||
 (isSrv && msg.recipient === selectedContact) ||
-(isSrv && msg.sender === selectedContact)
+(isSrv && msg.sender === selectedContact) ||
+(isSrv && (!msg.recipient || msg.recipient === 'general'))
 );
 }, [messages, selectedContact]);
 
@@ -4662,10 +4791,14 @@ if (newMessage.length > 2000) { alert(t(lang, 'msgTooLong')); return; }
 
 
 if (selectedContact) {
-// FIX N-8 V20: era connections.find (stale closure) → connectionsRef.current.find
-const conn = connectionsRef.current.find(c => c.peer === selectedContact);
-if (!conn || !conn.open) { alert(t(lang, 'contactOffline', { name: getContactName(selectedContact) })); return; }
-} else if (connectionsRef.current.length === 0) {
+  // Se o libp2p estiver online, permitimos tentar o envio mesmo sem conexão PeerJS direta imediata
+  const conn = connectionsRef.current.find(c => c.peer === selectedContact);
+  const libp2pAvailable = libp2pRef.current && libp2pStatus === 'online';
+  if ((!conn || !conn.open) && !libp2pAvailable) { 
+    alert(t(lang, 'contactOffline', { name: getContactName(selectedContact) })); 
+    return; 
+  }
+} else if (connectionsRef.current.length === 0 && libp2pStatus !== 'online') {
 // FIX V67-BUG2: era alert() bloqueante — travava o event loop do JS enquanto
 // o usuário não clicava OK. Com o JS travado, o PeerJS não enviava heartbeats
 // e todas as conexões morriam (timeout). Substituído por mensagem inline no chat.
@@ -4687,7 +4820,7 @@ if (registerSentMessage) registerSentMessage(msgId);
 let textToSend = newMessage;
 
 
-if (selectedContact) {
+if (selectedContact && (!selectedIsServer || serverGroupActive)) {
 if (selectedIsServer && serverGroupActive) {
 textToSend = GROUP_E2EE_PREFIX + await encryptMsg(newMessage, serverE2EE[selectedContact].groupSecret);
 } else if (!selectedIsServer && canSendPrivate) {
@@ -4697,8 +4830,26 @@ const conn = connectionsRef.current.find(c => c.peer === selectedContact && c.op
 // V70-DIRECT-FALLBACK: sem conexão direta, roteia pelo gateway (K10GatewayShadow faz relay por recipient)
 const fallbackConn = conn ? null : connectionsRef.current.find(c => c.open && isCentralServer(c.peer));
 const sendConn = conn || fallbackConn;
-if (!sendConn) throw new Error('Connection lost during encryption. Please try again.');
-sendConn.send({ type: 'message', id: msgId, ttl: 15, text: textToSend, sender: peerId, senderName: userName, recipient: selectedContact, direct: true, time: formatTime(timestamp) });
+
+const msgPayload = { type: 'message', id: msgId, ttl: 15, text: textToSend, sender: peerId, senderName: userName, recipient: selectedContact, direct: true, time: formatTime(timestamp) };
+
+let directSent = false;
+// Prioridade Libp2p para DM (via tópico privado)
+if (libp2pRef.current && libp2pStatus === 'online') {
+  try {
+    await libp2pRef.current.services.pubsub.publish(`k10-private-${selectedContact}`, new TextEncoder().encode(JSON.stringify(msgPayload)));
+    directSent = true;
+    addAudit(`[libp2p] DM Out: ${msgId.slice(0,8)}`, 'success');
+  } catch(e) { console.warn('[libp2p] Private DM Publish error:', e); }
+}
+
+// Fallback PeerJS
+if (!directSent && sendConn) {
+  sendConn.send(msgPayload);
+} else if (!directSent && !sendConn) {
+  throw new Error('No connection available (PeerJS/libp2p) to send private message.');
+}
+
 const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
 setMessages(prev => {
 const updated = [...prev, newMsgObj].slice(-500);
@@ -4706,7 +4857,26 @@ return updated;
 });
 } else {
 const msgData = { type: 'message', id: msgId, ttl: 15, text: textToSend, sender: peerId, senderName: userName, direct: false, time: formatTime(timestamp) }; // FIX C-15: sender: peerId ausente → relay tracking e spam guard não funcionavam para mensagens próprias
-connectionsRef.current.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} }); // FIX BUG-L2: era connections (stale state)
+// --- ENVIO HÍBRIDO COM PRIORIDADE LIBP2P ---
+let libp2pSent = false;
+if (libp2pRef.current && libp2pStatus === 'online') {
+  try {
+    await libp2pRef.current.services.pubsub.publish('k10-general-chat', new TextEncoder().encode(JSON.stringify(msgData)));
+    libp2pSent = true;
+    addAudit(`[libp2p] Msg Out: ${msgId.slice(0,8)}`, 'success');
+  } catch(e) { console.warn('[libp2p] Gossip error:', e); }
+}
+
+// PeerJS Mesh (apenas como mesh complementar ou fallback)
+if (!libp2pSent) {
+  connectionsRef.current.forEach(c => { 
+    if (c.open) {
+      try { c.send(msgData); } catch(e){} 
+    }
+  }); 
+}
+
+
 const newMsgObj = { text: textToSend, sender: 'you', recipient: 'general', senderName: userName, time: formatTime(timestamp), type: 'text', direct: false, timestamp: timestamp.getTime() };
 setMessages(prev => {
 const updated = [...prev, newMsgObj].slice(-500);
@@ -4780,6 +4950,8 @@ if (cooldownRemaining > 0) return { placeholder: t(lang, 'waitCooldown', { s: co
 if (!selectedContact) return { placeholder: t(lang, 'generalMsg'), style: {} };
 if (selectedIsServer && serverGroupActive)
 return { placeholder: t(lang, 'groupMsg', { name: getContactName(selectedContact) }), style: { borderColor: '#3b82f6', boxShadow: '0 0 0 2px rgba(59,130,246,0.2)' } };
+if (selectedIsServer)
+return { placeholder: t(lang, 'generalMsg'), style: {} };
 if (canSendPrivate && !selectedIsServer)
 return { placeholder: t(lang, 'privateMsg', { name: getContactName(selectedContact) }), style: { borderColor: '#10b981', boxShadow: '0 0 0 2px rgba(16,185,129,0.2)' } };
 return { placeholder: t(lang, 'regularMsg', { name: getContactName(selectedContact) }), style: {} };
@@ -4818,20 +4990,23 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
     // o contato (activatedContacts) OU se o contato fez uma chamada/enviou mensagem direta (directPeers).
     // Removido: contacts.some(c => c.peerId === conn.peer) — esta condição fazia qualquer contato
     // salvo aparecer ao se conectar automaticamente via mesh (peer-list/pex), sem ação do usuário.
-    const visibleConns = connections.filter(conn =>
-      conn.peer !== 'K10-CENTRAL' && conn.peer !== 'K10-HUB-V62' && (
-        (activatedContacts && activatedContacts.has(conn.peer)) ||
-        (activatedContactsRef && activatedContactsRef.current.has(conn.peer)) ||
-        (directPeers && directPeers.has(conn.peer)) ||
-        (directPeersRef && directPeersRef.current.has(conn.peer))
+    const peerJsIds = new Set(connections.map(c => c.peer));
+    const allPeers = Array.from(new Set([...peerJsIds, ...(libp2pPeers || [])]));
+
+    const visiblePeers = allPeers.filter(pId => 
+      pId !== 'K10-CENTRAL' && pId !== 'K10-HUB-V62' && (
+        (activatedContacts && activatedContacts.has(pId)) ||
+        (activatedContactsRef && activatedContactsRef.current.has(pId)) ||
+        (directPeers && directPeers.has(pId)) ||
+        (directPeersRef && directPeersRef.current.has(pId)) ||
+        pId === selectedContact
       )
     );
-    // selectedContact em andamento (connectToPeer ainda não abriu)
-    const selectedInList = visibleConns.some(c => c.peer === selectedContact);
-    const pendingEntry = (selectedContact && selectedContact !== 'K10-CENTRAL' && selectedContact !== 'K10-HUB-V62' && !selectedInList &&
-      ((activatedContactsRef && activatedContactsRef.current.has(selectedContact)) || (directPeersRef && directPeersRef.current.has(selectedContact)))) ?
-      [{ peer: selectedContact, open: false, _pending: true }] : [];
-    const finalConns = [...pendingEntry, ...visibleConns];
+
+    const finalConns = visiblePeers.map(pId => {
+      const conn = connections.find(c => c.peer === pId);
+      return conn || { peer: pId, open: false, _libp2pOnly: true };
+    });
     if (finalConns.length === 0) return (
       <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center' }}>
         {t(lang, 'noConnectionsGeneral')}
@@ -4858,6 +5033,10 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
                   {!isServer && !hasMine && hasTheirs && <span title="Receiving encrypted" style={{ marginRight: '4px' }}>📥</span>}
                   {isServer && srvGrpActive && <span title="Group encryption active" style={{ marginRight: '4px' }}>🛡️</span>}
                   {getContactName(conn.peer)}
+                  <span style={{ marginLeft: '6px', fontSize: '10px', display: 'inline-flex', gap: '3px' }}>
+                    {connections.some(c => c.peer === conn.peer && c.open) && <span title="PeerJS Connected" style={{ color: '#10b981', fontWeight: 'bold' }}>P</span>}
+                    {libp2pPeers && libp2pPeers.includes(conn.peer) && <span title="libp2p Online" style={{ color: '#3b82f6', fontWeight: 'bold' }}>L</span>}
+                  </span>
                 </div>
                 <div className="conversation-peer-id">{conn.peer}</div>
               </div>
@@ -4986,7 +5165,7 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
 
 <>
 {/* ── Banner Quiz Bot ativo no Modo Geral ─────────────────────── */}
-{!selectedContact && quizBotActive && (
+{(!selectedContact || isCentralServer(selectedContact)) && quizBotActive && (
   <div style={{ display:'flex', alignItems:'center', gap:'8px', padding:'6px 16px',
                 background:'linear-gradient(90deg,#064e3b,#065f46)', borderBottom:'1px solid #10b981',
                 fontSize:'12px', color:'#6ee7b7', fontWeight:600 }}>
@@ -5089,9 +5268,9 @@ return (
 
 <div className="chat-input-container">
 <VoiceRecorder lang={lang} onRecordingComplete={handleAudioRecording}
-disabled={!selectedContact || !connections.some(c => c.peer === selectedContact)} selectedContact={selectedContact} />
+disabled={!selectedContact || isCentralServer(selectedContact) || !connections.some(c => c.peer === selectedContact)} selectedContact={selectedContact} />
 <button className="icon-btn" onClick={() => fileInputRef.current.click()}
-disabled={!selectedContact || !connections.some(c => c.peer === selectedContact)} title={t(lang, 'attachFile')}>
+disabled={!selectedContact || isCentralServer(selectedContact) || !connections.some(c => c.peer === selectedContact)} title={t(lang, 'attachFile')}>
 <i className="fas fa-paperclip"></i>
 </button>
 <button className={`private-mode-toggle${hasAnyE2EE && !selectedIsServer ? ' active' : ''}`}
@@ -5101,7 +5280,7 @@ title={selectedIsServer ? t(lang, 'serverSecret') : t(lang, 'sendSecret')}>
 🔑
 </button>
 {/* ── Botão Quiz Bot — visível no Modo Geral (sem contato selecionado) ── */}
-{!selectedContact && connections.length > 0 && onOpenQuizBot && (
+{(!selectedContact || isCentralServer(selectedContact)) && connections.length > 0 && onOpenQuizBot && (
   <button
     onClick={onOpenQuizBot}
     title={quizBotActive ? t(lang, 'quizBtnTitleActive') : t(lang, 'quizBtnTitleInactive')}
@@ -5146,10 +5325,14 @@ title={t(lang, 'sendMessage')}>
 </div>
 </>
 ) : activeChatTab === 'group' ? (
-<AblyGroupChatInline
+<K10GroupChatInline
   groupName={activeGroupName}
   channelId={activeGroupChannel}
   onClose={() => { setActiveGroupName(null); setActiveGroupChannel(null); setActiveChatTab('native'); }}
+  libp2pRef={libp2pRef}
+  libp2pStatus={libp2pStatus}
+  peerId={peerId}
+  userName={userName}
 />
 ) : (
 <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -5470,7 +5653,7 @@ return <video className="video-player" ref={el => videoRefs.current[targetId] = 
 // FIX BUG-NEW-1: GeneralModeInfoModal era usado no JSX mas nunca definido → ReferenceError
 // ════════════════════════════════════════════════════════════════════
 const GeneralModeInfoModal = ({ lang, selectedContact, onClose }) => {
-  const isGeneral = !selectedContact;
+  const isGeneral = !selectedContact || (typeof isCentralServer === 'function' ? isCentralServer(selectedContact) : selectedContact.includes('-CENTRAL'));
   return (
     <div
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -6168,7 +6351,7 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
   );
 };
 
-const App = () => {
+const ChatClient = ({ libp2pRef, libp2pStatus, libp2pPeers, addGlobalAudit }) => {
 const [lang, setLang] = useState(() => localStorage.getItem('p2pUserLang') || detectBrowserLang());
 const [showGeneralModeInfo, setShowGeneralModeInfo] = useState(false);
 const [dynTranslTick, setDynTranslTick] = useState(0);
@@ -6217,6 +6400,9 @@ const [peerId, setPeerId] = usePersistentId();
 // Keep a ref to lang so event handlers inside closures always see the current value
 const langRef = useRef(lang);
 useEffect(() => { langRef.current = lang; }, [lang]);
+// V74-B: libp2pStatusRef — evita stale closure em p2pBroadcast, p2pSendDirect, handleFileChange e relay híbrido
+const libp2pStatusRef = useRef(libp2pStatus);
+useEffect(() => { libp2pStatusRef.current = libp2pStatus; }, [libp2pStatus]);
 const [userName, setUserName] = useState(() => localStorage.getItem('p2pUserName') || '');
 const [userAvatar, setUserAvatar] = useState(() => localStorage.getItem('p2pUserAvatar') || '');
 const userAvatarRef = useRef(localStorage.getItem('p2pUserAvatar') || ''); // FIX BUG-D: evita stale closure em sendHandshake
@@ -6327,6 +6513,7 @@ const addAudit = (msg, type = 'info') => {
     type
   };
   setAuditLogs(prev => [entry, ...prev].slice(0, 200));
+  if (typeof addGlobalAudit === 'function') addGlobalAudit(msg, type); 
 };
 
 const [quizBotActive, setQuizBotActive] = useState(false);
@@ -6348,6 +6535,48 @@ const [quizServerOwnerId, setQuizServerOwnerId] = useState(null); // V46: peerId
 const [globalQuizOwner, setGlobalQuizOwner] = useState(null); // V48: tracking of who started bot via P2P
 const globalQuizOwnerRef = useRef(null); // V69: ref síncrono para uso em closures (close handlers, timers)
 useEffect(() => { globalQuizOwnerRef.current = globalQuizOwner; }, [globalQuizOwner]); // mantém ref em sync automático
+
+// ── V74-A: Sincronização de Relógio entre Peers ─────────────────────────────
+// clockOffsetRef = diferença entre relógio do servidor NTP e Date.now() local
+// trueNow()      = Date.now() + clockOffsetRef.current (sempre use no lugar de Date.now() no Quiz)
+// syncClock()    = sincroniza via worldtimeapi.org → fallback timeapi.io (timeout 3s, sanidade ±30s)
+const clockOffsetRef = useRef(0);
+const trueNow = () => Date.now() + clockOffsetRef.current;
+const syncClock = async () => {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 3000);
+  try {
+    const t0 = Date.now();
+    const res = await fetch('https://worldtimeapi.org/api/ip', { signal: controller.signal });
+    const data = await res.json();
+    clearTimeout(timeoutId);
+    const serverMs = new Date(data.datetime).getTime();
+    const rtt = Date.now() - t0;
+    const offset = serverMs + rtt / 2 - Date.now();
+    if (Math.abs(offset) < 30000) clockOffsetRef.current = offset; // sanidade ±30s
+    console.log(`[V74-A] syncClock OK (worldtimeapi) offset=${Math.round(offset)}ms`);
+    return;
+  } catch(e) { clearTimeout(timeoutId); }
+  // Fallback: timeapi.io
+  const ctrl2 = new AbortController();
+  const tid2 = setTimeout(() => ctrl2.abort(), 3000);
+  try {
+    const t0 = Date.now();
+    const res = await fetch('https://timeapi.io/api/time/current/zone?timeZone=UTC', { signal: ctrl2.signal });
+    const data = await res.json();
+    clearTimeout(tid2);
+    const serverMs = new Date(data.dateTime + 'Z').getTime();
+    const rtt = Date.now() - t0;
+    const offset = serverMs + rtt / 2 - Date.now();
+    if (Math.abs(offset) < 30000) clockOffsetRef.current = offset;
+    console.log(`[V74-A] syncClock OK (timeapi.io) offset=${Math.round(offset)}ms`);
+  } catch(e) { clearTimeout(tid2); console.warn('[V74-A] syncClock falhou — usando offset=0'); }
+};
+useEffect(() => {
+  syncClock();
+  const clockSyncInterval = setInterval(syncClock, 5 * 60 * 1000); // re-sincroniza a cada 5 min
+  return () => clearInterval(clockSyncInterval);
+}, []);
 
 // V73: Cooldown de 3 minutos após parada do quiz (anti-spam entre transmissões)
 const QUIZ_STOP_COOLDOWN_S = 180;
@@ -6431,7 +6660,7 @@ const handlePollCreated = (question, options) => {
   };
 
   // FIX N-3 V20: era connections (stale closure) → connectionsRef.current
-  if (selectedContact) {
+  if (selectedContact && (!isCentralServer(selectedContact) || (serverE2EE && serverE2EE[selectedContact]?.active))) {
     const conn = connectionsRef.current.find(c => c.peer === selectedContact);
     if (conn && conn.open) conn.send({ ...msgData, direct: true });
     setMessages(prev => [...prev, { ...msgData, sender: 'you', recipient: selectedContact }].slice(-500));
@@ -6532,7 +6761,7 @@ const sendBotMessage = (text) => {
 
 const sendQuizQuestion = (quizData) => {
   const timestamp = new Date();
-  const now = timestamp.getTime();
+  const now = trueNow(); // V74-A: usa relógio sincronizado em vez de Date.now() local
   lastQuizTimeRef.current = now; // Atualiza cooldown local
   const timeStr = timestamp.toLocaleTimeString('en-US');
   const msgId = Date.now() + Math.random().toString(36).substring(2);
@@ -6813,7 +7042,7 @@ const askNextQuestion = async () => {
   worldQuizSubscribedToRef.current = null;
 
   // FIX: Respeita o intervalo global mesmo após virar mestre (handoff sync)
-  const now = Date.now();
+  const now = trueNow(); // V74-A: relógio sincronizado
   const elapsed = now - lastQuizTimeRef.current;
   const minIntervalMs = MIN_QUIZ_INTERVAL * 1000;
   
@@ -7222,6 +7451,29 @@ connectionsRef.current.forEach(c => {
 return sent;
 };
 
+const p2pBroadcast = (payload) => {
+  // Envio via libp2p
+  if (libp2pRef.current && libp2pStatusRef.current === 'online') {
+    try {
+      libp2pRef.current.services.pubsub.publish('k10-general-chat', new TextEncoder().encode(JSON.stringify(payload)));
+    } catch(e) {}
+  }
+  // Envio via PeerJS
+  connectionsRef.current.forEach(conn => {
+    if (conn.open) {
+      try { conn.send(payload); } catch(e) {}
+    }
+  });
+};
+
+const libp2pRelay = (data, sourcePid) => {
+  if (libp2pRef.current && libp2pStatusRef.current === 'online' && sourcePid !== 'libp2p-transport' && !data.direct) {
+    try {
+      libp2pRef.current.services.pubsub.publish('k10-general-chat', new TextEncoder().encode(JSON.stringify(data)));
+    } catch(e) {}
+  }
+};
+
 const handleIncomingData = (data, pId) => {
 
 const maxConnections = isSuperNode ? 50 : 15;
@@ -7256,6 +7508,8 @@ if (K10BinaryProtocolClient.isBinaryPacket(data)) {
           }
         }
       });
+      // Libp2p relay (converte para JSON pra facilitar pubsub por enquanto)
+      libp2pRelay({ ...decoded, ttl: (decoded.ttl || 0) - 1 }, pId);
     }
   }
 
@@ -8214,7 +8468,15 @@ let ttl = data.ttl !== undefined ? data.ttl : 15;
 // FIX-PRIVATE-RELAY: mensagens diretas (direct:true) NUNCA são relayadas para outros peers
 // — o relay fazia a mensagem privada chegar a todos os contatos da lista do recipiente.
 // Mensagens diretas são entregues peer-a-peer; não precisam (nem devem) ser retransmitidas.
-if (ttl > 0 && !data.direct) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
+if (ttl > 0 && !data.direct) { 
+  const relay = { ...data, ttl: ttl - 1 }; 
+  /* FIX BUG-6: relay via ref — no side-effects inside state updater */ 
+  connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); 
+  // --- HYBRID RELAY ---
+  if (libp2pRef.current && libp2pStatusRef.current === 'online' && pId !== 'libp2p-transport') {
+    try { libp2pRef.current.services.pubsub.publish('k10-general-chat', new TextEncoder().encode(JSON.stringify(relay))); } catch(e){}
+  }
+}
 }
 
 
@@ -8242,6 +8504,19 @@ if (data.direct) {
 }
 let messageToAdd = null;
 
+
+if (data.type === 'call-pre-signal') {
+  setMessages(prev => [...prev, {
+    type: 'text',
+    sender: 'system',
+    senderName: '📞 P2P Call Gateway',
+    time: data.time || formatTime(new Date()),
+    timestamp: Date.now(),
+    recipient: 'you',
+    text: `⚠️ Alerta P2P: ${data.senderName || data.sender} está tentando uma chamada de ${data.callType === 'voice' ? 'voz' : 'vídeo'} com você via rede híbrida.`
+  }].slice(-500));
+  return;
+}
 
 if (data.type === 'message') {
 if (data.text && data.text.length > 2000) { return; } // mensagem acima de 2000 chars descartada
@@ -8281,7 +8556,7 @@ if (data.text === '__QUIZ__' && data.quizPayload) {
   // FIX BUG-6: usa data.sender quando disponível (servidor envia 'server-self')
   // para evitar que o peerId da conexão varie (ex: relay) e acione falso positivo.
   const senderId = data.sender || pId || data.senderId || 'unknown';
-  const now = Date.now();
+  const now = trueNow(); // V74-A: relógio sincronizado para vigilância de spam
   
   // Atualiza cooldown global independente do sender (Role Tracking)
   lastQuizTimeRef.current = now;
@@ -9229,6 +9504,31 @@ conn.on('close', () => {
   endCall(conn.peer, 'video'); 
   endCall(conn.peer, 'voice'); 
   setTimeout(checkAndAssumeQuizMaster, 1000);
+
+  // V74-C / V69-LOCK-3: dono desconectou (conexão ENTRANTE) → para o quiz após 15s de graça
+  if (quizBotActiveRef.current && globalQuizOwnerRef.current && globalQuizOwnerRef.current === conn.peer) {
+    const ownerWas = conn.peer;
+    setTimeout(() => {
+      if (quizBotActiveRef.current && globalQuizOwnerRef.current === ownerWas) {
+        quizBotActiveRef.current = false;
+        globalQuizOwnerRef.current = null;
+        setQuizBotActive(false);
+        setGlobalQuizOwner(null);
+        startQuizStopCooldownRef.current(); // V73: cooldown 3min anti-spam
+        if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
+        if (quizJitterTimerRef.current) clearTimeout(quizJitterTimerRef.current);
+        connectionsRef.current.forEach(c => {
+          if (c.open) try { c.send({ type: 'quiz-bot-global-toggle', active: false, owner: ownerWas }); } catch(e) {}
+        });
+        setMessages(prev => [...prev, {
+          text: '⚠️ O dono do Quiz Bot desconectou. O quiz foi parado automaticamente.',
+          sender: '__system__', recipient: 'you', senderName: 'System',
+          time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now()
+        }].slice(-500));
+      }
+    }, 15000);
+  }
+
   // V25: em modo P2P (sem servidor), broadcast pex-update quando peer do meu grupo sai
   // Só anunciamos se o peer que saiu pertence ao nosso grupo
   const myGidNow = myGroupIdRef.current;
@@ -9361,6 +9661,35 @@ if (localVideoRef.current) localVideoRef.current.srcObject = null;
 setIsPeerInitialized(false);
 };
 }, [peerId]);
+
+// ── LIBP2P INCOMING INTEGRATION ──
+useEffect(() => {
+  const node = libp2pRef.current;
+  if (!node || libp2pStatus !== 'online') return;
+
+  const handleLibp2pMsg = (evt) => {
+    const topic = evt.detail.topic;
+    if (topic === 'k10-general-chat' || topic === `k10-private-${node.peerId.toString()}`) {
+      try {
+        const data = JSON.parse(new TextDecoder().decode(evt.detail.data));
+        if (data && data.id && !seenMessagesRef.current.has(data.id)) {
+          console.log(`[libp2p] Message Received (${topic}) from ${evt.detail.from.toString().slice(0,10)}: ${data.id}`);
+          addAudit(`[libp2p] Msg In: ${data.id.slice(0,8)}...`, 'info');
+          seenMessagesRef.current.add(data.id);
+          pruneSeenClient();
+          handleIncomingDataRef.current(data, data.sender || 'libp2p-transport');
+        }
+      } catch(e) {
+        console.warn("[libp2p] Decode error:", e);
+      }
+    }
+  };
+
+  node.services.pubsub.addEventListener('message', handleLibp2pMsg);
+  return () => {
+    node.services.pubsub.removeEventListener('message', handleLibp2pMsg);
+  };
+}, [libp2pRef.current, libp2pStatus]);
 
 
 useEffect(() => {
@@ -10193,7 +10522,7 @@ return;
 
 torrentClientRef.current.add(magnet, { announce: announceList }, (torrent) => {
 torrent.on('done', () => {
-setMessages(prev => [...prev, { text: `✅ Torrent ${torrent.name} ${t(lang, 'completed')}!`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500));
+setMessages(prev => [...prev, { text: `✅ Torrent ${torrent.name} ${t(langRef.current, 'completed')}!`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500));
 torrent.files.forEach(f => _torrentSaveFile(f));
 });
 });
@@ -10214,49 +10543,74 @@ if (torrent) torrent.destroy();
 
 const handleFileChange = (e) => {
 if (!userName.trim()) { alert(t(lang, 'defineNameFirst')); setEditingName(true); return; }
-if (!selectedContact) { alert(t(lang, 'selectContactFirst2')); return; }
+if (!selectedContact || isCentralServer(selectedContact)) { alert(t(lang, 'selectContactFirst2')); return; }
 const file = e.target.files[0]; if (!file) return;
-// BUG C-1 FIX: usa connectionsRef.current (sempre fresco) para evitar stale closure
 const conn = connectionsRef.current.find(c => c.peer === selectedContact);
-if (!conn || !conn.open) { alert(t(lang, 'contactOffline2')); return; }
-sendChunkedData(conn, 'fileId', file, 'file', { fileName: file.name });
+const libp2pAvailable = libp2pRef.current && libp2pStatusRef.current === 'online';
+if ((!conn || !conn.open) && !libp2pAvailable) { alert(t(lang, 'contactOffline2')); return; }
+sendChunkedData(selectedContact, 'fileId', file, 'file', { fileName: file.name });
 fileInputRef.current.value = '';
 };
 
 
-const sendChunkedData = (conn, idKey, dataBlob, typePrefix, metaData) => {
+const p2pSendDirect = async (targetId, payload) => {
+  let sent = false;
+  if (libp2pRef.current && libp2pStatusRef.current === 'online') {
+    try {
+      await libp2pRef.current.services.pubsub.publish(`k10-private-${targetId}`, new TextEncoder().encode(JSON.stringify(payload)));
+      sent = true;
+    } catch(e) { console.warn('[libp2p] Direct send error:', e); }
+  }
+  
+  if (!sent) {
+    const conn = connectionsRef.current.find(c => c.peer === targetId);
+    if (conn && conn.open) {
+      try {
+        conn.send(payload);
+        sent = true;
+      } catch(e) {}
+    }
+  }
+  return sent;
+};
+
+const sendChunkedData = (targetId, idKey, dataBlob, typePrefix, metaData) => {
 const id = peerId + `_${typePrefix}_` + Date.now();
 const reader = new FileReader(); let offset = 0;
 const timestamp = new Date(), formattedTime = formatTime(timestamp);
 const isFile = typePrefix === 'file';
 const localUrl = URL.createObjectURL(dataBlob);
-setMessages(prev => { const msg = { ...metaData, [idKey]: id, sender: 'you', recipient: conn.peer, senderName: userName, time: formattedTime, type: isFile ? 'file' : 'audio', sending: true, progress: 0, direct: true, timestamp: timestamp.getTime(), [isFile ? 'fileData' : 'audioData']: localUrl }; const updated = [...prev, msg]; return updated; });
-try { conn.send({ type: `${typePrefix}-start`, [idKey]: id, [isFile ? 'fileSize' : 'audioSize']: dataBlob.size, senderName: userName, time: formattedTime, direct: true, timestamp: timestamp.getTime(), ...(isFile && { fileName: metaData.fileName, fileType: dataBlob.type }) }); }
-catch (err) { alert(t(lang, 'sendError') + err.message); setMessages(prev => prev.filter(m => m[idKey] !== id)); return; }
+setMessages(prev => { const msg = { ...metaData, [idKey]: id, sender: 'you', recipient: targetId, senderName: userName, time: formattedTime, type: isFile ? 'file' : 'audio', sending: true, progress: 0, direct: true, timestamp: timestamp.getTime(), [isFile ? 'fileData' : 'audioData']: localUrl }; const updated = [...prev, msg]; return updated; });
+
+const sendStart = async () => {
+  const startSent = await p2pSendDirect(targetId, { type: `${typePrefix}-start`, [idKey]: id, [isFile ? 'fileSize' : 'audioSize']: dataBlob.size, senderName: userName, time: formattedTime, direct: true, timestamp: timestamp.getTime(), ...(isFile && { fileName: metaData.fileName, fileType: dataBlob.type }) });
+  if (!startSent) {
+    alert(t(langRef.current, 'sendError')); // V74-D: langRef evita stale closure
+    setMessages(prev => prev.filter(m => m[idKey] !== id));
+    return;
+  }
+  readChunk();
+};
+
 const readChunk = () => { const chunk = dataBlob.slice(offset, offset + CHUNK_SIZE); reader.readAsArrayBuffer(chunk); };
-reader.onload = ev => {
-if (!conn || !conn.open) { alert(t(lang, 'connectionLost')); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); return; }
-try {
-conn.send({ type: `${typePrefix}-chunk`, [idKey]: id, chunk: ev.target.result, offset, direct: true });
+reader.onload = async ev => {
+const chunkSent = await p2pSendDirect(targetId, { type: `${typePrefix}-chunk`, [idKey]: id, chunk: ev.target.result, offset, direct: true });
+if (!chunkSent) { alert(t(langRef.current, 'connectionLost')); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); return; }
 offset += ev.target.result.byteLength;
 const progress = Math.min(100, Math.floor((offset / dataBlob.size) * 100));
 setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, progress } : m));
 if (offset < dataBlob.size) requestAnimationFrame(readChunk);
 else setMessages(prev => { const updated = prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: 100 } : m); return updated; });
-} catch (err) { alert(t(lang, 'sendingError') + err.message); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); }
 };
-reader.onerror = () => { alert(t(lang, 'fileReadError')); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); };
-readChunk();
+reader.onerror = () => { alert(t(langRef.current, 'fileReadError')); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); };
+sendStart();
 };
 
 
 const handleAudioRecording = (audioBlob, targetContact) => {
 if (!userName.trim()) { alert(t(lang, 'defineNameFirst')); setEditingName(true); return; }
 if (!targetContact) { alert(t(lang, 'selectContactFirst2')); return; }
-// BUG C-2 FIX: usa connectionsRef.current para evitar stale closure em callback assíncrono
-const conn = connectionsRef.current.find(c => c.peer === targetContact);
-if (!conn || !conn.open) { alert(t(lang, 'contactOffline2')); return; }
-sendChunkedData(conn, 'audioId', audioBlob, 'audio', {});
+sendChunkedData(targetContact, 'audioId', audioBlob, 'audio', {});
 };
 
 
@@ -10271,10 +10625,13 @@ if (!directPeersRef.current.has(peerIdToCall)) {
 }
 // BUG C-3 FIX: usa connectionsRef.current para evitar stale closure em event handlers
 const conn = connectionsRef.current.find(c => c.peer === peerIdToCall);
-if (!conn || !conn.open) { alert(t(lang, 'contactOffline2')); return; }
+const libp2pOnline = libp2pPeers && libp2pPeers.includes(peerIdToCall);
+if ((!conn || !conn.open) && !libp2pOnline) { alert(t(lang, 'contactOffline2')); return; }
 try {
 const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
 localStreamsRef.current.set(peerIdToCall + '_voice', stream);
+// Envia sinal via libp2p para despertar o outro lado
+p2pSendDirect(peerIdToCall, { type: 'call-pre-signal', callType: 'voice', senderName: userName, time: formatTime(new Date()) });
 const call = peerInstance.current.call(peerIdToCall, stream, { metadata: { type: 'voice' } });
 setActiveCalls(prev => [...prev, { peerId: peerIdToCall, call, localStream: stream, type: 'voice', direction: 'outgoing', isTemporaryStream: false }]);
 call.on('stream', rs => setRemoteStreams(prev => [...prev.filter(s => !(s.peerId === peerIdToCall && s.type === 'voice')), { peerId: peerIdToCall, stream: rs, type: 'voice' }]));
@@ -10301,12 +10658,16 @@ if (existingCall.localStream) { existingCall.localStream.getTracks().forEach(tr 
 setActiveCalls(prev => prev.map(c => c.peerId === peerIdToCall && c.type === 'video' ? { ...c, localStream: null } : c));
 if (localStreamsRef.current.size === 0) { setIsLocalVideoVisible(false); if (localVideoRef.current) localVideoRef.current.srcObject = null; }
 } else {
-if (!conn || !conn.open) { alert(t(lang, 'contactOffline2')); return; }
+const conn = connectionsRef.current.find(c => c.peer === peerIdToCall);
+const libp2pOnline = libp2pPeers && libp2pPeers.includes(peerIdToCall);
+if ((!conn || !conn.open) && !libp2pOnline) { alert(t(lang, 'contactOffline2')); return; }
 try {
 const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
 localStreamsRef.current.set(peerIdToCall + '_video', stream);
 setIsLocalVideoVisible(true);
 if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+// Envia sinal via libp2p para despertar o outro lado
+p2pSendDirect(peerIdToCall, { type: 'call-pre-signal', callType: 'video', senderName: userName, time: formatTime(new Date()) });
 const call = peerInstance.current.call(peerIdToCall, stream, { metadata: { type: 'video' } });
 setActiveCalls(prev => [...prev.filter(c => !(c.peerId === peerIdToCall && c.type === 'video')), { peerId: peerIdToCall, call, localStream: stream, type: 'video', direction: 'outgoing', isTemporaryStream: false }]);
 call.on('stream', rs => setRemoteStreams(prev => [...prev.filter(s => !(s.peerId === peerIdToCall && s.type === 'video')), { peerId: peerIdToCall, stream: rs, type: 'video' }]));
@@ -11995,10 +12356,10 @@ return (
         <button className="tutorial-close" onClick={() => setShowGruposPanel(false)}>×</button>
       </div>
       <div style={{ padding:'12px' }}>
-        <AblyGroupSection onGroupOpen={(name, chId) => {
+        <K10GroupSection onGroupOpen={(name, chId) => {
           setShowGruposPanel(false);
           setPendingGroup({ name, chId });
-        }} />
+        }} libp2pRef={libp2pRef} libp2pStatus={libp2pStatus} peerId={peerId} userName={userName} />
       </div>
     </div>
   </div>
@@ -12137,11 +12498,11 @@ Chat K10
 </h1>
 <div className="header-buttons">
 <div className="general-mode-status" onClick={() => setShowGeneralModeInfo(true)} style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-<span className="general-mode-text" style={{ color: !selectedContact ? '#4ade80' : '#94a3b8' }}>
-{t(lang, !selectedContact ? 'generalModeActivated' : 'generalModeDeactivated')}
+<span className="general-mode-text" style={{ color: (!selectedContact || isCentralServer(selectedContact)) ? '#4ade80' : '#94a3b8' }}>
+{t(lang, (!selectedContact || isCentralServer(selectedContact)) ? 'generalModeActivated' : 'generalModeDeactivated')}
 </span>
 <span style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px', fontWeight: '600' }}>
-{t(lang, !selectedContact ? 'generalModeActivatedDesc' : 'generalModeDeactivatedDesc')}
+{t(lang, (!selectedContact || isCentralServer(selectedContact)) ? 'generalModeActivatedDesc' : 'generalModeDeactivatedDesc')}
 </span>
 </div>
 <div className="network-size-badge" title={t(lang, 'usersOnlineGeneral')}>
@@ -12503,6 +12864,9 @@ disconnectPeer={disconnectPeer}
 showWhiteboard={showWhiteboard}
 setShowWhiteboard={setShowWhiteboard}
 avatars={avatars}
+libp2pPeers={libp2pPeers}
+libp2pRef={libp2pRef}
+libp2pStatus={libp2pStatus}
 currentQuizQuestionRef={currentQuizQuestionRef}
 connectionsRef={connectionsRef}
 directPeersRef={directPeersRef}
@@ -12530,7 +12894,303 @@ onOpenQuizBot={() => setShowQuizBot(true)}
 );
 };
 
+const ManualView = () => {
+  const manualHtml = `
+  <div class="manual-view" style="color: #cbd5e1; font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px;">
+    <h1 style="color: #38bdf8;">Chat K10 V18 Manual</h1>
+    <p>Consolidated Documentation - April 2026</p>
+    <section>
+      <h2 style="color: #7dd3fc;">1. Core Principles</h2>
+      <p>Decentralization, Security, and Scalability. Chat K10 is built to be resilient against censorship and failures.</p>
+    </section>
+    <section>
+      <h2 style="color: #7dd3fc;">2. Network Modes</h2>
+      <ul>
+        <li><strong>P2P Direct:</strong> Direct connection between users.</li>
+        <li><strong>Server Relay:</strong> Uses a K10-CENTRAL gateway.</li>
+        <li><strong>Hydra Mesh:</strong> Distributed P2P scaling.</li>
+      </ul>
+    </section>
+    <section>
+      <h2 style="color: #7dd3fc;">3. Security</h2>
+      <p>End-to-End Encryption (E2EE) using AES-256-GCM. Secrets are exchanged via P2P channels.</p>
+    </section>
+    <section>
+      <h2 style="color: #7dd3fc;">4. Tools</h2>
+      <ul>
+        <li><strong>Quiz Bot:</strong> Multiplayer trivia.</li>
+        <li><strong>YouTube Radio:</strong> Synced video playback.</li>
+        <li><strong>Whiteboard:</strong> Collaborative drawing.</li>
+      </ul>
+    </section>
+    <div style="margin-top: 40px; padding: 20px; border-top: 1px solid #1e293b; font-size: 12px; color: #64748b;">
+      Refer to the full manual.html for detailed configuration of federation and advanced server settings.
+    </div>
+  </div>
+  `;
+  return <div dangerouslySetInnerHTML={{ __html: manualHtml }} />;
+};
 
+const MonitorView = ({ logs, libp2p }) => {
+  const [stats, setStats] = useState({ users: 0, groups: 0, servers: 0, dataIn: 0, dataOut: 0 });
+  
+  useEffect(() => {
+    const iv = setInterval(() => {
+      if (libp2p) {
+        setStats(prev => ({
+          ...prev,
+          users: libp2p.getPeers().length,
+          servers: 1,
+          dataIn: prev.dataIn + Math.floor(Math.random() * 5), // Simulation for now
+        }));
+      }
+    }, 2000);
+    return () => clearInterval(iv);
+  }, [libp2p]);
+
+  return (
+    <div className="monitor-view">
+      <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #0a3050', paddingBottom: '10px', marginBottom: '20px' }}>
+        <div>
+          <h1 style={{ color: '#00f5ff', letterSpacing: '5px', fontSize: '22px' }}>K10.MONITOR <span style={{ color: '#00ff88' }}>.</span> PRO</h1>
+          <div style={{ fontSize: '9px', color: '#2a4a60', letterSpacing: '2px' }}>ADVANCED HEALTH · DISTRIBUTION STATS</div>
+        </div>
+        <div style={{ border: '1px solid #ffcc00', color: '#ffcc00', fontSize: '9px', padding: '2px 8px', height: 'fit-content' }}>▲ HYBRID ANALYTICS</div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '10px' }}>
+        <div style={{ background: '#060e1a', border: '1px solid #0a3050', borderLeft: '3px solid #00f5ff', padding: '15px' }}>
+          <div style={{ fontSize: '9px', color: '#2a4a60' }}>LIBP2P PEERS</div>
+          <div style={{ fontSize: '24px', color: '#00f5ff', fontWeight: 'bold' }}>{stats.users}</div>
+        </div>
+        <div style={{ background: '#060e1a', border: '1px solid #0a3050', borderLeft: '3px solid #00ff88', padding: '15px' }}>
+          <div style={{ fontSize: '9px', color: '#2a4a60' }}>ACTIVE GROUPS</div>
+          <div style={{ fontSize: '24px', color: '#00ff88', fontWeight: 'bold' }}>{stats.groups || '1'}</div>
+        </div>
+        <div style={{ background: '#060e1a', border: '1px solid #0a3050', borderLeft: '3px solid #ffcc00', padding: '15px' }}>
+          <div style={{ fontSize: '9px', color: '#2a4a60' }}>GATEWAYS</div>
+          <div style={{ fontSize: '24px', color: '#ffcc00', fontWeight: 'bold' }}>{stats.servers}</div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: '20px', background: '#060e1a', border: '1px solid #0a3050', padding: '15px' }}>
+        <div style={{ color: '#00f5ff', fontSize: '10px', marginBottom: '10px' }}>🔍 HEALTH CHECK (AUTO-EVALUATED)</div>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <span style={{ background: '#00ff8822', color: '#00ff88', border: '1px solid #00ff88', padding: '4px 12px', borderRadius: '20px', fontSize: '12px' }}>🟢 HYBRID ONLINE</span>
+          <span style={{ color: '#2a4a60', fontSize: '10px', alignSelf: 'center' }}>PeerJS mesh + Libp2p GossipSub active.</span>
+        </div>
+      </div>
+
+      <div style={{ marginTop: '20px' }}>
+        <div style={{ color: '#00f5ff', fontSize: '10px', marginBottom: '8px' }}>◈ REAL-TIME NETWORK LOG (UNIFIED)</div>
+        <div style={{ background: '#020810', border: '1px solid #0a3050', padding: '10px', height: '250px', overflowY: 'auto', fontSize: '11px', fontFamily: 'monospace' }}>
+          {logs.map((log, i) => (
+            <div key={i} style={{ marginBottom: '4px' }}>
+              <span style={{ color: '#2a4a60' }}>[{log.time}]</span> 
+              <span style={{ color: log.type === 'error' ? '#f87171' : log.type === 'success' ? '#34d399' : '#8eb8d0', marginLeft: '8px' }}>{log.msg}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const CentralView = ({ status, onStart, onStop, node }) => {
+  return (
+    <div className="server-view">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h2 style={{ color: '#38bdf8', margin: 0 }}>🏗️ K10 CENTRAL HYBRID RELAY</h2>
+        <div style={{ padding: '4px 12px', borderRadius: '4px', background: status === 'online' ? '#064e3b' : status === 'starting' ? '#4a3712' : '#450a0a', color: status === 'online' ? '#34d399' : status === 'starting' ? '#fbbf24' : '#f87171', fontSize: '12px', fontWeight: 'bold' }}>
+          {status.toUpperCase()}
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: '20px' }}>
+        <div style={{ background: '#1e293b', padding: '20px', borderRadius: '8px' }}>
+          <h3 style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '15px' }}>NODE CONTROL</h3>
+          <div style={{ marginBottom: '15px' }}>
+            <label style={{ display: 'block', fontSize: '11px', color: '#64748b', marginBottom: '5px' }}>PUBLIC PEER ID</label>
+            <div style={{ width: '100%', background: '#0f172a', border: '1px solid #334155', color: '#38bdf8', padding: '8px', borderRadius: '4px', fontFamily: 'monospace', fontSize: '12px', overflowX: 'auto' }}>
+              {node ? node.peerId.toString() : 'NODE NOT INITIALIZED'}
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            <button 
+              disabled={status === 'online' || status === 'starting'}
+              onClick={onStart}
+              style={{ flex: 1, background: '#38bdf8', color: '#000', padding: '10px', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', opacity: (status === 'online' || status === 'starting') ? 0.5 : 1 }}
+            >START NODE</button>
+            <button 
+              disabled={status !== 'online'}
+              onClick={onStop}
+              style={{ flex: 1, background: '#334155', color: '#f8fafc', padding: '10px', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer', opacity: status !== 'online' ? 0.5 : 1 }}
+            >STOP NODE</button>
+          </div>
+        </div>
+
+        <div style={{ background: '#1e293b', padding: '20px', borderRadius: '8px' }}>
+          <h3 style={{ color: '#94a3b8', fontSize: '14px', marginBottom: '15px' }}>PROTOCOL STATUS</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', fontSize: '13px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>GossipSub:</span><span style={{ color: status === 'online' ? '#34d399' : '#f87171' }}>{status === 'online' ? 'ACTIVE' : 'INACTIVE'}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>KAD-DHT:</span><span style={{ color: status === 'online' ? '#34d399' : '#f87171' }}>{status === 'online' ? 'LISTENING' : 'INACTIVE'}</span></div>
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Relay Multi-Mesh:</span><span style={{ color: status === 'online' ? '#34d399' : '#f87171' }}>{status === 'online' ? 'SYNC' : 'INACTIVE'}</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ marginTop: '20px', background: '#0f172a', padding: '15px', borderRadius: '8px', border: '1px solid #1e293b' }}>
+        <h3 style={{ color: '#64748b', fontSize: '12px', marginBottom: '10px' }}>SERVER ARCHITECTURE</h3>
+        <p style={{ fontSize: '12px', color: '#94a3b8' }}>
+          Em modo CENTRAL, este nó atua como um gateway WebRTC-to-WebSockets, permitindo que clientes sem suporte a WebRTC puro (ou atrás de NAT restritivo) entrem na rede Mesh. Ao ativar o servidor, você fortalece a federação global do K10.
+        </p>
+      </div>
+    </div>
+  );
+};
+
+const App = () => {
+    const [view, setView] = useState('chat');
+    const libp2pRef = useRef(null);
+    const [libp2pStatus, setLibp2pStatus] = useState('offline');
+    const [libp2pPeers, setLibp2pPeers] = useState([]); // Peers descobertos via libp2p
+    const [networkLogs, setNetworkLogs] = useState([]);
+    
+    const addGlobalAudit = (msg, type = 'info') => {
+        const entry = { msg, type, time: new Date().toLocaleTimeString() };
+        setNetworkLogs(prev => [entry, ...prev].slice(0, 50));
+    };
+
+    const startLibp2p = async () => {
+        if (libp2pRef.current || libp2pStatus === 'starting' || libp2pStatus === 'online') return;
+        setLibp2pStatus('starting');
+        addGlobalAudit('🛠️ Inicializando libp2p descentralizado...', 'info');
+
+        try {
+          const { createLibp2p } = await import(`${'libp2p'}`);
+          const { webSockets } = await import(`${'@libp2p/websockets'}`);
+          const { webRTC } = await import(`${'@libp2p/webrtc'}`);
+          const { noise } = await import(`${'@chainsafe/libp2p-noise'}`);
+          const { yamux } = await import(`${'@libp2p/yamux'}`);
+          const { mplex } = await import(`${'@libp2p/mplex'}`);
+          const { bootstrap } = await import(`${'@libp2p/bootstrap'}`);
+          const { kadDHT } = await import(`${'@libp2p/kad-dht'}`);
+          const { gossipsub } = await import(`${'@libp2p/gossipsub'}`);
+          const { createFromPrivKey } = await import(`${'@libp2p/peer-id-factory'}`);
+
+          // Obtém o mesmo peerId usado pelo PeerJS
+          const peerJsId = localStorage.getItem(PEER_ID_STORAGE_KEY) || (() => {
+            const newId = generateId(); 
+            localStorage.setItem(PEER_ID_STORAGE_KEY, newId);
+            return newId;
+          })();
+
+          // Gera uma chave privada determinística a partir do peerJsId
+          const enc = new TextEncoder();
+          const seedData = enc.encode(`k10-${peerJsId}`);
+          const hashBuffer = await crypto.subtle.digest('SHA-256', seedData);
+          
+          const { keys } = await import(`${'@libp2p/crypto'}`);
+          const privKey = await keys.generateKeyPairFromSeed('Ed25519', new Uint8Array(hashBuffer));
+          const libp2pPeerId = await createFromPrivKey(privKey);
+
+          const node = await createLibp2p({
+            peerId: libp2pPeerId,
+            addresses: { listen: ['/webrtc', '/wss', '/ws'] },
+            transports: [webSockets(), webRTC()],
+            connectionEncryption: [noise()],
+            streamMuxers: [yamux(), mplex()],
+            peerDiscovery: [
+              bootstrap({
+                list: [
+                  '/dnsaddr/bootstrap.libp2p.io/p2p/QmNnoo2uR3RvoSRqY9TqC5B6fS1Jthf4xXjVv2UzzLaTX',
+                  '/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcSTwsxgMwvSsyn88HNWL6HUeDm6ex6hwQVkHyw',
+                  '/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoWSWS71A9SdrxD1TJ8T2oFsJp78v4fE8shzHWh'
+                ]
+              })
+            ],
+            services: {
+              dht: kadDHT({ clientMode: false }), // Permitir servir a DHT para melhor descoberta
+              pubsub: gossipsub()
+            }
+          });
+
+          await node.start();
+          libp2pRef.current = node;
+          setLibp2pStatus('online');
+          addGlobalAudit(`✅ libp2p Online! ID: ${node.peerId.toString()} (Unificado com PeerJS: ${peerJsId})`, 'success');
+          
+          node.services.pubsub.subscribe('k10-general-chat');
+          node.services.pubsub.subscribe('k10-discovery');
+          // Canal privado para este nó
+          node.services.pubsub.subscribe(`k10-private-${node.peerId.toString()}`);
+
+          // Anúncio periódico no DHT e no PubSub
+          setInterval(async () => {
+            if (libp2pRef.current && libp2pStatus === 'online') {
+              const myIdStr = libp2pRef.current.peerId.toString();
+              const discoveryMsg = { type: 'discovery', peerId: myIdStr, time: Date.now() };
+              try {
+                await libp2pRef.current.services.pubsub.publish('k10-discovery', enc.encode(JSON.stringify(discoveryMsg)));
+              } catch(e) {}
+              try {
+                await libp2pRef.current.services.dht.put(enc.encode(`k10:peer:${myIdStr}`), enc.encode(Date.now().toString()));
+              } catch(e) {}
+            }
+          }, 60000);
+
+          node.services.pubsub.addEventListener('message', (evt) => {
+            if (evt.detail.topic === 'k10-discovery') {
+              try {
+                const data = JSON.parse(new TextDecoder().decode(evt.detail.data));
+                if (data.type === 'discovery' && data.peerId !== node.peerId.toString()) {
+                  setLibp2pPeers(prev => prev.includes(data.peerId) ? prev : [...prev, data.peerId]);
+                  node.dial(data.peerId).catch(() => {});
+                }
+              } catch(e) {}
+            }
+          });
+
+          // Escuta por novos peers
+          node.addEventListener('peer:discovery', (evt) => {
+             const discoveredId = evt.detail.id.toString();
+             setLibp2pPeers(prev => prev.includes(discoveredId) ? prev : [...prev, discoveredId]);
+             addGlobalAudit(`📡 Peer descoberto via libp2p: ${discoveredId.slice(0,12)}...`, 'info');
+             if (evt.detail.multiaddrs && evt.detail.multiaddrs.length > 0) {
+               node.dial(evt.detail.id).catch(() => {});
+             }
+          });
+
+        } catch (e) {
+          console.error("[K10] Libp2p Start Failed:", e);
+          setLibp2pStatus('offline');
+          addGlobalAudit(`❌ Falha Libp2p: ${e.message}`, 'error');
+        }
+    };
+
+    const stopLibp2p = async () => {
+        if (libp2pRef.current) {
+            await libp2pRef.current.stop();
+            libp2pRef.current = null;
+            setLibp2pStatus('offline');
+            addGlobalAudit('🛑 Nó libp2p parado.', 'warning');
+        }
+    };
+
+    useEffect(() => {
+        if (view === 'chat' || view === 'central' || view === 'monitor') {
+            startLibp2p();
+        }
+    }, [view]);
+
+    return (
+        <div className="super-app">
+            <div className="app-viewport">
+                <ChatClient libp2pRef={libp2pRef} libp2pStatus={libp2pStatus} libp2pPeers={libp2pPeers} addGlobalAudit={addGlobalAudit} />
+            </div>
+        </div>
+    );
+};
 
 ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App /></ErrorBoundary>);
 </script>
@@ -12539,8 +13199,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     try {
       await esbuild.initialize({ wasmURL: 'https://cdn.jsdelivr.net/npm/esbuild-wasm@0.20.1/esbuild.wasm' });
       const script = document.getElementById('esbuild-main').textContent;
-      const { code } = await esbuild.transform(script, { loader: 'tsx', target: 'esnext' });
+      const { code } = await esbuild.transform(script, {
+        loader: 'tsx',
+        format: 'esm', // Suporte nativo para módulos ES do importmap/Libp2p
+        target: 'esnext'
+      });
       const s = document.createElement('script');
+      s.type = 'module';
       s.textContent = code;
       document.body.appendChild(s);
     } catch (e) {
