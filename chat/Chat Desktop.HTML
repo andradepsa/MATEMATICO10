@@ -1,9 +1,34 @@
-<!-- ═══ Chat K10 V74 — syncClock + libp2pStatusRef + V69-LOCK-3 incoming + Stale Lang fix (28/abr/2026) ═══
-     FIX V74-A: clockOffsetRef / trueNow() / syncClock() — relógio sincronizado entre peers
-     FIX V74-B: libp2pStatusRef — anti-stale-closure em todas as funções assíncronas
-     FIX V74-C: V69-LOCK-3 no handler de conexões ENTRANTES (peer.on('connection'))
-     FIX V74-D: langRef.current em todos os alert() e mensagens assíncronas
-     ═══════════════════════════════════════════════════════════════════════════
+<!-- ═══ Chat K10 V75 — libp2p v2 ecosystem fix: yamux@7.0.4 + peer-id@5.1.9 (28/abr/2026) ═══
+     FIX V75: LIBP2P ECOSYSTEM UPGRADE — VERSÕES CORRETAS PARA INTERFACE@^2.X
+     ════════════════════════════════════════════════════════════════════════════
+
+     Problema V74: @libp2p/yamux@6.0.0 NUNCA EXISTIU como release estável no npm.
+     O primeiro release estável do yamux é 7.0.4, que requer @libp2p/interface@^2.x
+     (ecossistema libp2p v2). O importmap misturava libp2p@1.9.1 (interface@^1.x)
+     com pacotes que exigem interface@^2.x — incompatibilidade total → 404 / falha.
+
+     Adicionalmente, @libp2p/peer-id-factory@4.x só suporta interface@^1.x
+     e não tem equivalente para libp2p v2. No v2 usa-se peerIdFromPrivateKey()
+     de @libp2p/peer-id@5.x (função síncrona, sem await).
+
+     Fix V75 — Atualização completa do ecossistema libp2p para v2:
+     1. libp2p              1.9.1   → 2.8.14
+     2. @libp2p/websockets  8.0.8   → 9.2.19
+     3. @libp2p/webrtc      4.1.2   → 5.2.24
+     4. @libp2p/bootstrap   10.0.19 → 11.0.47
+     5. @libp2p/kad-dht     12.1.2  → 15.1.11
+     6. @libp2p/gossipsub   13.1.0  → 14.1.1
+     7. @chainsafe/libp2p-noise 15.0.0 → 16.1.5
+     8. @libp2p/yamux       6.0.0   → 7.0.4  ← CAUSA RAIZ (6.0.0 nunca existiu)
+     9. @libp2p/mplex       10.0.0  → 11.0.47
+    10. @libp2p/crypto      5.0.0   → 5.1.8
+    11. @libp2p/peer-id-factory 4.0.0 → REMOVIDO (apenas interface@^1.x)
+    12. @libp2p/peer-id     NOVO    → 5.1.9   (substituição para v2)
+    13. @multiformats/multiaddr 12.1.14 → 12.4.4
+
+     Code change em startLibp2p():
+     - createFromPrivKey (peer-id-factory) → peerIdFromPrivateKey (peer-id)
+     - peerIdFromPrivateKey é síncrono no v2 (removido o await)
 
      ════════════ HISTÓRICO V73 ════════════
      FIX V73: COOLDOWN PÓS-PARADA DO QUIZ — BLOQUEIO ANTI-SPAM DE 3 MINUTOS
@@ -1052,18 +1077,18 @@
 <script type="importmap">
   {
     "imports": {
-      "libp2p": "https://esm.sh/libp2p@1.9.1",
-      "@libp2p/websockets": "https://esm.sh/@libp2p/websockets@8.0.8",
-      "@libp2p/webrtc": "https://esm.sh/@libp2p/webrtc@4.1.2",
-      "@libp2p/bootstrap": "https://esm.sh/@libp2p/bootstrap@10.0.19",
-      "@libp2p/kad-dht": "https://esm.sh/@libp2p/kad-dht@12.1.2",
-      "@libp2p/gossipsub": "https://esm.sh/@libp2p/gossipsub@13.1.0",
-      "@chainsafe/libp2p-noise": "https://esm.sh/@chainsafe/libp2p-noise@15.0.0",
-      "@libp2p/yamux": "https://esm.sh/@libp2p/yamux@6.0.0",
-      "@libp2p/mplex": "https://esm.sh/@libp2p/mplex@10.0.0",
-      "@libp2p/crypto": "https://esm.sh/@libp2p/crypto@5.0.0",
-      "@libp2p/peer-id-factory": "https://esm.sh/@libp2p/peer-id-factory@4.0.0",
-      "@multiformats/multiaddr": "https://esm.sh/@multiformats/multiaddr@12.1.14"
+      "libp2p": "https://esm.sh/libp2p@2.8.14",
+      "@libp2p/websockets": "https://esm.sh/@libp2p/websockets@9.2.19",
+      "@libp2p/webrtc": "https://esm.sh/@libp2p/webrtc@5.2.24",
+      "@libp2p/bootstrap": "https://esm.sh/@libp2p/bootstrap@11.0.47",
+      "@libp2p/kad-dht": "https://esm.sh/@libp2p/kad-dht@15.1.11",
+      "@libp2p/gossipsub": "https://esm.sh/@libp2p/gossipsub@14.1.1",
+      "@chainsafe/libp2p-noise": "https://esm.sh/@chainsafe/libp2p-noise@16.1.5",
+      "@libp2p/yamux": "https://esm.sh/@libp2p/yamux@7.0.4",
+      "@libp2p/mplex": "https://esm.sh/@libp2p/mplex@11.0.47",
+      "@libp2p/crypto": "https://esm.sh/@libp2p/crypto@5.1.8",
+      "@libp2p/peer-id": "https://esm.sh/@libp2p/peer-id@5.1.9",
+      "@multiformats/multiaddr": "https://esm.sh/@multiformats/multiaddr@12.4.4"
     }
   }
 </script>
@@ -1084,7 +1109,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V74 (syncClock + libp2pStatusRef + V69-LOCK-3 incoming + Stale Lang)</title>
+<title>Chat K10 — V75 (libp2p v2 ecosystem: yamux@7.0.4 + peer-id@5.1.9)</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -13130,7 +13155,7 @@ const App = () => {
           const { bootstrap } = await import(`${'@libp2p/bootstrap'}`);
           const { kadDHT } = await import(`${'@libp2p/kad-dht'}`);
           const { gossipsub } = await import(`${'@libp2p/gossipsub'}`);
-          const { createFromPrivKey } = await import(`${'@libp2p/peer-id-factory'}`);
+          const { peerIdFromPrivateKey } = await import(`${'@libp2p/peer-id'}`);
 
           // Obtém o mesmo peerId usado pelo PeerJS
           const peerJsId = localStorage.getItem(PEER_ID_STORAGE_KEY) || (() => {
@@ -13146,7 +13171,8 @@ const App = () => {
           
           const { keys } = await import(`${'@libp2p/crypto'}`);
           const privKey = await keys.generateKeyPairFromSeed('Ed25519', new Uint8Array(hashBuffer));
-          const libp2pPeerId = await createFromPrivKey(privKey);
+          // peerIdFromPrivateKey é síncrono no libp2p v2 (sem await)
+          const libp2pPeerId = peerIdFromPrivateKey(privKey);
 
           const node = await createLibp2p({
             peerId: libp2pPeerId,
