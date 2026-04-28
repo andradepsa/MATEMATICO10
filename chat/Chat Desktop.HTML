@@ -1,5 +1,30 @@
-<!-- ═══ Chat K10 V72 — NTP Clock Sync: elimina falsos positivos de vigilância do Quiz por dessincronismo de relógio (28/abr/2026) ═══
-     FIX V72: SINCRONIZAÇÃO DE RELÓGIO VIA NTP (worldtimeapi.org + timeapi.io)
+<!-- ═══ Chat K10 V73 — Cooldown de 3 min pós-parada do Quiz: bloqueia botão de todos os usuários por 3 minutos após transmissão encerrada (28/abr/2026) ═══
+     FIX V73: COOLDOWN PÓS-PARADA DO QUIZ — BLOQUEIO ANTI-SPAM DE 3 MINUTOS
+     ═══════════════════════════════════════════════════════════════════════════
+     Problema: quando a pessoa que transmitia o quiz parava, outro usuário podia
+     iniciar imediatamente, gerando sobreposição de transmissões / spam no chat.
+
+     Fix V73 — startQuizStopCooldown():
+     1. Ao parar o quiz (broadcast quiz-bot-global-toggle{active:false}), TODOS os
+        peers recebem o evento e disparam startQuizStopCooldownRef.current()
+     2. O dono local também dispara o cooldown no onClick do botão Stop
+     3. Disconnect automático (dono desconectou, V69-LOCK-3) também dispara cooldown
+     4. Contador regressivo de 180s (3 min) substituindo o botão "Iniciar Bot" por
+        um painel laranja com countdown visível: "⏳ Cooldown: Xm Xs — Aguarde..."
+     5. Após 180s, o painel some e o botão de Iniciar retorna normalmente
+     6. startQuizStopCooldownRef (useRef) garante acesso correto em closures assíncronas
+
+     Locais alterados:
+     - TRANSLATIONS.en/pt: quizStopCooldownMsg adicionado
+     - App: QUIZ_STOP_COOLDOWN_S=180, quizStopCooldown state, quizStopCooldownTimerRef,
+            startQuizStopCooldown(), startQuizStopCooldownRef
+     - handleIncomingData quiz-bot-global-toggle{active:false}: chama startQuizStopCooldownRef
+     - Disconnect handler 1 (connectToPeer close): chama startQuizStopCooldownRef
+     - Disconnect handler 2 (peer.on close porta): chama startQuizStopCooldownRef
+     - QuizBotWindow: props quizStopCooldown+startQuizStopCooldown; painel countdown;
+                      onClick Stop agora chama startQuizStopCooldown()
+
+     ════════════ HISTÓRICO V72 ════════════
      ═══════════════════════════════════════════════════════════════════════════
      Problema V71: cada peer usava Date.now() local para calcular o elapsed entre
      quizzes. Dispositivos sem sincronização NTP (celulares em roaming, VMs, etc.)
@@ -1999,6 +2024,7 @@ quizInactive: "🔴 Inactive",
 quizLockedByOther: "🔒 Quiz Bot in use by another user",
 quizStopBot: "Stop Bot",
 quizStartBot: "Start Bot",
+quizStopCooldownMsg: "⏳ Cooldown: {s}s — Wait before starting a new Quiz",
 quizMath: "Mathematics",
 quizPhysics: "Physics",
 quizBiology: "Biology",
@@ -2221,6 +2247,7 @@ quizInactive: "🔴 Inativo",
 quizLockedByOther: "🔒 Quiz Bot em uso por outro usuário",
 quizStopBot: "Parar Bot",
 quizStartBot: "Iniciar Bot",
+quizStopCooldownMsg: "⏳ Cooldown: {s}s — Aguarde para iniciar um novo Quiz",
 quizMath: "Matemática",
 quizPhysics: "Física",
 quizBiology: "Biologia",
@@ -6001,7 +6028,7 @@ function buildAlternatives(pool, correct) {
 const MIN_QUIZ_INTERVAL = 60;  // TRAVA de vigilância: mínimo de 1 minuto entre perguntas (anti-spam)
 const DEFAULT_QUIZ_INTERVAL = 120; // Tempo padrão de exibição da pergunta: 2 minutos
 
-const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizIntervalInput, setQuizIntervalInput, quizDiscipline, setQuizDiscipline, serverQuizBotActive, notifyServer, quizJitterTimerRef, broadcastToggle, sendQuizHandoff, quizServerOwnerId, globalQuizOwner, setGlobalQuizOwner, quizMasterIdRef, peerId }) => {
+const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizIntervalInput, setQuizIntervalInput, quizDiscipline, setQuizDiscipline, serverQuizBotActive, notifyServer, quizJitterTimerRef, broadcastToggle, sendQuizHandoff, quizServerOwnerId, globalQuizOwner, setGlobalQuizOwner, quizMasterIdRef, peerId, quizStopCooldown, startQuizStopCooldown }) => {
   const langName = getLangName(lang);
   return (
     <FloatingWindow
@@ -6086,6 +6113,23 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
               );
             }
 
+            // V73: cooldown pós-parada — bloqueia botão de iniciar para todos por 3 min
+            if (!quizBotActive && quizStopCooldown > 0) {
+              const mins = Math.floor(quizStopCooldown / 60);
+              const secs = quizStopCooldown % 60;
+              const display = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+              return (
+                <div style={{
+                  width: '100%', padding: '14px 16px', borderRadius: '10px',
+                  background: '#fff7ed', border: '1.5px solid #fed7aa',
+                  textAlign: 'center', color: '#c2410c', fontSize: '13px', fontWeight: 600,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+                }}>
+                  {t(lang, 'quizStopCooldownMsg', { s: display })}
+                </div>
+              );
+            }
+
             return (
           <button 
             className="primary-btn" 
@@ -6109,6 +6153,7 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
                 quizJitterTimerRef.current = setTimeout(askNextQuestion, initialJitterMs);
               } else {
                 if (quizJitterTimerRef.current) clearTimeout(quizJitterTimerRef.current);
+                if (startQuizStopCooldown) startQuizStopCooldown(); // V73: cooldown 3min para o dono local
               }
             }}
             style={{ background: iAmOwner ? '#ef4444' : '#10b981', width: '100%' }}
@@ -6303,6 +6348,23 @@ const [quizServerOwnerId, setQuizServerOwnerId] = useState(null); // V46: peerId
 const [globalQuizOwner, setGlobalQuizOwner] = useState(null); // V48: tracking of who started bot via P2P
 const globalQuizOwnerRef = useRef(null); // V69: ref síncrono para uso em closures (close handlers, timers)
 useEffect(() => { globalQuizOwnerRef.current = globalQuizOwner; }, [globalQuizOwner]); // mantém ref em sync automático
+
+// V73: Cooldown de 3 minutos após parada do quiz (anti-spam entre transmissões)
+const QUIZ_STOP_COOLDOWN_S = 180;
+const [quizStopCooldown, setQuizStopCooldown] = useState(0);
+const quizStopCooldownTimerRef = useRef(null);
+const startQuizStopCooldown = () => {
+  if (quizStopCooldownTimerRef.current) clearInterval(quizStopCooldownTimerRef.current);
+  setQuizStopCooldown(QUIZ_STOP_COOLDOWN_S);
+  quizStopCooldownTimerRef.current = setInterval(() => {
+    setQuizStopCooldown(prev => {
+      if (prev <= 1) { clearInterval(quizStopCooldownTimerRef.current); return 0; }
+      return prev - 1;
+    });
+  }, 1000);
+};
+const startQuizStopCooldownRef = useRef(startQuizStopCooldown);
+useEffect(() => { startQuizStopCooldownRef.current = startQuizStopCooldown; });
 const worldQuizStageRef    = useRef(0);    // 0=idle, 1=etapa1 rodando, 2=etapa2 rodando
 const worldQuizPlaceRef    = useRef(null); // lugar atual { query, country, state, place }
 const worldQuizImageRef    = useRef(null); // URL da imagem (reutilizada na etapa 2)
@@ -7299,6 +7361,7 @@ if (data.type === 'quiz-bot-global-toggle') {
   } else {
     setGlobalQuizOwner(null);
     globalQuizOwnerRef.current = null;
+    startQuizStopCooldownRef.current(); // V73: cooldown 3min anti-spam após parada do quiz
   }
   return;
 }
@@ -8544,6 +8607,7 @@ conn.on('close', () => {
         globalQuizOwnerRef.current = null;
         setQuizBotActive(false);
         setGlobalQuizOwner(null);
+        startQuizStopCooldownRef.current(); // V73: cooldown 3min anti-spam
         if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
         if (quizJitterTimerRef.current) clearTimeout(quizJitterTimerRef.current);
         connectionsRef.current.forEach(c => {
@@ -8756,6 +8820,7 @@ conn.on('close', () => {
         globalQuizOwnerRef.current = null;
         setQuizBotActive(false);
         setGlobalQuizOwner(null);
+        startQuizStopCooldownRef.current(); // V73: cooldown 3min anti-spam
         if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
         if (quizJitterTimerRef.current) clearTimeout(quizJitterTimerRef.current);
         connectionsRef.current.forEach(c => {
@@ -11595,7 +11660,7 @@ return (
 {showPollCreator && <PollCreator onClose={() => setShowPollCreator(false)} onCreated={handlePollCreated} />}
 {showMarkdownEditor && <MarkdownEditor lang={lang} connectionsRef={connectionsRef} selectedContact={selectedContact} onClose={() => setShowMarkdownEditor(false)} />}
 {showGeneralModeInfo && <GeneralModeInfoModal lang={lang} selectedContact={selectedContact} onClose={() => setShowGeneralModeInfo(false)} />}
-        {showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId});}catch(e){} })} sendQuizHandoff={sendQuizHandoff} quizServerOwnerId={quizServerOwnerId} globalQuizOwner={globalQuizOwner} setGlobalQuizOwner={setGlobalQuizOwner} quizMasterIdRef={quizMasterIdRef} peerId={peerId} />}
+        {showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId});}catch(e){} })} sendQuizHandoff={sendQuizHandoff} quizServerOwnerId={quizServerOwnerId} globalQuizOwner={globalQuizOwner} setGlobalQuizOwner={setGlobalQuizOwner} quizMasterIdRef={quizMasterIdRef} peerId={peerId} quizStopCooldown={quizStopCooldown} startQuizStopCooldown={startQuizStopCooldown} />}
 {showTorrentManager && (
 <TorrentManagerModal
 lang={lang}
