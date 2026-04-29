@@ -5859,7 +5859,7 @@ if ((!streamType || streamType === 'radio') && userRadios && userRadios[targetId
   );
 }
 
-if ((!streamType || streamType === 'yt') && userYoutubeStreams[targetId]) {
+if ((!streamType || streamType === 'yt') && userYoutubeStreams && userYoutubeStreams[targetId]) {
 const isPlaylist = userYoutubeStreams[targetId].startsWith('playlist:');
 const actualId = isPlaylist ? userYoutubeStreams[targetId].split(':')[1] : userYoutubeStreams[targetId];
 const srcUrl = isPlaylist
@@ -12738,17 +12738,20 @@ const K10GroupShadow = (() => {
           slot.isActive = true;
           slot.peer.on('connection', conn => onClientConn(slotId, conn));
           // 🔥 HEARTBEAT PARA O MONITOR
-          // FIX V10: group server reporta total=0 para o monitor.
-          // A contagem de usuários é responsabilidade exclusiva do gateway (K10-GATE-*).
-          // O heartbeat do group server serve apenas para sinalizar que o servidor
-          // está vivo (presença), sem inflar a contagem de usuários.
           const monitorId = 'K10-MON';
           const sendHeartbeat = () => {
             if (!slot.isActive || !slot.peer || slot.peer.destroyed) return;
             const gid = slotId.match(/^K10-(\w{4})-\d$/)?.[1];
             if (!gid) return;
-            // total=0, groups={gid:0} → monitor sabe que o server existe sem somar users
-            const payload = { t: 's', id: slotId, total: 0, groups: { [gid]: 0 } };
+            let groupSize = 1;
+            try {
+              if (typeof directoryGlobalRef !== 'undefined' && directoryGlobalRef.current && directoryGlobalRef.current[gid]) {
+                groupSize = directoryGlobalRef.current[gid].groupSize || 1;
+              } else if (typeof getGroupSize === 'function') {
+                groupSize = getGroupSize(gid) || 1;
+              }
+            } catch(e) { groupSize = 1; }
+            const payload = { t: 's', id: slotId, total: groupSize, groups: { [gid]: groupSize } };
             try {
               const monConn = slot.peer.connect(monitorId, { reliable: true });
               monConn.on('open', () => {
