@@ -5843,7 +5843,7 @@ const YOUTUBE_LINKS_LIST = {
 // ================================================================
 // MAIN APP
 // ================================================================
-const StreamRenderer = ({ targetId, peerId, streamType, userYoutubeStreams, userRadios, localVideoRef, videoRefs }) => {
+const StreamRenderer = ({ targetId, peerId, streamType, userYoutubeStreams, userRadios, localVideoRef, localStreamsRef, videoRefs }) => {
 if ((!streamType || streamType === 'radio') && userRadios && userRadios[targetId]) {
   const wrUrl = userRadios[targetId].url;
   return (
@@ -5859,7 +5859,7 @@ if ((!streamType || streamType === 'radio') && userRadios && userRadios[targetId
   );
 }
 
-if ((!streamType || streamType === 'yt') && userYoutubeStreams[targetId]) {
+if ((!streamType || streamType === 'yt') && userYoutubeStreams && userYoutubeStreams[targetId]) {
 const isPlaylist = userYoutubeStreams[targetId].startsWith('playlist:');
 const actualId = isPlaylist ? userYoutubeStreams[targetId].split(':')[1] : userYoutubeStreams[targetId];
 const srcUrl = isPlaylist
@@ -5870,7 +5870,14 @@ return (
 );
 }
 if ((!streamType || streamType === 'video') && targetId === peerId) {
-return <video className="local-video-player" ref={localVideoRef} autoPlay muted style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
+// FIX V10: callback ref garante srcObject quando o <video> monta (resolve tela preta).
+return <video className="local-video-player" ref={el => {
+  localVideoRef.current = el;
+  if (el && !el.srcObject && localStreamsRef && localStreamsRef.current && localStreamsRef.current.size > 0) {
+    const videoStream = [...localStreamsRef.current.values()].find(s => s.getVideoTracks && s.getVideoTracks().length > 0);
+    if (videoStream) el.srcObject = videoStream;
+  }
+}} autoPlay muted playsInline style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
 }
 return <video className="video-player" ref={el => videoRefs.current[targetId] = el} autoPlay style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
 };
@@ -12738,16 +12745,12 @@ const K10GroupShadow = (() => {
           slot.isActive = true;
           slot.peer.on('connection', conn => onClientConn(slotId, conn));
           // 🔥 HEARTBEAT PARA O MONITOR
-          // FIX V10: group server reporta total=0 para o monitor.
-          // A contagem de usuários é responsabilidade exclusiva do gateway (K10-GATE-*).
-          // O heartbeat do group server serve apenas para sinalizar que o servidor
-          // está vivo (presença), sem inflar a contagem de usuários.
+          // FIX V10: group server reporta total=0 — contagem é exclusiva do gateway.
           const monitorId = 'K10-MON';
           const sendHeartbeat = () => {
             if (!slot.isActive || !slot.peer || slot.peer.destroyed) return;
             const gid = slotId.match(/^K10-(\w{4})-\d$/)?.[1];
             if (!gid) return;
-            // total=0, groups={gid:0} → monitor sabe que o server existe sem somar users
             const payload = { t: 's', id: slotId, total: 0, groups: { [gid]: 0 } };
             try {
               const monConn = slot.peer.connect(monitorId, { reliable: true });
@@ -13285,7 +13288,7 @@ const nextPeer = allPeers[(currIdx + 1) % allPeers.length];
 setWindowTargets(prev => ({ ...prev, [peerId]: nextPeer }));
 }}
 >
-<StreamRenderer targetId={windowTargets[peerId] || peerId} peerId={peerId} streamType="video" localVideoRef={localVideoRef} videoRefs={videoRefs}/>
+<StreamRenderer targetId={windowTargets[peerId] || peerId} peerId={peerId} streamType="video" localVideoRef={localVideoRef} localStreamsRef={localStreamsRef} videoRefs={videoRefs}/>
 </FloatingWindow>
 )}
 
