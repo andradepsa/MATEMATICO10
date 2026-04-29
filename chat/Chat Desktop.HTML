@@ -9296,12 +9296,11 @@ try {
     id,
     () => myGroupIdRef.current || null,
     () => {
-      // membros conhecidos do meu grupo (apenas peers reais, exclui K10-CENTRAL e K10-{gid}-N)
+      // V71: apenas conexões ATIVAS para rank (dir.reservados é stale após saída de peer
+      // e causava K10-AAAB-2 manter slot 2 mesmo quando deveria liberar e assumir slot 1)
       const myGid = myGroupIdRef.current;
       if (!myGid) return [];
       const members = new Set();
-      const dir = directoryGlobalRef.current && directoryGlobalRef.current[myGid];
-      if (dir && Array.isArray(dir.reservados)) dir.reservados.forEach(p => p && members.add(p));
       connectionsRef.current.forEach(c => {
         if (c.open && c.peer && !c.peer.startsWith('K10-') && !isCentralServer(c.peer)) {
           members.add(c.peer);
