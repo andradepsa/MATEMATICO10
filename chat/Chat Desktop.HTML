@@ -1,6 +1,6 @@
 <!-- ═══════════════════════════════════════════════════════════════════════════════
-     CHAT K10 — V79  |  ARQUITETURA PARA IA / DESENVOLVEDOR
-     Última atualização: 28/abr/2026
+     CHAT K10 — V80  |  ARQUITETURA PARA IA / DESENVOLVEDOR
+     Última atualização: 29/abr/2026
      ═══════════════════════════════════════════════════════════════════════════════
 
      VISÃO GERAL
@@ -4471,10 +4471,21 @@ const K10GroupChatInline = ({ groupName, channelId, onClose, libp2pRef, libp2pSt
     }
     const room = roomRef.current;
 
+    // FIX V80-1: deduplicação por msgId — evita duplicatas quando há 2+ sub-grupos
+    const seenIds = new Set();
     const handleMsg = (evt) => {
       if (!room.owns(evt.detail.topic)) return;
       try {
         const data = JSON.parse(new TextDecoder().decode(evt.detail.data));
+        // Deduplica por id (presença obrigatória a partir do V80)
+        if (data.id) {
+          if (seenIds.has(data.id)) return;
+          seenIds.add(data.id);
+          if (seenIds.size > 200) {
+            const first = seenIds.values().next().value;
+            seenIds.delete(first);
+          }
+        }
         if (data.sender !== peerId) {
           const text = data.text === '__QUIZ__' && data.quizPayload
             ? `🤖 Quiz: ${data.quizPayload.question || '...'}`
@@ -4489,7 +4500,8 @@ const K10GroupChatInline = ({ groupName, channelId, onClose, libp2pRef, libp2pSt
       node.services.pubsub.removeEventListener('message', handleMsg);
       if (roomRef.current && !isOficial) { roomRef.current.stop(); roomRef.current = null; }
     };
-  }, [groupName, channelId, libp2pStatus, isOficial]);
+  // FIX V80-3: peerId adicionado ao array de dependências (stale closure corrigido)
+  }, [groupName, channelId, libp2pStatus, isOficial, peerId]);
 
   // PeerJS fallback path
   useEffect(() => {
@@ -4509,14 +4521,16 @@ const K10GroupChatInline = ({ groupName, channelId, onClose, libp2pRef, libp2pSt
     const tStr = input.trim();
     if (!tStr) return;
     const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const payload = { sender: peerId, senderName: userName, text: tStr, time };
+    // FIX V80-1: id adicionado ao payload para deduplicação em múltiplos sub-grupos
+    const msgId = peerId + '_grp_' + Date.now() + Math.random().toString(36).slice(2);
+    const payload = { id: msgId, sender: peerId, senderName: userName, text: tStr, time };
     if (libp2pRef.current && libp2pStatus === 'online' && roomRef.current) {
       try {
         await roomRef.current.publishAll(libp2pRef.current, payload);
       } catch(e) { console.warn('[libp2p] Group publish error:', e); }
     }
     if (connectionsRef && connectionsRef.current) {
-      const msgId = peerId + '_grp_' + Date.now() + Math.random().toString(36).slice(2);
+      // FIX V80-1: reutiliza msgId do payload (mesmo id nos dois caminhos de envio)
       const pkt = { type: 'k10-group-msg', msgId, groupName, channelId, ...payload };
       connectionsRef.current.forEach(c => { if (c.open) try { c.send(pkt); } catch(e) {} });
     }
@@ -9935,7 +9949,8 @@ useEffect(() => {
   return () => {
     node.services.pubsub.removeEventListener('message', handleLibp2pMsg);
   };
-}, [libp2pRef.current, libp2pStatus]);
+// FIX V80-4: libp2pRef.current removido do array de deps (refs não disparam re-render)
+}, [libp2pStatus]);
 
 
 useEffect(() => {
@@ -13016,7 +13031,8 @@ return (
         {showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => {
   connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId});}catch(e){} });
   // V77: propaga toggle do quiz para todos sub-grupos do Oficial
-  K10OficialShadow.publishAll(libp2pRef.current, { type: 'quiz-bot-global-toggle', active: act, owner: peerId });
+  // FIX V80-2: .catch() adicionado — evita unhandled promise rejection
+  K10OficialShadow.publishAll(libp2pRef.current, { type: 'quiz-bot-global-toggle', active: act, owner: peerId }).catch(() => {});
 }} sendQuizHandoff={sendQuizHandoff} quizServerOwnerId={quizServerOwnerId} globalQuizOwner={globalQuizOwner} setGlobalQuizOwner={setGlobalQuizOwner} quizMasterIdRef={quizMasterIdRef} peerId={peerId} quizStopCooldown={quizStopCooldown} startQuizStopCooldown={startQuizStopCooldown} />}
 {showTorrentManager && (
 <TorrentManagerModal
