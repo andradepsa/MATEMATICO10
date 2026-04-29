@@ -9308,7 +9308,8 @@ try {
       });
       return [...members];
     },
-    () => getK10StunPool ? getK10StunPool() : []
+    () => getK10StunPool ? getK10StunPool() : [],
+    () => peerInstance.current  // FIX V79: getter para acesso seguro ao peer
   );
 } catch(e) {}
 const urlParams = new URLSearchParams(window.location.search);
@@ -12641,12 +12642,16 @@ const K10GroupShadow = (() => {
   let getMyGid   = null;
   let getGroupMembers = null;  // () => Array<peerId>
   let stunPoolFn = null;
+  // FIX V79: peerInstance é local ao ChatClient (escopo ESM diferente).
+  // Recebe getter para acessar o peer principal sem ReferenceError.
+  let getPeerFn  = null;
 
-  function start(myId, gidGetter, membersGetter, stunGetter) {
+  function start(myId, gidGetter, membersGetter, stunGetter, getPeer) {
     myPeerId        = myId;
     getMyGid        = gidGetter;
     getGroupMembers = membersGetter;
     stunPoolFn      = stunGetter;
+    getPeerFn       = getPeer || null;
     if (probeTimer) clearInterval(probeTimer);
     probeTimer = setInterval(probeAndElect, PROBE_MS);
     setTimeout(probeAndElect, 6000);
@@ -12670,7 +12675,8 @@ const K10GroupShadow = (() => {
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
   async function probeAndElect() {
-    if (!peerInstance.current || peerInstance.current.destroyed) return;
+    // FIX V79: usa getPeerFn() em vez de peerInstance.current (fora do escopo ESM)
+    if (!getPeerFn || !getPeerFn() || getPeerFn().destroyed) return;
     const gid = getMyGid && getMyGid();
     if (!gid) {
       for (const slotId of [...slots.keys()]) releaseSlot(slotId);
@@ -12707,7 +12713,7 @@ const K10GroupShadow = (() => {
 
   function probeId(targetId) {
     return new Promise(resolve => {
-      const p = peerInstance.current;
+      const p = getPeerFn ? getPeerFn() : null;  // FIX V79
       if (!p || p.destroyed) return resolve(false);
       let test, resolved = false;
       try { test = p.connect(targetId, { reliable: true }); } catch(e) { return resolve(false); }
@@ -13687,8 +13693,11 @@ const App = () => {
           }, 2500);
 
           // Anúncio periódico no DHT e no PubSub
+          // FIX V79: libp2pStatus era capturado pela closure sempre como 'offline'
+          // (stale closure). Agora usa libp2pRef.current diretamente — sem depender
+          // de state React congelado no momento da criação do setInterval.
           setInterval(async () => {
-            if (libp2pRef.current && libp2pStatus === 'online') {
+            if (libp2pRef.current && !libp2pRef.current.status?.includes('stop')) {
               const myIdStr = libp2pRef.current.peerId.toString();
               const discoveryMsg = { type: 'discovery', peerId: myIdStr, time: Date.now() };
               try {
