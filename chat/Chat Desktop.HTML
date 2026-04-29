@@ -5843,7 +5843,7 @@ const YOUTUBE_LINKS_LIST = {
 // ================================================================
 // MAIN APP
 // ================================================================
-const StreamRenderer = ({ targetId, peerId, streamType, userYoutubeStreams, userRadios, localVideoRef, videoRefs }) => {
+const StreamRenderer = ({ targetId, peerId, streamType, userYoutubeStreams, userRadios, localVideoRef, localStreamsRef, videoRefs }) => {
 if ((!streamType || streamType === 'radio') && userRadios && userRadios[targetId]) {
   const wrUrl = userRadios[targetId].url;
   return (
@@ -5870,7 +5870,15 @@ return (
 );
 }
 if ((!streamType || streamType === 'video') && targetId === peerId) {
-return <video className="local-video-player" ref={localVideoRef} autoPlay muted style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
+// FIX V10: callback ref garante que srcObject é atribuído quando o <video> monta,
+// resolvendo tela preta causada por timing do React (setIsLocalVideoVisible antes do mount).
+return <video className="local-video-player" ref={el => {
+  localVideoRef.current = el;
+  if (el && !el.srcObject && localStreamsRef && localStreamsRef.current && localStreamsRef.current.size > 0) {
+    const videoStream = [...localStreamsRef.current.values()].find(s => s.getVideoTracks && s.getVideoTracks().length > 0);
+    if (videoStream) el.srcObject = videoStream;
+  }
+}} autoPlay muted playsInline style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
 }
 return <video className="video-player" ref={el => videoRefs.current[targetId] = el} autoPlay style={{ display: 'block', width: '100%', height: '100%', objectFit: 'cover' }}></video>;
 };
@@ -13288,7 +13296,7 @@ const nextPeer = allPeers[(currIdx + 1) % allPeers.length];
 setWindowTargets(prev => ({ ...prev, [peerId]: nextPeer }));
 }}
 >
-<StreamRenderer targetId={windowTargets[peerId] || peerId} peerId={peerId} streamType="video" localVideoRef={localVideoRef} videoRefs={videoRefs}/>
+<StreamRenderer targetId={windowTargets[peerId] || peerId} peerId={peerId} streamType="video" localVideoRef={localVideoRef} localStreamsRef={localStreamsRef} videoRefs={videoRefs}/>
 </FloatingWindow>
 )}
 
