@@ -1,4 +1,117 @@
-<!-- ═══ Chat K10 V75 — libp2p v2 ecosystem fix: yamux@7.0.4 + peer-id@5.1.9 (28/abr/2026) ═══
+<!-- ═══════════════════════════════════════════════════════════════════════════════
+     CHAT K10 — V79  |  ARQUITETURA PARA IA / DESENVOLVEDOR
+     Última atualização: 28/abr/2026
+     ═══════════════════════════════════════════════════════════════════════════════
+
+     VISÃO GERAL
+     ───────────
+     Chat P2P descentralizado que roda 100% no browser, sem servidor central.
+     Dois sistemas de transporte coexistem:
+
+       1. PeerJS  — conexões WebRTC diretas entre peers (fallback, legado)
+       2. libp2p  — rede GossipSub escalável (camada principal desde V79)
+
+     ARQUITETURA DE SALAS (V79)
+     ──────────────────────────
+     Toda comunicação de grupo usa a factory K10GSRoom(baseChannel).
+     Cada sala gerencia sub-tópicos GossipSub ilimitados e auto-escaláveis:
+
+       baseChannel-0   (0–999 usuários)
+       baseChannel-1   (próximo lote, criado automaticamente)
+       baseChannel-N   (sem teto — criação dinâmica)
+       baseChannel-meta  (tópico de descoberta entre peers)
+
+     Instâncias globais criadas na inicialização:
+
+       K10GeneralRoom   = K10GSRoom('k10-general')   → Modo Geral (chat principal)
+       K10OficialShadow = K10GSRoom('k10-oficial')   → Grupo Oficial ⭐
+
+     Grupos privados (salinhas ⭐):
+       Cada K10GroupChatInline cria K10GSRoom('k10-group-{nome}-{id}') no mount.
+       isOficial=true → reutiliza K10OficialShadow global (sem duplicar timers).
+
+     FLUXO DE ENTRADA DE UM PEER
+     ────────────────────────────
+       1. libp2p inicia → K10AnchorShadow elege até 5 âncoras (descoberta de rede)
+       2. K10GeneralRoom.init() → peer entra no sub-grupo com < 1000 assinantes
+       3. K10OficialShadow.init() → mesmo para o Grupo Oficial ⭐
+       4. Após 2.5s → evento k10-join-oficial abre Grupo Oficial como Modo Geral
+       5. PeerJS K10-GATE fica como fallback (split aos 50, regras originais)
+
+     ENVIO DE MENSAGEM (Modo Geral)
+     ───────────────────────────────
+       K10GeneralRoom.publishAll(node, payload)
+         → publica em TODOS os sub-grupos conhecidos (k10-general-0, -1, -2…)
+         → PeerJS broadcast como fallback se libp2p offline
+
+     OVERFLOW / ESCALA
+     ─────────────────
+       findAvailableSub() busca sub-grupo com < OFICIAL_SUB_MAX (1000) peers.
+       Se todos os índices 0–499 estiverem cheios:
+         → cria dinamicamente baseChannel-N (N = knownSubs.size)
+         → inscreve e anuncia no meta-tópico imediatamente
+         → todos os peers adicionam o novo sub-grupo via gsroom-announce
+       Resultado: escala ilimitada sem intervenção manual.
+
+     CONSTANTES-CHAVE
+     ─────────────────
+       OFICIAL_SUB_MAX = 1000   → peers por sub-grupo antes do split
+       K10_MAX_GROUP   = 50     → limite PeerJS por sala (regras originais)
+       GW_MAX_GROUP    = 50     → limite gateway PeerJS (regras originais)
+       OFICIAL_BASE_CHANNEL = 'k10-oficial'
+       OFICIAL_GROUP_NAME   = 'Oficial'
+
+     OBJETOS GLOBAIS PRINCIPAIS
+     ───────────────────────────
+       K10GSRoom(base)     → factory de salas GossipSub escaláveis
+       K10GeneralRoom      → sala do Modo Geral
+       K10OficialShadow    → sala do Grupo Oficial ⭐
+       K10AnchorShadow     → eleição de âncoras (descoberta de peers)
+       K10CentralShadow    → nó central PeerJS (legado/fallback)
+       K10GroupShadow      → servidores eleitos por salinha PeerJS (legado)
+
+     O QUE NÃO FOI ALTERADO DO ORIGINAL
+     ─────────────────────────────────────
+       - Sistema PeerJS completo (K10-GATE, K10-CENTRAL, split/merge aos 50)
+       - Mensagens diretas (E2EE, secrets)
+       - Quiz Bot (já propaga via K10OficialShadow.publishAll)
+       - Rádio, YouTube, Torrent, Poll, Markdown
+       - Sistema de banimento, moderação, audit log
+
+═══════════════════════════════════════════════════════════════════════════════ -->
+<!-- ═══ Chat K10 V76 — Anchor Node Election: 5 âncoras auto-eleitas, GossipSub otimizado (28/abr/2026) ═══
+     FIX V76: ANCHOR NODE ELECTION SYSTEM — REDE DESCENTRALIZADA SEM SERVIDOR CENTRAL
+     ══════════════════════════════════════════════════════════════════════════════════
+
+     Problema V75: libp2p funciona mas a rede depende dos bootstrap nodes públicos da
+     libp2p.io (sobrecarregados) e o GossipSub usa defaults básicos sem controle de mesh.
+     Resultado: descoberta lenta, mesh fraco, sem resiliência a bootstrap nodes caindo.
+
+     Fix V76 — K10AnchorShadow: sistema de eleição de até 5 Anchor Nodes no browser:
+     1. ELEIÇÃO AUTOMÁTICA DE ÂNCORAS:
+        Peers elegíveis (≥2 min online, ≥2 conexões) reivindicam slots K10-ANCHOR-0..4
+        via GossipSub (tópico 'k10-anchors'). Os 5 primeiros elegíveis viram âncoras.
+     2. ANÚNCIO DE MULTIADDRS:
+        Cada âncora anuncia seus multiaddrs a cada 30s no 'k10-anchors'. Peers novos
+        discam para os multiaddrs anunciados (preferindo WebSocket/WSS sobre WebRTC).
+     3. GOSSIPSUB OTIMIZADO:
+        D=6, Dlo=4, Dhi=12, fanoutTTL=60s, mcache ativado — mesh mais denso e estável.
+     4. ANTI-COLISÃO DE SLOTS:
+        Se dois peers reivindicam o mesmo slot, o que recebe o anúncio do outro cede
+        e busca um slot alternativo após 5s.
+     5. LIBERAÇÃO AUTOMÁTICA:
+        Âncora TTL=90s — slot expirado automaticamente se o peer fechar o browser.
+     6. SEM SERVIDOR:
+        100% browser. Quanto mais usuários online, mais âncoras disponíveis.
+
+     Locais alterados:
+     - Cabeçalho: V75 → V76, histórico V76 adicionado
+     - K10AnchorShadow: novo objeto global adicionado após K10CentralShadow (~linha 12154)
+     - startLibp2p(): import multiaddr; gossipsub com parâmetros explícitos;
+                      K10AnchorShadow.init() chamado após node.start()
+     - stopLibp2p(): K10AnchorShadow.stop() chamado ao parar o nó
+
+     ════════════ HISTÓRICO V75 ════════════
      FIX V75: LIBP2P ECOSYSTEM UPGRADE — VERSÕES CORRETAS PARA INTERFACE@^2.X
      ════════════════════════════════════════════════════════════════════════════
 
@@ -1109,7 +1222,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V75 (libp2p v2 ecosystem: yamux@7.0.4 + peer-id@5.1.9)</title>
+<title>Chat K10 — V79 (Todas salinhas GossipSub escalável)</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -2868,6 +2981,11 @@ const K10_TOTAL_LEN = K10_PREFIX.length + K10_GID_LEN + K10_SUFFIX_LEN; // 9
 // Posição 1→'AA', Posição 2→'AB', ..., Posição 1800→'dB'
 // Gravada no código: ninguém precisa transmitir a lista, só o sufixo/count
 const K10_MAX_GROUP = 50;
+
+// V77: Grupo Oficial — Modo Geral descentralizado via GossipSub
+const OFICIAL_GROUP_NAME   = 'Oficial';
+const OFICIAL_BASE_CHANNEL = 'k10-oficial';
+const OFICIAL_SUB_MAX      = 1000; // peers por sub-grupo antes do split
 const K10_POSITION_LIST = (() => {
   const list = [];
   for (let i = 0; i < K10_CHARS.length; i++) {
@@ -4319,40 +4437,59 @@ const K10GroupSection = ({ onGroupOpen, libp2pRef, libp2pStatus, peerId, userNam
   );
 };
 
-const K10GroupChatInline = ({ groupName, channelId, onClose, libp2pRef, libp2pStatus, peerId, userName, connectionsRef }) => {
+const K10GroupChatInline = ({ groupName, channelId, onClose, libp2pRef, libp2pStatus, peerId, userName, connectionsRef, isOficial }) => {
   const [msgs,      setMsgs]      = useState([]);
   const [input,     setInput]     = useState('');
   const [status,    setStatus]    = useState('Conectando...');
   const [showEmoji, setShowEmoji] = useState(false);
   const bottomRef = useRef(null);
   const inputRef  = useRef(null);
-  const topic = `k10-group-${groupName}-${channelId}`;
+  // V79: cada salinha tem sua própria sala GossipSub com sub-grupos escaláveis
+  const roomRef = useRef(null);
 
-  // libp2p path (quando disponível)
+  // libp2p path — V79: K10GSRoom por salinha (mesmo sistema do Oficial)
   useEffect(() => {
     const node = libp2pRef.current;
     if (!node || libp2pStatus !== 'online') {
       setStatus('Conectado (P2P direto)');
       return;
     }
+    // Cria/reutiliza a sala GossipSub desta salinha
+    // isOficial → reutiliza instância global K10OficialShadow (sem duplicar timers)
+    const baseChannel = isOficial
+      ? OFICIAL_BASE_CHANNEL
+      : `k10-group-${groupName}-${channelId}`;
+    if (isOficial) {
+      // Reutiliza o K10OficialShadow global — não cria instância nova
+      roomRef.current = K10OficialShadow;
+    } else if (!roomRef.current || roomRef.current._base !== baseChannel) {
+      if (roomRef.current) roomRef.current.stop();
+      const r = K10GSRoom(baseChannel);
+      r._base = baseChannel;
+      r.init(node, () => {});
+      roomRef.current = r;
+    }
+    const room = roomRef.current;
+
     const handleMsg = (evt) => {
-      if (evt.detail.topic === topic) {
-        try {
-          const data = JSON.parse(new TextDecoder().decode(evt.detail.data));
-          if (data.sender !== peerId) {
-            setMsgs(prev => [...prev, { who: data.senderName || data.sender.slice(0,6), text: data.text, me: false, t: data.time }]);
-          }
-        } catch(e) {}
-      }
+      if (!room.owns(evt.detail.topic)) return;
+      try {
+        const data = JSON.parse(new TextDecoder().decode(evt.detail.data));
+        if (data.sender !== peerId) {
+          const text = data.text === '__QUIZ__' && data.quizPayload
+            ? `🤖 Quiz: ${data.quizPayload.question || '...'}`
+            : data.text;
+          if (text) setMsgs(prev => [...prev, { who: data.senderName || (data.sender||'').slice(0,6), text, me: false, t: data.time }]);
+        }
+      } catch(e) {}
     };
-    node.services.pubsub.subscribe(topic);
     node.services.pubsub.addEventListener('message', handleMsg);
-    setStatus('Conectado (Híbrido libp2p)');
+    setStatus('Conectado (GossipSub escalável)');
     return () => {
-      node.services.pubsub.unsubscribe(topic);
       node.services.pubsub.removeEventListener('message', handleMsg);
+      if (roomRef.current && !isOficial) { roomRef.current.stop(); roomRef.current = null; }
     };
-  }, [groupName, channelId, libp2pStatus]);
+  }, [groupName, channelId, libp2pStatus, isOficial]);
 
   // PeerJS fallback path
   useEffect(() => {
@@ -4373,9 +4510,9 @@ const K10GroupChatInline = ({ groupName, channelId, onClose, libp2pRef, libp2pSt
     if (!tStr) return;
     const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     const payload = { sender: peerId, senderName: userName, text: tStr, time };
-    if (libp2pRef.current && libp2pStatus === 'online') {
+    if (libp2pRef.current && libp2pStatus === 'online' && roomRef.current) {
       try {
-        await libp2pRef.current.services.pubsub.publish(topic, new TextEncoder().encode(JSON.stringify(payload)));
+        await roomRef.current.publishAll(libp2pRef.current, payload);
       } catch(e) { console.warn('[libp2p] Group publish error:', e); }
     }
     if (connectionsRef && connectionsRef.current) {
@@ -4631,6 +4768,28 @@ useEffect(() => {
     if (setPendingGroup) setPendingGroup(null);
   }
 }, [pendingGroup]);
+
+// V77: escuta eventos do Grupo Oficial e auto-abre como Modo Geral
+useEffect(() => {
+  const openOficial = (ch) => {
+    const channel = ch || K10OficialShadow.myChannel();
+    setOpenedGroups(prev => prev.some(g => g.name === OFICIAL_GROUP_NAME) ? prev : [...prev, { name: OFICIAL_GROUP_NAME, chId: channel }]);
+    setActiveGroupName(OFICIAL_GROUP_NAME);
+    setActiveGroupChannel(channel);
+    setActiveChatTab('group');
+  };
+  const onJoin     = (evt) => openOficial(evt.detail?.channel);
+  const onOverflow = ()    => {
+    openOficial();
+    addAudit('⭐ Modo Geral lotado — Grupo Oficial ativado automaticamente', 'sys');
+  };
+  window.addEventListener('k10-join-oficial',        onJoin);
+  window.addEventListener('k10-overflow-to-oficial', onOverflow);
+  return () => {
+    window.removeEventListener('k10-join-oficial',        onJoin);
+    window.removeEventListener('k10-overflow-to-oficial', onOverflow);
+  };
+}, []);
 
 
 const [isSending, setIsSending] = useState(false);
@@ -4927,7 +5086,7 @@ const msgData = { type: 'message', id: msgId, ttl: 15, text: textToSend, sender:
 let libp2pSent = false;
 if (libp2pRef.current && libp2pStatus === 'online') {
   try {
-    await libp2pRef.current.services.pubsub.publish('k10-general-chat', new TextEncoder().encode(JSON.stringify(msgData)));
+    await K10GeneralRoom.publishAll(libp2pRef.current, msgData);
     libp2pSent = true;
     addAudit(`[libp2p] Msg Out: ${msgId.slice(0,8)}`, 'success');
   } catch(e) { console.warn('[libp2p] Gossip error:', e); }
@@ -5400,6 +5559,7 @@ title={t(lang, 'sendMessage')}>
   peerId={peerId}
   userName={userName}
   connectionsRef={connectionsRef}
+  isOficial={activeGroupName === OFICIAL_GROUP_NAME}
 />
 ) : (
 <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -6866,6 +7026,8 @@ const sendQuizQuestion = (quizData) => {
     setMessages(prev => [...prev, localMsg].slice(-500));
   } else {
     connectionsRef.current.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
+    // V77: propaga perguntas do quiz para todos sub-grupos do Grupo Oficial
+    K10OficialShadow.publishAll(libp2pRef.current, wireMsg);
     setMessages(prev => [...prev, localMsg].slice(-500));
   }
   
@@ -7519,11 +7681,9 @@ return sent;
 };
 
 const p2pBroadcast = (payload) => {
-  // Envio via libp2p
+  // Envio via libp2p (todos sub-grupos do Modo Geral)
   if (libp2pRef.current && libp2pStatusRef.current === 'online') {
-    try {
-      libp2pRef.current.services.pubsub.publish('k10-general-chat', new TextEncoder().encode(JSON.stringify(payload)));
-    } catch(e) {}
+    K10GeneralRoom.publishAll(libp2pRef.current, payload).catch(() => {});
   }
   // Envio via PeerJS
   connectionsRef.current.forEach(conn => {
@@ -7535,9 +7695,7 @@ const p2pBroadcast = (payload) => {
 
 const libp2pRelay = (data, sourcePid) => {
   if (libp2pRef.current && libp2pStatusRef.current === 'online' && sourcePid !== 'libp2p-transport' && !data.direct) {
-    try {
-      libp2pRef.current.services.pubsub.publish('k10-general-chat', new TextEncoder().encode(JSON.stringify(data)));
-    } catch(e) {}
+    K10GeneralRoom.publishAll(libp2pRef.current, data).catch(() => {});
   }
 };
 
@@ -8078,6 +8236,8 @@ if (data.type === 'group-full') {
     directoryGlobalRef.current[gid].groupSize = size || K10_MAX_GROUP;
   }
   addAudit(`[V51] Grupo ${gid} CHEIO (${size}/${K10_MAX_GROUP})`, 'warn');
+  // V77: redireciona overflow para Grupo Oficial descentralizado
+  window.dispatchEvent(new CustomEvent('k10-overflow-to-oficial'));
   return;
 }
 
@@ -8553,7 +8713,7 @@ if (ttl > 0 && !data.direct) {
   connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); 
   // --- HYBRID RELAY ---
   if (libp2pRef.current && libp2pStatusRef.current === 'online' && pId !== 'libp2p-transport') {
-    try { libp2pRef.current.services.pubsub.publish('k10-general-chat', new TextEncoder().encode(JSON.stringify(relay))); } catch(e){}
+    K10GeneralRoom.publishAll(libp2pRef.current, { ...data, ttl: data.ttl - 1 }).catch(() => {});
   }
 }
 }
@@ -9748,7 +9908,7 @@ useEffect(() => {
 
   const handleLibp2pMsg = (evt) => {
     const topic = evt.detail.topic;
-    if (topic === 'k10-general-chat' || topic === `k10-private-${node.peerId.toString()}`) {
+    if (K10GeneralRoom.owns(topic) || topic === `k10-private-${node.peerId.toString()}`) {
       try {
         const data = JSON.parse(new TextDecoder().decode(evt.detail.data));
         if (data && data.id && !seenMessagesRef.current.has(data.id)) {
@@ -12154,6 +12314,302 @@ const K10CentralShadow = (() => {
 
 
 // ═══════════════════════════════════════════════════════════════════════
+// K10AnchorShadow (V76) — Eleição de até 5 Anchor Nodes via GossipSub
+//
+// Âncoras são peers browser bem conectados que:
+//   • Ficam na mesh GossipSub com fanout máximo (pontos de propagação)
+//   • Anunciam seus multiaddrs para novos peers encontrarem a rede
+//   • Servem o DHT Kademlia ativamente (clientMode: false)
+//
+// Sem servidor externo. Quanto mais usuários, mais âncoras disponíveis.
+// TTL de 90s — slot liberado automaticamente quando o browser fecha.
+// ═══════════════════════════════════════════════════════════════════════
+const K10AnchorShadow = (() => {
+  // ── Constantes ────────────────────────────────────────────────────────
+  const MAX_ANCHORS      = 5;        // slots simultâneos
+  const ANNOUNCE_INTERVAL= 30_000;   // intervalo entre anúncios (30s)
+  const ANCHOR_TTL       = 90_000;   // slot expira se não anunciar em 90s
+  const MIN_ONLINE_MS    = 120_000;  // mínimo online antes de se candidatar (2 min)
+  const MIN_CONNECTIONS  = 2;        // mínimo de conexões para se candidatar
+  const TOPIC            = 'k10-anchors';
+
+  // ── Estado ───────────────────────────────────────────────────────────
+  let node        = null;
+  let multiaddrFn = null;   // função multiaddr() importada em startLibp2p()
+  let onlineAt    = null;
+  let isAnchor    = false;
+  let mySlot      = -1;
+  let announceTimer = null;
+  let checkTimer    = null;
+  let auditFn     = () => {};
+
+  // slot (0-4) → { peerId, multiaddrs[], lastSeen }
+  const anchorPeers = new Map();
+
+  // ── Helpers ───────────────────────────────────────────────────────────
+  const getActiveAnchors = () => {
+    const now = Date.now();
+    return [...anchorPeers.entries()].filter(([, v]) => now - v.lastSeen < ANCHOR_TTL);
+  };
+
+  const isSelf = (peerId) => node && node.peerId.toString() === peerId;
+
+  // Prefere WebSocket/WSS (funcionam em browser) sobre WebRTC puro
+  const pickDialableAddrs = (multiaddrs) => {
+    const ws  = (multiaddrs || []).filter(a => a.includes('/wss') || a.includes('/ws/'));
+    const dns = (multiaddrs || []).filter(a => a.includes('/dns'));
+    return (dns.length ? dns : ws.length ? ws : (multiaddrs || [])).slice(0, 3);
+  };
+
+  // ── Anúncio de âncora ────────────────────────────────────────────────
+  const announceAnchor = async () => {
+    if (!node || !isAnchor) return;
+    try {
+      const multiaddrs = node.getMultiaddrs().map(ma => ma.toString());
+      const payload = JSON.stringify({
+        type: 'anchor-announce',
+        slot: mySlot,
+        peerId: node.peerId.toString(),
+        multiaddrs,
+        ts: Date.now()
+      });
+      await node.services.pubsub.publish(TOPIC, new TextEncoder().encode(payload));
+    } catch (e) {}
+  };
+
+  // ── Eleição ──────────────────────────────────────────────────────────
+  const tryBecomeAnchor = () => {
+    if (!node || isAnchor) return;
+    const elapsed = Date.now() - onlineAt;
+    if (elapsed < MIN_ONLINE_MS) return;
+
+    const connCount = [...node.getConnections()].length;
+    if (connCount < MIN_CONNECTIONS) return;
+
+    const active   = getActiveAnchors();
+    if (active.length >= MAX_ANCHORS) return;
+
+    // Acha primeiro slot livre
+    const usedSlots = new Set(active.map(([slot]) => Number(slot)));
+    let freeSlot = -1;
+    for (let i = 0; i < MAX_ANCHORS; i++) {
+      if (!usedSlots.has(i)) { freeSlot = i; break; }
+    }
+    if (freeSlot === -1) return;
+
+    isAnchor = true;
+    mySlot   = freeSlot;
+    auditFn(`⚓ Anchor Node eleito! Slot K10-ANCHOR-${mySlot} (${connCount} conexões ativas)`, 'success');
+
+    // Anuncia imediatamente e depois a cada ANNOUNCE_INTERVAL
+    announceAnchor();
+    if (announceTimer) clearInterval(announceTimer);
+    announceTimer = setInterval(announceAnchor, ANNOUNCE_INTERVAL);
+  };
+
+  // ── Handler de mensagens do tópico 'k10-anchors' ─────────────────────
+  const handleAnchorMessage = (data) => {
+    if (data.type !== 'anchor-announce') return;
+    if (isSelf(data.peerId)) return; // ignora próprio anúncio
+
+    const slot = Number(data.slot);
+    if (slot < 0 || slot >= MAX_ANCHORS) return;
+
+    const prev = anchorPeers.get(slot);
+    const isNew = !prev || prev.peerId !== data.peerId;
+
+    anchorPeers.set(slot, {
+      peerId: data.peerId,
+      multiaddrs: data.multiaddrs || [],
+      lastSeen: Date.now()
+    });
+
+    if (isNew) {
+      auditFn(`⚓ Anchor Slot ${slot} → ${data.peerId.slice(0, 12)}… (${(data.multiaddrs || []).length} addrs)`, 'info');
+    }
+
+    // Conecta ao âncora descoberto via seus multiaddrs (prefere WS/WSS)
+    if (node) {
+      const addrs = pickDialableAddrs(data.multiaddrs);
+      if (addrs.length > 0 && multiaddrFn) {
+        for (const addrStr of addrs) {
+          try { node.dial(multiaddrFn(addrStr)).catch(() => {}); } catch (e) {}
+        }
+      }
+      // Fallback: dial by peer ID string (libp2p v2 aceita /p2p/<id>)
+      if (multiaddrFn) {
+        try { node.dial(multiaddrFn(`/p2p/${data.peerId}`)).catch(() => {}); } catch (e) {}
+      }
+    }
+
+    // Anti-colisão: se sou âncora do mesmo slot → cede e procura outro
+    if (isAnchor && mySlot === slot && !isSelf(data.peerId)) {
+      isAnchor = false;
+      if (announceTimer) { clearInterval(announceTimer); announceTimer = null; }
+      auditFn(`⚓ Slot ${slot} ocupado por outro peer — buscando slot alternativo…`, 'warning');
+      setTimeout(tryBecomeAnchor, 5000);
+    }
+  };
+
+  // ── API pública ───────────────────────────────────────────────────────
+  return {
+    /** Inicializa com o nó libp2p já iniciado e a fn multiaddr importada. */
+    init(libp2pNode, multiaddrFnRef, addAudit) {
+      node        = libp2pNode;
+      multiaddrFn = multiaddrFnRef || null;
+      onlineAt    = Date.now();
+      auditFn     = addAudit || (() => {});
+
+      // Inscreve no tópico de âncoras
+      try { node.services.pubsub.subscribe(TOPIC); } catch (e) {}
+
+      // Escuta anúncios de âncoras no GossipSub
+      node.services.pubsub.addEventListener('message', (evt) => {
+        if (evt.detail.topic !== TOPIC) return;
+        try {
+          const data = JSON.parse(new TextDecoder().decode(evt.detail.data));
+          handleAnchorMessage(data);
+        } catch (e) {}
+      });
+
+      // Checa elegibilidade periodicamente (a cada 30s)
+      checkTimer = setInterval(tryBecomeAnchor, 30_000);
+      // Primeira tentativa após MIN_ONLINE_MS + margem
+      setTimeout(tryBecomeAnchor, MIN_ONLINE_MS + 10_000);
+
+      auditFn('⚓ K10AnchorShadow iniciado — até 5 âncoras auto-eleitas por GossipSub', 'info');
+    },
+
+    /** Para o sistema de âncora (chamado em stopLibp2p). */
+    stop() {
+      if (announceTimer) { clearInterval(announceTimer); announceTimer = null; }
+      if (checkTimer)    { clearInterval(checkTimer);    checkTimer    = null; }
+      isAnchor = false;
+      mySlot   = -1;
+      node     = null;
+      anchorPeers.clear();
+    },
+
+    get isActive()    { return isAnchor; },
+    get slot()        { return mySlot; },
+    getAnchors()      { return getActiveAnchors(); },
+    getAnchorCount()  { return getActiveAnchors().length; }
+  };
+})();
+
+// ═══════════════════════════════════════════════════════════════════════
+// K10GSRoom (V79) — Sala GossipSub com sub-grupos auto-escaláveis
+//
+// Factory genérica: cada sala (Modo Geral, Oficial, salinhas) ganha
+// seus próprios sub-tópicos (baseChannel-0, baseChannel-1…).
+// Quando um sub-grupo atinge OFICIAL_SUB_MAX peers, o próximo é criado.
+// publishAll() propaga para TODOS os sub-grupos da sala.
+// ═══════════════════════════════════════════════════════════════════════
+const K10GSRoom = (baseChannel) => {
+  const META_TOPIC  = baseChannel + '-meta';
+  const ANNOUNCE_MS = 45_000;
+
+  let node       = null;
+  let myChannel  = baseChannel + '-0';
+  let knownSubs  = new Set([baseChannel + '-0']);
+  let announceTimer = null;
+  let auditFn    = () => {};
+
+  // ── Sub-grupo com espaço disponível ───────────────────────────────────
+  const findAvailableSub = () => {
+    if (!node) return myChannel;
+    for (let i = 0; i < 500; i++) {
+      const topic = `${baseChannel}-${i}`;
+      const count = (node.services.pubsub.getSubscribers(topic) || []).length;
+      if (count < OFICIAL_SUB_MAX) return topic;
+    }
+    // Todos os 500 cheios — cria o próximo índice dinamicamente
+    const nextIdx = knownSubs.size;
+    const newTopic = `${baseChannel}-${nextIdx}`;
+    knownSubs.add(newTopic);
+    try { node.services.pubsub.subscribe(newTopic); } catch(e) {}
+    // Anuncia imediatamente para todos os peers descobrirem o novo sub-grupo
+    setTimeout(() => announce(), 0);
+    return newTopic;
+  };
+
+  // ── Anúncio de presença no sub-grupo ─────────────────────────────────
+  const announce = async () => {
+    if (!node) return;
+    const payload = JSON.stringify({
+      type: 'gsroom-announce',
+      channel: myChannel,
+      base: baseChannel,
+      ts: Date.now()
+    });
+    try {
+      await node.services.pubsub.publish(META_TOPIC, new TextEncoder().encode(payload));
+    } catch(e) {}
+  };
+
+  // ── Publicar em TODOS os sub-grupos conhecidos ────────────────────────
+  const publishAll = async (libp2pNode, payload) => {
+    if (!libp2pNode) return;
+    const enc = new TextEncoder();
+    const raw = enc.encode(JSON.stringify(payload));
+    for (const ch of knownSubs) {
+      try { await libp2pNode.services.pubsub.publish(ch, raw); } catch(e) {}
+    }
+  };
+
+  return {
+    init(libp2pNode, addAudit) {
+      node    = libp2pNode;
+      auditFn = addAudit || (() => {});
+
+      // Descobre sub-grupo disponível
+      myChannel = findAvailableSub();
+      knownSubs.add(myChannel);
+
+      // Inscreve no meta-tópico e no sub-grupo próprio
+      try { node.services.pubsub.subscribe(META_TOPIC); }  catch(e) {}
+      try { node.services.pubsub.subscribe(myChannel); }   catch(e) {}
+
+      // Escuta anúncios de outros peers
+      node.services.pubsub.addEventListener('message', (evt) => {
+        if (evt.detail.topic !== META_TOPIC) return;
+        try {
+          const d = JSON.parse(new TextDecoder().decode(evt.detail.data));
+          if (d.type === 'gsroom-announce' && d.channel && d.base === baseChannel) {
+            if (!knownSubs.has(d.channel)) {
+              knownSubs.add(d.channel);
+              try { node.services.pubsub.subscribe(d.channel); } catch(e) {}
+              auditFn(`📡 Sub-grupo descoberto: ${d.channel}`, 'info');
+            }
+          }
+        } catch(e) {}
+      });
+
+      // Anuncia presença periodicamente
+      announce();
+      announceTimer = setInterval(announce, ANNOUNCE_MS);
+
+      auditFn(`📡 K10GSRoom [${baseChannel}] ativo — canal: ${myChannel}`, 'success');
+    },
+
+    stop() {
+      if (announceTimer) { clearInterval(announceTimer); announceTimer = null; }
+      node = null;
+      knownSubs = new Set([baseChannel + '-0']);
+    },
+
+    myChannel()    { return myChannel; },
+    getKnownSubs() { return [...knownSubs]; },
+    publishAll,
+    owns: (topic) => topic === META_TOPIC || topic.startsWith(baseChannel + '-')
+  };
+};
+
+// ── Instâncias globais ─────────────────────────────────────────────────
+const K10OficialShadow = K10GSRoom(OFICIAL_BASE_CHANNEL);  // Grupo Oficial ⭐
+const K10GeneralRoom   = K10GSRoom('k10-general');          // Modo Geral
+
+// ═══════════════════════════════════════════════════════════════════════
 // K10-GROUP SHADOW (V50) — 2 servidores eleitos por salinha, em background
 //
 // Cada salinha (gid) precisa ter exatamente 2 servidores ativos em
@@ -12552,7 +13008,11 @@ return (
 {showPollCreator && <PollCreator onClose={() => setShowPollCreator(false)} onCreated={handlePollCreated} />}
 {showMarkdownEditor && <MarkdownEditor lang={lang} connectionsRef={connectionsRef} selectedContact={selectedContact} onClose={() => setShowMarkdownEditor(false)} />}
 {showGeneralModeInfo && <GeneralModeInfoModal lang={lang} selectedContact={selectedContact} onClose={() => setShowGeneralModeInfo(false)} />}
-        {showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId});}catch(e){} })} sendQuizHandoff={sendQuizHandoff} quizServerOwnerId={quizServerOwnerId} globalQuizOwner={globalQuizOwner} setGlobalQuizOwner={setGlobalQuizOwner} quizMasterIdRef={quizMasterIdRef} peerId={peerId} quizStopCooldown={quizStopCooldown} startQuizStopCooldown={startQuizStopCooldown} />}
+        {showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => {
+  connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId});}catch(e){} });
+  // V77: propaga toggle do quiz para todos sub-grupos do Oficial
+  K10OficialShadow.publishAll(libp2pRef.current, { type: 'quiz-bot-global-toggle', active: act, owner: peerId });
+}} sendQuizHandoff={sendQuizHandoff} quizServerOwnerId={quizServerOwnerId} globalQuizOwner={globalQuizOwner} setGlobalQuizOwner={setGlobalQuizOwner} quizMasterIdRef={quizMasterIdRef} peerId={peerId} quizStopCooldown={quizStopCooldown} startQuizStopCooldown={startQuizStopCooldown} />}
 {showTorrentManager && (
 <TorrentManagerModal
 lang={lang}
@@ -13154,6 +13614,7 @@ const App = () => {
           const { mplex } = await import(`${'@libp2p/mplex'}`);
           const { bootstrap } = await import(`${'@libp2p/bootstrap'}`);
           const { kadDHT } = await import(`${'@libp2p/kad-dht'}`);
+          const { multiaddr } = await import(`${'@multiformats/multiaddr'}`);
           const { gossipsub } = await import(`${'@libp2p/gossipsub'}`);
           const { peerIdFromPrivateKey } = await import(`${'@libp2p/peer-id'}`);
 
@@ -13191,7 +13652,16 @@ const App = () => {
             ],
             services: {
               dht: kadDHT({ clientMode: false }), // Permitir servir a DHT para melhor descoberta
-              pubsub: gossipsub()
+              pubsub: gossipsub({
+                // V76: Mesh mais denso — 6 peers alvo, mín 4, máx 12
+                D: 6, Dlo: 4, Dhi: 12,
+                // Fanout TTL: mantém fanout ativo 60s mesmo sem assinar o tópico
+                fanoutTTL: 60_000,
+                // Cache de mensagens: 6 janelas × heartbeat; gossip em 3 delas
+                mcacheLength: 6, mcacheGossip: 3,
+                // Publica mesmo sem peers no tópico (evita silêncio em rede fria)
+                allowPublishToZeroTopicPeers: true
+              })
             }
           });
 
@@ -13200,10 +13670,22 @@ const App = () => {
           setLibp2pStatus('online');
           addGlobalAudit(`✅ libp2p Online! ID: ${node.peerId.toString()} (Unificado com PeerJS: ${peerJsId})`, 'success');
           
-          node.services.pubsub.subscribe('k10-general-chat');
           node.services.pubsub.subscribe('k10-discovery');
           // Canal privado para este nó
           node.services.pubsub.subscribe(`k10-private-${node.peerId.toString()}`);
+
+          // V76: inicializa sistema de Anchor Nodes
+          K10AnchorShadow.init(node, multiaddr, addGlobalAudit);
+          // V79: inicializa Modo Geral (k10-general-N sub-grupos escaláveis)
+          K10GeneralRoom.init(node, addGlobalAudit);
+          // V77: inicializa Grupo Oficial (k10-oficial-N sub-grupos escaláveis)
+          K10OficialShadow.init(node, addGlobalAudit);
+          // Abre Grupo Oficial como Modo Geral após breve descoberta
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('k10-join-oficial', {
+              detail: { channel: K10OficialShadow.myChannel() }
+            }));
+          }, 2500);
 
           // Anúncio periódico no DHT e no PubSub
           setInterval(async () => {
@@ -13250,6 +13732,9 @@ const App = () => {
 
     const stopLibp2p = async () => {
         if (libp2pRef.current) {
+            K10AnchorShadow.stop();
+            K10GeneralRoom.stop();
+            K10OficialShadow.stop();
             await libp2pRef.current.stop();
             libp2pRef.current = null;
             setLibp2pStatus('offline');
