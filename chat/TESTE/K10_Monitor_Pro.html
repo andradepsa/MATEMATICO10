@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>K10 MONITOR PRO v10 — Health + Sparklines + Dual Servers + Mirror Topology</title>
+<title>K10 MONITOR PRO v9 — Health + Sparklines + Dual Servers + Mirror Topology</title>
 <style>
 :root {
   --bg:    #020810;
@@ -190,7 +190,7 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 
 <div class="header">
   <div>
-    <h1>K10<span class="dot">.</span>MONITOR <span class="ver">PRO v10</span></h1>
+    <h1>K10<span class="dot">.</span>MONITOR <span class="ver">PRO v9</span></h1>
     <div style="font-size:9px;color:var(--dim);letter-spacing:2px;margin-top:4px">
       DUAL SERVER · MIRROR TOPOLOGY · REDUNDÂNCIA ATIVA
     </div>
@@ -445,18 +445,12 @@ function flushLog() {
 function deriveGroups() {
   const g = {};
   const now = Date.now();
-  // FIX: group servers (K10-XXXX-1/2) reportam os MESMOS usuários que o gateway.
-  // Incluí-los na soma causa contagem dupla. Apenas gateways (K10-GATE-*) e
-  // fontes legadas contribuem para a contagem de usuários.
-  // Group servers ainda atualizam timestamp (presença do grupo) mas n=0 na soma.
-  const isGroupServer = (sid) => /^K10-\w{4}-\d$/.test(sid) && !sid.includes('-GATE-');
   for (const sid in servers) {
     const s = servers[sid];
     if (now - s.ts > STALE) continue;
-    const skipCount = isGroupServer(sid);
     for (const gid in s.groups) {
       if (!g[gid]) g[gid] = {n:0, ts:0};
-      if (!skipCount) g[gid].n += s.groups[gid];
+      g[gid].n  += s.groups[gid];
       if (s.ts > g[gid].ts) g[gid].ts = s.ts;
     }
   }
@@ -855,8 +849,14 @@ function detectAnomalies() {
 }
 function updateAnomaliesUI() {
   const newOnes = detectAnomalies();
-  newOnes.forEach(a => { anomalies.unshift(a); pushTimelineEvent('alert', a.msg); });
-  if (anomalies.length > 20) anomalies.length = 20;
+  // FIX V10: só mostra anomalias ATIVAS (detectadas agora).
+  // Anomalias resolvidas somem do painel. O histórico fica na timeline.
+  newOnes.forEach(a => {
+    // Só adiciona à timeline se for realmente novo (evita duplicar a cada ciclo)
+    const isDuplicate = anomalies.some(old => old.msg === a.msg && (a.ts - old.ts) < 35_000);
+    if (!isDuplicate) pushTimelineEvent('alert', a.msg);
+  });
+  anomalies = newOnes; // substitui — só anomalias ativas aparecem
   const box = document.getElementById('anom-box');
   if (!box) return;
   if (anomalies.length === 0) { box.classList.remove('show'); box.innerHTML = ''; return; }
