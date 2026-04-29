@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>K10 MONITOR PRO v8 — Health + Sparklines + Heatmap + Timeline + Group Servers</title>
+<title>K10 MONITOR PRO v9 — Health + Sparklines + Dual Servers + Mirror Topology</title>
 <style>
 :root {
   --bg:    #020810;
@@ -90,10 +90,10 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 .perf-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
 .perf-box span{color:var(--green)}
 .groups-wrap{background:var(--bg2);border:1px solid var(--border);margin-bottom:16px}
-.groups-head{display:grid;grid-template-columns:80px 1fr 110px 90px 100px;padding:6px 12px;border-bottom:1px solid var(--border);font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase}
+.groups-head{display:grid;grid-template-columns:80px 1fr 110px 90px 100px 100px;padding:6px 12px;border-bottom:1px solid var(--border);font-size:9px;letter-spacing:2px;color:var(--dim);text-transform:uppercase}
 #groups-body{max-height:340px;overflow-y:auto;scrollbar-width:thin}
 #groups-body::-webkit-scrollbar{width:4px}
-.gr{display:grid;grid-template-columns:80px 1fr 110px 90px 100px;padding:7px 12px;border-bottom:1px solid rgba(10,48,80,.5);align-items:center}
+.gr{display:grid;grid-template-columns:80px 1fr 110px 90px 100px 100px;padding:7px 12px;border-bottom:1px solid rgba(10,48,80,.5);align-items:center}
 .gr:hover{background:rgba(0,245,255,.03)}
 .gid{font-size:12px;font-weight:700;color:var(--green);letter-spacing:2px}
 .gbar-w{height:5px;background:var(--border);border-radius:3px;overflow:hidden}
@@ -102,7 +102,7 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 .gdelta{font-size:10px;text-align:right}
 .gdelta.up{color:var(--green)} .gdelta.dn{color:var(--red)} .gdelta.eq{color:var(--dim)}
 .gts{font-size:10px;color:var(--dim);text-align:right}
-.g-icons{font-size:12px;text-align:center}
+.g-icons{font-size:12px;text-align:center;white-space:nowrap}
 .servers-section{display:flex;flex-wrap:wrap;gap:20px;margin-bottom:16px}
 .servers-col{flex:1;min-width:280px;background:var(--bg2);border:1px solid var(--border);padding:10px}
 .servers-col .slbl{margin-top:0}
@@ -122,6 +122,7 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 .group-server-row .serv{background:#0a1530;padding:4px 10px;border-radius:12px;border-left:2px solid var(--cyan)}
 .group-server-row .serv.ok{border-left-color:var(--green)}
 .group-server-row .serv.missing{opacity:0.5;border-left-color:var(--dim)}
+.group-server-row .serv.mirror{background:#2a1a4a;border-left-color:var(--purple)}
 .warn-icon{color:var(--amber);margin-left:6px;font-size:10px}
 .hint{border:1px solid var(--border);background:var(--bg2);padding:12px 16px;font-size:11px;color:var(--dim);letter-spacing:.5px;line-height:2}
 .hint b{color:var(--cyan)}
@@ -164,6 +165,7 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 .tl-evt .tag.tutor{background:rgba(255,204,0,.15);color:var(--amber)}
 .tl-evt .tag.promote{background:rgba(0,245,255,.25);color:#fff}
 .tl-evt .tag.alert{background:rgba(255,51,102,.15);color:var(--red)}
+.tl-evt .tag.mirror{background:rgba(176,96,255,.25);color:var(--purple)}
 .tl-evt .body{flex:1;color:var(--text)}
 .score-big{display:flex;align-items:center;gap:14px;margin-bottom:10px}
 .score-circle{width:60px;height:60px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:700;border:3px solid;font-family:var(--mono)}
@@ -188,12 +190,12 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 
 <div class="header">
   <div>
-    <h1>K10<span class="dot">.</span>MONITOR <span class="ver">PRO v8</span></h1>
+    <h1>K10<span class="dot">.</span>MONITOR <span class="ver">PRO v9</span></h1>
     <div style="font-size:9px;color:var(--dim);letter-spacing:2px;margin-top:4px">
-      ADVANCED HEALTH · GROUP SERVERS (2 per group) · TOPOLOGY METRICS
+      DUAL SERVER · MIRROR TOPOLOGY · REDUNDÂNCIA ATIVA
     </div>
   </div>
-  <div class="arch-badge">▲ FULL ANALYTICS (LEIGHTWEIGHT)</div>
+  <div class="arch-badge">▲ FULL ANALYTICS (GOSSIPSUB READY)</div>
 </div>
 
 <div class="bar">
@@ -213,11 +215,6 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
   <div class="perf-box">Last render: <span id="p-lat">—</span></div>
 </div>
 
-<div class="warn" id="warn-old">
-  ⚠ LEGACY PROTOCOL DETECTED: Individual {t:'u'} payload detected from <span id="warn-src">?</span>.
-  With millions of users this will freeze. Migrate to the aggregated payload {t:'s'}.
-</div>
-
 <div class="stats">
   <div class="stat sc"><div class="stat-l">TOTAL USERS</div><div class="stat-v" id="s-users">—</div><div class="stat-sub" id="s-users-sub">&nbsp;</div></div>
   <div class="stat sg"><div class="stat-l">ACTIVE GROUPS</div><div class="stat-v" id="s-groups">—</div><div class="stat-sub" id="s-groups-sub">&nbsp;</div></div>
@@ -232,11 +229,11 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
   <div class="spark-card"><div class="label">USERS (TIMELINE)</div><div class="value" id="sp-users">—</div><svg id="sp-users-svg" viewBox="0 0 200 32" preserveAspectRatio="none"></svg></div>
   <div class="spark-card green"><div class="label">GROUPS</div><div class="value" id="sp-groups">—</div><svg id="sp-groups-svg" viewBox="0 0 200 32" preserveAspectRatio="none"></svg></div>
   <div class="spark-card amber"><div class="label">GATEWAYS</div><div class="value" id="sp-servers">—</div><svg id="sp-servers-svg" viewBox="0 0 200 32" preserveAspectRatio="none"></svg></div>
-  <div class="spark-card purple"><div class="label">SPLITS+MERGES (cumulativo)</div><div class="value" id="sp-evt">—</div><svg id="sp-evt-svg" viewBox="0 0 200 32" preserveAspectRatio="none"></svg></div>
+  <div class="spark-card purple"><div class="label">EVENTS (SPLITS+MERGES)</div><div class="value" id="sp-evt">—</div><svg id="sp-evt-svg" viewBox="0 0 200 32" preserveAspectRatio="none"></svg></div>
 </div>
 
 <!-- Health Score -->
-<div class="slbl">🩺 HEALTH SCORE</div>
+<div class="slbl">🩺 HEALTH SCORE (v2 · REDUNDÂNCIA)</div>
 <div class="health-panel">
   <div class="score-big">
     <div class="score-circle s-green" id="hs-circle">—</div>
@@ -246,7 +243,7 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 </div>
 
 <!-- Heatmap -->
-<div class="slbl">🔥 HEATMAP DE GRUPOS — cada célula é uma salinha (cor = ocupação)</div>
+<div class="slbl">🔥 HEATMAP DE GRUPOS — cada célula é uma sala (cor = ocupação)</div>
 <div class="health-panel">
   <div class="search-bar">
     <span class="lbl">FILTRO ▶</span>
@@ -273,6 +270,7 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
     <button onclick="filterTimeline('merge')" id="tlf-merge">MERGES</button>
     <button onclick="filterTimeline('comp')" id="tlf-comp">COMPENSATES</button>
     <button onclick="filterTimeline('promote')" id="tlf-promote">PROMOÇÕES</button>
+    <button onclick="filterTimeline('mirror')" id="tlf-mirror">MIRROR</button>
     <button onclick="filterTimeline('alert')" id="tlf-alert">ALERTAS</button>
     <span style="margin-left:auto;color:var(--dim)">total: <span id="tl-count">0</span></span>
   </div>
@@ -291,13 +289,13 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
   <div class="health-metrics" id="health-metrics"></div>
   <div id="health-alerts" class="health-alerts" style="display:none"></div>
   <table class="health-table" id="health-table">
-    <thead><tr><th>Timestamp</th><th>Users</th><th>Gateways</th><th>Group Srv</th><th>Total Nodes</th><th>Groups</th><th>Avg.Size</th><th>Splits</th><th>Merges</th><th>Comp.</th><th>Tutor</th></tr></thead>
+    <thead><tr><th>Timestamp</th><th>Users</th><th>Gateways</th><th>Group Srv</th><th>Total Nodes</th><th>Groups</th><th>Avg.Size</th><th>Splits</th><th>Merges</th><th>Comp.</th><th>Tutor</th><th>Redund. %</th></tr></thead>
     <tbody id="health-table-body"></tbody>
   </table>
 </div>
 
 <!-- Advanced Metrics -->
-<div class="slbl">📈 ADVANCED METRICS (derived, no extra overhead)</div>
+<div class="slbl">📈 ADVANCED METRICS (mirror & redundancy)</div>
 <div class="advanced-panel" id="advanced-panel">
   <div class="advanced-stats" id="advanced-stats"></div>
 </div>
@@ -306,10 +304,10 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 <div class="slbl">◎ REAL-TIME LOG</div>
 <div class="log-strip" id="log-strip"><div class="log-line"><span class="ts">[--:--:--]</span> System started. Waiting for connections...</div></div>
 
-<!-- GROUPS table com ícones de servidores -->
+<!-- GROUPS table com ícones de servidores + mirror -->
 <div class="slbl">◈ GROUPS <span style="font-size:9px;color:var(--dim)" id="g-count-lbl"></span></div>
 <div class="groups-wrap">
-  <div class="groups-head"><div>GROUP</div><div>OCCUPANCY</div><div style="text-align:right">USERS</div><div style="text-align:right">CHANGE</div><div style="text-align:right">UPDATED</div><div style="text-align:center;width:50px">🛡️</div></div>
+  <div class="groups-head"><div>GROUP</div><div>OCCUPANCY</div><div style="text-align:right">USERS</div><div style="text-align:right">CHANGE</div><div style="text-align:right">UPDATED</div><div style="text-align:center">🛡️</div></div>
   <div id="groups-body"><div class="empty">Waiting for server reports...</div></div>
 </div>
 
@@ -320,23 +318,22 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
     <div id="srvlist"><div class="empty">Aguardando heartbeats...</div></div>
   </div>
   <div class="servers-col">
-    <div class="slbl">◉ GROUP SERVERS (2 por sala)</div>
-    <div id="groupServersList"><div class="empty">Aguardando heartbeats de K10-*-1/-2...</div></div>
+    <div class="slbl">◉ GROUP SERVERS (primário/secundário + mirror)</div>
+    <div id="groupServersList"><div class="empty">Aguardando heartbeats de K10-*-1/-2 e mirroring...</div></div>
   </div>
 </div>
 
-<div class="slbl">▸ PAYLOAD PROTOCOL (NEW vs LEGACY)</div>
+<div class="slbl">▸ PAYLOAD PROTOCOL (V9 MONITOR)</div>
 <div class="hint">
-  <b>✔ NEW (scales to billions)</b> — Servers (gateways + group servers) report aggregated totals per group:<br>
-  <b class="h-new">{t:'s', id:'SRV-01', total:150000, groups:{AAAA:5000,BBBB:3200,...}}</b> &nbsp;·&nbsp; every 30s<br>
-  <b>🩺 GROUP SERVERS:</b> IDs like <b>K10-AAAA-1</b> (primary) and <b>K10-AAAA-2</b> (secondary) appear automatically.<br>
-  <b>🔁 Failover:</b> If secondary detects primary missing, it emits <b>group-servers-promote</b> event.<br>
-  <br>
-  <b class="h-old">✗ LEGACY (does not scale)</b> — Each user reports individually → freezes with &gt; 100k users.
+  <b>✔ NEW (scales to billions)</b> — Servers report aggregated totals per group:<br>
+  <b class="h-new">{t:'s', id:'SRV-01', total:150000, groups:{AAAA:5000,BBBB:3200,...}, dualServer:{...}}</b> &nbsp;·&nbsp; every 30s<br>
+  <b>🩺 GROUP SERVERS:</b> IDs <b>K10-AAAA-1</b> (primary) and <b>K10-AAAA-2</b> (secondary).<br>
+  <b>🔄 MIRROR:</b> Gateways podem espelhar grupos de outro gateway (failover).<br>
+  <b>🔁 Redundância:</b> O monitor alerta se grupo &gt;2 usuários não tiver secondary.
 </div>
 
 <div class="footer">
-  <span>K10 MONITOR PRO v8 — Group Servers (primary/secondary) · Full group redundancy view</span>
+  <span>K10 MONITOR PRO v9 — Dual Server + Mirror Topology · Redundância ativa</span>
   <span id="footer-ts">—</span>
 </div>
 
@@ -374,7 +371,7 @@ let compensateCounter = 0;
 let tutorActiveFlag = false;
 let healthReports = [];
 
-// V8: History, timeline, anomalies
+// Histórico
 const HISTORY_LEN = 30;
 let userHistory     = [];
 let groupHistory    = [];
@@ -384,7 +381,10 @@ let topologyTimeline = [];
 let anomalies       = [];
 let timelineFilter  = 'all';
 let lastHealthScore = 100;
-let groupServersMap = new Map(); // gid -> { primary: {id, ts}, secondary: {id, ts}, lastUpdate }
+
+// Mapeamento de servidores de grupo (primário/secundário)
+let groupServersMap = new Map(); // gid -> { primary: {id, ts}, secondary: {id, ts}, mirrorOf: null ou gatewayId, lastUpdate }
+let mirrorMap = new Map();       // gatewayId -> { mirrorOf: id, groups: Set<gid> }
 
 // ═══════════════════════════════════════════════════════════════════════
 //  HELPERS
@@ -455,7 +455,7 @@ function deriveGroups() {
     }
   }
   for (const gid in legacyBucket) {
-    if (g[gid]) continue; // prioridade para dados agregados
+    if (g[gid]) continue;
     const lb = legacyBucket[gid];
     if (now - lb.ts > STALE) { delete legacyBucket[gid]; continue; }
     if (!g[gid]) g[gid] = {n:0, ts:0};
@@ -480,27 +480,49 @@ function totalGroupServers() {
   }).length;
 }
 
-// Atualiza o map groupServersMap a partir dos servers ativos
+// Atualiza groupServersMap e também extrai informações de mirror
 function updateGroupServersMap() {
   groupServersMap.clear();
+  mirrorMap.clear();
   const now = Date.now();
   for (const sid in servers) {
     if (Date.now() - servers[sid].ts > STALE) continue;
+    const s = servers[sid];
+    // Mapeamento de group servers (K10-AAAA-1 / K10-AAAA-2)
     const match = sid.match(/^K10-(\w{4})-(\d)$/);
-    if (!match) continue;
-    const gid = match[1];
-    const role = match[2] === '1' ? 'primary' : 'secondary';
-    if (!groupServersMap.has(gid)) {
-      groupServersMap.set(gid, { primary: null, secondary: null, lastUpdate: servers[sid].ts });
+    if (match) {
+      const gid = match[1];
+      const role = match[2] === '1' ? 'primary' : 'secondary';
+      if (!groupServersMap.has(gid)) {
+        groupServersMap.set(gid, { primary: null, secondary: null, mirrorOf: null, lastUpdate: s.ts });
+      }
+      const entry = groupServersMap.get(gid);
+      entry[role] = { id: sid, ts: s.ts };
+      if (s.ts > entry.lastUpdate) entry.lastUpdate = s.ts;
+      groupServersMap.set(gid, entry);
     }
-    const entry = groupServersMap.get(gid);
-    entry[role] = { id: sid, ts: servers[sid].ts };
-    if (servers[sid].ts > entry.lastUpdate) entry.lastUpdate = servers[sid].ts;
-    groupServersMap.set(gid, entry);
+    // Processamento de mirror (campo dualServer)
+    if (s.dualServer) {
+      if (s.dualServer.mirrorOf) {
+        mirrorMap.set(sid, { mirrorOf: s.dualServer.mirrorOf, groups: new Set(s.dualServer.mirroringGroups || []) });
+      }
+      if (s.dualServer.mirrorForPrimaries && Array.isArray(s.dualServer.mirrorForPrimaries)) {
+        s.dualServer.mirrorForPrimaries.forEach(primaryId => {
+          if (!mirrorMap.has(primaryId)) mirrorMap.set(primaryId, { mirrorOf: sid, groups: new Set() });
+          else mirrorMap.get(primaryId).mirrorOf = sid;
+        });
+      }
+    }
+  }
+  // Adiciona informação de mirror aos group servers quando aplicável
+  for (const [gid, entry] of groupServersMap) {
+    if (entry.primary && mirrorMap.has(entry.primary.id)) {
+      entry.mirrorOf = mirrorMap.get(entry.primary.id).mirrorOf;
+    }
   }
 }
 
-// Renderiza a seção de group servers
+// Renderiza group servers com destaque para mirror
 function renderGroupServers() {
   const container = document.getElementById('groupServersList');
   if (!container) return;
@@ -517,9 +539,10 @@ function renderGroupServers() {
     const secondaryOk = entry.secondary && (Date.now() - entry.secondary.ts) <= STALE;
     const groupSize = groups[gid] ? groups[gid].n : 0;
     const missingSecondary = groupSize >= 2 && !secondaryOk;
+    const mirrorInfo = entry.mirrorOf ? `<span class="warn-icon" title="Espelhado por gateway ${entry.mirrorOf}">🪞 mirror</span>` : '';
     return `
       <div class="group-server-card">
-        <div class="gid">${esc(gid)} <span style="font-size:10px;color:var(--dim)">(${fmt(groupSize)} users)</span> ${missingSecondary ? '<span class="warn-icon" title="Grupo com ≥2 usuários mas sem servidor secundário">⚠️ sem secondary</span>' : ''}</div>
+        <div class="gid">${esc(gid)} <span style="font-size:10px;color:var(--dim)">(${fmt(groupSize)} users)</span> ${missingSecondary ? '<span class="warn-icon" title="Grupo com ≥2 usuários mas sem servidor secundário">⚠️ sem secondary</span>' : ''} ${mirrorInfo}</div>
         <div class="group-server-row">
           <div class="serv ${primaryOk ? 'ok' : 'missing'}"><span style="color:var(--cyan)">PRIMARY:</span> ${entry.primary ? esc(entry.primary.id) : '—'} ${primaryOk ? '' : '(offline)'}</div>
           <div class="serv ${secondaryOk ? 'ok' : 'missing'}"><span style="color:var(--cyan)">SECONDARY:</span> ${entry.secondary ? esc(entry.secondary.id) : '—'} ${secondaryOk ? '' : '(offline)'}</div>
@@ -530,14 +553,14 @@ function renderGroupServers() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  ADVANCED METRICS (inclui group servers)
+//  ADVANCED METRICS (inclui group servers e mirror)
 // ═══════════════════════════════════════════════════════════════════════
 function computeAdvancedMetrics() {
   const groups = deriveGroups();
   const sizes = Object.values(groups).map(g => g.n);
   const nGroups = sizes.length;
   if (nGroups === 0) {
-    return { pctFull: 0, pctSmall: 0, stdDev: 0, cv: 0, saturated: 0, idleServers: 0, avgAge: 0, splitMergeRate: 0 };
+    return { pctFull: 0, pctSmall: 0, stdDev: 0, cv: 0, saturated: 0, idleServers: 0, avgAge: 0, splitMergeRate: 0, redundancyPct: 0, mirroredGroups: 0 };
   }
   const total = sizes.reduce((a,b)=>a+b,0);
   const mean = total / nGroups;
@@ -563,11 +586,21 @@ function computeAdvancedMetrics() {
   }
   const avgAge = serverCount ? sumAge / serverCount : 0;
   const splitMergeRate = (splitCounter + mergeCounter) / (HEALTH_REPORT_INTERVAL / 60000);
-  return { pctFull, pctSmall, stdDev, cv, saturated: saturation, idleServers: idle, avgAge, splitMergeRate };
+  // Redundância: grupos com ambos servidores ativos
+  updateGroupServersMap();
+  let redundantGroups = 0;
+  for (const [gid, entry] of groupServersMap) {
+    const primaryOk = entry.primary && (now - entry.primary.ts) <= STALE;
+    const secondaryOk = entry.secondary && (now - entry.secondary.ts) <= STALE;
+    if (primaryOk && secondaryOk) redundantGroups++;
+  }
+  const redundancyPct = groupServersMap.size ? (redundantGroups / groupServersMap.size) * 100 : 100;
+  const mirroredGroupsCount = mirrorMap.size;
+  return { pctFull, pctSmall, stdDev, cv, saturated: saturation, idleServers: idle, avgAge, splitMergeRate, redundancyPct, mirroredGroups: mirroredGroupsCount };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  HEALTH SNAPSHOT (inclui group servers e métricas avançadas)
+//  HEALTH SNAPSHOT (inclui redundância)
 // ═══════════════════════════════════════════════════════════════════════
 function takeHealthSnapshot() {
   const groups = deriveGroups();
@@ -612,6 +645,8 @@ function updateAdvancedUI(adv) {
     <div class="adv-card"><div class="label">💤 Servidores ociosos</div><div class="value">${adv.idleServers}</div><div class="label">com 0 usuários</div></div>
     <div class="adv-card"><div class="label">⏱️ Idade média</div><div class="value">${adv.avgAge.toFixed(0)}s</div><div class="label">último heartbeat</div></div>
     <div class="adv-card"><div class="label">🔄 Splits+merges/min</div><div class="value">${adv.splitMergeRate.toFixed(2)}</div><div class="label">taxa eventos</div></div>
+    <div class="adv-card"><div class="label">🛡️ Redundância</div><div class="value">${adv.redundancyPct.toFixed(0)}%</div><div class="label">grupos com 2 servers</div></div>
+    <div class="adv-card"><div class="label">🪞 Mirror ativo</div><div class="value">${adv.mirroredGroups}</div><div class="label">gateways espelhando</div></div>
   `;
 }
 
@@ -635,6 +670,8 @@ function updateHealthUI(latest) {
   if (gatewayTrend < -30 || gsTrend < -30) { if (healthStatus !== 'red') healthStatus = 'yellow'; alerts.push(`🟡 Queda de servidores: gateways ${gatewayTrend.toFixed(1)}% / group servers ${gsTrend.toFixed(1)}%`); }
   if (latest.totalGateways === 0 && latest.totalUsers > 0) { healthStatus = 'red'; alerts.push(`❌ Nenhum gateway reportando!`); }
   if (latest.avgGroupSize < 10 && latest.totalGroups > 3) { if (healthStatus !== 'red') healthStatus = 'yellow'; alerts.push(`📉 Média baixa (${latest.avgGroupSize}) → fragmentação`); }
+  // Nova regra de redundância
+  if (latest.advanced && latest.advanced.redundancyPct < 50 && latest.totalGroups > 2) { healthStatus = 'red'; alerts.push(`❌ Redundância baixa (${latest.advanced.redundancyPct.toFixed(0)}% dos grupos sem secondary)`); }
   if (healthStatus === 'red') statusText = '🔴 CRÍTICO';
   else if (healthStatus === 'yellow') statusText = '🟡 ATENÇÃO';
   else statusText = '🟢 SAUDÁVEL';
@@ -649,6 +686,7 @@ function updateHealthUI(latest) {
     <div class="health-card"><div class="label">GROUPS</div><div class="value">${latest.totalGroups} <span class="trend ${groupTrend>=0?'trend-up':'trend-down'}">${groupTrend>=0?'▲':'▼'}${Math.abs(groupTrend).toFixed(1)}%</span></div></div>
     <div class="health-card"><div class="label">AVG SIZE</div><div class="value">${fmt(latest.avgGroupSize)}</div></div>
     <div class="health-card"><div class="label">SPLITS/MERGES</div><div class="value">${latest.splits} / ${latest.merges}</div></div>
+    <div class="health-card"><div class="label">REDUNDÂNCIA</div><div class="value">${latest.advanced?.redundancyPct.toFixed(0)}%</div></div>
   `;
   document.getElementById('health-metrics').innerHTML = metricsHtml;
   const alertsDiv = document.getElementById('health-alerts');
@@ -670,12 +708,13 @@ function updateHealthUI(latest) {
       <td>${r.merges}</td>
       <td>${r.compensates}</td>
       <td>${r.tutorActive ? '⚕️ sim' : 'não'}</td>
+      <td>${r.advanced?.redundancyPct.toFixed(0)}%</td>
     </tr>
   `).join('');
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  V8: SPARKLINES, TIMELINE, HEATMAP, SCORE & ANOMALIES
+//  V9: SPARKLINES, TIMELINE, HEATMAP, SCORE & ANOMALIES
 // ═══════════════════════════════════════════════════════════════════════
 function drawSparkline(svgId, data, color) {
   const svg = document.getElementById(svgId);
@@ -712,7 +751,7 @@ function pushTimelineEvent(kind, msg) {
 }
 function filterTimeline(kind) {
   timelineFilter = kind;
-  ['all','split','merge','comp','promote','alert'].forEach(k => {
+  ['all','split','merge','comp','promote','mirror','alert'].forEach(k => {
     const el = document.getElementById('tlf-'+k);
     if (el) el.classList.toggle('active', k === kind);
   });
@@ -765,6 +804,9 @@ function computeHealthScore() {
   if (r.splits + r.merges > 5) { score -= 10; breakdown.churn = -10; }
   if (r.advanced && r.advanced.pctFull > 30) { score -= 10; breakdown.fullGroups = -10; }
   if (r.advanced && r.advanced.cv > 80) { score -= 5; breakdown.uneven = -5; }
+  // Redundância
+  if (r.advanced && r.advanced.redundancyPct < 50) { score -= 25; breakdown.lowRedundancy = -25; }
+  else if (r.advanced && r.advanced.redundancyPct < 80) { score -= 10; breakdown.partialRedundancy = -10; }
   if (r.totalGroups > 0 && r.advanced && r.advanced.cv < 30) { score = Math.min(100, score + 5); breakdown.balancedBonus = 5; }
   score = Math.max(0, Math.min(100, score));
   const level = score >= 80 ? 'green' : score >= 50 ? 'yellow' : 'red';
@@ -822,7 +864,7 @@ function v8AfterSnapshot(report) {
   if (!report) return;
   userHistory.push(report.totalUsers);
   groupHistory.push(report.totalGroups);
-  serverHistory.push(report.totalGateways); // para compatibilidade com sparkline existente
+  serverHistory.push(report.totalGateways);
   eventHistory.push((eventHistory[eventHistory.length-1] || 0) + report.splits + report.merges);
   if (userHistory.length   > HISTORY_LEN) userHistory.shift();
   if (groupHistory.length  > HISTORY_LEN) groupHistory.shift();
@@ -836,7 +878,7 @@ function v8AfterSnapshot(report) {
   updateHealthScore();
   updateAnomaliesUI();
   renderHeatmap();
-  renderGroupServers(); // atualiza lista de group servers
+  renderGroupServers();
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -847,13 +889,22 @@ function handleMsg(msg) {
   if (!msg || !msg.t) return;
   if (msg.t === 's' && msg.id) {
     const isNew = !servers[msg.id];
-    servers[msg.id] = { ts: Date.now(), total: msg.total || 0, groups: msg.groups || {} };
+    servers[msg.id] = {
+      ts: Date.now(),
+      total: msg.total || 0,
+      groups: msg.groups || {},
+      dualServer: msg.dualServer || null
+    };
     if (isNew) log(`Novo servidor: ${msg.id} (${fmt(msg.total||0)} usuários)`, 'ok');
     else log(`Heartbeat: ${msg.id} — ${fmt(msg.total||0)} usuários, ${Object.keys(msg.groups||{}).length} grupos`);
-    // Detecção de promoção primário/secundário
+    // Detecção de promoção primário/secundário ou mirror
     if (/^K10-\w{4}-2$/.test(msg.id) && msg.groups && Object.keys(msg.groups).length > 0) {
-      // se um secundário está reportando grupos, pode ter sido promovido
       pushTimelineEvent('promote', `${msg.id} ativo com ${Object.keys(msg.groups).length} grupos (possível promoção)`);
+    }
+    if (msg.dualServer) {
+      if (msg.dualServer.mirrorOf) {
+        pushTimelineEvent('mirror', `Gateway ${msg.id} agora espelha ${msg.dualServer.mirrorOf} (${msg.dualServer.mirroringGroups?.length || 0} grupos)`);
+      }
     }
     scheduleRender();
     return;
@@ -912,7 +963,6 @@ function render() {
 
   document.getElementById('g-count-lbl').textContent = gkeys.length > PAGE_ROWS ? `(exibindo top ${PAGE_ROWS} de ${gkeys.length})` : (gkeys.length > 0 ? `(${gkeys.length} grupos)` : '');
   const visible = gkeys.slice(0, PAGE_ROWS);
-  // Ícones: check if group has both primary and secondary
   updateGroupServersMap();
   const groupsBody = visible.length ? visible.map(gid => {
     const g = groups[gid];
@@ -928,12 +978,14 @@ function render() {
     const entry = groupServersMap.get(gid);
     const hasPrimary = entry && entry.primary && (now - entry.primary.ts) <= STALE;
     const hasSecondary = entry && entry.secondary && (now - entry.secondary.ts) <= STALE;
+    const isMirrored = entry && entry.mirrorOf;
     let icon = '';
-    if (hasPrimary && hasSecondary) icon = '🛡️';
-    else if (hasPrimary && g.n >= 2) icon = '⚠️';
+    if (hasPrimary && hasSecondary) icon = '🛡️🛡️';
+    else if (hasPrimary && g.n >= 2) icon = '⚠️⚠️';
     else if (hasPrimary) icon = '🔹';
     else icon = '◻️';
-    return `<div class="gr"><div class="gid">${esc(gid)}</div><div class="gbar-w"><div class="gbar" style="width:${pct}%"></div></div><div class="gcount">${fmt(g.n)}</div><div class="gdelta ${deltaClass}">${delta}</div><div class="gts">${ago(g.ts)}</div><div class="g-icons" title="${hasPrimary?'primary sim':'primary não'} / ${hasSecondary?'secondary sim':'secondary não'}">${icon}</div></div>`;
+    if (isMirrored) icon += ' 🪞';
+    return `<div class="gr"><div class="gid">${esc(gid)}</div><div class="gbar-w"><div class="gbar" style="width:${pct}%"></div></div><div class="gcount">${fmt(g.n)}</div><div class="gdelta ${deltaClass}">${delta}</div><div class="gts">${ago(g.ts)}</div><div class="g-icons" title="${hasPrimary?'primary sim':'primary não'} / ${hasSecondary?'secondary sim':'secondary não'} ${isMirrored?'· espelhado':''}">${icon}</div></div>`;
   }).join('') : '<div class="empty">Aguardando relatórios dos servidores...</div>';
   document.getElementById('groups-body').innerHTML = groupsBody;
   prevGroups = JSON.parse(JSON.stringify(groups));
@@ -942,7 +994,8 @@ function render() {
     const diff = now - s.ts;
     const cls = diff < FRESH_THR ? 'fresh' : diff < STALE ? 'stale' : 'dead';
     const gNum = Object.keys(s.groups||{}).length;
-    return `<div class="srv"><div class="srv-top"><div class="sdot ${cls}"></div><span class="srv-id">${esc(sid)}</span></div><div class="srv-meta"><div>usuários: <span>${fmt(s.total||0)}</span></div><div>grupos: <span>${gNum}</span></div><div>há: <span>${ago(s.ts)}</span></div></div></div>`;
+    const mirrorTag = s.dualServer?.mirrorOf ? ` <span style="color:var(--purple)">🪞 mirror de ${s.dualServer.mirrorOf}</span>` : '';
+    return `<div class="srv"><div class="srv-top"><div class="sdot ${cls}"></div><span class="srv-id">${esc(sid)}${mirrorTag}</span></div><div class="srv-meta"><div>usuários: <span>${fmt(s.total||0)}</span></div><div>grupos: <span>${gNum}</span></div><div>há: <span>${ago(s.ts)}</span></div></div></div>`;
   }).join('') : '<div class="empty">Aguardando heartbeats dos gateways...</div>';
   renderGroupServers();
   document.getElementById('p-mem').textContent = gkeys.length;
@@ -953,7 +1006,7 @@ function render() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  FUNÇÃO DE EXPORTAÇÃO DE RELATÓRIO DETALHADO (CORRIGIDA)
+//  FUNÇÃO DE EXPORTAÇÃO DE RELATÓRIO DETALHADO (ATUALIZADA)
 // ═══════════════════════════════════════════════════════════════════════
 function exportReportsToTxt() {
   const now = new Date();
@@ -961,16 +1014,14 @@ function exportReportsToTxt() {
   const filename = `K10_MONITOR_REPORT_${timestamp}.txt`;
   let content = '';
 
-  // Cabeçalho
   content += '=' .repeat(80) + '\n';
-  content += `K10 MONITOR PRO v8 - RELATÓRIO COMPLETO\n`;
+  content += `K10 MONITOR PRO v9 - RELATÓRIO COMPLETO\n`;
   content += `Gerado em: ${now.toLocaleString('pt-BR')}\n`;
   content += `Monitor ID: ${document.getElementById('mon-id').value.trim() || 'K10-MON'}\n`;
   content += `PeerID atual: ${peer ? (peer.id || 'não conectado') : 'desconectado'}\n`;
   content += `Status: ${isRunning ? 'ONLINE' : 'OFFLINE'}\n`;
   content += '=' .repeat(80) + '\n\n';
 
-  // Métricas gerais atuais
   const groups = deriveGroups();
   const totalUsersVal = totalUsers();
   const totalGroupsVal = Object.keys(groups).length;
@@ -986,6 +1037,9 @@ function exportReportsToTxt() {
   content += `Pico de usuários na sessão: ${fmt(peakVal)} (${peakVal.toLocaleString('pt-BR')})\n`;
   const avgSize = totalGroupsVal ? (totalUsersVal / totalGroupsVal).toFixed(1) : 0;
   content += `Média de usuários por grupo: ${avgSize}\n`;
+  const adv = computeAdvancedMetrics();
+  content += `Redundância (grupos com ambos servidores): ${adv.redundancyPct.toFixed(0)}%\n`;
+  content += `Gateways espelhando: ${adv.mirroredGroups}\n`;
   content += '\n';
 
   // Sparklines (últimos valores)
@@ -1017,7 +1071,7 @@ function exportReportsToTxt() {
       content += `Usuários: ${fmt(r.totalUsers)} | Gateways: ${r.totalGateways} | Group Servers: ${r.totalGroupServers}\n`;
       content += `Grupos: ${r.totalGroups} | Média: ${fmt(r.avgGroupSize)} | Splits: ${r.splits} | Merges: ${r.merges} | Compensates: ${r.compensates}\n`;
       if (r.advanced) {
-        content += `   Avançadas: Grupos cheios: ${r.advanced.pctFull.toFixed(1)}% | Pequenos: ${r.advanced.pctSmall.toFixed(1)}% | CV: ${r.advanced.cv.toFixed(1)}% | Saturação: ${r.advanced.saturated.toFixed(1)}%\n`;
+        content += `   Avançadas: Grupos cheios: ${r.advanced.pctFull.toFixed(1)}% | Pequenos: ${r.advanced.pctSmall.toFixed(1)}% | CV: ${r.advanced.cv.toFixed(1)}% | Saturação: ${r.advanced.saturated.toFixed(1)}% | Redundância: ${r.advanced.redundancyPct.toFixed(0)}% | Mirror: ${r.advanced.mirroredGroups}\n`;
       }
       content += '\n';
     });
@@ -1026,6 +1080,7 @@ function exportReportsToTxt() {
   // Grupos ativos detalhados
   content += '◈ GRUPOS ATIVOS\n';
   content += '-'.repeat(40) + '\n';
+  updateGroupServersMap();
   const sortedGroups = Object.entries(groups).sort((a, b) => b[1].n - a[1].n);
   if (sortedGroups.length === 0) content += 'Nenhum grupo ativo.\n';
   else {
@@ -1034,17 +1089,19 @@ function exportReportsToTxt() {
       const entry = groupServersMap.get(gid);
       const hasPrimary = entry && entry.primary && (Date.now() - entry.primary.ts) <= STALE;
       const hasSecondary = entry && entry.secondary && (Date.now() - entry.secondary.ts) <= STALE;
+      const mirrorOf = entry?.mirrorOf;
       let redundancy = '';
-      if (hasPrimary && hasSecondary) redundancy = '🛡️ (two servers)';
-      else if (hasPrimary && g.n >= 2) redundancy = '⚠️ (missing secondary)';
-      else if (hasPrimary) redundancy = '🔹 (only primary)';
-      else redundancy = '◻️ (no group server)';
+      if (hasPrimary && hasSecondary) redundancy = '🛡️🛡️ (dois servers)';
+      else if (hasPrimary && g.n >= 2) redundancy = '⚠️⚠️ (sem secondary)';
+      else if (hasPrimary) redundancy = '🔹 (apenas primary)';
+      else redundancy = '◻️ (sem group server)';
+      if (mirrorOf) redundancy += ` + 🪞 espelhado por ${mirrorOf}`;
       content += `${gid}: ${fmt(g.n)}/${MAX_GRP} usuários (${pct}%) — ${redundancy}\n`;
     });
   }
   content += '\n';
 
-  // Gateways detalhados
+  // Gateways detalhados + mirror
   content += '◉ GATEWAYS ATIVOS (K10-GATE-*)\n';
   content += '-'.repeat(40) + '\n';
   const gwList = Object.keys(servers).filter(sid => sid.includes('-GATE-') && (Date.now() - servers[sid].ts) <= STALE);
@@ -1052,13 +1109,18 @@ function exportReportsToTxt() {
   else {
     gwList.forEach(sid => {
       const s = servers[sid];
-      content += `${sid}: usuários=${fmt(s.total||0)}, grupos=${Object.keys(s.groups||{}).length}, último heartbeat há ${ago(s.ts)}\n`;
+      let mirrorInfo = '';
+      if (s.dualServer) {
+        if (s.dualServer.mirrorOf) mirrorInfo = ` (mirror de ${s.dualServer.mirrorOf})`;
+        if (s.dualServer.mirrorForPrimaries && s.dualServer.mirrorForPrimaries.length) mirrorInfo = ` (mirror para ${s.dualServer.mirrorForPrimaries.join(', ')})`;
+      }
+      content += `${sid}${mirrorInfo}: usuários=${fmt(s.total||0)}, grupos=${Object.keys(s.groups||{}).length}, último heartbeat há ${ago(s.ts)}\n`;
     });
   }
   content += '\n';
 
   // Group servers (2 por sala) detalhados
-  content += '◉ GROUP SERVERS (PRIMARY/SECONDARY POR SALA)\n';
+  content += '◉ GROUP SERVERS (PRIMARY/SECONDARY PER GROUP)\n';
   content += '-'.repeat(40) + '\n';
   const gsGids = Array.from(groupServersMap.keys()).sort();
   if (gsGids.length === 0) content += 'Nenhum servidor de grupo ativo.\n';
@@ -1069,12 +1131,12 @@ function exportReportsToTxt() {
       content += `${gid} (${fmt(groupSize)} users):\n`;
       content += `   PRIMARY: ${entry.primary ? entry.primary.id : '—'} ${entry.primary && (Date.now() - entry.primary.ts) <= STALE ? '' : '(offline)'}\n`;
       content += `   SECONDARY: ${entry.secondary ? entry.secondary.id : '—'} ${entry.secondary && (Date.now() - entry.secondary.ts) <= STALE ? '' : '(offline)'}\n`;
+      if (entry.mirrorOf) content += `   MIRROR: espelhado por gateway ${entry.mirrorOf}\n`;
     });
   }
   content += '\n';
 
   // Métricas avançadas atuais
-  const adv = computeAdvancedMetrics();
   content += '📈 MÉTRICAS AVANÇADAS ATUAIS\n';
   content += '-'.repeat(40) + '\n';
   content += `Grupos cheios (≥${MAX_GRP}): ${adv.pctFull.toFixed(1)}%\n`;
@@ -1085,6 +1147,8 @@ function exportReportsToTxt() {
   content += `Servidores ociosos (total=0): ${adv.idleServers}\n`;
   content += `Idade média dos heartbeats: ${adv.avgAge.toFixed(0)}s\n`;
   content += `Taxa de splits+merges por minuto: ${adv.splitMergeRate.toFixed(2)}\n`;
+  content += `Redundância (grupos com secondary): ${adv.redundancyPct.toFixed(0)}%\n`;
+  content += `Gateways espelhando ativos: ${adv.mirroredGroups}\n`;
   content += '\n';
 
   // Timeline de eventos
@@ -1119,11 +1183,9 @@ function exportReportsToTxt() {
   });
   content += '\n';
 
-  // Rodapé
   content += '=' .repeat(80) + '\n';
-  content += 'Fim do relatório. Coleta completa dos servidores de grupo e gateways.\n';
+  content += 'Fim do relatório. Coleta completa dos servidores de grupo, mirror e gateways.\n';
 
-  // Download
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
   const link = document.createElement('a');
   link.href = URL.createObjectURL(blob);
@@ -1220,6 +1282,7 @@ function stopMon() {
   splitCounter = 0; mergeCounter = 0; compensateCounter = 0; tutorActiveFlag = false;
   healthReports = [];
   groupServersMap.clear();
+  mirrorMap.clear();
   setStatus('PARADO', '');
   document.getElementById('my-id').textContent = '';
   document.getElementById('btn-start').disabled = false;
@@ -1232,7 +1295,6 @@ function stopMon() {
   updateAdvancedUI(adv);
 }
 
-// Hook global setTimeout para atualização automática da renderização e heatmap
 const _v8OrigRender = render;
 render = function() {
   _v8OrigRender();
