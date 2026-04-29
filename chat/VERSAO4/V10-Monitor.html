@@ -455,8 +455,11 @@ function deriveGroups() {
     if (now - s.ts > STALE) continue;
     const skipCount = isGroupServer(sid);
     for (const gid in s.groups) {
+      // V71: group servers não criam entradas de grupo — apenas gateways fazem isso.
+      // Isso evita grupos "fantasma" (0 users mas group server ainda ativo).
+      if (skipCount) continue;
       if (!g[gid]) g[gid] = {n:0, ts:0};
-      if (!skipCount) g[gid].n += s.groups[gid];
+      g[gid].n += s.groups[gid];
       if (s.ts > g[gid].ts) g[gid].ts = s.ts;
     }
   }
@@ -810,9 +813,10 @@ function computeHealthScore() {
   if (r.splits + r.merges > 5) { score -= 10; breakdown.churn = -10; }
   if (r.advanced && r.advanced.pctFull > 30) { score -= 10; breakdown.fullGroups = -10; }
   if (r.advanced && r.advanced.cv > 80) { score -= 5; breakdown.uneven = -5; }
-  // Redundância
-  if (r.advanced && r.advanced.redundancyPct < 50) { score -= 25; breakdown.lowRedundancy = -25; }
-  else if (r.advanced && r.advanced.redundancyPct < 80) { score -= 10; breakdown.partialRedundancy = -10; }
+  // V71: redundância só penaliza quando há usuários suficientes para justificar 2 servidores
+  const needsRedundancy = r.totalUsers >= 2 && r.totalGroups > 1;
+  if (needsRedundancy && r.advanced && r.advanced.redundancyPct < 50) { score -= 25; breakdown.lowRedundancy = -25; }
+  else if (needsRedundancy && r.advanced && r.advanced.redundancyPct < 80) { score -= 10; breakdown.partialRedundancy = -10; }
   if (r.totalGroups > 0 && r.advanced && r.advanced.cv < 30) { score = Math.min(100, score + 5); breakdown.balancedBonus = 5; }
   score = Math.max(0, Math.min(100, score));
   const level = score >= 80 ? 'green' : score >= 50 ? 'yellow' : 'red';
