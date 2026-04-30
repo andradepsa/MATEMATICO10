@@ -1,6 +1,6 @@
 <!-- ═══════════════════════════════════════════════════════════════════════════════
-     CHAT K10 — V81  |  ARQUITETURA PARA IA / DESENVOLVEDOR
-     Última atualização: 30/abr/2026
+     CHAT K10 — V80  |  ARQUITETURA PARA IA / DESENVOLVEDOR
+     Última atualização: 29/abr/2026
      ═══════════════════════════════════════════════════════════════════════════════
 
      VISÃO GERAL
@@ -144,6 +144,28 @@
      - peerIdFromPrivateKey é síncrono no v2 (removido o await)
 
      ════════════ HISTÓRICO V73 ════════════
+     FIX V81: DOIS BUGS CORRIGIDOS — QUIZ FALSO POSITIVO + MONITOR STORM
+     ═════════════════════════════════════════════════════════════════════
+
+     FIX V81-A: K10OFICIALSHADOW AUSENTE DO HANDLER GOSSIPSUB — FALSO POSITIVO DE VIOLAÇÃO
+     Problema: handleLibp2pMsg só aceitava K10GeneralRoom.owns(topic). Mensagens de
+     quiz chegam via K10OficialShadow (k10-oficial-N) e eram ignoradas pelo GossipSub,
+     deixando o PeerJS legado como unico entregador. Em dispositivos com os dois
+     caminhos ativos, a mesma mensagem chegava duas vezes com elapsed < 60s —
+     broadcastQuizViolation falso ("33s de intervalo").
+     Fix: K10OficialShadow.owns(topic) adicionado na condição do handleLibp2pMsg.
+     Locais: handleLibp2pMsg (~linha 9932) — condição expandida.
+
+     FIX V81-B: HEARTBEAT DO GROUP SERVER — CONEXAO EFEMERA CAUSAVA STORM NO MONITOR
+     Problema: sendHeartbeat() do K10GroupShadow criava nova conexao PeerJS ao monitor
+     a cada 30s, enviava e fechava em 1s. Monitor via: Conexao+Heartbeat+Desconectado
+     a cada ciclo → log poluido com PROMOTE repetitivos, Health Score 45/100 RED,
+     alertas constantes de "posssivel promocao" e "usuarios sem gateway".
+     Fix: slot.monConn como conexao persistente reutilizavel; ensureMonConn() reusa
+     canal aberto; so reconecta se a conexao caiu. releaseSlot() fecha monConn.
+     Locais: tryClaimSlot() — heartbeat reescrito; releaseSlot() — fecha monConn.
+
+     ════════════ HISTÓRICO V73 ════════════
      FIX V73: COOLDOWN PÓS-PARADA DO QUIZ — BLOQUEIO ANTI-SPAM DE 3 MINUTOS
      ═══════════════════════════════════════════════════════════════════════════
      Problema: quando a pessoa que transmitia o quiz parava, outro usuário podia
@@ -168,30 +190,6 @@
      - Disconnect handler 2 (peer.on close porta): chama startQuizStopCooldownRef
      - QuizBotWindow: props quizStopCooldown+startQuizStopCooldown; painel countdown;
                       onClick Stop agora chama startQuizStopCooldown()
-
-     ════════════ HISTÓRICO V81 ════════════
-     FIX V81: K10OFICIALSHADOW AUSENTE DO HANDLER GOSSIPSUB — FALSO POSITIVO DE VIOLAÇÃO
-     ══════════════════════════════════════════════════════════════════════════════════════
-
-     Problema V80: Usuários em versões antigas do app (que ainda usam PeerJS) recebiam
-     a mensagem de quiz tanto pelo canal PeerJS legado QUANTO pelo GossipSub (via
-     K10OficialShadow, k10-oficial-N). O `handleLibp2pMsg` só checava
-     `K10GeneralRoom.owns(topic)`, ignorando completamente tópicos k10-oficial-*.
-     Resultado: o PeerJS entregava a mensagem, registrava o timestamp no
-     quizLastSeenRef, e depois o GossipSub entregava a mesma mensagem novamente
-     com elapsed < 60s → broadcastQuizViolation falso positivo para toda a rede.
-     Exemplo observado: "🤖 Quiz Bot" enviou quiz com apenas 33s de intervalo.
-
-     Fix V81 — handleLibp2pMsg (linha ~9932):
-     - Adicionado `K10OficialShadow.owns(topic)` na condição do handler GossipSub
-     - Agora mensagens k10-oficial-N chegam pelo GossipSub como caminho primário
-     - O seenMessagesRef (dedup por data.id) bloqueia a segunda entrega se o PeerJS
-       legado também entregar, evitando o duplo registro no quizLastSeenRef
-     - Resultado: um único handleIncomingData por mensagem → sem falso positivo
-
-     Local alterado:
-     - handleLibp2pMsg: condição `K10GeneralRoom.owns(topic)` expandida para incluir
-       `K10OficialShadow.owns(topic)`
 
      ════════════ HISTÓRICO V72 ════════════
      ═══════════════════════════════════════════════════════════════════════════
@@ -9953,10 +9951,7 @@ useEffect(() => {
 
   const handleLibp2pMsg = (evt) => {
     const topic = evt.detail.topic;
-    // FIX V81: K10OficialShadow.owns() adicionado — mensagens de quiz chegam via
-    // k10-oficial-N e eram ignoradas aqui, causando dupla entrega (PeerJS legado +
-    // GossipSub) e falso positivo de "VIOLAÇÃO" no intervalo do quiz.
-    if (K10GeneralRoom.owns(topic) || K10OficialShadow.owns(topic) || topic === `k10-private-${node.peerId.toString()}`) {
+    if (K10GeneralRoom.owns(topic) || topic === `k10-private-${node.peerId.toString()}`) {
       try {
         const data = JSON.parse(new TextDecoder().decode(evt.detail.data));
         if (data && data.id && !seenMessagesRef.current.has(data.id)) {
@@ -12793,20 +12788,34 @@ const K10GroupShadow = (() => {
           slot.peer.on('connection', conn => onClientConn(slotId, conn));
           // 🔥 HEARTBEAT PARA O MONITOR
           // FIX V10: group server reporta total=0 — contagem é exclusiva do gateway.
+          // FIX V81-B: conexao persistente ao monitor — evita connect/disconnect a cada
+          // 30s que causava flood de eventos PROMOTE/ALERT no monitor (conexao efemera
+          // anterior aparecia como novo peer conectando+desconectando a cada heartbeat).
           const monitorId = 'K10-MON';
+          slot.monConn = null; // conexao persistente reutilizavel
+          const ensureMonConn = () => {
+            if (slot.monConn && slot.monConn.open) return slot.monConn;
+            if (!slot.isActive || !slot.peer || slot.peer.destroyed) return null;
+            try {
+              const c = slot.peer.connect(monitorId, { reliable: true });
+              c.on('error', () => { if (slot.monConn === c) slot.monConn = null; });
+              c.on('close', () => { if (slot.monConn === c) slot.monConn = null; });
+              slot.monConn = c;
+              return c;
+            } catch(e) { return null; }
+          };
           const sendHeartbeat = () => {
             if (!slot.isActive || !slot.peer || slot.peer.destroyed) return;
             const gid = slotId.match(/^K10-(\w{4})-\d$/)?.[1];
             if (!gid) return;
             const payload = { t: 's', id: slotId, total: 0, groups: { [gid]: 0 } };
-            try {
-              const monConn = slot.peer.connect(monitorId, { reliable: true });
-              monConn.on('open', () => {
-                try { monConn.send(payload); } catch(e) {}
-                setTimeout(() => { try { monConn.close(); } catch(e) {} }, 1000);
-              });
-              monConn.on('error', () => {});
-            } catch(e) {}
+            const conn = ensureMonConn();
+            if (!conn) return;
+            if (conn.open) {
+              try { conn.send(payload); } catch(e) {}
+            } else {
+              conn.on('open', () => { try { conn.send(payload); } catch(e) {} });
+            }
           };
           slot.hbTimer = setInterval(sendHeartbeat, 30000);
           sendHeartbeat(); // envia imediatamente
@@ -12835,6 +12844,9 @@ const K10GroupShadow = (() => {
     const s = slots.get(slotId);
     if (!s) return;
     if (s.hbTimer) clearInterval(s.hbTimer);
+    // FIX V81-B: fecha conexao persistente do monitor ao liberar o slot
+    try { if (s.monConn && s.monConn.open) s.monConn.close(); } catch(e) {}
+    s.monConn = null;
     try { if (s.peer && !s.peer.destroyed) s.peer.destroy(); } catch(e) {}
     slots.delete(slotId);
   }
