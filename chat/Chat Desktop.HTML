@@ -1,6 +1,6 @@
 <!-- ═══════════════════════════════════════════════════════════════════════════════
-     CHAT K10 — V80  |  ARQUITETURA PARA IA / DESENVOLVEDOR
-     Última atualização: 29/abr/2026
+     CHAT K10 — V82  |  ARQUITETURA PARA IA / DESENVOLVEDOR
+     Última atualização: 30/abr/2026
      ═══════════════════════════════════════════════════════════════════════════════
 
      VISÃO GERAL
@@ -144,6 +144,23 @@
      - peerIdFromPrivateKey é síncrono no v2 (removido o await)
 
      ════════════ HISTÓRICO V73 ════════════
+     ════════════ HISTÓRICO V82 ════════════
+     FIX V82: GETGROUPMEMBERS — CROSS-GROUP CONNECTIONS CORROMPIAM RANK
+     ════════════════════════════════════════════════════════════════════
+
+     Problema: getGroupMembers() retornava TODOS os peers conectados, incluindo peers
+     de outros grupos. Em redes com 2+ grupos onde os usuários estão conectados entre
+     si (chat geral/libp2p), o K10GroupShadow calculava myRank errado:
+       Cenário real: AAAA(1 user) + AAAB(1 user), ambos conectados entre si.
+       K10-AAAB-2 holder: members=[peerAAAA] → sortedAll=[peerAAAA, peerAAB] →
+       myRank=1 → nunca tenta slot 1 → K10-AAAB-1 fica offline para sempre.
+       Sintoma: PROMOTE no monitor a cada 30s por minutos sem promoção ocorrer.
+
+     Fix: intersecção entre conexões ATIVAS (V71) e peers do grupo atual (reservados).
+     Peers de outros grupos são excluídos do cálculo de rank.
+     Local: K10GroupShadow.start() → lambda getGroupMembers (~linha 9361).
+
+     ════════════ HISTÓRICO V81 ════════════
      FIX V81: DOIS BUGS CORRIGIDOS — QUIZ FALSO POSITIVO + MONITOR STORM
      ═════════════════════════════════════════════════════════════════════
 
@@ -9361,11 +9378,18 @@ try {
     () => {
       // V71: apenas conexões ATIVAS para rank (dir.reservados é stale após saída de peer
       // e causava K10-AAAB-2 manter slot 2 mesmo quando deveria liberar e assumir slot 1)
+      // V82-FIX: filtra por grupo — conexões de outros grupos corrompiam o rank.
+      // Cenário: 2 grupos (AAAA e AAAB), usuários conectados no chat geral.
+      // Sem filtro, getGroupMembers() retornava peers de AAAA para o dono do K10-AAAB-2,
+      // forçando myRank=1 perpetuamente e bloqueando a promoção para slot 1.
+      // Solução: intersecção entre conexões ATIVAS e peers do MEU grupo (reservados).
       const myGid = myGroupIdRef.current;
       if (!myGid) return [];
       const members = new Set();
+      const myGroupPeers = new Set(directoryGlobalRef.current[myGid]?.reservados || []);
       connectionsRef.current.forEach(c => {
-        if (c.open && c.peer && !c.peer.startsWith('K10-') && !isCentralServer(c.peer)) {
+        if (c.open && c.peer && !c.peer.startsWith('K10-') && !isCentralServer(c.peer)
+            && myGroupPeers.has(c.peer)) {
           members.add(c.peer);
         }
       });
