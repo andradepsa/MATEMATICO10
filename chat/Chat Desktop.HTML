@@ -165,6 +165,17 @@
      canal aberto; so reconecta se a conexao caiu. releaseSlot() fecha monConn.
      Locais: tryClaimSlot() — heartbeat reescrito; releaseSlot() — fecha monConn.
 
+     FIX V81-C: HEARTBEAT DO GATEWAY — MESMA CONEXAO EFEMERA DO V81-B
+     ═══════════════════════════════════════════════════════════════════
+     Problema: K10GatewayShadow usava exatamente o mesmo padrao: nova conexao PeerJS
+     ao monitor a cada 30s, envia e fecha em 1s. Monitor registrava K10-GATE-0001,
+     K10-GATE-0002, K10-GATE-0004 como conectando e desconectando a cada ciclo,
+     reportando "0 usuarios" e "Gateways espelhando: 0" mesmo com usuarios ativos,
+     pois a conexao fechava antes do proximo ciclo de dados ser lido.
+     Fix: gwMonConn como variavel persistente no modulo K10GatewayShadow;
+     reutilizada se aberta, reconectada so se fechou. _cleanup() fecha gwMonConn.
+     Locais: K10GatewayShadow — estado + setInterval heartbeat reescritos; _cleanup().
+
      ════════════ HISTÓRICO V73 ════════════
      FIX V73: COOLDOWN PÓS-PARADA DO QUIZ — BLOQUEIO ANTI-SPAM DE 3 MINUTOS
      ═══════════════════════════════════════════════════════════════════════════
@@ -11089,6 +11100,8 @@ const K10GatewayShadow = (() => {
   let getMainPeer     = null;   // () => Peer       — peer principal do App (para sondagem)
   // FIX V57: callback acionado quando claim bem-sucedido, para reconectar o bootstrap
   let onClaimedCb     = null;   // (gatewayId: string) => void
+  // FIX V81-C: conexao persistente ao monitor (evita efemera a cada 30s)
+  let gwMonConn       = null;
 
   // Estado dos grupos gerenciados (só ativo quando isActive === true)
   let activeGroups  = {};     // { gid: { positions: string[], open: bool } }
@@ -11295,12 +11308,22 @@ const K10GatewayShadow = (() => {
       mirrorForPrimaries: [...mirrorPrimaries.keys()]
     };
     const payload = { t: 's', id: claimedId, total, groups, dualServer: mirrorInfo };
-    const monConn = gwPeer.connect('K10-MON', { reliable: true });
-    monConn.on('open', () => {
-      try { monConn.send(payload); } catch(e) {}
-      setTimeout(() => { try { monConn.close(); } catch(e) {} }, 1000);
-    });
-    monConn.on('error', () => {});
+    // FIX V81-C: conexao persistente ao monitor — mesmo padrao do V81-B (group server).
+    // Antes: nova conexao a cada 30s → monitor via connect+heartbeat+disconnect em loop.
+    // Agora: reutiliza gwMonConn se ainda aberta; reconecta so se caiu.
+    if (!gwMonConn || !gwMonConn.open) {
+      try {
+        gwMonConn = gwPeer.connect('K10-MON', { reliable: true });
+        gwMonConn.on('error', () => { gwMonConn = null; });
+        gwMonConn.on('close', () => { gwMonConn = null; });
+      } catch(e) { gwMonConn = null; }
+    }
+    if (!gwMonConn) return;
+    if (gwMonConn.open) {
+      try { gwMonConn.send(payload); } catch(e) {}
+    } else {
+      gwMonConn.on('open', () => { try { gwMonConn.send(payload); } catch(e) {} });
+    }
   }, 30000);
   // ─────────────────────────────────────────────────────────────
 
@@ -12049,6 +12072,9 @@ const K10GatewayShadow = (() => {
 
   // ── Limpeza ───────────────────────────────────────────────────────────
   function _cleanup() {
+    // FIX V81-C: fecha conexao persistente ao monitor ao limpar o gateway
+    try { if (gwMonConn && gwMonConn.open) gwMonConn.close(); } catch(e) {}
+    gwMonConn = null;
     if (gwPeer && !gwPeer.destroyed) { try { gwPeer.destroy(); } catch(e) {} }
     gwPeer              = null;
     isActive            = false;
