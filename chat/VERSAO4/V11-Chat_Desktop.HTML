@@ -176,6 +176,22 @@
      reutilizada se aberta, reconectada so se fechou. _cleanup() fecha gwMonConn.
      Locais: K10GatewayShadow — estado + setInterval heartbeat reescritos; _cleanup().
 
+     FIX V81-D: K10GROUPSHADOW — GHOST SLOT + PROMOCAO BLOQUEADA POR SLOT ZUMBI
+     ═══════════════════════════════════════════════════════════════════════════════
+     Problema 1 — Ghost slot: K10-AAAA-1 permanecia ativo (heartbeat para monitor)
+     mesmo com grupo AAAA esvaziado. O probeAndElect liberava slots de GID errado mas
+     nao liberava se o GID batia e o grupo simplemente ficava vazio sem membros.
+     Fix: emptyGroupCycles — apos 2 ciclos consecutivos sem membros, todos os slots
+     do grupo sao liberados. Evita grupos fantasma reportando 0 usuarios no monitor.
+
+     Problema 2 — Slot zumbi bloqueando promocao: K10-AAAB-2 nao promovia para
+     K10-AAAB-1 porque probeId('K10-AAAB-1') retornava true — o ID ainda estava
+     registrado no servidor PeerJS (expira em ~60s) mesmo com o peer morto.
+     Fix: zombieProbeCount — apos 3 probes consecutivos bloqueados (~30s), tenta
+     o claim mesmo assim. Se o peer estiver realmente vivo recebe unavailable-id
+     e desiste; se for zumbi, o claim bem-sucede e a promocao ocorre.
+     Locais: K10GroupShadow — probeAndElect() reescrito; stop() limpa contadores.
+
      ════════════ HISTÓRICO V73 ════════════
      FIX V73: COOLDOWN PÓS-PARADA DO QUIZ — BLOQUEIO ANTI-SPAM DE 3 MINUTOS
      ═══════════════════════════════════════════════════════════════════════════
@@ -12708,6 +12724,9 @@ const K10GroupShadow = (() => {
   // FIX V79: peerInstance é local ao ChatClient (escopo ESM diferente).
   // Recebe getter para acessar o peer principal sem ReferenceError.
   let getPeerFn  = null;
+  // FIX V81-D: contadores para detectar ghost slots e slots zumbi
+  let emptyGroupCycles = 0;        // ciclos consecutivos sem membros no grupo
+  const zombieProbeCount = new Map(); // slotId -> número de probes consecutivos bloqueados
 
   function start(myId, gidGetter, membersGetter, stunGetter, getPeer) {
     myPeerId        = myId;
@@ -12723,6 +12742,8 @@ const K10GroupShadow = (() => {
   function stop() {
     if (probeTimer) clearInterval(probeTimer);
     probeTimer = null;
+    emptyGroupCycles = 0;
+    zombieProbeCount.clear();
     for (const [slotId, s] of slots) {
       if (s.hbTimer) clearInterval(s.hbTimer);
       try { if (s.peer && !s.peer.destroyed) s.peer.destroy(); } catch(e) {}
@@ -12743,12 +12764,26 @@ const K10GroupShadow = (() => {
     const gid = getMyGid && getMyGid();
     if (!gid) {
       for (const slotId of [...slots.keys()]) releaseSlot(slotId);
+      emptyGroupCycles = 0;
       return;
     }
 
     const members = (getGroupMembers && getGroupMembers()) || [];
     const sortedAll = [...new Set([...members, myPeerId])].filter(Boolean).sort();
     const myRank = sortedAll.indexOf(myPeerId);
+
+    // FIX V81-D (1): Ghost slot — libera slots do grupo atual se não há membros por 2+ ciclos.
+    // Evita K10-AAAA-1 permanecer ativo quando o grupo AAAA esvazia completamente.
+    if (members.length === 0) {
+      emptyGroupCycles++;
+      if (emptyGroupCycles >= 2) {
+        for (const slotId of [...slots.keys()]) releaseSlot(slotId);
+        emptyGroupCycles = 0;
+        return;
+      }
+    } else {
+      emptyGroupCycles = 0;
+    }
 
     // Libera slots que não me pertencem mais
     for (const slotId of [...slots.keys()]) {
@@ -12766,7 +12801,19 @@ const K10GroupShadow = (() => {
       if (myPeerId !== expectedHolder) continue;
       if (slots.has(slotId) && slots.get(slotId).isActive) continue;
       const alive = await probeId(slotId);
-      if (alive) continue;
+      if (alive) {
+        // FIX V81-D (2): Slot zumbi — se o probe retorna vivo mas esse slot deveria
+        // ser nosso (myPeerId === expectedHolder) e não é um slot que já detemos,
+        // conta tentativas bloqueadas. Após 3 bloqueios consecutivos (~30s), tenta
+        // claim mesmo assim: se o peer estiver realmente vivo, recebe unavailable-id
+        // e desiste; se for zumbi, o claim bem-sucede e o K10-AAAB-2 promove para K10-AAAB-1.
+        const probeHits = (zombieProbeCount.get(slotId) || 0) + 1;
+        zombieProbeCount.set(slotId, probeHits);
+        if (probeHits < 3) continue; // aguarda mais ciclos antes de forçar
+        zombieProbeCount.delete(slotId); // reseta contador — vai tentar o claim
+      } else {
+        zombieProbeCount.delete(slotId); // slot confirmado morto — limpa contador
+      }
       await sleep(slotNum * ELECT_JITTER_MS + Math.random() * 400);
       if (!getMyGid || getMyGid() !== gid) return;
       const stillDead = !(await probeId(slotId));
