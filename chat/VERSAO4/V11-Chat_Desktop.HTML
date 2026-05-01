@@ -7217,10 +7217,9 @@ const askWorldQuestion = async () => {
   currentQuizQuestionRef.current = { ...quizData1, quizId: quizId1, votes: {} };
   sendQuizQuestion(quizData1);
 
-  // Após 2 min: revela etapa 1, depois 5s lança etapa 2
+  // Após intervalo: avança direto para etapa 2 (sem reveal automático)
   quizTimerRef.current = setTimeout(() => {
     if (!quizBotActiveRef.current) return;
-    sendQuizReveal(quizId1);
     currentQuizQuestionRef.current = null;
     worldQuizStageRef.current = 0;
 
@@ -7248,10 +7247,9 @@ const askWorldQuestion = async () => {
       currentQuizQuestionRef.current = { ...quizData2, quizId: quizId2, votes: {} };
       sendQuizQuestion(quizData2);
 
-      // Após mais 2 min: revela etapa 2, depois 10s próxima rodada
+      // Após mais intervalo: avança para próxima rodada (sem reveal automático)
       quizTimerRef.current = setTimeout(() => {
         if (!quizBotActiveRef.current) return;
-        sendQuizReveal(quizId2);
         currentQuizQuestionRef.current = null;
         worldQuizStageRef.current = 0;
 
@@ -7442,13 +7440,9 @@ const askNextQuestion = async () => {
   });
 
   quizTimerRef.current = setTimeout(() => {
-    if (quizBotActiveRef.current && currentQuizQuestionRef.current && currentQuizQuestionRef.current.quizId === quizId) {
-      // Reveal answer with stats
-      sendQuizReveal(quizId);
+    if (quizBotActiveRef.current) {
       currentQuizQuestionRef.current = null;
-      setTimeout(() => {
-        if (quizBotActiveRef.current) askNextQuestion();
-      }, 15000);
+      askNextQuestion();
     }
   }, safeQuizInterval() * 1000);
 };
@@ -8911,25 +8905,7 @@ if (data.text === '__QUIZ__' && data.quizPayload) {
   const currentLang = langRef.current;
   const qd = data.quizPayload;
   
-  // SOLUÇÃO VULNERABILIDADE 2: TIMEOUT DE REVEAL PÓS-MORTE DO MESTRE //
-  // Em vez de aguardar o mestre ditar o "Reveal", todo nó cliente agora agenda o seu próprio
-  // revelador fantasma pra mesma pergunta (Tempo Quiz + 5s extras para cobrir latência rede). 
-  // Se o mestre cair no meio de uma pergunta na tela e não enviar o sinal oficial "__QUIZ_REVEAL__",
-  // o timer deste cliente fecha a rodada e chama checkAndAssumeQuizMaster.
-  const localRevealOrphanFallbackMs = safeQuizInterval() * 1000 + 5000;
-  if (worldQuizSubscribedToRef.current !== null && qd && qd.quizId) {
-     if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
-     quizTimerRef.current = setTimeout(() => {
-        if (quizBotActiveRef.current && currentQuizQuestionRef.current?.quizId === qd.quizId) {
-            setMessages(prev => prev.map(m =>
-              m.quizId === qd.quizId ? { ...m, quizRevealed: true, quizVotes: { ...m.quizVotes } } : m
-            ));
-            currentQuizQuestionRef.current = null;
-            // E chama a próxima já triggando eleição / auto-cura local!
-            askNextQuestion();
-        }
-     }, localRevealOrphanFallbackMs);
-  }
+  // Sem timer de reveal automático — limite de tempo removido
 
   const baseQuizMsg = {
     type: 'quiz-question',
