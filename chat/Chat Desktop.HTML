@@ -1,5 +1,5 @@
 <!-- ═══════════════════════════════════════════════════════════════════════════════
-     CHAT K10 — V84  |  ARQUITETURA PARA IA / DESENVOLVEDOR
+     CHAT K10 — V85  |  ARQUITETURA PARA IA / DESENVOLVEDOR
      Última atualização: 01/mai/2026
      ═══════════════════════════════════════════════════════════════════════════════
 
@@ -12762,7 +12762,6 @@ const K10GeneralRoom   = K10GSRoom('k10-general');          // Modo Geral
 // ═══════════════════════════════════════════════════════════════════════
 const K10GroupShadow = (() => {
   const PROBE_MS         = 10_000;
-  const ELECT_JITTER_MS  = 1_500;
 
   const slots = new Map();   // slotId -> { peer, conns:Map, isActive:bool, alive:number, hbTimer }
   let probeTimer = null;
@@ -12812,36 +12811,28 @@ const K10GroupShadow = (() => {
       return;
     }
 
-    const members = (getGroupMembers && getGroupMembers()) || [];
-
-    // Sem membros visíveis: não é elegível — libera slots órfãos e sai
-    if (members.length === 0) {
-      for (const slotId of [...slots.keys()]) releaseSlot(slotId);
-      return;
-    }
-
-    const sortedAll = [...new Set([...members, myPeerId])].filter(Boolean).sort();
-    const myRank = sortedAll.indexOf(myPeerId);
-
-    // Libera slots que não pertencem mais a este peer (grupo mudou ou rank mudou)
+    // Libera slots de outros grupos (troca de grupo)
     for (const slotId of [...slots.keys()]) {
       const m = slotId.match(/^K10-(.+)-(\d)$/);
-      if (!m || m[1] !== gid || myRank !== parseInt(m[2]) - 1) releaseSlot(slotId);
+      if (!m || m[1] !== gid) releaseSlot(slotId);
     }
 
-    // Tenta ocupar o slot correspondente ao rank (rank 0 → slot 1, rank 1 → slot 2)
+    // Já tenho um slot ativo neste grupo → nada a fazer
+    if ([...slots.values()].some(s => s.isActive)) return;
+
+    // Tenta slot 1, depois slot 2 — first-come-first-served.
+    // Qualquer peer com GID válido é elegível; colisões são resolvidas
+    // via jitter aleatório + unavailable-id no tryClaimSlot.
     for (let slotNum = 1; slotNum <= 2; slotNum++) {
-      if (myRank !== slotNum - 1) continue;
       const slotId = `K10-${gid}-${slotNum}`;
-      if (slots.has(slotId) && slots.get(slotId).isActive) continue;
-      // Probe único: se vivo, outra instância está servindo — aguarda próximo ciclo
       const alive = await probeId(slotId);
-      if (alive) continue;
-      // Jitter para evitar colisão simultânea entre peers com mesmo rank
-      await sleep(slotNum * ELECT_JITTER_MS + Math.random() * 400);
-      if (!getMyGid || getMyGid() !== gid) return;
-      // Claim direto — unavailable-id cuida do caso em que o slot foi ocupado no jitter
-      await tryClaimSlot(slotId);
+      if (alive) continue; // slot ocupado → tenta o próximo
+      // Jitter: separa peers que chegam ao mesmo tempo (slot 1 tem jitter menor)
+      await sleep(slotNum * 500 + Math.random() * 1000);
+      if (!getMyGid || getMyGid() !== gid) return; // saiu do grupo durante jitter
+      const claimed = await tryClaimSlot(slotId);
+      if (claimed) return; // conseguiu — não tenta mais slots
+      // unavailable-id: outro peer ganhou a corrida → tenta slot seguinte
     }
   }
 
