@@ -7753,7 +7753,7 @@ if (youtubeChatIdRef.current) {
 // V69-LOCK-4: sincroniza estado do quiz para peers que entram depois da ativação
 // Sem isso, late-joiners nunca recebem o toggle e veem o botão desbloqueado
 if (quizBotActiveRef.current && globalQuizOwnerRef.current) {
-  try { conn.send({ type: 'quiz-bot-global-toggle', active: true, owner: globalQuizOwnerRef.current }); } catch(e) {}
+  try { conn.send({ type: 'quiz-bot-global-toggle', active: true, owner: globalQuizOwnerRef.current, discipline: quizDisciplineRef.current }); } catch(e) {}
 }
 };
 
@@ -7981,6 +7981,11 @@ if (data.type === 'quiz-bot-global-toggle') {
   if (data.active) {
     setGlobalQuizOwner(data.owner);
     globalQuizOwnerRef.current = data.owner;
+    // Sincroniza a disciplina do transmissor para que failover use a correta
+    if (data.discipline) {
+      setQuizDiscipline(data.discipline);
+      quizDisciplineRef.current = data.discipline;
+    }
     setTimeout(checkAndAssumeQuizMaster, 2000);
   } else {
     setGlobalQuizOwner(null);
@@ -13176,10 +13181,10 @@ return (
 {showMarkdownEditor && <MarkdownEditor lang={lang} connectionsRef={connectionsRef} selectedContact={selectedContact} onClose={() => setShowMarkdownEditor(false)} />}
 {showGeneralModeInfo && <GeneralModeInfoModal lang={lang} selectedContact={selectedContact} onClose={() => setShowGeneralModeInfo(false)} />}
         {showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => {
-  connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId});}catch(e){} });
+  connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId, discipline: quizDisciplineRef.current});}catch(e){} });
   // V77: propaga toggle do quiz para todos sub-grupos do Oficial
   // FIX V80-2: .catch() adicionado — evita unhandled promise rejection
-  K10OficialShadow.publishAll(libp2pRef.current, { type: 'quiz-bot-global-toggle', active: act, owner: peerId }).catch(() => {});
+  K10OficialShadow.publishAll(libp2pRef.current, { type: 'quiz-bot-global-toggle', active: act, owner: peerId, discipline: quizDisciplineRef.current }).catch(() => {});
 }} sendQuizHandoff={sendQuizHandoff} quizServerOwnerId={quizServerOwnerId} globalQuizOwner={globalQuizOwner} setGlobalQuizOwner={setGlobalQuizOwner} quizMasterIdRef={quizMasterIdRef} peerId={peerId} quizStopCooldown={quizStopCooldown} startQuizStopCooldown={startQuizStopCooldown} />}
 {showTorrentManager && (
 <TorrentManagerModal
