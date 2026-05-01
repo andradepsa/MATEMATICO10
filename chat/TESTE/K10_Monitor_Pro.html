@@ -396,7 +396,7 @@ function fmt(n) {
   return n.toLocaleString('pt-BR');
 }
 function ago(ts) {
-  const s = Math.floor((Date.now()-ts)/1000);
+  const s = Math.max(1, Math.floor((Date.now()-ts)/1000));
   return s < 60 ? s+'s' : Math.floor(s/60)+'m';
 }
 function esc(s) {
@@ -539,7 +539,21 @@ function renderGroupServers() {
   const groups = deriveGroups();
   const gids = Array.from(groupServersMap.keys()).sort();
   if (gids.length === 0) {
-    container.innerHTML = '<div class="empty">Aguardando heartbeats de K10-*-1/-2...</div>';
+    // Sem nenhum K10-XXXX-1/2 conectado — mostrar grupos ativos sem group server
+    const activeGids = Object.keys(groups).sort();
+    if (activeGids.length === 0) {
+      container.innerHTML = '<div class="empty">Nenhum grupo ativo.</div>';
+    } else {
+      container.innerHTML = activeGids.map(gid => {
+        const n = groups[gid] ? groups[gid].n : 0;
+        return `<div class="group-server-card">` +
+          `<div class="gid">${esc(gid)} <span style="font-size:10px;color:var(--dim)">(${fmt(n)} users)</span> <span style="color:var(--dim);font-size:10px">&#9643; sem group server</span></div>` +
+          `<div class="group-server-row">` +
+          `<div class="serv missing"><span style="color:var(--cyan)">PRIMARY:</span> &#8212; (n&#227;o eleito)</div>` +
+          `<div class="serv missing"><span style="color:var(--cyan)">SECONDARY:</span> &#8212; (n&#227;o eleito)</div>` +
+          `</div></div>`;
+      }).join('');
+    }
     return;
   }
   container.innerHTML = gids.map(gid => {
