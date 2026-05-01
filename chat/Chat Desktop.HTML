@@ -9390,17 +9390,35 @@ try {
       // Cenário: 2 grupos (AAAA e AAAB), usuários conectados no chat geral.
       // Sem filtro, getGroupMembers() retornava peers de AAAA para o dono do K10-AAAB-2,
       // forçando myRank=1 perpetuamente e bloqueando a promoção para slot 1.
-      // Solução: intersecção entre conexões ATIVAS e peers do MEU grupo (reservados).
+      // Solução primária: intersecção entre conexões ATIVAS e peers do MEU grupo (reservados).
+      // FIX V84: com 2+ gateways, peers do mesmo grupo ficam em gateways diferentes e
+      // NUNCA têm conexão P2P direta entre si — apenas se comunicam via gateway.
+      // Nesse cenário connectionsRef fica vazio para o grupo, members=[],
+      // probeAndElect() aplica backoff V83 e nenhum group server é eleito.
+      // Fix: se não há conexões diretas com peers do grupo MAS o groupSize indica ≥2
+      // membros, usa os reservados como membros (o gateway é autoritativo sobre presença).
       const myGid = myGroupIdRef.current;
       if (!myGid) return [];
+      const dir = directoryGlobalRef.current[myGid] || {};
+      const myGroupPeers = new Set(dir.reservados || []);
       const members = new Set();
-      const myGroupPeers = new Set(directoryGlobalRef.current[myGid]?.reservados || []);
+      // 1) Peers com conexão direta aberta e no meu grupo (fonte primária, mais confiável para rank)
       connectionsRef.current.forEach(c => {
         if (c.open && c.peer && !c.peer.startsWith('K10-') && !isCentralServer(c.peer)
             && myGroupPeers.has(c.peer)) {
           members.add(c.peer);
         }
       });
+      // 2) FIX V84: fallback cross-gateway — sem conexões diretas mas groupSize ≥ 2
+      // significa que o gateway sabe de outros membros no grupo (em outro gateway).
+      // Usa reservados filtrados (exclui a si mesmo e IDs K10-*) como proxy de presença.
+      if (members.size === 0 && (dir.groupSize || 0) >= 2) {
+        myGroupPeers.forEach(pid => {
+          if (pid && pid !== myPeerId && !pid.startsWith('K10-') && !isCentralServer(pid)) {
+            members.add(pid);
+          }
+        });
+      }
       return [...members];
     },
     () => getK10StunPool ? getK10StunPool() : [],
