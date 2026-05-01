@@ -1,13 +1,14 @@
 <!-- ═══════════════════════════════════════════════════════════════════════════════
-     CHAT K10 — V85  |  ARQUITETURA PARA IA / DESENVOLVEDOR
+     CHAT K10 — V14  |  ARQUITETURA PARA IA / DESENVOLVEDOR
      Última atualização: 01/mai/2026
      ═══════════════════════════════════════════════════════════════════════════════
 
-     FIX V13 (01/mai/2026):
-     1. Quiz "Todas as disciplinas" — quizDiscipline stale closure → usa quizDisciplineRef.current
-     2. Reveal automático ao fim do tempo — timer agora chama sendQuizReveal(quizId) + 3s delay
-     3. sendQuizReveal propaga via K10OficialShadow.publishAll (libp2p)
-     4. Feedback imediato ao responder — opção errada fica vermelha + banner "❌ Errou!"
+     FIX V14 (01/mai/2026):
+     1. Seletor de canais (1–10) REMOVIDO — o nome do grupo é o único identificador
+     2. Topic GossipSub: k10-group-{nome} (antes: k10-group-{nome}-{canal})
+     3. channelId eliminado de todos os componentes e props
+     4. _k10GroupChannels (localStorage) não é mais utilizado
+     5. Lógica simplificada: mesmo nome = mesma sala, sempre
      ═══════════════════════════════════════════════════════════════════════════════
 
      VISÃO GERAL
@@ -34,7 +35,7 @@
        K10OficialShadow = K10GSRoom('k10-oficial')   → Grupo Oficial ⭐
 
      Grupos privados (salinhas ⭐):
-       Cada K10GroupChatInline cria K10GSRoom('k10-group-{nome}-{id}') no mount.
+       Cada K10GroupChatInline cria K10GSRoom('k10-group-{nome}') no mount.
        isOficial=true → reutiliza K10OficialShadow global (sem duplicar timers).
 
      FLUXO DE ENTRADA DE UM PEER
@@ -4119,9 +4120,6 @@ const [groupHist] = useState(() => {
     return saved.includes(K10_OFFICIAL) ? saved : [K10_OFFICIAL, ...saved];
   } catch { return [K10_OFFICIAL]; }
 });
-const [groupChannels] = useState(() => {
-  try { return JSON.parse(localStorage.getItem('_k10GroupChannels') || '{}'); } catch { return {}; }
-});
 
 
 const handleAddContact = (e) => {
@@ -4186,17 +4184,15 @@ return (
     <div className="connected-peers">
       {groupHist.map((name, i) => {
         const isOfficial = name === 'Chat K10 Oficial';
-        const chId = isOfficial ? null : (groupChannels[name] || 1);
-        const chLabel = isOfficial ? 'Grupo oficial' : `Canal ${chId}`;
         return (
           <div key={i} className="peer-item"
-            onClick={() => onSelectGroup && onSelectGroup(name, chId)}
+            onClick={() => onSelectGroup && onSelectGroup(name)}
             style={{ cursor: 'pointer', background: isOfficial ? 'linear-gradient(135deg,#eff6ff,#dbeafe)' : 'var(--surface)', border: isOfficial ? '1.5px solid #2563eb' : '1px solid var(--border)', borderRadius: '8px', marginBottom: '4px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
               <span style={{ fontSize: '20px' }}>{isOfficial ? '⭐' : '🔒'}</span>
               <div>
                 <div style={{ fontSize: '14px', fontWeight: 700, color: isOfficial ? '#1d4ed8' : 'var(--text)' }}>{name}</div>
-                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '1px' }}>📡 {chLabel}</div>
+                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '1px' }}>📡 {isOfficial ? 'Grupo oficial' : 'Grupo P2P'}</div>
               </div>
             </div>
             <i className="fas fa-chevron-right" style={{ fontSize: '11px', color: 'var(--text-muted)' }}></i>
@@ -4229,26 +4225,15 @@ return `${h}:${m}:${s}`;
 // ABLY GRUPO — componentes novos, zero dependência do código antigo
 // ═══════════════════════════════════════════════════════════════════
 
-// ─── Canais para criação de grupos de usuários (Híbrido P2P libp2p) ─────
-const _K10_CHANNELS = [
-  { id: 1,  label: 'Canal 1' },
-  { id: 2,  label: 'Canal 2' },
-  { id: 3,  label: 'Canal 3' },
-  { id: 4,  label: 'Canal 4' },
-  { id: 5,  label: 'Canal 5' },
-  { id: 6,  label: 'Canal 6' },
-  { id: 7,  label: 'Canal 7' },
-  { id: 8,  label: 'Canal 8' },
-  { id: 9,  label: 'Canal 9' },
-  { id: 10, label: 'Canal 10' },
-];
+// ─── Grupos: o nome do grupo É o canal único ─────────────────────────────
+// (Seletor de canais 1-10 removido — V14: o nome identifica a sala sozinho)
 
-const K10GroupWindow = ({ groupName, channelId, onClose, libp2pRef, libp2pStatus, peerId, userName, connectionsRef }) => {
+const K10GroupWindow = ({ groupName, onClose, libp2pRef, libp2pStatus, peerId, userName, connectionsRef }) => {
   const [msgs,  setMsgs]  = useState([]);
   const [input, setInput] = useState('');
   const [status, setStatus] = useState('Conectando...');
   const bottomRef = useRef(null);
-  const topic = `k10-group-${groupName}-${channelId}`;
+  const topic = `k10-group-${groupName}`;
 
   // libp2p path (quando disponível)
   useEffect(() => {
@@ -4274,19 +4259,19 @@ const K10GroupWindow = ({ groupName, channelId, onClose, libp2pRef, libp2pStatus
       node.services.pubsub.unsubscribe(topic);
       node.services.pubsub.removeEventListener('message', handleMsg);
     };
-  }, [groupName, channelId, libp2pStatus]);
+  }, [groupName, libp2pStatus]);
 
   // PeerJS fallback path — escuta CustomEvent despachado por handleIncomingData
   useEffect(() => {
     const handler = (evt) => {
       const d = evt.detail;
-      if (d.groupName === groupName && d.channelId === channelId && d.sender !== peerId) {
+      if (d.groupName === groupName && d.sender !== peerId) {
         setMsgs(prev => [...prev, { who: d.senderName || d.sender.slice(0,6), text: d.text, me: false, t: d.time }]);
       }
     };
     window.addEventListener('k10-group-msg', handler);
     return () => window.removeEventListener('k10-group-msg', handler);
-  }, [groupName, channelId, peerId]);
+  }, [groupName, peerId]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:'smooth' }); }, [msgs]);
 
@@ -4304,7 +4289,7 @@ const K10GroupWindow = ({ groupName, channelId, onClose, libp2pRef, libp2pStatus
     // PeerJS broadcast (sempre — garante entrega mesmo com libp2p disponível)
     if (connectionsRef && connectionsRef.current) {
       const msgId = peerId + '_grp_' + Date.now() + Math.random().toString(36).slice(2);
-      const pkt = { type: 'k10-group-msg', msgId, groupName, channelId, ...payload };
+      const pkt = { type: 'k10-group-msg', msgId, groupName, ...payload };
       connectionsRef.current.forEach(c => { if (c.open) try { c.send(pkt); } catch(e) {} });
     }
     setMsgs(prev => [...prev, { who: 'Você', text: tStr, me: true, t: time }]);
@@ -4384,10 +4369,9 @@ const K10GroupWindow = ({ groupName, channelId, onClose, libp2pRef, libp2pStatus
 };
 
 const K10GroupSection = ({ onGroupOpen, libp2pRef, libp2pStatus, peerId, userName, connectionsRef } = {}) => {
-  const [open,        setOpen]        = useState(false);
-  const [draft,       setDraft]       = useState('');
-  const [selChannel,  setSelChannel]  = useState(1);   // canal escolhido (1–10)
-  const [active,      setActive]      = useState(null);
+  const [open,  setOpen]  = useState(false);
+  const [draft, setDraft] = useState('');
+  const [active, setActive] = useState(null);
   const K10_OFFICIAL = 'Chat K10 Oficial';
   const [hist, setHist] = useState(() => {
     try {
@@ -4395,48 +4379,28 @@ const K10GroupSection = ({ onGroupOpen, libp2pRef, libp2pStatus, peerId, userNam
       return saved.includes(K10_OFFICIAL) ? saved : [K10_OFFICIAL, ...saved];
     } catch { return [K10_OFFICIAL]; }
   });
-  // Salva canal por grupo: { [groupName]: channelId }
-  const [groupChannels, setGroupChannels] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('_k10GroupChannels') || '{}'); } catch { return {}; }
-  });
 
-  const join = (name, chId) => {
-    const n   = (name || draft).trim();
+  const join = (name) => {
+    const n = (name || draft).trim();
     if (!n) return;
-    const cId = n === K10_OFFICIAL ? null : (chId || selChannel);
 
-    // ── PERSISTE DE FORMA SÍNCRONA antes de qualquer setState ──────────
-    // Motivo: onGroupOpen chama setShowGruposPanel(false), desmontando este
-    // componente. Salvar dentro do callback do setState é arriscado — o React
-    // pode descartar o callback se o componente desmontar antes de ele rodar.
-    if (n !== K10_OFFICIAL && cId) {
-      try {
-        const savedCh = JSON.parse(localStorage.getItem('_k10GroupChannels') || '{}');
-        savedCh[n] = cId;
-        localStorage.setItem('_k10GroupChannels', JSON.stringify(savedCh));
-      } catch {}
-    }
+    // Persiste histórico de forma síncrona
     try {
       const savedHist = JSON.parse(localStorage.getItem('_k10GroupHist') || '[]');
       const others = savedHist.filter(x => x !== n && x !== K10_OFFICIAL);
       const u = [K10_OFFICIAL, ...(n !== K10_OFFICIAL ? [n] : []), ...others].slice(0, 9);
       localStorage.setItem('_k10GroupHist', JSON.stringify(u));
     } catch {}
-    // ────────────────────────────────────────────────────────────────────
 
     setDraft('');
     setOpen(false);
-    // Sincroniza o state local com o que já foi persistido
-    if (n !== K10_OFFICIAL && cId) {
-      setGroupChannels(prev => ({ ...prev, [n]: cId }));
-    }
     setHist(() => {
       try {
         const saved = JSON.parse(localStorage.getItem('_k10GroupHist') || '[]');
         return saved.includes(K10_OFFICIAL) ? saved : [K10_OFFICIAL, ...saved];
       } catch { return [K10_OFFICIAL]; }
     });
-    if (onGroupOpen) { onGroupOpen(n, cId); } else { setActive({ name: n, channelId: cId }); }
+    if (onGroupOpen) { onGroupOpen(n); } else { setActive({ name: n }); }
   };
 
   return (
@@ -4455,26 +4419,10 @@ const K10GroupSection = ({ onGroupOpen, libp2pRef, libp2pStatus, peerId, userNam
 
         {open && (
           <div style={{ marginBottom:'10px', background:'#f8fafc', border:'1px solid var(--border)', borderRadius:'10px', padding:'10px' }}>
-            {/* Explicação sobre canais */}
+            {/* Explicação simples */}
             <div style={{ fontSize:'11px', color:'#64748b', marginBottom:'8px', lineHeight:'1.5', background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:'6px', padding:'7px 9px' }}>
-              <b style={{ color:'#1d4ed8' }}>ℹ️ Como funcionam os canais:</b><br/>
-              Escolha um <b>canal (1–10)</b> e dê um nome ao grupo. Pessoas no <b>mesmo canal + mesmo nome</b> entram na mesma sala.
-              O <b>Chat K10 Oficial</b> usa um canal exclusivo próprio.
-            </div>
-            {/* Seletor de canal */}
-            <div style={{ display:'flex', alignItems:'center', gap:'6px', marginBottom:'8px', flexWrap:'wrap' }}>
-              <span style={{ fontSize:'11px', fontWeight:700, color:'var(--text-muted)', whiteSpace:'nowrap' }}>Canal:</span>
-              <div style={{ display:'flex', gap:'4px', flexWrap:'wrap' }}>
-                {_K10_CHANNELS.map(c => (
-                  <button key={c.id} onClick={() => setSelChannel(c.id)}
-                    style={{ background: selChannel === c.id ? '#2563eb' : '#e2e8f0',
-                              color: selChannel === c.id ? '#fff' : '#475569',
-                              border:'none', borderRadius:'6px', padding:'3px 8px',
-                              fontSize:'11px', fontWeight:700, cursor:'pointer', transition:'all 0.12s' }}>
-                    {c.id}
-                  </button>
-                ))}
-              </div>
+              <b style={{ color:'#1d4ed8' }}>ℹ️ Como funciona:</b><br/>
+              Digite o nome do grupo. Quem usar o <b>mesmo nome</b> entra na mesma sala automaticamente.
             </div>
             {/* Input nome */}
             <div style={{ display:'flex', gap:'6px' }}>
@@ -4495,8 +4443,6 @@ const K10GroupSection = ({ onGroupOpen, libp2pRef, libp2pStatus, peerId, userNam
 
         {hist.length > 0 && hist.map(name => {
           const isOfficial = name === K10_OFFICIAL;
-          const chId       = isOfficial ? null : (groupChannels[name] || 1);
-          const chLabel    = isOfficial ? null : `Canal ${chId}`;
           return (
           <div key={name}
             style={{ display:'flex', alignItems:'center', gap:'8px', padding:'8px 10px', borderRadius:'8px',
@@ -4506,14 +4452,14 @@ const K10GroupSection = ({ onGroupOpen, libp2pRef, libp2pStatus, peerId, userNam
                       transition:'opacity 0.15s' }}
             onMouseEnter={e => { e.currentTarget.style.opacity='0.85'; }}
             onMouseLeave={e => { e.currentTarget.style.opacity='1'; }}>
-            <div onClick={() => join(name, chId)}
+            <div onClick={() => join(name)}
               style={{ display:'flex', alignItems:'center', gap:'8px', flex:1, minWidth:0, cursor:'pointer' }}>
               <span style={{ fontSize:'15px', flexShrink:0 }}>{isOfficial ? '⭐' : '🔒'}</span>
               <div style={{ flex:1, minWidth:0 }}>
                 <div style={{ fontWeight:700, fontSize:'13px', color: isOfficial ? '#1d4ed8' : 'var(--text)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{name}</div>
                 {isOfficial
                   ? <div style={{ fontSize:'10px', color:'#3b82f6', marginTop:'1px' }}>Grupo oficial do Chat K10</div>
-                  : <div style={{ fontSize:'10px', color:'#64748b', marginTop:'1px' }}>📡 {chLabel}</div>
+                  : <div style={{ fontSize:'10px', color:'#64748b', marginTop:'1px' }}>📡 Grupo P2P</div>
                 }
               </div>
               <i className="fas fa-chevron-right" style={{ fontSize:'10px', color: isOfficial ? '#3b82f6' : 'var(--text-muted)', flexShrink:0 }}></i>
@@ -4546,12 +4492,12 @@ const K10GroupSection = ({ onGroupOpen, libp2pRef, libp2pStatus, peerId, userNam
           </div>
         )}
       </div>
-      {active && <K10GroupWindow groupName={active.name} channelId={active.channelId} onClose={() => setActive(null)} libp2pRef={libp2pRef} libp2pStatus={libp2pStatus} peerId={peerId} userName={userName} connectionsRef={connectionsRef} />}
+      {active && <K10GroupWindow groupName={active.name} onClose={() => setActive(null)} libp2pRef={libp2pRef} libp2pStatus={libp2pStatus} peerId={peerId} userName={userName} connectionsRef={connectionsRef} />}
     </React.Fragment>
   );
 };
 
-const K10GroupChatInline = ({ groupName, channelId, onClose, libp2pRef, libp2pStatus, peerId, userName, connectionsRef, isOficial }) => {
+const K10GroupChatInline = ({ groupName, onClose, libp2pRef, libp2pStatus, peerId, userName, connectionsRef, isOficial }) => {
   const [msgs,      setMsgs]      = useState([]);
   const [input,     setInput]     = useState('');
   const [status,    setStatus]    = useState('Conectando...');
@@ -4572,7 +4518,7 @@ const K10GroupChatInline = ({ groupName, channelId, onClose, libp2pRef, libp2pSt
     // isOficial → reutiliza instância global K10OficialShadow (sem duplicar timers)
     const baseChannel = isOficial
       ? OFICIAL_BASE_CHANNEL
-      : `k10-group-${groupName}-${channelId}`;
+      : `k10-group-${groupName}`;
     if (isOficial) {
       // Reutiliza o K10OficialShadow global — não cria instância nova
       roomRef.current = K10OficialShadow;
@@ -4615,19 +4561,19 @@ const K10GroupChatInline = ({ groupName, channelId, onClose, libp2pRef, libp2pSt
       if (roomRef.current && !isOficial) { roomRef.current.stop(); roomRef.current = null; }
     };
   // FIX V80-3: peerId adicionado ao array de dependências (stale closure corrigido)
-  }, [groupName, channelId, libp2pStatus, isOficial, peerId]);
+  }, [groupName, libp2pStatus, isOficial, peerId]);
 
   // PeerJS fallback path
   useEffect(() => {
     const handler = (evt) => {
       const d = evt.detail;
-      if (d.groupName === groupName && d.channelId === channelId && d.sender !== peerId) {
+      if (d.groupName === groupName && d.sender !== peerId) {
         setMsgs(prev => [...prev, { who: d.senderName || d.sender.slice(0,6), text: d.text, me: false, t: d.time }]);
       }
     };
     window.addEventListener('k10-group-msg', handler);
     return () => window.removeEventListener('k10-group-msg', handler);
-  }, [groupName, channelId, peerId]);
+  }, [groupName, peerId]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
 
@@ -4645,7 +4591,7 @@ const K10GroupChatInline = ({ groupName, channelId, onClose, libp2pRef, libp2pSt
     }
     if (connectionsRef && connectionsRef.current) {
       // FIX V80-1: reutiliza msgId do payload (mesmo id nos dois caminhos de envio)
-      const pkt = { type: 'k10-group-msg', msgId, groupName, channelId, ...payload };
+      const pkt = { type: 'k10-group-msg', msgId, groupName, ...payload };
       connectionsRef.current.forEach(c => { if (c.open) try { c.send(pkt); } catch(e) {} });
     }
     setMsgs(prev => [...prev, { who: 'Você', text: tStr, me: true, t: time }]);
@@ -4790,17 +4736,15 @@ const [showSendSecretModal, setShowSendSecretModal] = useState(false);
 const [showServerE2EEModal, setShowServerE2EEModal] = useState(false);
 const [hiddenMessages, setHiddenMessages] = useState(new Set());
 const [activeChatTab, setActiveChatTab] = useState('native');
-const [activeGroupName,    setActiveGroupName]    = useState(null);
-const [activeGroupChannel, setActiveGroupChannel] = useState(null); // channelId do grupo ativo
+const [activeGroupName, setActiveGroupName] = useState(null);
 // Grupos abertos pelo usuário — aparecem na lista de conversas apenas quando selecionados
 const [openedGroups, setOpenedGroups] = useState([]);
-const handleGroupSelected = (name, chId) => {
+const handleGroupSelected = (name) => {
   setOpenedGroups(prev => {
     if (prev.some(g => g.name === name)) return prev;
-    return [...prev, { name, chId }];
+    return [...prev, { name }];
   });
   setActiveGroupName(name);
-  setActiveGroupChannel(chId);
   setActiveChatTab('group');
 };
 // V46: sistema de uma aba só — sem sidebarTab
@@ -4892,22 +4836,20 @@ if (!activeGroupName && activeChatTab === 'group') setActiveChatTab('native');
 // Abre grupo solicitado via ContactsScreen ou Ferramentas (pendingGroup vem do App)
 useEffect(() => {
   if (pendingGroup) {
-    handleGroupSelected(pendingGroup.name, pendingGroup.chId);
+    handleGroupSelected(pendingGroup.name);
     if (setPendingGroup) setPendingGroup(null);
   }
 }, [pendingGroup]);
 
 // V77: escuta eventos do Grupo Oficial e auto-abre como Modo Geral
 useEffect(() => {
-  const openOficial = (ch) => {
-    const channel = ch || K10OficialShadow.myChannel();
-    setOpenedGroups(prev => prev.some(g => g.name === OFICIAL_GROUP_NAME) ? prev : [...prev, { name: OFICIAL_GROUP_NAME, chId: channel }]);
+  const openOficial = () => {
+    setOpenedGroups(prev => prev.some(g => g.name === OFICIAL_GROUP_NAME) ? prev : [...prev, { name: OFICIAL_GROUP_NAME }]);
     setActiveGroupName(OFICIAL_GROUP_NAME);
-    setActiveGroupChannel(channel);
     setActiveChatTab('group');
   };
-  const onJoin     = (evt) => openOficial(evt.detail?.channel);
-  const onOverflow = ()    => {
+  const onJoin     = () => openOficial();
+  const onOverflow = () => {
     openOficial();
     addAudit('⭐ Modo Geral lotado — Grupo Oficial ativado automaticamente', 'sys');
   };
@@ -5451,13 +5393,13 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
       return (
         <div key={i}
           className={'conversation-item' + (isActiveGrp ? ' selected' : '')}
-          onClick={() => handleGroupSelected(g.name, g.chId)}
+          onClick={() => handleGroupSelected(g.name)}
           style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
             <span style={{ fontSize:'18px' }}>{isOfficial ? '⭐' : '🔒'}</span>
             <div>
               <div className="conversation-name" style={{ color: isOfficial ? '#1d4ed8' : 'var(--text)' }}>{g.name}</div>
-              <div className="conversation-peer-id">{isOfficial ? 'Grupo oficial' : 'Canal ' + (g.chId || 1)}</div>
+              <div className="conversation-peer-id">{isOfficial ? 'Grupo oficial' : 'Grupo P2P'}</div>
             </div>
           </div>
           <button
@@ -5483,7 +5425,7 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
 
 <div className="chat-messages-container">
 {/* Tab bar — Chat Nativo / YouTube / Grupo */}
-{(youtubeChatId || activeGroupName) && (
+{(youtubeChatId || openedGroups.length > 0) && (
   <div style={{ display: 'flex', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)', flexShrink:0 }}>
     <button
       onClick={() => setActiveChatTab('native')}
@@ -5499,12 +5441,12 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
         <i className="fab fa-youtube"></i> YouTube
       </button>
     )}
-    {activeGroupName && (
+    {openedGroups.length > 0 && (
       <button
-        onClick={() => setActiveChatTab('group')}
+        onClick={() => { if (activeGroupName) setActiveChatTab('group'); }}
         style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'group' ? 'var(--surface)' : 'transparent', borderBottom: activeChatTab === 'group' ? '2px solid #2563eb' : '2px solid transparent', fontWeight: activeChatTab === 'group' ? '700' : 'normal', cursor: 'pointer', color: activeChatTab === 'group' ? '#2563eb' : 'var(--text-muted)', fontSize:'13px', display:'flex', alignItems:'center', justifyContent:'center', gap:'5px' }}
       >
-        🔒 {activeGroupName}
+        🔒 {activeGroupName || openedGroups[0]?.name}
         <span
           onClick={e => { e.stopPropagation(); setActiveGroupName(null); setActiveChatTab('native'); }}
           style={{ marginLeft:'4px', fontSize:'12px', color:'var(--text-muted)', lineHeight:1, cursor:'pointer' }}
@@ -5677,19 +5619,7 @@ title={t(lang, 'sendMessage')}>
 </button>
 </div>
 </>
-) : activeChatTab === 'group' ? (
-<K10GroupChatInline
-  groupName={activeGroupName}
-  channelId={activeGroupChannel}
-  onClose={() => { setActiveGroupName(null); setActiveGroupChannel(null); setActiveChatTab('native'); }}
-  libp2pRef={libp2pRef}
-  libp2pStatus={libp2pStatus}
-  peerId={peerId}
-  userName={userName}
-  connectionsRef={connectionsRef}
-  isOficial={activeGroupName === OFICIAL_GROUP_NAME}
-/>
-) : (
+) : activeChatTab === 'youtube' ? (
 <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
 <iframe
 width="100%"
@@ -5699,7 +5629,27 @@ frameBorder="0"
 style={{ flex: 1 }}
 ></iframe>
 </div>
-)}
+) : null}
+{/* ── Grupos: todos montados em paralelo — só o ativo é visível ──
+    Assim cada grupo recebe mensagens em background e conserva
+    seu histórico ao trocar de aba ou de grupo. */}
+{openedGroups.map(g => (
+  <div key={g.name} style={{
+    display: activeChatTab === 'group' && activeGroupName === g.name ? 'flex' : 'none',
+    flex: 1, flexDirection: 'column', minHeight: 0, overflow: 'hidden'
+  }}>
+    <K10GroupChatInline
+      groupName={g.name}
+      onClose={() => { setActiveGroupName(null); setActiveChatTab('native'); }}
+      libp2pRef={libp2pRef}
+      libp2pStatus={libp2pStatus}
+      peerId={peerId}
+      userName={userName}
+      connectionsRef={connectionsRef}
+      isOficial={g.name === OFICIAL_GROUP_NAME}
+    />
+  </div>
+))}
 </div>
 </div>
 </div>
@@ -6787,7 +6737,7 @@ const [directPeers, setDirectPeers] = useState(new Set());
 // Impede que contatos que se conectam automaticamente via mesh apareçam na lista de conversas.
 const activatedContactsRef = useRef(new Set());
 const [activatedContacts, setActivatedContacts] = useState(new Set());
-const [pendingGroup, setPendingGroup] = useState(null); // { name, chId } — abre grupo no ChatManager
+const [pendingGroup, setPendingGroup] = useState(null); // { name } — abre grupo no ChatManager
 const [messages, setMessages] = useState([]);
 const [newMessage, setNewMessage] = useState('');
 const [showContacts, setShowContacts] = useState(false);
@@ -13063,9 +13013,9 @@ return (
         <button className="tutorial-close" onClick={() => setShowGruposPanel(false)}>×</button>
       </div>
       <div style={{ padding:'12px' }}>
-        <K10GroupSection onGroupOpen={(name, chId) => {
+        <K10GroupSection onGroupOpen={(name) => {
           setShowGruposPanel(false);
-          setPendingGroup({ name, chId });
+          setPendingGroup({ name });
         }} libp2pRef={libp2pRef} libp2pStatus={libp2pStatus} peerId={peerId} userName={userName} connectionsRef={connectionsRef} />
       </div>
     </div>
@@ -13539,9 +13489,9 @@ onSelectContact={(pId) => {
   }
   connectToPeer(pId); setSelectedContact(pId); setShowContacts(false);
 }}
-onSelectGroup={(name, chId) => {
+onSelectGroup={(name) => {
   setShowContacts(false);
-  setPendingGroup({ name, chId });
+  setPendingGroup({ name });
 }}
 avatars={avatars} />
 ) : (
