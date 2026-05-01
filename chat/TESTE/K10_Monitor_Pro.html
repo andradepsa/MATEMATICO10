@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>K10 MONITOR PRO v10 — Health + Sparklines + Dual Servers + Mirror Topology</title>
+<title>K10 MONITOR PRO v11 — Health + Sparklines + Dual Servers + Mirror Topology</title>
 <style>
 :root {
   --bg:    #020810;
@@ -190,7 +190,7 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 
 <div class="header">
   <div>
-    <h1>K10<span class="dot">.</span>MONITOR <span class="ver">PRO v10</span></h1>
+    <h1>K10<span class="dot">.</span>MONITOR <span class="ver">PRO v11</span></h1>
     <div style="font-size:9px;color:var(--dim);letter-spacing:2px;margin-top:4px">
       DUAL SERVER · MIRROR TOPOLOGY · REDUNDÂNCIA ATIVA
     </div>
@@ -825,7 +825,16 @@ function computeHealthScore() {
   const r = healthReports[0];
   let score = 100;
   const breakdown = {};
-  if (r.totalGateways === 0) { score -= 60; breakdown.noGateways = -60; }
+  // FIX v11: grace period de 1 ciclo (30s) antes de aplicar penalidade máxima de gateway.
+  // Evita RED/45 em quedas transitórias durante reconexão.
+  const prevReport = healthReports.length >= 2 ? healthReports[1] : null;
+  if (r.totalGateways === 0 && prevReport && prevReport.totalGateways === 0) {
+    // 2 snapshots consecutivos sem gateway → penalidade máxima
+    score -= 60; breakdown.noGateways = -60;
+  } else if (r.totalGateways === 0) {
+    // Só 1 snapshot sem gateway → penalidade leve (pode ser transitório)
+    score -= 20; breakdown.noGatewaysTransient = -20;
+  }
   if (r.avgGroupSize < 10 && r.totalGroups > 3) { score -= 15; breakdown.fragmentation = -15; }
   if (r.splits + r.merges > 5) { score -= 10; breakdown.churn = -10; }
   if (r.advanced && r.advanced.pctFull > 30) { score -= 10; breakdown.fullGroups = -10; }
@@ -861,15 +870,30 @@ function detectAnomalies() {
   if (prev.totalGateways > 1 && cur.totalGateways < prev.totalGateways * 0.5)
     out.push({ ts: Date.now(), msg: `Gateways caindo: ${prev.totalGateways} → ${cur.totalGateways}` });
   if (cur.splits > 8) out.push({ ts: Date.now(), msg: `Pico anormal de splits: ${cur.splits} em 30s` });
-  if (cur.totalGateways === 0 && cur.totalUsers > 0)
+  // FIX v11: "sem gateway" só dispara quando 2 snapshots consecutivos mostram 0 gateways
+  // (evita falso-positivo durante o ciclo de reconexão de ~30-60s).
+  if (cur.totalGateways === 0 && prev.totalGateways === 0 && cur.totalUsers > 0)
     out.push({ ts: Date.now(), msg: `${cur.totalUsers} usuarios sem nenhum gateway!` });
   // Detecção de falta de secondary em grupos grandes
+  // FIX v11: debounce — usa _secondaryAlertedAt para não repetir o alerta
+  // enquanto a situação persiste sem se resolver.
   updateGroupServersMap();
+  const now2 = Date.now();
   const groups = deriveGroups();
+  if (!detectAnomalies._secondaryAlertedAt) detectAnomalies._secondaryAlertedAt = {};
+  const SECONDARY_ALERT_COOLDOWN = 120_000; // não repete alerta por 2 min
   for (const [gid, entry] of groupServersMap.entries()) {
     const groupSize = groups[gid] ? groups[gid].n : 0;
-    if (groupSize >= 2 && (!entry.secondary || (Date.now() - entry.secondary.ts) > STALE)) {
-      out.push({ ts: Date.now(), msg: `Grupo ${gid} tem ${groupSize} users mas secundário ausente` });
+    const secondaryMissing = groupSize >= 2 && (!entry.secondary || (now2 - entry.secondary.ts) > STALE);
+    if (secondaryMissing) {
+      const lastAlert = detectAnomalies._secondaryAlertedAt[gid] || 0;
+      if (now2 - lastAlert > SECONDARY_ALERT_COOLDOWN) {
+        detectAnomalies._secondaryAlertedAt[gid] = now2;
+        out.push({ ts: now2, msg: `Grupo ${gid} tem ${groupSize} users mas secundário ausente` });
+      }
+    } else {
+      // Reseta o cooldown quando secundário volta
+      delete detectAnomalies._secondaryAlertedAt[gid];
     }
   }
   return out;
@@ -925,8 +949,10 @@ function handleMsg(msg) {
     if (isNew) log(`Novo servidor: ${msg.id} (${fmt(msg.total||0)} usuários)`, 'ok');
     else log(`Heartbeat: ${msg.id} — ${fmt(msg.total||0)} usuários, ${Object.keys(msg.groups||{}).length} grupos`);
     // Detecção de promoção primário/secundário ou mirror
-    if (/^K10-\w{4}-2$/.test(msg.id) && msg.groups && Object.keys(msg.groups).length > 0) {
-      pushTimelineEvent('promote', `${msg.id} ativo com ${Object.keys(msg.groups).length} grupos (possível promoção)`);
+    // FIX v11: só dispara PROMOTE quando o servidor é genuinamente novo (isNew),
+    // não a cada heartbeat — elimina o spam de PROMOTE a cada 30s.
+    if (isNew && /^K10-\w{4}-2$/.test(msg.id) && msg.groups && Object.keys(msg.groups).length > 0) {
+      pushTimelineEvent('promote', `${msg.id} eleito secundário (${Object.keys(msg.groups).length} grupo(s))`);
     }
     if (msg.dualServer) {
       if (msg.dualServer.mirrorOf) {
