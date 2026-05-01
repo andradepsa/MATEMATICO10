@@ -12760,172 +12760,282 @@ const K10GeneralRoom   = K10GSRoom('k10-general');          // Modo Geral
 // Cada slot atende clientes do proprio gid: relay de mensagens broadcast
 // (Modo Geral dentro da salinha) e mensagens diretas entre membros.
 // ═══════════════════════════════════════════════════════════════════════
-// ── K10GroupShadow V85-SIMPLE ──────────────────────────────────────────
-// Eleição sem probe, sem rank, sem backoff, sem zumbi.
-// Cada peer tenta K10-{gid}-1. Se falhar (unavailable-id) → tenta -2.
-// Quem chegar primeiro vence. PeerJS cuida da exclusão mútua.
-// Cada peer segura no máximo 1 slot. Libera ao trocar de grupo ou parar.
-// ─────────────────────────────────────────────────────────────────────
 const K10GroupShadow = (() => {
-  const HB_MS   = 30_000;  // heartbeat ao monitor
-  const ELECT_MS = 35_000; // ciclo de re-eleição (ligeiramente maior que HB)
+  const PROBE_MS         = 10_000;
+  const ELECT_JITTER_MS  = 1_500;
+  const RECENT_ALIVE_MS  = 18_000;
 
-  // slots mantido apenas por compatibilidade com código externo que chame .activeSlots
-  const slots = new Map();
-  let getMyGid  = null;
-  let getPeerFn = null;
-  let stunFn    = null;
-  let electTimer = null;
-  let activeSlot = null; // { id, peer, conns, monConn, hbTimer }
-  let electing   = false; // semáforo para evitar eleições simultâneas
+  const slots = new Map();   // slotId -> { peer, conns:Map, isActive:bool, alive:number, hbTimer }
+  let probeTimer = null;
+  let myPeerId   = null;
+  let getMyGid   = null;
+  let getGroupMembers = null;  // () => Array<peerId>
+  let stunPoolFn = null;
+  // FIX V79: peerInstance é local ao ChatClient (escopo ESM diferente).
+  // Recebe getter para acessar o peer principal sem ReferenceError.
+  let getPeerFn  = null;
+  // FIX V81-D: contadores para detectar ghost slots e slots zumbi
+  let emptyGroupCycles = 0;        // ciclos consecutivos sem membros no grupo
+  const zombieProbeCount = new Map(); // slotId -> número de probes consecutivos bloqueados
+  // FIX V83: backoff exponencial para evitar loop de reconexão quando há 0 membros.
+  // Sem membros, o node não é elegível — em vez de tentar claim a cada 10s (criando o
+  // ciclo conecta→heartbeat→desconecta observado no log), aguarda crescentemente mais.
+  let _noMemberBackoffUntil = 0;   // timestamp: não tenta claim antes deste momento
+  let _noMemberBackoffMs    = 0;   // backoff atual; cresce exponencialmente
+  const _BACKOFF_MIN_MS     = 20_000;   // 20s mínimo (2 × PROBE_MS)
+  const _BACKOFF_MAX_MS     = 320_000;  // ~5min máximo
 
-  // ── helpers ──────────────────────────────────────────────────────────
-
-  function stunCfg() {
-    const s = stunFn?.() || [];
-    return { host:'0.peerjs.com', port:443, secure:true, debug:0,
-             config:{ iceServers: s.length ? s : [{urls:'stun:stun.l.google.com:19302'}] } };
+  function start(myId, gidGetter, membersGetter, stunGetter, getPeer) {
+    myPeerId        = myId;
+    getMyGid        = gidGetter;
+    getGroupMembers = membersGetter;
+    stunPoolFn      = stunGetter;
+    getPeerFn       = getPeer || null;
+    if (probeTimer) clearInterval(probeTimer);
+    probeTimer = setInterval(probeAndElect, PROBE_MS);
+    setTimeout(probeAndElect, 6000);
   }
 
-  function releaseSlot() {
-    if (!activeSlot) return;
-    clearInterval(activeSlot.hbTimer);
-    try { if (activeSlot.monConn?.open) activeSlot.monConn.close(); } catch(e) {}
-    try { if (activeSlot.peer && !activeSlot.peer.destroyed) activeSlot.peer.destroy(); } catch(e) {}
-    slots.delete(activeSlot.id);
-    activeSlot = null;
-  }
-
-  function sendHB() {
-    if (!activeSlot) return;
-    const gid = activeSlot.id.match(/^K10-(\w{4})-\d$/)?.[1];
-    if (!gid) return;
-    const p = getPeerFn?.();
-    if (!p || p.destroyed) return;
-    const payload = { t:'s', id:activeSlot.id, total:0, groups:{ [gid]:0 } };
-    if (!activeSlot.monConn || !activeSlot.monConn.open) {
-      try {
-        const c = p.connect('K10-MON', { reliable:true });
-        c.on('error', () => { if (activeSlot?.monConn === c) activeSlot.monConn = null; });
-        c.on('close', () => { if (activeSlot?.monConn === c) activeSlot.monConn = null; });
-        if (activeSlot) activeSlot.monConn = c;
-      } catch(e) { return; }
+  function stop() {
+    if (probeTimer) clearInterval(probeTimer);
+    probeTimer = null;
+    emptyGroupCycles = 0;
+    zombieProbeCount.clear();
+    _noMemberBackoffUntil = 0;
+    _noMemberBackoffMs    = 0;
+    for (const [slotId, s] of slots) {
+      if (s.hbTimer) clearInterval(s.hbTimer);
+      try { if (s.peer && !s.peer.destroyed) s.peer.destroy(); } catch(e) {}
     }
-    const mc = activeSlot.monConn;
-    if (!mc) return;
-    const doSend = () => { try { mc.send(payload); } catch(e) {} };
-    if (mc.open) doSend(); else mc.on('open', doSend);
+    slots.clear();
   }
 
-  // Tenta registrar um PeerJS ID. Resolve true se conseguiu, false se ocupado/erro.
-  function tryClaimSlot(slotId) {
+  function noteAlive(slotId) {
+    const s = slots.get(slotId);
+    if (s) s.alive = Date.now();
+  }
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  async function probeAndElect() {
+    // FIX V79: usa getPeerFn() em vez de peerInstance.current (fora do escopo ESM)
+    if (!getPeerFn || !getPeerFn() || getPeerFn().destroyed) return;
+    const gid = getMyGid && getMyGid();
+    if (!gid) {
+      for (const slotId of [...slots.keys()]) releaseSlot(slotId);
+      emptyGroupCycles = 0;
+      return;
+    }
+
+    const members = (getGroupMembers && getGroupMembers()) || [];
+    const sortedAll = [...new Set([...members, myPeerId])].filter(Boolean).sort();
+    const myRank = sortedAll.indexOf(myPeerId);
+
+    // FIX V81-D (1): Ghost slot — libera slots do grupo atual se não há membros por 2+ ciclos.
+    // Evita K10-AAAA-1 permanecer ativo quando o grupo AAAA esvazia completamente.
+    if (members.length === 0) {
+      emptyGroupCycles++;
+      if (emptyGroupCycles >= 2) {
+        for (const slotId of [...slots.keys()]) releaseSlot(slotId);
+        emptyGroupCycles = 0;
+      }
+      // FIX V83: sem membros do grupo conectados, este node não é elegível para claim.
+      // Aplica backoff exponencial (_BACKOFF_MIN_MS → _BACKOFF_MAX_MS) antes de
+      // tentar novamente — elimina o ciclo conecta→heartbeat→desconecta de ~20s.
+      _noMemberBackoffMs    = _noMemberBackoffMs === 0
+        ? _BACKOFF_MIN_MS
+        : Math.min(_noMemberBackoffMs * 2, _BACKOFF_MAX_MS);
+      _noMemberBackoffUntil = Date.now() + _noMemberBackoffMs;
+      return; // nunca tenta claim sem membros visíveis
+    } else {
+      emptyGroupCycles = 0;
+      _noMemberBackoffMs    = 0; // reseta backoff assim que aparecem membros
+      _noMemberBackoffUntil = 0;
+    }
+
+    // FIX V83: respeita backoff — pode ter sido agendado num ciclo anterior
+    if (Date.now() < _noMemberBackoffUntil) return;
+
+    // Libera slots que não me pertencem mais
+    for (const slotId of [...slots.keys()]) {
+      const m = slotId.match(/^K10-(.+)-(\d)$/);
+      if (!m) { releaseSlot(slotId); continue; }
+      const slotGid = m[1];
+      const slotNum = parseInt(m[2]);
+      if (slotGid !== gid || myRank !== (slotNum - 1)) releaseSlot(slotId);
+    }
+
+    // Tenta ocupar slots 1 e 2
+    for (let slotNum = 1; slotNum <= 2; slotNum++) {
+      const slotId = `K10-${gid}-${slotNum}`;
+      const expectedHolder = sortedAll[slotNum - 1];
+      if (myPeerId !== expectedHolder) continue;
+      if (slots.has(slotId) && slots.get(slotId).isActive) continue;
+      const alive = await probeId(slotId);
+      if (alive) {
+        // FIX V81-D (2): Slot zumbi — se o probe retorna vivo mas esse slot deveria
+        // ser nosso (myPeerId === expectedHolder) e não é um slot que já detemos,
+        // conta tentativas bloqueadas. Após 3 bloqueios consecutivos (~30s), tenta
+        // claim mesmo assim: se o peer estiver realmente vivo, recebe unavailable-id
+        // e desiste; se for zumbi, o claim bem-sucede e o K10-AAAB-2 promove para K10-AAAB-1.
+        const probeHits = (zombieProbeCount.get(slotId) || 0) + 1;
+        zombieProbeCount.set(slotId, probeHits);
+        if (probeHits < 3) continue; // aguarda mais ciclos antes de forçar
+        zombieProbeCount.delete(slotId); // reseta contador — vai tentar o claim
+      } else {
+        zombieProbeCount.delete(slotId); // slot confirmado morto — limpa contador
+      }
+      await sleep(slotNum * ELECT_JITTER_MS + Math.random() * 400);
+      if (!getMyGid || getMyGid() !== gid) return;
+      const stillDead = !(await probeId(slotId));
+      if (stillDead) await tryClaimSlot(slotId);
+    }
+  }
+
+  function probeId(targetId) {
     return new Promise(resolve => {
-      const gid = slotId.match(/^K10-(\w{4})-\d$/)?.[1];
-      if (!gid) { resolve(false); return; }
-      let done = false;
-      const finish = v => { if (!done) { done = true; resolve(v); } };
-      const failTimer = setTimeout(() => {
-        try { slot?.peer?.destroy(); } catch(e) {}
-        finish(false);
-      }, 8_000);
-      let slot;
-      try {
-        const p = new Peer(slotId, stunCfg());
-        slot = { id:slotId, peer:p, conns:new Map(), monConn:null, hbTimer:null };
-        p.on('open', () => {
-          clearTimeout(failTimer);
-          activeSlot = slot;
-          slots.set(slotId, { peer:p, conns:slot.conns, isActive:true });
-          sendHB();
-          slot.hbTimer = setInterval(sendHB, HB_MS);
-          p.on('connection', conn => {
-            slot.conns.set(conn.peer, conn);
-            conn.on('data', data => relay(slot, conn, data));
-            conn.on('close', () => slot.conns.delete(conn.peer));
-            conn.on('error', () => slot.conns.delete(conn.peer));
-          });
-          p.on('close', () => { if (activeSlot?.id === slotId) releaseSlot(); });
-          p.on('error', () => { if (activeSlot?.id === slotId) releaseSlot(); });
-          finish(true);
-        });
-        p.on('error', () => {
-          clearTimeout(failTimer);
-          try { p.destroy(); } catch(e) {}
-          finish(false); // unavailable-id ou qualquer erro = slot ocupado
-        });
-      } catch(e) { clearTimeout(failTimer); finish(false); }
+      const p = getPeerFn ? getPeerFn() : null;  // FIX V79
+      if (!p || p.destroyed) return resolve(false);
+      let test, resolved = false;
+      try { test = p.connect(targetId, { reliable: true }); } catch(e) { return resolve(false); }
+      if (!test) return resolve(false);
+      const t = setTimeout(() => {
+        if (!resolved) { resolved = true; try{test.close();}catch(e){} resolve(false); }
+      }, 4500);
+      test.on('open',  () => { if (!resolved) { resolved = true; clearTimeout(t); try{test.close();}catch(e){} resolve(true); } });
+      test.on('error', () => { if (!resolved) { resolved = true; clearTimeout(t); resolve(false); } });
     });
   }
 
-  // Relay de mensagem para todos os clientes do slot ativo
-  function relay(slot, fromConn, data) {
-    if (!data?.type) return;
+  function tryClaimSlot(slotId) {
+    return new Promise(resolve => {
+      const slot = { peer: null, conns: new Map(), isActive: false, alive: Date.now(), hbTimer: null };
+      slots.set(slotId, slot);
+      let resolved = false;
+      try {
+        const ice = (stunPoolFn && stunPoolFn()) || [];
+        slot.peer = new Peer(slotId, {
+          host: '0.peerjs.com', port: 443, secure: true, debug: 0,
+          config: { iceServers: ice }
+        });
+        const failTimer = setTimeout(() => {
+          if (resolved) return;
+          resolved = true;
+          releaseSlot(slotId);
+          resolve(false);
+        }, 12_000);
+        slot.peer.on('open', () => {
+          if (resolved) return;
+          resolved = true;
+          clearTimeout(failTimer);
+          slot.isActive = true;
+          slot.peer.on('connection', conn => onClientConn(slotId, conn));
+          // 🔥 HEARTBEAT PARA O MONITOR
+          // FIX V10: group server reporta total=0 — contagem é exclusiva do gateway.
+          // FIX V81-B: conexao persistente ao monitor — evita connect/disconnect a cada
+          // 30s que causava flood de eventos PROMOTE/ALERT no monitor (conexao efemera
+          // anterior aparecia como novo peer conectando+desconectando a cada heartbeat).
+          const monitorId = 'K10-MON';
+          slot.monConn = null; // conexao persistente reutilizavel
+          const ensureMonConn = () => {
+            if (slot.monConn && slot.monConn.open) return slot.monConn;
+            if (!slot.isActive || !slot.peer || slot.peer.destroyed) return null;
+            try {
+              const c = slot.peer.connect(monitorId, { reliable: true });
+              c.on('error', () => { if (slot.monConn === c) slot.monConn = null; });
+              c.on('close', () => { if (slot.monConn === c) slot.monConn = null; });
+              slot.monConn = c;
+              return c;
+            } catch(e) { return null; }
+          };
+          const sendHeartbeat = () => {
+            if (!slot.isActive || !slot.peer || slot.peer.destroyed) return;
+            const gid = slotId.match(/^K10-(\w{4})-\d$/)?.[1];
+            if (!gid) return;
+            const payload = { t: 's', id: slotId, total: 0, groups: { [gid]: 0 } };
+            const conn = ensureMonConn();
+            if (!conn) return;
+            if (conn.open) {
+              try { conn.send(payload); } catch(e) {}
+            } else {
+              conn.on('open', () => { try { conn.send(payload); } catch(e) {} });
+            }
+          };
+          slot.hbTimer = setInterval(sendHeartbeat, 30000);
+          sendHeartbeat(); // envia imediatamente
+          resolve(true);
+        });
+        slot.peer.on('error', err => {
+          if (err && (err.type === 'unavailable-id' || err.type === 'invalid-id')) {
+            if (resolved) return;
+            resolved = true;
+            clearTimeout(failTimer);
+            releaseSlot(slotId);
+            resolve(false);
+          } else {
+            releaseSlot(slotId);
+          }
+        });
+        slot.peer.on('close', () => releaseSlot(slotId));
+      } catch(e) {
+        releaseSlot(slotId);
+        resolve(false);
+      }
+    });
+  }
+
+  function releaseSlot(slotId) {
+    const s = slots.get(slotId);
+    if (!s) return;
+    if (s.hbTimer) clearInterval(s.hbTimer);
+    // FIX V81-B: fecha conexao persistente do monitor ao liberar o slot
+    try { if (s.monConn && s.monConn.open) s.monConn.close(); } catch(e) {}
+    s.monConn = null;
+    try { if (s.peer && !s.peer.destroyed) s.peer.destroy(); } catch(e) {}
+    slots.delete(slotId);
+  }
+
+  function onClientConn(slotId, conn) {
+    const s = slots.get(slotId);
+    if (!s) return;
+    s.conns.set(conn.peer, conn);
+    conn.on('data',  data => onClientData(slotId, conn, data));
+    conn.on('close', () => { const ss = slots.get(slotId); if (ss) ss.conns.delete(conn.peer); });
+    conn.on('error', () => { const ss = slots.get(slotId); if (ss) ss.conns.delete(conn.peer); });
+  }
+
+  function onClientData(slotId, conn, data) {
+    if (!data || !data.type) return;
+    const s = slots.get(slotId);
+    if (!s) return;
     if (data.type === 'handshake') {
-      try { fromConn.send({ type:'handshake', peerId:slot.id }); } catch(e) {}
+      try { conn.send({ type: 'handshake', peerId: slotId }); } catch(e) {}
       return;
     }
-    const RELAY_TYPES = new Set(['message','youtube-chat-start','youtube-chat-stop','radio-start','radio-chunk']);
-    if (!RELAY_TYPES.has(data.type)) return;
-    const ttl = Math.min(Math.max(0, typeof data.ttl === 'number' ? data.ttl : 8), 15);
-    if (ttl <= 0) return;
-    const out = { ...data, ttl: ttl - 1 };
-    if (data.direct && data.recipient) {
-      const t = slot.conns.get(data.recipient);
-      if (t?.open && data.recipient !== fromConn.peer) try { t.send(out); } catch(e) {}
-    } else {
-      slot.conns.forEach((c, pid) => {
-        if (pid !== fromConn.peer && c.open) try { c.send(out); } catch(e) {}
+    // Relay de mensagens (broadcast P2P)
+    if (data.type === 'message' || data.type === 'youtube-chat-start' || data.type === 'youtube-chat-stop' || data.type === 'radio-start' || data.type === 'radio-chunk') {
+      const rawTtl = (typeof data.ttl === 'number') ? data.ttl : 8;
+      const ttl = Math.min(Math.max(0, rawTtl), 15);
+      if (ttl <= 0) return;
+      const relay = Object.assign({}, data, { ttl: ttl - 1 });
+      if (data.direct && data.recipient) {
+        const target = s.conns.get(data.recipient);
+        if (target && target.open && data.recipient !== conn.peer) {
+          try { target.send(relay); } catch(e) {}
+        }
+        return;
+      }
+      s.conns.forEach((c, pid) => {
+        if (pid !== conn.peer && c.open) {
+          try { c.send(relay); } catch(e) {}
+        }
       });
     }
   }
 
-  // ── eleição ──────────────────────────────────────────────────────────
-  // Lógica: sem probe, sem rank.
-  // Tenta slot 1; se falhar (ID ocupado) tenta slot 2.
-  // PeerJS garante exclusão mútua via unavailable-id.
-
-  async function elect() {
-    if (electing) return;
-    const p = getPeerFn?.();
-    if (!p || p.destroyed) return;
-    const gid = getMyGid?.();
-    if (!gid) { releaseSlot(); return; }
-    // Já segura um slot deste gid → mantém.
-    if (activeSlot?.id.startsWith(`K10-${gid}-`)) return;
-    // Gid mudou → libera slot antigo.
-    if (activeSlot) releaseSlot();
-    electing = true;
-    try {
-      for (const num of [1, 2]) {
-        const ok = await tryClaimSlot(`K10-${gid}-${num}`);
-        if (ok) break; // conseguiu — para aqui
-      }
-    } finally { electing = false; }
-  }
-
-  // ── API pública ───────────────────────────────────────────────────────
-
-  function start(_myId, gidGetter, _membersGetter, stunGetter, getPeer) {
-    getMyGid  = gidGetter;
-    getPeerFn = getPeer;
-    stunFn    = stunGetter;
-    if (electTimer) clearInterval(electTimer);
-    setTimeout(elect, 5_000); // delay inicial (deixa o peer principal estabilizar)
-    electTimer = setInterval(elect, ELECT_MS);
-  }
-
-  function stop() {
-    clearInterval(electTimer);
-    electTimer = null;
-    electing   = false;
-    releaseSlot();
-  }
-
   return {
-    start, stop,
-    probeAndElect() { elect(); },
-    noteAlive() {},  // mantido por compatibilidade (no-op)
-    get activeSlots() { return activeSlot ? [activeSlot.id] : []; }
+    start, stop, noteAlive, probeAndElect,
+    get activeSlots() { return [...slots.keys()].filter(k => slots.get(k).isActive); }
   };
 })();
 window.K10GroupShadow = K10GroupShadow;
