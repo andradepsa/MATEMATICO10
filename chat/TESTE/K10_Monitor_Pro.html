@@ -531,15 +531,18 @@ function updateGroupServersMap() {
   }
 }
 
-// Renderiza group servers com destaque para mirror
-function renderGroupServers() {
+// Renderiza group servers com destaque para mirror.
+// Recebe `groups` calculado por render() para evitar race condition de
+// deriveGroups() ser chamado duas vezes em momentos diferentes.
+// Quando `groups` é fornecido, assume que updateGroupServersMap() já foi chamado.
+function renderGroupServers(groups) {
   const container = document.getElementById('groupServersList');
   if (!container) return;
-  updateGroupServersMap();
-  const groups = deriveGroups();
+  // Se chamado sem grupos (ex: v8AfterSnapshot), recalcula tudo
+  if (!groups) { groups = deriveGroups(); updateGroupServersMap(); }
   const gids = Array.from(groupServersMap.keys()).sort();
   if (gids.length === 0) {
-    // Sem nenhum K10-XXXX-1/2 conectado — mostrar grupos ativos sem group server
+    // Sem nenhum K10-XXXX-1/2 conectado — mostra grupos reais sem group server
     const activeGids = Object.keys(groups).sort();
     if (activeGids.length === 0) {
       container.innerHTML = '<div class="empty">Nenhum grupo ativo.</div>';
@@ -987,6 +990,7 @@ function render() {
 
   document.getElementById('g-count-lbl').textContent = gkeys.length > PAGE_ROWS ? `(exibindo top ${PAGE_ROWS} de ${gkeys.length})` : (gkeys.length > 0 ? `(${gkeys.length} grupos)` : '');
   const visible = gkeys.slice(0, PAGE_ROWS);
+  // Atualiza mapa de group servers UMA vez — usado pelo loop de grupos e por renderGroupServers
   updateGroupServersMap();
   const groupsBody = visible.length ? visible.map(gid => {
     const g = groups[gid];
@@ -1021,7 +1025,8 @@ function render() {
     const mirrorTag = s.dualServer?.mirrorOf ? ` <span style="color:var(--purple)">🪞 mirror de ${s.dualServer.mirrorOf}</span>` : '';
     return `<div class="srv"><div class="srv-top"><div class="sdot ${cls}"></div><span class="srv-id">${esc(sid)}${mirrorTag}</span></div><div class="srv-meta"><div>usuários: <span>${fmt(s.total||0)}</span></div><div>grupos: <span>${gNum}</span></div><div>há: <span>${ago(s.ts)}</span></div></div></div>`;
   }).join('') : '<div class="empty">Aguardando heartbeats dos gateways...</div>';
-  renderGroupServers();
+  // Passa groups já calculados — evita race condition de duplo deriveGroups()
+  renderGroupServers(groups);
   document.getElementById('p-mem').textContent = gkeys.length;
   document.getElementById('p-lat').textContent = (performance.now()-t0).toFixed(1)+'ms';
   document.getElementById('p-conns').textContent = conns.size;
