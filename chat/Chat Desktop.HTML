@@ -3116,10 +3116,34 @@ const K10_POSITION_LIST = (() => {
 // O Peer ID do usuário NUNCA é alterado por nenhuma dessas operações.
 // Apenas myGroupIdRef (GID) e directoryGlobalRef são modificados.
 // ══════════════════════════════════════════════════════════════════════════════
-// ═══ V51: Constantes simplificadas ═══
-// Homeostase removida — grupos gerenciados pelo gateway (doAssignPeer + close).
-// GATEWAY_IDS: 5 gateways para bootstrap
-const GATEWAY_IDS = ['K10-GATE-0001','K10-GATE-0002','K10-GATE-0003','K10-GATE-0004','K10-GATE-0005'];
+// ═══ V80: 1.000.000 Gateways — Geração Dinâmica ═══
+// IDs gerados sob demanda — zero impacto de memória.
+// Formato: K10-GATE-0000001 … K10-GATE-1000000 (7 dígitos).
+// HUB_IDS: 10 hubs redundantes — bootstrap tenta todos em paralelo.
+// Se nenhum responder, cai em amostragem aleatória do espaço de 1M gateways.
+
+const GATEWAY_TOTAL   = 1_000_000;
+const gatewayId       = (n) => `K10-GATE-${String(n).padStart(7, '0')}`;
+const randomGatewayIds = (count) =>
+  Array.from({ length: count }, () =>
+    gatewayId(Math.floor(Math.random() * GATEWAY_TOTAL) + 1)
+  );
+// Compatibilidade: GATEWAY_IDS agora retorna amostra aleatória quando iterado.
+// Código legado que faz GATEWAY_IDS.sort() ou .slice() continua funcional.
+const GATEWAY_IDS = new Proxy([], {
+  get(_, prop) {
+    if (prop === 'length') return GATEWAY_TOTAL;
+    if (prop === 'sort')   return () => randomGatewayIds(GATEWAY_TOTAL);
+    if (prop === 'slice')  return (s, e) => randomGatewayIds(Math.min((e||25) - (s||0), 25));
+    if (prop === 'filter') return (fn) => randomGatewayIds(100).filter(fn);
+    if (prop === 'forEach') return (fn) => randomGatewayIds(100).forEach(fn);
+    if (typeof prop === 'string' && !isNaN(prop)) return gatewayId(Number(prop) + 1);
+    return [][prop];
+  }
+});
+
+// 10 hubs redundantes — qualquer um serve para bootstrap
+const HUB_IDS = Array.from({ length: 10 }, (_, i) => `K10-HUB-${String(i + 1).padStart(2, '0')}`);
 
 // Verifica se um peerId tem formato K10 válido
 const isK10Id = (id) => typeof id === 'string' && id.length === K10_TOTAL_LEN && id.startsWith(K10_PREFIX);
@@ -7619,7 +7643,7 @@ return () => clearTimeout(timer);
 
 
 // V59: K10-CENTRAL (hub de descoberta eleito) também é servidor central
-const isCentralServer = (id) => id && (id.startsWith('K10-GATE-') || (id === 'K10-CENTRAL' || id === 'K10-HUB-V62'));
+const isCentralServer = (id) => id && (id.startsWith('K10-GATE-') || id.startsWith('K10-HUB-') || id === 'K10-CENTRAL');
 // V48: rastreia servidores que operam em Router Mode (não devem virar centralServerId)
 const routerModeServersRef = useRef(new Set());
 // V42: servidor do MEU grupo
@@ -9598,40 +9622,29 @@ if (!bootstrapDoneRef.current) {
 
   window.__k10BootTryNext = tryNextGateway;
 
-  // V59: Fast-path via K10-CENTRAL
-  // Tenta conectar a K10-CENTRAL primeiro para receber lista de gateways ativos.
-  // Se K10-CENTRAL responder, a lista é usada para ordenar o bootstrap.
-  // Se não existir (peer-unavailable), tenta assumir e inicia varredura normal.
-  // Se não responder em 4s, cai direto na varredura normal.
-  addAudit('[Bootstrap] 🏛️ Tentando K10-CENTRAL para descoberta rápida...', 'info');
+  // V80: Fast-path via HUBs redundantes — tenta todos em paralelo.
+  // O primeiro que responder vence. Se nenhum em 2.5s, varredura aleatória.
+  addAudit('[Bootstrap] 🏛️ Tentando HUBs redundantes para descoberta rápida...', 'info');
   let centralBootResolved = false;
-  let centralBootConn;
-  try { centralBootConn = peerInstance.current.connect('K10-HUB-V62', { reliable: true }); } catch(e) {}
+  const hubsToTry = [...HUB_IDS].sort(() => Math.random() - 0.5);
 
   const centralBootTimeout = setTimeout(() => {
     if (centralBootResolved) return;
     centralBootResolved = true;
-    try { if (centralBootConn) centralBootConn.close(); } catch(e) {}
-    addAudit('[Bootstrap] ⏱ K10-CENTRAL sem resposta — iniciando varredura...', 'warn');
-    // V60 Fix: Se a K10-CENTRAL não responder a tempo, pode ser um nó zumbi. Tentamos assumi-la.
+    addAudit('[Bootstrap] ⏱ Nenhum HUB respondeu — iniciando varredura aleatória...', 'warn');
     try { K10CentralShadow.tryClaim(); } catch(e) {}
     setTimeout(tryNextGateway, 300);
-  }, 2_500); // V60: reduzido de 4.5s → 2.5s (redes frias respondem mais rápido ao fallback)
+  }, 2_500);
 
-  if (centralBootConn) {
-    centralBootConn.on('open', () => {
-      if (centralBootResolved) return;
-      // Solicita lista de gateways ativos
-      try { centralBootConn.send({ type: 'central-discovery-request' }); } catch(e) {}
-    });
-    centralBootConn.on('data', d => {
+  // Abre conexão com cada hub em paralelo; o primeiro a responder resolve o bootstrap
+  const _hubOnData = (hubId, hubConn, d) => {
       if (centralBootResolved) return;
       if (d && d.type === 'central-response' && Array.isArray(d.gateways) && d.gateways.length > 0) {
         centralBootResolved = true;
         clearTimeout(centralBootTimeout);
-        try { centralBootConn.close(); } catch(e) {}
+        try { hubConn.close(); } catch(e) {}
         const confirmed = d.confirmedCount || d.gateways.length;
-        addAudit(`[Bootstrap] ✅ K10-CENTRAL: ${confirmed} gateways ativos recebidos`, 'success');
+        addAudit(`[Bootstrap] ✅ ${hubId}: ${confirmed} gateways ativos recebidos`, 'success');
 
         // FIX V66: tenta TODOS os gateways confirmados em paralelo.
         // O modelo anterior colocava a lista na fila sequencial — com 53 confirmados
@@ -9727,31 +9740,26 @@ if (!bootstrapDoneRef.current) {
           }
         }, 10_000);
       }
-    });
-    centralBootConn.on('error', err => {
+  }; // end _hubOnData
+
+  hubsToTry.forEach(hubId => {
+    if (centralBootResolved) return;
+    let hubConn;
+    try { hubConn = peerInstance.current.connect(hubId, { reliable: true }); } catch(e) { return; }
+    if (!hubConn) return;
+    hubConn.on('open', () => {
       if (centralBootResolved) return;
-      centralBootResolved = true;
-      clearTimeout(centralBootTimeout);
+      try { hubConn.send({ type: 'central-discovery-request' }); } catch(e) {}
+    });
+    hubConn.on('data', d => _hubOnData(hubId, hubConn, d));
+    hubConn.on('error', err => {
       if (err && err.type === 'peer-unavailable') {
-        addAudit('[Bootstrap] 📡 K10-CENTRAL vaga — tentando assumir...', 'info');
+        // Hub vago — candidato para assumir (K10CentralShadow resolve a corrida)
         try { K10CentralShadow.tryClaim(); } catch(e) {}
       }
-      addAudit('[Bootstrap] 🚀 Tentando gateways distribuídos...', 'info');
-      setTimeout(tryNextGateway, 100);
     });
-    centralBootConn.on('close', () => {
-      if (centralBootResolved) return;
-      centralBootResolved = true;
-      clearTimeout(centralBootTimeout);
-      setTimeout(tryNextGateway, 100);
-    });
-  } else {
-    // Falha ao criar conexão — inicia varredura direto
-    clearTimeout(centralBootTimeout);
-    centralBootResolved = true;
-    addAudit('[Bootstrap] 🚀 Tentando gateways distribuídos...', 'info');
-    setTimeout(tryNextGateway, 100);
-  }
+    hubConn.on('close', () => {});
+  });
 }
 }
 });
@@ -9773,7 +9781,7 @@ console.log("Network error detected, will attempt reconnect...");
     window.__k10BootVacantCount = (window.__k10BootVacantCount || 0) + 1;
     const lastTried = window.__k10LastBootTarget;
     // Com lista de 5 gateways: assume após varrer todos (>=5) sem achar ninguém
-    if (window.__k10BootVacantCount >= GATEWAY_IDS.length && lastTried && lastTried.startsWith('K10-GATE-') && !K10GatewayShadow.isActive) {
+    if (window.__k10BootVacantCount >= 20 && lastTried && lastTried.startsWith('K10-GATE-') && !K10GatewayShadow.isActive) { // 20 vagos = rede fria
       try { K10GatewayShadow.tryClaim(lastTried); } catch(e) {}
     }
     // V69: NÃO dispara __k10BootTryNext aqui — o batch já gerencia retentativas via onBcFail.
@@ -12170,11 +12178,12 @@ const K10GatewayShadow = (() => {
 // Nenhum usuário percebe — o processo é 100% silencioso.
 // ═══════════════════════════════════════════════════════════════════════
 const K10CentralShadow = (() => {
-  const CENTRAL_ID = 'K10-HUB-V62';
-  const POLL_MS         = 25_000;   // re-verifica gateways ativos a cada 25s
-  const ELECT_MS        = 15_000;   // tenta eleição a cada 15s
-  const CLAIM_TIMEOUT   = 14_000;   // timeout para reivindicar o ID
-  const PROBE_TIMEOUT   = 2_000;    // V60: reduzido 3s→2s (sonda rápida)
+  // V80: 10 hubs redundantes — tenta assumir o primeiro vago
+  const POLL_MS         = 25_000;
+  const ELECT_MS        = 15_000;
+  const CLAIM_TIMEOUT   = 14_000;
+  const PROBE_TIMEOUT   = 2_000;
+  let _claimedHubId     = null; // qual hub este peer assumiu
 
   let centralPeer     = null;   // instância Peer com id 'K10-CENTRAL'
   let isActive        = false;  // true quando somos a central
@@ -12258,82 +12267,90 @@ const K10CentralShadow = (() => {
     }, delay);
   }
 
-  // Sonda se K10-CENTRAL existe; se não existir, reivindica.
+  // V80: Sonda se algum hub existe; se nenhum, reivindica o primeiro vago.
   function _probeAndMaybeClaim() {
     if (isActive || claimInProgress) return;
     const mainPeer = getMainPeer ? getMainPeer() : null;
     if (!mainPeer || mainPeer.destroyed) return;
+    // Sonda apenas o HUB-01 como representante — se vago, _attemptClaim() varre todos
+    const hubToProbe = HUB_IDS[0];
     let resolved = false, probe;
-    try { probe = mainPeer.connect(CENTRAL_ID, { reliable: true }); }
+    try { probe = mainPeer.connect(hubToProbe, { reliable: true }); }
     catch(e) { return; }
     if (!probe) return;
     const t = setTimeout(() => {
-      if (resolved) return;
-      resolved = true;
+      if (resolved) return; resolved = true;
       try { probe.close(); } catch(e) {}
-      // Timeout = central existe mas lenta; não tenta assumir
+      // Timeout = hub existe mas lenta; não tenta assumir
     }, PROBE_TIMEOUT);
     probe.on('open', () => {
-      if (resolved) return;
-      resolved = true; clearTimeout(t);
+      if (resolved) return; resolved = true; clearTimeout(t);
       try { probe.close(); } catch(e) {}
-      // K10-CENTRAL viva — nada a fazer
+      // Algum hub vivo — nada a fazer
     });
     probe.on('error', err => {
-      if (resolved) return;
-      resolved = true; clearTimeout(t);
+      if (resolved) return; resolved = true; clearTimeout(t);
       if (err && err.type === 'peer-unavailable') {
-        _attemptClaim(); // slot vago — tenta reivindicar
+        _attemptClaim(); // tenta assumir qualquer slot disponível
       }
     });
     probe.on('close', () => { clearTimeout(t); });
   }
 
-  // ── Reivindicação ─────────────────────────────────────────────────────
+  // ── Reivindicação V80: tenta cada hub em ordem até achar um vago ────
   function _attemptClaim() {
     if (isActive || claimInProgress) return;
     claimInProgress = true;
-    console.log(`[K10CentralShadow] Iniciando nova instância PeerJS para K10-CENTRAL...`);
-    const ice = (stunPoolFn && stunPoolFn()) || [];
+    _tryHubSlot([...HUB_IDS]); // tenta todos os slots em ordem
+  }
+
+  function _tryHubSlot(remaining) {
+    if (isActive) { claimInProgress = false; return; }
+    if (remaining.length === 0) {
+      // Todos os hubs ocupados — aguarda próximo ciclo de eleição
+      claimInProgress = false;
+      console.log('[K10CentralShadow] Todos os hubs ocupados. Aguardando próximo ciclo.');
+      return;
+    }
+    const hubId = remaining[0];
+    const rest   = remaining.slice(1);
+    const ice    = (stunPoolFn && stunPoolFn()) || [];
     let gp;
     try {
-      gp = new Peer(CENTRAL_ID, {
+      gp = new Peer(hubId, {
         host: '0.peerjs.com', port: 443, secure: true, debug: 0,
         config: { iceServers: ice }
       });
-    } catch(e) { 
-      claimInProgress = false; 
-      console.warn(`[K10CentralShadow] Exceção em new Peer(K10-CENTRAL):`, e);
-      return; 
-    }
+    } catch(e) { claimInProgress = false; return; }
     centralPeer = gp;
     const failTimer = setTimeout(() => {
-      console.warn(`[K10CentralShadow] Timeout (14s) tentando reivindicar K10-CENTRAL`);
-      _cleanup();
+      console.warn(`[K10CentralShadow] Timeout tentando ${hubId}`);
+      try { gp.destroy(); } catch(e) {}
+      _tryHubSlot(rest); // tenta o próximo hub
     }, CLAIM_TIMEOUT);
     gp.on('open', () => {
       clearTimeout(failTimer);
       isActive = true;
       claimInProgress = false;
-      console.log(`[K10CentralShadow] K10-CENTRAL assumida com sucesso!`);
-      // Começa a aceitar clientes
+      _claimedHubId = hubId;
+      console.log(`[K10CentralShadow] Hub ${hubId} assumido com sucesso!`);
       gp.on('connection', _onClient);
-      // Inicia poll periódico dos gateways
       _startGatewayPoll();
-      try { if (typeof onCentralUpCb === 'function') onCentralUpCb(CENTRAL_ID); } catch(e) {}
+      try { if (typeof onCentralUpCb === 'function') onCentralUpCb(hubId); } catch(e) {}
     });
-    gp.on('error', (err) => { 
-      clearTimeout(failTimer); 
-      // FIX V33: peer-unavailable borbulha das sondagens _pollGateways — NÃO é fatal.
-      // FIX V62: suprime log de peer-unavailable (é ruído normal das sondagens periódicas).
-      if (err && err.type === 'peer-unavailable') return;
-      console.warn(`[K10CentralShadow] Erro do PeerJS em K10-CENTRAL:`, err && err.type);
-      _cleanup(); 
+    gp.on('error', (err) => {
+      clearTimeout(failTimer);
+      if (err && err.type === 'peer-unavailable') return; // ruído normal de sondagens
+      if (err && err.type === 'unavailable-id') {
+        // Hub já ocupado por outro peer — tenta o próximo
+        try { gp.destroy(); } catch(e) {}
+        _tryHubSlot(rest);
+        return;
+      }
+      console.warn(`[K10CentralShadow] Erro em ${hubId}:`, err && err.type);
+      _cleanup();
     });
-    gp.on('close', () => {
-      console.log(`[K10CentralShadow] K10-CENTRAL fechada`);
-      _cleanup()
-    });
+    gp.on('close', () => { console.log(`[K10CentralShadow] ${hubId} fechada`); _cleanup(); });
     gp.on('disconnected', () => { /* PeerJS reconecta */ });
   }
 
@@ -12350,7 +12367,7 @@ const K10CentralShadow = (() => {
   function _pollGateways() {
     if (!isActive || !centralPeer || centralPeer.destroyed) return;
     // Sonda até 25 gateways em paralelo; atualiza activeGateways
-    const batch = GATEWAY_IDS.sort(() => Math.random() - 0.5).slice(0, 25);
+    const batch = randomGatewayIds(25); // amostra aleatória do espaço de 1M gateways
     batch.forEach(gwId => {
       let probe, resolved = false;
       try { probe = centralPeer.connect(gwId, { reliable: true }); }
