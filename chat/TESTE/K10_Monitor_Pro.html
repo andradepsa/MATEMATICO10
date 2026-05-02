@@ -229,7 +229,7 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
   <div class="spark-card"><div class="label">USERS (TIMELINE)</div><div class="value" id="sp-users">—</div><svg id="sp-users-svg" viewBox="0 0 200 32" preserveAspectRatio="none"></svg></div>
   <div class="spark-card green"><div class="label">GROUPS</div><div class="value" id="sp-groups">—</div><svg id="sp-groups-svg" viewBox="0 0 200 32" preserveAspectRatio="none"></svg></div>
   <div class="spark-card amber"><div class="label">GATEWAYS</div><div class="value" id="sp-servers">—</div><svg id="sp-servers-svg" viewBox="0 0 200 32" preserveAspectRatio="none"></svg></div>
-  <div class="spark-card purple"><div class="label">EVENTS (TOPOLOGY)</div><div class="value" id="sp-evt">—</div><svg id="sp-evt-svg" viewBox="0 0 200 32" preserveAspectRatio="none"></svg></div>
+  <div class="spark-card purple"><div class="label">EVENTS (SPLITS+MERGES)</div><div class="value" id="sp-evt">—</div><svg id="sp-evt-svg" viewBox="0 0 200 32" preserveAspectRatio="none"></svg></div>
 </div>
 
 <!-- Health Score -->
@@ -266,8 +266,9 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 <div class="health-panel">
   <div class="toolbar-mini">
     <button onclick="filterTimeline('all')" id="tlf-all" class="active">TUDO</button>
+    <button onclick="filterTimeline('split')" id="tlf-split">SPLITS</button>
+    <button onclick="filterTimeline('merge')" id="tlf-merge">MERGES</button>
     <button onclick="filterTimeline('comp')" id="tlf-comp">COMPENSATES</button>
-    <button onclick="filterTimeline('tutor')" id="tlf-tutor">TUTOR</button>
     <button onclick="filterTimeline('promote')" id="tlf-promote">PROMOÇÕES</button>
     <button onclick="filterTimeline('mirror')" id="tlf-mirror">MIRROR</button>
     <button onclick="filterTimeline('alert')" id="tlf-alert">ALERTAS</button>
@@ -290,7 +291,7 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
   <table class="health-table" id="health-table">
     <thead><tr><th>Timestamp</th><th>Users</th><th>Gateways</th><th>Group Srv</th><th>Total Nodes</th><th>Groups</th><th>Avg.Size</th><th>Splits</th><th>Merges</th><th>Comp.</th><th>Tutor</th><th>Redund. %</th></tr></thead>
     <tbody id="health-table-body"></tbody>
-  </table>
+   </table>
 </div>
 
 <!-- Advanced Metrics -->
@@ -332,7 +333,7 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 </div>
 
 <div class="footer">
-  <span>K10 MONITOR PRO v9 — Dual Server + Mirror Topology · Redundância ativa</span>
+  <span>K10 MONITOR PRO v12 — Dual Server + Mirror Topology · Redundância ativa</span>
   <span id="footer-ts">—</span>
 </div>
 
@@ -414,6 +415,7 @@ function log(msg, type='') {
   logs.push({ts:now8(), msg, type});
   if (logs.length > LOG_MAX) logs.shift();
   scheduleLogFlush();
+  // console.log(`[MON] ${msg}`); // descomente para depuração avançada
 }
 let logFlushScheduled = false;
 function scheduleLogFlush() {
@@ -444,24 +446,22 @@ function flushLog() {
 function deriveGroups() {
   const g = {};
   const now = Date.now();
-  // FIX: group servers (K10-XXXX-1/2) reportam os MESMOS usuários que o gateway.
-  // Incluí-los na soma causa contagem dupla. Apenas gateways (K10-GATE-*) e
-  // fontes legadas contribuem para a contagem de usuários.
-  // Group servers ainda atualizam timestamp (presença do grupo) mas n=0 na soma.
+  // Somente gateways (K10-GATE-*) contribuem para a contagem de usuários.
+  // Group servers (K10-XXXX-1/2) apenas atualizam timestamp (presença) mas n=0.
   const isGroupServer = (sid) => /^K10-\w{4}-\d$/.test(sid) && !sid.includes('-GATE-');
   for (const sid in servers) {
     const s = servers[sid];
     if (now - s.ts > STALE) continue;
     const skipCount = isGroupServer(sid);
     for (const gid in s.groups) {
-      // V71: group servers não criam entradas de grupo — apenas gateways fazem isso.
-      // Isso evita grupos "fantasma" (0 users mas group server ainda ativo).
+      // Group servers não criam entradas de grupo
       if (skipCount) continue;
       if (!g[gid]) g[gid] = {n:0, ts:0};
       g[gid].n += s.groups[gid];
       if (s.ts > g[gid].ts) g[gid].ts = s.ts;
     }
   }
+  // Legacy protocolo t:'u'
   for (const gid in legacyBucket) {
     if (g[gid]) continue;
     const lb = legacyBucket[gid];
@@ -531,17 +531,12 @@ function updateGroupServersMap() {
 }
 
 // Renderiza group servers com destaque para mirror.
-// Recebe `groups` calculado por render() para evitar race condition de
-// deriveGroups() ser chamado duas vezes em momentos diferentes.
-// Quando `groups` é fornecido, assume que updateGroupServersMap() já foi chamado.
 function renderGroupServers(groups) {
   const container = document.getElementById('groupServersList');
   if (!container) return;
-  // Se chamado sem grupos (ex: v8AfterSnapshot), recalcula tudo
   if (!groups) { groups = deriveGroups(); updateGroupServersMap(); }
   const gids = Array.from(groupServersMap.keys()).sort();
   if (gids.length === 0) {
-    // Sem nenhum K10-XXXX-1/2 conectado — mostra grupos reais sem group server
     const activeGids = Object.keys(groups).sort();
     if (activeGids.length === 0) {
       container.innerHTML = '<div class="empty">Nenhum grupo ativo.</div>';
@@ -585,7 +580,7 @@ function computeAdvancedMetrics() {
   const sizes = Object.values(groups).map(g => g.n);
   const nGroups = sizes.length;
   if (nGroups === 0) {
-    return { pctFull: 0, pctSmall: 0, stdDev: 0, cv: 0, saturated: 0, idleServers: 0, avgAge: 0, splitMergeRate: 0, redundancyPct: 0, mirroredGroups: 0 };
+    return { pctFull: 0, pctSmall: 0, stdDev: 0, cv: 0, saturated: 0, idleServers: 0, avgAge: 0, splitMergeRate: 0, redundancyPct: -1, mirroredGroups: 0 };
   }
   const total = sizes.reduce((a,b)=>a+b,0);
   const mean = total / nGroups;
@@ -610,8 +605,7 @@ function computeAdvancedMetrics() {
     }
   }
   const avgAge = serverCount ? sumAge / serverCount : 0;
-  // V12: split/merge não existem mais no V52 — taxa usa compensateCounter
-  const splitMergeRate = compensateCounter / (HEALTH_REPORT_INTERVAL / 60000);
+  const splitMergeRate = (splitCounter + mergeCounter) / (HEALTH_REPORT_INTERVAL / 60000);
   // Redundância: grupos com ambos servidores ativos
   updateGroupServersMap();
   let redundantGroups = 0;
@@ -620,7 +614,8 @@ function computeAdvancedMetrics() {
     const secondaryOk = entry.secondary && (now - entry.secondary.ts) <= STALE;
     if (primaryOk && secondaryOk) redundantGroups++;
   }
-  const redundancyPct = groupServersMap.size ? (redundantGroups / groupServersMap.size) * 100 : 100;
+  // CORREÇÃO: se não há nenhum group server, redundância deve ser N/A (-1)
+  const redundancyPct = groupServersMap.size ? (redundantGroups / groupServersMap.size) * 100 : -1;
   const mirroredGroupsCount = mirrorMap.size;
   return { pctFull, pctSmall, stdDev, cv, saturated: saturation, idleServers: idle, avgAge, splitMergeRate, redundancyPct, mirroredGroups: mirroredGroupsCount };
 }
@@ -663,6 +658,7 @@ function takeHealthSnapshot() {
 function updateAdvancedUI(adv) {
   const container = document.getElementById('advanced-stats');
   if (!container) return;
+  const redundancyDisplay = adv.redundancyPct === -1 ? 'N/A' : adv.redundancyPct.toFixed(0) + '%';
   container.innerHTML = `
     <div class="adv-card"><div class="label">📊 Grupos cheios (&ge;${MAX_GRP})</div><div class="value">${adv.pctFull.toFixed(1)}%</div><div class="label">${adv.pctFull>10?'⚠️ atenção':'normal'}</div></div>
     <div class="adv-card"><div class="label">📉 Grupos pequenos (<10)</div><div class="value">${adv.pctSmall.toFixed(1)}%</div><div class="label">${adv.pctSmall>20?'fragmentado':'ok'}</div></div>
@@ -671,8 +667,8 @@ function updateAdvancedUI(adv) {
     <div class="adv-card"><div class="label">🚦 Saturação rede</div><div class="value">${adv.saturated.toFixed(1)}%</div><div class="label">limite teórico</div></div>
     <div class="adv-card"><div class="label">💤 Servidores ociosos</div><div class="value">${adv.idleServers}</div><div class="label">com 0 usuários</div></div>
     <div class="adv-card"><div class="label">⏱️ Idade média</div><div class="value">${adv.avgAge.toFixed(0)}s</div><div class="label">último heartbeat</div></div>
-    <div class="adv-card"><div class="label">🔄 Compensates/min</div><div class="value">${adv.splitMergeRate.toFixed(2)}</div><div class="label">taxa topologia</div></div>
-    <div class="adv-card"><div class="label">🛡️ Redundância</div><div class="value">${adv.redundancyPct.toFixed(0)}%</div><div class="label">grupos com 2 servers</div></div>
+    <div class="adv-card"><div class="label">🔄 Splits+merges/min</div><div class="value">${adv.splitMergeRate.toFixed(2)}</div><div class="label">taxa eventos</div></div>
+    <div class="adv-card"><div class="label">🛡️ Redundância</div><div class="value">${redundancyDisplay}</div><div class="label">grupos com 2 servers</div></div>
     <div class="adv-card"><div class="label">🪞 Mirror ativo</div><div class="value">${adv.mirroredGroups}</div><div class="label">gateways espelhando</div></div>
   `;
 }
@@ -693,17 +689,22 @@ function updateHealthUI(latest) {
   let statusText = '🟢 SAUDÁVEL';
   const alerts = [];
   if (userTrend < -30) { healthStatus = 'red'; alerts.push(`🔴 Queda brusca de usuários: ${userTrend.toFixed(1)}%`); }
+  if (latest.splits + latest.merges > 5) { if (healthStatus !== 'red') healthStatus = 'yellow'; alerts.push(`🟡 Alta atividade de splits/merges (${latest.splits}/${latest.merges})`); }
   if (gatewayTrend < -30 || gsTrend < -30) { if (healthStatus !== 'red') healthStatus = 'yellow'; alerts.push(`🟡 Queda de servidores: gateways ${gatewayTrend.toFixed(1)}% / group servers ${gsTrend.toFixed(1)}%`); }
   if (latest.totalGateways === 0 && latest.totalUsers > 0) { healthStatus = 'red'; alerts.push(`❌ Nenhum gateway reportando!`); }
   if (latest.avgGroupSize < 10 && latest.totalGroups > 3) { if (healthStatus !== 'red') healthStatus = 'yellow'; alerts.push(`📉 Média baixa (${latest.avgGroupSize}) → fragmentação`); }
-  // Nova regra de redundância
-  if (latest.advanced && latest.advanced.redundancyPct < 50 && latest.totalGroups > 2) { healthStatus = 'red'; alerts.push(`❌ Redundância baixa (${latest.advanced.redundancyPct.toFixed(0)}% dos grupos sem secondary)`); }
+  // Só avalia redundância se houver group servers
+  if (latest.advanced && latest.advanced.redundancyPct !== -1 && latest.advanced.redundancyPct < 50 && latest.totalGroups > 2) {
+    healthStatus = 'red';
+    alerts.push(`❌ Redundância baixa (${latest.advanced.redundancyPct.toFixed(0)}% dos grupos sem secondary)`);
+  }
   if (healthStatus === 'red') statusText = '🔴 CRÍTICO';
   else if (healthStatus === 'yellow') statusText = '🟡 ATENÇÃO';
   else statusText = '🟢 SAUDÁVEL';
   const badge = document.getElementById('health-badge');
   badge.className = `health-badge ${healthStatus}`;
   badge.innerHTML = statusText;
+  const redundancyDisplay = (latest.advanced && latest.advanced.redundancyPct !== -1) ? latest.advanced.redundancyPct.toFixed(0) + '%' : 'N/A';
   const metricsHtml = `
     <div class="health-card"><div class="label">USERS (trend)</div><div class="value">${fmt(latest.totalUsers)} <span class="trend ${userTrend>=0?'trend-up':'trend-down'}">${userTrend>=0?'▲':'▼'}${Math.abs(userTrend).toFixed(1)}%</span></div></div>
     <div class="health-card"><div class="label">GATEWAYS</div><div class="value">${latest.totalGateways} <span class="trend ${gatewayTrend>=0?'trend-up':'trend-down'}">${gatewayTrend>=0?'▲':'▼'}${Math.abs(gatewayTrend).toFixed(1)}%</span></div></div>
@@ -712,7 +713,7 @@ function updateHealthUI(latest) {
     <div class="health-card"><div class="label">GROUPS</div><div class="value">${latest.totalGroups} <span class="trend ${groupTrend>=0?'trend-up':'trend-down'}">${groupTrend>=0?'▲':'▼'}${Math.abs(groupTrend).toFixed(1)}%</span></div></div>
     <div class="health-card"><div class="label">AVG SIZE</div><div class="value">${fmt(latest.avgGroupSize)}</div></div>
     <div class="health-card"><div class="label">SPLITS/MERGES</div><div class="value">${latest.splits} / ${latest.merges}</div></div>
-    <div class="health-card"><div class="label">REDUNDÂNCIA</div><div class="value">${latest.advanced?.redundancyPct.toFixed(0)}%</div></div>
+    <div class="health-card"><div class="label">REDUNDÂNCIA</div><div class="value">${redundancyDisplay}</div></div>
   `;
   document.getElementById('health-metrics').innerHTML = metricsHtml;
   const alertsDiv = document.getElementById('health-alerts');
@@ -721,7 +722,9 @@ function updateHealthUI(latest) {
     alertsDiv.innerHTML = alerts.map(a => `<div class="alert-item">⚠️ ${a}</div>`).join('');
   } else alertsDiv.style.display = 'none';
   const tbody = document.getElementById('health-table-body');
-  tbody.innerHTML = healthReports.map(r => `
+  tbody.innerHTML = healthReports.map(r => {
+    const redDisplay = (r.advanced && r.advanced.redundancyPct !== -1) ? r.advanced.redundancyPct.toFixed(0) + '%' : 'N/A';
+    return `
     <tr>
       <td>${new Date(r.ts).toLocaleTimeString()}</td>
       <td>${fmt(r.totalUsers)}</td>
@@ -734,9 +737,10 @@ function updateHealthUI(latest) {
       <td>${r.merges}</td>
       <td>${r.compensates}</td>
       <td>${r.tutorActive ? '⚕️ sim' : 'não'}</td>
-      <td>${r.advanced?.redundancyPct.toFixed(0)}%</td>
+      <td>${redDisplay}</td>
     </tr>
-  `).join('');
+    `;
+  }).join('');
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -777,7 +781,7 @@ function pushTimelineEvent(kind, msg) {
 }
 function filterTimeline(kind) {
   timelineFilter = kind;
-  ['all','comp','tutor','promote','mirror','alert'].forEach(k => {
+  ['all','split','merge','comp','promote','mirror','alert'].forEach(k => {
     const el = document.getElementById('tlf-'+k);
     if (el) el.classList.toggle('active', k === kind);
   });
@@ -825,24 +829,22 @@ function computeHealthScore() {
   const r = healthReports[0];
   let score = 100;
   const breakdown = {};
-  // FIX v11: grace period de 1 ciclo (30s) antes de aplicar penalidade máxima de gateway.
-  // Evita RED/45 em quedas transitórias durante reconexão.
   const prevReport = healthReports.length >= 2 ? healthReports[1] : null;
   if (r.totalGateways === 0 && prevReport && prevReport.totalGateways === 0) {
-    // 2 snapshots consecutivos sem gateway → penalidade máxima
     score -= 60; breakdown.noGateways = -60;
   } else if (r.totalGateways === 0) {
-    // Só 1 snapshot sem gateway → penalidade leve (pode ser transitório)
     score -= 20; breakdown.noGatewaysTransient = -20;
   }
   if (r.avgGroupSize < 10 && r.totalGroups > 3) { score -= 15; breakdown.fragmentation = -15; }
-  // V12: split/merge removidos no V52 — churn de topologia não é mais calculável por splits+merges
+  if (r.splits + r.merges > 5) { score -= 10; breakdown.churn = -10; }
   if (r.advanced && r.advanced.pctFull > 30) { score -= 10; breakdown.fullGroups = -10; }
   if (r.advanced && r.advanced.cv > 80) { score -= 5; breakdown.uneven = -5; }
-  // V71: redundância só penaliza quando há usuários suficientes para justificar 2 servidores
   const needsRedundancy = r.totalUsers >= 2 && r.totalGroups > 1;
-  if (needsRedundancy && r.advanced && r.advanced.redundancyPct < 50) { score -= 25; breakdown.lowRedundancy = -25; }
-  else if (needsRedundancy && r.advanced && r.advanced.redundancyPct < 80) { score -= 10; breakdown.partialRedundancy = -10; }
+  if (needsRedundancy && r.advanced && r.advanced.redundancyPct !== -1 && r.advanced.redundancyPct < 50) {
+    score -= 25; breakdown.lowRedundancy = -25;
+  } else if (needsRedundancy && r.advanced && r.advanced.redundancyPct !== -1 && r.advanced.redundancyPct < 80) {
+    score -= 10; breakdown.partialRedundancy = -10;
+  }
   if (r.totalGroups > 0 && r.advanced && r.advanced.cv < 30) { score = Math.min(100, score + 5); breakdown.balancedBonus = 5; }
   score = Math.max(0, Math.min(100, score));
   const level = score >= 80 ? 'green' : score >= 50 ? 'yellow' : 'red';
@@ -869,19 +871,14 @@ function detectAnomalies() {
     out.push({ ts: Date.now(), msg: `Queda brusca: ${prev.totalUsers} → ${cur.totalUsers} usuarios em 30s` });
   if (prev.totalGateways > 1 && cur.totalGateways < prev.totalGateways * 0.5)
     out.push({ ts: Date.now(), msg: `Gateways caindo: ${prev.totalGateways} → ${cur.totalGateways}` });
-  // V12: split > 8 removido — V52+ não envia group-split
-  // FIX v11: "sem gateway" só dispara quando 2 snapshots consecutivos mostram 0 gateways
-  // (evita falso-positivo durante o ciclo de reconexão de ~30-60s).
+  if (cur.splits > 8) out.push({ ts: Date.now(), msg: `Pico anormal de splits: ${cur.splits} em 30s` });
   if (cur.totalGateways === 0 && prev.totalGateways === 0 && cur.totalUsers > 0)
     out.push({ ts: Date.now(), msg: `${cur.totalUsers} usuarios sem nenhum gateway!` });
-  // Detecção de falta de secondary em grupos grandes
-  // FIX v11: debounce — usa _secondaryAlertedAt para não repetir o alerta
-  // enquanto a situação persiste sem se resolver.
   updateGroupServersMap();
   const now2 = Date.now();
   const groups = deriveGroups();
   if (!detectAnomalies._secondaryAlertedAt) detectAnomalies._secondaryAlertedAt = {};
-  const SECONDARY_ALERT_COOLDOWN = 120_000; // não repete alerta por 2 min
+  const SECONDARY_ALERT_COOLDOWN = 120_000;
   for (const [gid, entry] of groupServersMap.entries()) {
     const groupSize = groups[gid] ? groups[gid].n : 0;
     const secondaryMissing = groupSize >= 2 && (!entry.secondary || (now2 - entry.secondary.ts) > STALE);
@@ -892,7 +889,6 @@ function detectAnomalies() {
         out.push({ ts: now2, msg: `Grupo ${gid} tem ${groupSize} users mas secundário ausente` });
       }
     } else {
-      // Reseta o cooldown quando secundário volta
       delete detectAnomalies._secondaryAlertedAt[gid];
     }
   }
@@ -916,13 +912,13 @@ function v8AfterSnapshot(report) {
   userHistory.push(report.totalUsers);
   groupHistory.push(report.totalGroups);
   serverHistory.push(report.totalGateways);
-  // V12 FIX: split/merge removidos no V52 — rastreia compensates+tutor (eventos reais de topologia)
-  eventHistory.push(report.compensates + (report.tutorActive ? 1 : 0));
+  eventHistory.push((eventHistory[eventHistory.length-1] || 0) + report.splits + report.merges);
   if (userHistory.length   > HISTORY_LEN) userHistory.shift();
   if (groupHistory.length  > HISTORY_LEN) groupHistory.shift();
   if (serverHistory.length > HISTORY_LEN) serverHistory.shift();
   if (eventHistory.length  > HISTORY_LEN) eventHistory.shift();
-  // V12 FIX: split/merge removidos no V52 — eventos de topologia reais são comp e tutor
+  if (report.splits > 0)  pushTimelineEvent('split', `${report.splits} split(s) em 30s`);
+  if (report.merges > 0)  pushTimelineEvent('merge', `${report.merges} merge(s) em 30s`);
   if (report.compensates > 0) pushTimelineEvent('comp', `${report.compensates} compensate(s) em 30s`);
   if (report.tutorActive) pushTimelineEvent('tutor', `Grupo em fase de tutela`);
   updateSparklines();
@@ -938,6 +934,7 @@ function v8AfterSnapshot(report) {
 function handleMsg(msg) {
   msgCount++;
   if (!msg || !msg.t) return;
+  // Formato moderno { t:'s', id, total, groups, dualServer }
   if (msg.t === 's' && msg.id) {
     const isNew = !servers[msg.id];
     servers[msg.id] = {
@@ -949,8 +946,6 @@ function handleMsg(msg) {
     if (isNew) log(`Novo servidor: ${msg.id} (${fmt(msg.total||0)} usuários)`, 'ok');
     else log(`Heartbeat: ${msg.id} — ${fmt(msg.total||0)} usuários, ${Object.keys(msg.groups||{}).length} grupos`);
     // Detecção de promoção primário/secundário ou mirror
-    // FIX v11: só dispara PROMOTE quando o servidor é genuinamente novo (isNew),
-    // não a cada heartbeat — elimina o spam de PROMOTE a cada 30s.
     if (isNew && /^K10-\w{4}-2$/.test(msg.id) && msg.groups && Object.keys(msg.groups).length > 0) {
       pushTimelineEvent('promote', `${msg.id} eleito secundário (${Object.keys(msg.groups).length} grupo(s))`);
     }
@@ -962,6 +957,7 @@ function handleMsg(msg) {
     scheduleRender();
     return;
   }
+  // Protocolo legado { t:'u', id, gid }
   if (msg.t === 'u' && msg.id && msg.gid) {
     if (!warnOldSrc) {
       warnOldSrc = msg.id;
@@ -975,6 +971,7 @@ function handleMsg(msg) {
     scheduleRender();
     return;
   }
+  // Eventos de topologia (split, merge, compensate, tutor)
   if (msg.type === 'group-split') { splitCounter++; log(`[TOPOLOGY] group-split: ${msg.oldGroupId} → ${msg.newGroupId}`, 'warn'); scheduleRender(); return; }
   if (msg.type === 'group-merge') { mergeCounter++; log(`[TOPOLOGY] group-merge: ${msg.absorbedGroupId} → ${msg.survivingGroupId}`, 'warn'); scheduleRender(); return; }
   if (msg.type === 'group-compensate') { compensateCounter++; log(`[TOPOLOGY] group-compensate: ${msg.donorGid} → ${msg.receiverGid}`, 'info'); scheduleRender(); return; }
@@ -1016,7 +1013,6 @@ function render() {
 
   document.getElementById('g-count-lbl').textContent = gkeys.length > PAGE_ROWS ? `(exibindo top ${PAGE_ROWS} de ${gkeys.length})` : (gkeys.length > 0 ? `(${gkeys.length} grupos)` : '');
   const visible = gkeys.slice(0, PAGE_ROWS);
-  // Atualiza mapa de group servers UMA vez — usado pelo loop de grupos e por renderGroupServers
   updateGroupServersMap();
   const groupsBody = visible.length ? visible.map(gid => {
     const g = groups[gid];
@@ -1051,7 +1047,6 @@ function render() {
     const mirrorTag = s.dualServer?.mirrorOf ? ` <span style="color:var(--purple)">🪞 mirror de ${s.dualServer.mirrorOf}</span>` : '';
     return `<div class="srv"><div class="srv-top"><div class="sdot ${cls}"></div><span class="srv-id">${esc(sid)}${mirrorTag}</span></div><div class="srv-meta"><div>usuários: <span>${fmt(s.total||0)}</span></div><div>grupos: <span>${gNum}</span></div><div>há: <span>${ago(s.ts)}</span></div></div></div>`;
   }).join('') : '<div class="empty">Aguardando heartbeats dos gateways...</div>';
-  // Passa groups já calculados — evita race condition de duplo deriveGroups()
   renderGroupServers(groups);
   document.getElementById('p-mem').textContent = gkeys.length;
   document.getElementById('p-lat').textContent = (performance.now()-t0).toFixed(1)+'ms';
@@ -1061,7 +1056,7 @@ function render() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  FUNÇÃO DE EXPORTAÇÃO DE RELATÓRIO DETALHADO (ATUALIZADA)
+//  FUNÇÃO DE EXPORTAÇÃO DE RELATÓRIO DETALHADO
 // ═══════════════════════════════════════════════════════════════════════
 function exportReportsToTxt() {
   const now = new Date();
@@ -1070,7 +1065,7 @@ function exportReportsToTxt() {
   let content = '';
 
   content += '=' .repeat(80) + '\n';
-  content += `K10 MONITOR PRO v9 - RELATÓRIO COMPLETO\n`;
+  content += `K10 MONITOR PRO v12 - RELATÓRIO COMPLETO\n`;
   content += `Gerado em: ${now.toLocaleString('pt-BR')}\n`;
   content += `Monitor ID: ${document.getElementById('mon-id').value.trim() || 'K10-MON'}\n`;
   content += `PeerID atual: ${peer ? (peer.id || 'não conectado') : 'desconectado'}\n`;
@@ -1093,7 +1088,8 @@ function exportReportsToTxt() {
   const avgSize = totalGroupsVal ? (totalUsersVal / totalGroupsVal).toFixed(1) : 0;
   content += `Média de usuários por grupo: ${avgSize}\n`;
   const adv = computeAdvancedMetrics();
-  content += `Redundância (grupos com ambos servidores): ${adv.redundancyPct.toFixed(0)}%\n`;
+  const redundancyDisplay = adv.redundancyPct === -1 ? 'N/A' : adv.redundancyPct.toFixed(0) + '%';
+  content += `Redundância (grupos com ambos servidores): ${redundancyDisplay}\n`;
   content += `Gateways espelhando: ${adv.mirroredGroups}\n`;
   content += '\n';
 
@@ -1122,11 +1118,12 @@ function exportReportsToTxt() {
   if (healthReports.length === 0) content += 'Nenhum relatório disponível ainda.\n';
   else {
     healthReports.forEach((r, idx) => {
+      const redDisplay = (r.advanced && r.advanced.redundancyPct !== -1) ? r.advanced.redundancyPct.toFixed(0) + '%' : 'N/A';
       content += `--- Snapshot ${idx+1} (${new Date(r.ts).toLocaleString('pt-BR')}) ---\n`;
       content += `Usuários: ${fmt(r.totalUsers)} | Gateways: ${r.totalGateways} | Group Servers: ${r.totalGroupServers}\n`;
       content += `Grupos: ${r.totalGroups} | Média: ${fmt(r.avgGroupSize)} | Splits: ${r.splits} | Merges: ${r.merges} | Compensates: ${r.compensates}\n`;
       if (r.advanced) {
-        content += `   Avançadas: Grupos cheios: ${r.advanced.pctFull.toFixed(1)}% | Pequenos: ${r.advanced.pctSmall.toFixed(1)}% | CV: ${r.advanced.cv.toFixed(1)}% | Saturação: ${r.advanced.saturated.toFixed(1)}% | Redundância: ${r.advanced.redundancyPct.toFixed(0)}% | Mirror: ${r.advanced.mirroredGroups}\n`;
+        content += `   Avançadas: Grupos cheios: ${r.advanced.pctFull.toFixed(1)}% | Pequenos: ${r.advanced.pctSmall.toFixed(1)}% | CV: ${r.advanced.cv.toFixed(1)}% | Saturação: ${r.advanced.saturated.toFixed(1)}% | Redundância: ${redDisplay} | Mirror: ${r.advanced.mirroredGroups}\n`;
       }
       content += '\n';
     });
@@ -1202,7 +1199,7 @@ function exportReportsToTxt() {
   content += `Servidores ociosos (total=0): ${adv.idleServers}\n`;
   content += `Idade média dos heartbeats: ${adv.avgAge.toFixed(0)}s\n`;
   content += `Taxa de splits+merges por minuto: ${adv.splitMergeRate.toFixed(2)}\n`;
-  content += `Redundância (grupos com secondary): ${adv.redundancyPct.toFixed(0)}%\n`;
+  content += `Redundância (grupos com secondary): ${redundancyDisplay}\n`;
   content += `Gateways espelhando ativos: ${adv.mirroredGroups}\n`;
   content += '\n';
 
@@ -1251,8 +1248,11 @@ function exportReportsToTxt() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  START / STOP
+//  START / STOP (com reconexão automática)
 // ═══════════════════════════════════════════════════════════════════════
+let reconnectAttempts = 0;
+let reconnectTimer = null;
+
 function startMon() {
   if (isRunning) stopMon();
   const id = document.getElementById('mon-id').value.trim().toUpperCase() || 'K10-MON';
@@ -1269,6 +1269,8 @@ function startMon() {
       log("❌ Timeout de conexão PeerJS.", "err");
       if (peer && !peer.destroyed) peer.destroy();
       peer = null;
+      // Tenta reconectar automaticamente
+      scheduleReconnect();
     }
   }, PEER_TIMEOUT);
   peer = new Peer(id, {
@@ -1287,6 +1289,8 @@ function startMon() {
     document.getElementById('btn-stop').disabled = false;
     log(`Monitor online: ${pid}`, 'ok');
     isRunning = true;
+    reconnectAttempts = 0;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     healthTimer = setInterval(() => takeHealthSnapshot(), HEALTH_REPORT_INTERVAL);
   });
   peer.on('connection', conn => {
@@ -1302,6 +1306,12 @@ function startMon() {
     setStatus('ERRO: '+e.type, 'err');
     log(`Erro peer: ${e.type}`, 'err');
     if (e.type === 'peer-unavailable') log(`⚠️ Monitor ID '${id}' não está acessível.`, 'warn');
+    scheduleReconnect();
+  });
+  peer.on('disconnected', () => {
+    setStatus('DESCONECTADO', 'err');
+    log('PeerJS desconectado. Tentando reconectar...', 'warn');
+    scheduleReconnect();
   });
   cleanTimer = setInterval(() => {
     const now = Date.now();
@@ -1321,6 +1331,23 @@ function startMon() {
   footerTimer = setInterval(() => { document.getElementById('footer-ts').textContent = 'UPD: '+now8(); }, 1000);
 }
 
+function scheduleReconnect() {
+  if (reconnectTimer) return;
+  if (!isRunning) return;
+  const delay = Math.min(30000, 1000 * Math.pow(2, reconnectAttempts)) + Math.random() * 1000;
+  reconnectAttempts++;
+  log(`Agendando reconexão em ${Math.round(delay/1000)}s (tentativa ${reconnectAttempts})`, 'warn');
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    if (!isRunning) return;
+    log('Tentando reconectar monitor...', 'hi');
+    const id = document.getElementById('mon-id').value.trim().toUpperCase() || 'K10-MON';
+    if (peer && !peer.destroyed) peer.destroy();
+    peer = null;
+    startMon();
+  }, delay);
+}
+
 function stopMon() {
   isRunning = false;
   clearInterval(cleanTimer);
@@ -1328,12 +1355,13 @@ function stopMon() {
   clearInterval(footerTimer);
   clearInterval(healthTimer);
   clearTimeout(renderTimer);
+  if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   if (window._v8HeatmapTimer) { clearTimeout(window._v8HeatmapTimer); window._v8HeatmapTimer = null; }
   renderTimer = null;
   if (peer && !peer.destroyed) peer.destroy();
   peer = null;
   servers = {}; legacyBucket = {}; prevGroups = {}; warnOldSrc = null;
-  conns.clear(); msgCount = 0; peakUsers = 0; warnOldSrc = null;
+  conns.clear(); msgCount = 0; peakUsers = 0;
   splitCounter = 0; mergeCounter = 0; compensateCounter = 0; tutorActiveFlag = false;
   healthReports = [];
   groupServersMap.clear();
