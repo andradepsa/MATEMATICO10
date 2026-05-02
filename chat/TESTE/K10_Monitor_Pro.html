@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>K10 MONITOR PRO v11 — Health + Sparklines + Dual Servers + Mirror Topology</title>
+<title>K10 MONITOR PRO v12 — Health + Sparklines + Dual Servers + Mirror Topology</title>
 <style>
 :root {
   --bg:    #020810;
@@ -190,7 +190,7 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 
 <div class="header">
   <div>
-    <h1>K10<span class="dot">.</span>MONITOR <span class="ver">PRO v11</span></h1>
+    <h1>K10<span class="dot">.</span>MONITOR <span class="ver">PRO v12</span></h1>
     <div style="font-size:9px;color:var(--dim);letter-spacing:2px;margin-top:4px">
       DUAL SERVER · MIRROR TOPOLOGY · REDUNDÂNCIA ATIVA
     </div>
@@ -229,7 +229,7 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
   <div class="spark-card"><div class="label">USERS (TIMELINE)</div><div class="value" id="sp-users">—</div><svg id="sp-users-svg" viewBox="0 0 200 32" preserveAspectRatio="none"></svg></div>
   <div class="spark-card green"><div class="label">GROUPS</div><div class="value" id="sp-groups">—</div><svg id="sp-groups-svg" viewBox="0 0 200 32" preserveAspectRatio="none"></svg></div>
   <div class="spark-card amber"><div class="label">GATEWAYS</div><div class="value" id="sp-servers">—</div><svg id="sp-servers-svg" viewBox="0 0 200 32" preserveAspectRatio="none"></svg></div>
-  <div class="spark-card purple"><div class="label">EVENTS (SPLITS+MERGES)</div><div class="value" id="sp-evt">—</div><svg id="sp-evt-svg" viewBox="0 0 200 32" preserveAspectRatio="none"></svg></div>
+  <div class="spark-card purple"><div class="label">EVENTS (TOPOLOGY)</div><div class="value" id="sp-evt">—</div><svg id="sp-evt-svg" viewBox="0 0 200 32" preserveAspectRatio="none"></svg></div>
 </div>
 
 <!-- Health Score -->
@@ -266,9 +266,8 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
 <div class="health-panel">
   <div class="toolbar-mini">
     <button onclick="filterTimeline('all')" id="tlf-all" class="active">TUDO</button>
-    <button onclick="filterTimeline('split')" id="tlf-split">SPLITS</button>
-    <button onclick="filterTimeline('merge')" id="tlf-merge">MERGES</button>
     <button onclick="filterTimeline('comp')" id="tlf-comp">COMPENSATES</button>
+    <button onclick="filterTimeline('tutor')" id="tlf-tutor">TUTOR</button>
     <button onclick="filterTimeline('promote')" id="tlf-promote">PROMOÇÕES</button>
     <button onclick="filterTimeline('mirror')" id="tlf-mirror">MIRROR</button>
     <button onclick="filterTimeline('alert')" id="tlf-alert">ALERTAS</button>
@@ -611,7 +610,8 @@ function computeAdvancedMetrics() {
     }
   }
   const avgAge = serverCount ? sumAge / serverCount : 0;
-  const splitMergeRate = (splitCounter + mergeCounter) / (HEALTH_REPORT_INTERVAL / 60000);
+  // V12: split/merge não existem mais no V52 — taxa usa compensateCounter
+  const splitMergeRate = compensateCounter / (HEALTH_REPORT_INTERVAL / 60000);
   // Redundância: grupos com ambos servidores ativos
   updateGroupServersMap();
   let redundantGroups = 0;
@@ -671,7 +671,7 @@ function updateAdvancedUI(adv) {
     <div class="adv-card"><div class="label">🚦 Saturação rede</div><div class="value">${adv.saturated.toFixed(1)}%</div><div class="label">limite teórico</div></div>
     <div class="adv-card"><div class="label">💤 Servidores ociosos</div><div class="value">${adv.idleServers}</div><div class="label">com 0 usuários</div></div>
     <div class="adv-card"><div class="label">⏱️ Idade média</div><div class="value">${adv.avgAge.toFixed(0)}s</div><div class="label">último heartbeat</div></div>
-    <div class="adv-card"><div class="label">🔄 Splits+merges/min</div><div class="value">${adv.splitMergeRate.toFixed(2)}</div><div class="label">taxa eventos</div></div>
+    <div class="adv-card"><div class="label">🔄 Compensates/min</div><div class="value">${adv.splitMergeRate.toFixed(2)}</div><div class="label">taxa topologia</div></div>
     <div class="adv-card"><div class="label">🛡️ Redundância</div><div class="value">${adv.redundancyPct.toFixed(0)}%</div><div class="label">grupos com 2 servers</div></div>
     <div class="adv-card"><div class="label">🪞 Mirror ativo</div><div class="value">${adv.mirroredGroups}</div><div class="label">gateways espelhando</div></div>
   `;
@@ -693,7 +693,6 @@ function updateHealthUI(latest) {
   let statusText = '🟢 SAUDÁVEL';
   const alerts = [];
   if (userTrend < -30) { healthStatus = 'red'; alerts.push(`🔴 Queda brusca de usuários: ${userTrend.toFixed(1)}%`); }
-  if (latest.splits + latest.merges > 5) { if (healthStatus !== 'red') healthStatus = 'yellow'; alerts.push(`🟡 Alta atividade de splits/merges (${latest.splits}/${latest.merges})`); }
   if (gatewayTrend < -30 || gsTrend < -30) { if (healthStatus !== 'red') healthStatus = 'yellow'; alerts.push(`🟡 Queda de servidores: gateways ${gatewayTrend.toFixed(1)}% / group servers ${gsTrend.toFixed(1)}%`); }
   if (latest.totalGateways === 0 && latest.totalUsers > 0) { healthStatus = 'red'; alerts.push(`❌ Nenhum gateway reportando!`); }
   if (latest.avgGroupSize < 10 && latest.totalGroups > 3) { if (healthStatus !== 'red') healthStatus = 'yellow'; alerts.push(`📉 Média baixa (${latest.avgGroupSize}) → fragmentação`); }
@@ -778,7 +777,7 @@ function pushTimelineEvent(kind, msg) {
 }
 function filterTimeline(kind) {
   timelineFilter = kind;
-  ['all','split','merge','comp','promote','mirror','alert'].forEach(k => {
+  ['all','comp','tutor','promote','mirror','alert'].forEach(k => {
     const el = document.getElementById('tlf-'+k);
     if (el) el.classList.toggle('active', k === kind);
   });
@@ -837,7 +836,7 @@ function computeHealthScore() {
     score -= 20; breakdown.noGatewaysTransient = -20;
   }
   if (r.avgGroupSize < 10 && r.totalGroups > 3) { score -= 15; breakdown.fragmentation = -15; }
-  if (r.splits + r.merges > 5) { score -= 10; breakdown.churn = -10; }
+  // V12: split/merge removidos no V52 — churn de topologia não é mais calculável por splits+merges
   if (r.advanced && r.advanced.pctFull > 30) { score -= 10; breakdown.fullGroups = -10; }
   if (r.advanced && r.advanced.cv > 80) { score -= 5; breakdown.uneven = -5; }
   // V71: redundância só penaliza quando há usuários suficientes para justificar 2 servidores
@@ -870,7 +869,7 @@ function detectAnomalies() {
     out.push({ ts: Date.now(), msg: `Queda brusca: ${prev.totalUsers} → ${cur.totalUsers} usuarios em 30s` });
   if (prev.totalGateways > 1 && cur.totalGateways < prev.totalGateways * 0.5)
     out.push({ ts: Date.now(), msg: `Gateways caindo: ${prev.totalGateways} → ${cur.totalGateways}` });
-  if (cur.splits > 8) out.push({ ts: Date.now(), msg: `Pico anormal de splits: ${cur.splits} em 30s` });
+  // V12: split > 8 removido — V52+ não envia group-split
   // FIX v11: "sem gateway" só dispara quando 2 snapshots consecutivos mostram 0 gateways
   // (evita falso-positivo durante o ciclo de reconexão de ~30-60s).
   if (cur.totalGateways === 0 && prev.totalGateways === 0 && cur.totalUsers > 0)
@@ -917,13 +916,13 @@ function v8AfterSnapshot(report) {
   userHistory.push(report.totalUsers);
   groupHistory.push(report.totalGroups);
   serverHistory.push(report.totalGateways);
-  eventHistory.push((eventHistory[eventHistory.length-1] || 0) + report.splits + report.merges);
+  // V12 FIX: split/merge removidos no V52 — rastreia compensates+tutor (eventos reais de topologia)
+  eventHistory.push(report.compensates + (report.tutorActive ? 1 : 0));
   if (userHistory.length   > HISTORY_LEN) userHistory.shift();
   if (groupHistory.length  > HISTORY_LEN) groupHistory.shift();
   if (serverHistory.length > HISTORY_LEN) serverHistory.shift();
   if (eventHistory.length  > HISTORY_LEN) eventHistory.shift();
-  if (report.splits > 0)  pushTimelineEvent('split', `${report.splits} split(s) em 30s`);
-  if (report.merges > 0)  pushTimelineEvent('merge', `${report.merges} merge(s) em 30s`);
+  // V12 FIX: split/merge removidos no V52 — eventos de topologia reais são comp e tutor
   if (report.compensates > 0) pushTimelineEvent('comp', `${report.compensates} compensate(s) em 30s`);
   if (report.tutorActive) pushTimelineEvent('tutor', `Grupo em fase de tutela`);
   updateSparklines();
