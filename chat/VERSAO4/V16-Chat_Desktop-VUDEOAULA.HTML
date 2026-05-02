@@ -5987,6 +5987,10 @@ const stopMonitorReporting = () => {
   if (monitorTimerRef.current) { clearInterval(monitorTimerRef.current); monitorTimerRef.current = null; }
 };
 const sendUserToMonitor = () => {
+  // FIX V84: protocolo corrigido de {t:'u'} (legado) para {t:'s'} (V9 monitor).
+  // O monitor trata {t:'u'} como "legado" e exibe banner de aviso.
+  // Gateways já enviam {t:'s'} com dados agregados do grupo — clientes individuais
+  // usam o mesmo formato como fallback (caso nenhum gateway esteja ativo).
   const uid  = peerIdRef.current;
   const gid  = myGroupIdRef.current;
   const p    = peerInstance.current;
@@ -5994,7 +5998,7 @@ const sendUserToMonitor = () => {
   try {
     const c = p.connect(K10_MONITOR_ID, { reliable: true });
     c.on('open', () => {
-      try { c.send({ t: 'u', id: uid, gid }); } catch(e) {}
+      try { c.send({ t: 's', id: uid, total: 1, groups: { [gid]: 1 } }); } catch(e) {}
       setTimeout(() => { try { c.close(); } catch(e) {} }, 4000);
     });
     c.on('error', () => {});
