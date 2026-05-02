@@ -676,10 +676,10 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 
 /* ── SUPER-APP UNIFIED NAV ── */
 
-.app-viewport { margin-top: 0; height: 100vh; overflow: auto; background: #0f172a; color: #f1f5f9; }
-.monitor-view { background: #020810; color: #8eb8d0; font-family: 'Courier New', monospace; padding: 20px; min-height: 100%; }
-.manual-view { padding: 40px; max-width: 900px; margin: 0 auto; line-height: 1.6; color: #cbd5e1; }
-.server-view { padding: 20px; }
+
+
+
+
 </style>
 </head>
 <body>
@@ -762,29 +762,7 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
 
 <script>
-  // FIX file:// — esbuild-wasm usa Workers internos que o Chrome bloqueia
-  // quando a página roda via file:// (cada file:// é origem única → CORS).
-  // Detecta e registra aviso; a compilação JSX ainda funciona via fallback
-  // síncrono do esbuild se o Worker não puder ser criado.
-  (function() {
-    if (location.protocol === 'file:') {
-      console.warn(
-        '[K10] ⚠️ Rodando via file://. Algumas funcionalidades (esbuild Worker, ' +
-        'YouTube IFrame) podem ser bloqueadas pelo Chrome.\n' +
-        'Para melhor compatibilidade: sirva o arquivo via HTTP local.\n' +
-        'Opção rápida: npx serve . (na pasta do arquivo)'
-      );
-      // Suprime o erro de Worker para não poluir o console
-      var _origWorker = window.Worker;
-      window.Worker = function(url, opts) {
-        try { return new _origWorker(url, opts); }
-        catch(e) {
-          console.warn('[K10] Worker bloqueado (file://): ' + url);
-          return { postMessage: function(){}, terminate: function(){}, addEventListener: function(){} };
-        }
-      };
-      window.Worker.prototype = _origWorker.prototype;
-    }
+  
   })();
 </script>
 
@@ -834,8 +812,8 @@ language: "PT",
 yourId: "Your ID:",
 copy: "Copy",
 copied: "ID copied!",
-superNodeOff: "SuperNode OFF",
-superNodeOn: "SuperNode ON",
+
+
 djRadio: "DJ Radio",
 generateInviteLink: "Generate Invite Link",
 inviteLinkCopied: "Invite link copied! Paste it to share.",
@@ -1042,8 +1020,8 @@ collaborativeMarkdownEditor: "Collaborative Markdown Editor",
 typeMarkdownHere: "Type your markdown here...",
 msgTooLong: "Message exceeds 2000 characters limit.",
 usersOnlineGeneral: "Users Online in General Web",
-auditLog: "Audit Log",
-auditLogs: "Audit Logs",
+
+
 auditSystem: "K10 NETWORK AUDIT",
 auditNoLogs: "No network events logged yet.",
 },
@@ -1057,8 +1035,8 @@ language: "EN",
 yourId: "Seu ID:",
 copy: "Copiar",
 copied: "ID copiado!",
-superNodeOff: "SuperNó OFF",
-superNodeOn: "SuperNó ON",
+
+
 djRadio: "DJ Rádio",
 generateInviteLink: "Gerar Link de Convite",
 inviteLinkCopied: "Link de convite copiado! Cole para compartilhar.",
@@ -1265,8 +1243,8 @@ collaborativeMarkdownEditor: "Editor Markdown Colaborativo",
 typeMarkdownHere: "Digite seu markdown aqui...",
 msgTooLong: "A mensagem excede o limite de 2000 caracteres.",
 usersOnlineGeneral: "Usuários Online na Teia Geral",
-auditLog: "Log de Auditoria",
-auditLogs: "Logs de Auditoria",
+
+
 auditSystem: "AUDITORIA DE REDE K10",
 auditNoLogs: "Nenhum evento de rede registrado ainda.",
 }
@@ -4542,44 +4520,7 @@ return <video className="video-player" ref={el => videoRefs.current[targetId] = 
 // ════════════════════════════════════════════════════════════════════
 // FIX BUG-NEW-1: GeneralModeInfoModal era usado no JSX mas nunca definido → ReferenceError
 // ════════════════════════════════════════════════════════════════════
-const GeneralModeInfoModal = ({ lang, selectedContact, onClose }) => {
-  const isGeneral = !selectedContact || (typeof isCentralServer === 'function' ? isCentralServer(selectedContact) : selectedContact.includes('-CENTRAL'));
-  return (
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}
-    >
-      <div style={{
-        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '14px',
-        padding: '28px 24px', maxWidth: '420px', width: '90%', boxShadow: '0 8px 32px rgba(0,0,0,0.35)'
-      }}>
-        <h3 style={{ margin: '0 0 12px', color: 'var(--primary)', fontSize: '16px', fontWeight: 700 }}>
-          {t(lang, 'generalModeInfo')}
-        </h3>
-        <p style={{ margin: '0 0 14px', color: 'var(--text)', fontSize: '14px', lineHeight: 1.6 }}>
-          {t(lang, 'generalModeDesc')}
-        </p>
-        <div style={{
-          background: isGeneral ? 'rgba(16,185,129,0.12)' : 'rgba(99,102,241,0.12)',
-          border: `1px solid ${isGeneral ? 'rgba(16,185,129,0.35)' : 'rgba(99,102,241,0.35)'}`,
-          borderRadius: '8px', padding: '10px 14px', marginBottom: '18px', fontSize: '13px', color: 'var(--text)'
-        }}>
-          {isGeneral
-            ? <><strong>⚡ {t(lang, 'generalModeActivated')}</strong><br />{t(lang, 'generalModeActivatedDesc')}</>
-            : <><strong>🔒 {t(lang, 'generalModeDeactivated')}</strong><br />{t(lang, 'generalModeDeactivatedDesc')}</>
-          }
-        </div>
-        <button
-          onClick={onClose}
-          style={{
-            width: '100%', padding: '9px 0', borderRadius: '8px', border: 'none',
-            background: 'var(--primary)', color: '#fff', fontWeight: 600, fontSize: '14px', cursor: 'pointer'
-          }}
-        >OK</button>
-      </div>
-    </div>
-  );
-};
+
 
 
 const WorldRadiosModal = ({ lang, onClose, onBroadcast }) => {
@@ -5243,7 +5184,7 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
 
 const ChatClient = ({ libp2pRef, libp2pStatus, libp2pPeers, addGlobalAudit }) => {
 const [lang, setLang] = useState(() => localStorage.getItem('p2pUserLang') || detectBrowserLang());
-const [showGeneralModeInfo, setShowGeneralModeInfo] = useState(false);
+
 const [dynTranslTick, setDynTranslTick] = useState(0);
 const [dynTranslLoading, setDynTranslLoading] = useState(false);
 
@@ -11674,7 +11615,7 @@ return (
 )}
 {showPollCreator && <PollCreator onClose={() => setShowPollCreator(false)} onCreated={handlePollCreated} />}
 {showMarkdownEditor && <MarkdownEditor lang={lang} connectionsRef={connectionsRef} selectedContact={selectedContact} onClose={() => setShowMarkdownEditor(false)} />}
-{showGeneralModeInfo && <GeneralModeInfoModal lang={lang} selectedContact={selectedContact} onClose={() => setShowGeneralModeInfo(false)} />}
+
         {showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => {
   connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId, discipline: quizDisciplineRef.current});}catch(e){} });
   // V77: propaga toggle do quiz para todos sub-grupos do Oficial
@@ -11704,7 +11645,7 @@ Chat K10
 <span>{t(lang, 'appSubtitle')}</span>
 </h1>
 <div className="header-buttons">
-<div className="general-mode-status" onClick={() => setShowGeneralModeInfo(true)} style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+<div className="general-mode-status" style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
 <span className="general-mode-text" style={{ color: (!selectedContact || isCentralServer(selectedContact)) ? '#4ade80' : '#94a3b8' }}>
 {t(lang, (!selectedContact || isCentralServer(selectedContact)) ? 'generalModeActivated' : 'generalModeDeactivated')}
 </span>
