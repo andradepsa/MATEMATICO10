@@ -6145,7 +6145,9 @@ else { const first = localStreamsRef.current.values().next().value; if (localVid
 
 const sendHandshake = (conn) => {
 // FIX O-6 V21: cada send em try-catch individual — falha no handshake não descarta youtube-chat-start
-try { conn.send({ type: 'handshake', peerId, avatar: userAvatarRef.current }); } catch(e) {}
+// FIX-CONTACT-OPEN: se este peer foi selecionado explicitamente como contato, sinaliza o outro lado
+const isContactOpen = activatedContactsRef.current.has(conn.peer);
+try { conn.send({ type: 'handshake', peerId, avatar: userAvatarRef.current, ...(isContactOpen && { contactOpen: true }) }); } catch(e) {}
 if (youtubeChatIdRef.current) {
   try { conn.send({ type: 'youtube-chat-start', id: Date.now() + Math.random().toString(), youtubeId: youtubeChatIdRef.current, ttl: 0 }); } catch(e) {}
 }
@@ -6446,6 +6448,11 @@ if (data.type === 'handshake') {
   if (isCentralServer(pId) && !routerModeServersRef.current.has(pId)) setCentralServerId(pId); 
   if (data.avatar) {
     setAvatars(prev => ({ ...prev, [pId]: data.avatar }));
+  }
+  // FIX-CONTACT-OPEN: o outro lado nos selecionou explicitamente como contato → aparecer na lista de conversas
+  if (data.contactOpen && !directPeersRef.current.has(pId)) {
+    directPeersRef.current.add(pId);
+    setDirectPeers(prev => { const s = new Set(prev); s.add(pId); return s; });
   }
   return; 
 }
@@ -9277,21 +9284,18 @@ setMessages(prev => [...prev, { text: `📤 Torrent request sent to ${getContact
 };
 
 
-// FIX C-13: API .getBlob(callback) depreciada no WebTorrent — migrado para .blob() Promise.
-// .getBlob() silenciosamente falha em versões recentes do WebTorrent (≥2.x), causando
-// downloads que nunca disparam. .blob() é a API atual e retorna uma Promise.
-const _torrentSaveFile = async (f) => {
-  try {
-    const blob = await f.blob();
-    const url = URL.createObjectURL(blob);
+// FIX C-14: f.blob() não existe na API do WebTorrent. Método correto: getBlobURL(callback).
+const _torrentSaveFile = (f) => {
+  f.getBlobURL((err, url) => {
+    if (err) { console.error('[Torrent] Erro ao salvar arquivo:', f.name, err); return; }
     const a = document.createElement('a');
     a.href = url;
     a.download = f.name;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     setTimeout(() => URL.revokeObjectURL(url), 10000);
-  } catch(e) {
-    console.error('[Torrent] Erro ao salvar arquivo:', f.name, e);
-  }
+  });
 };
 
 const handleTorrentDownload = (magnet) => {
