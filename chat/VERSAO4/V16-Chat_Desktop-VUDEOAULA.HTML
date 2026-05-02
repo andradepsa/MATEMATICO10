@@ -7354,25 +7354,8 @@ if (data.text === '__QUIZ__' && data.quizPayload) {
 
   // FIX BUG-6: 'server-self' é o servidor central que já respeita SRV_MIN_QUIZ_INTERVAL
   // internamente — isenta de vigilância para evitar broadcastQuizViolation falso.
-  if (senderId !== 'server-self') {
-    const lastSeen = quizLastSeenRef.current[senderId];
-    if (lastSeen) {
-      const elapsed = (now - lastSeen) / 1000;
-      if (elapsed < MIN_QUIZ_INTERVAL) {
-        // VIOLAÇÃO DE REPLAY: mensagem velha enviada novamente — dropa imediato
-        if (data.quizPayload && data.quizPayload.nonce && quizSeenNoncesRef.current.has(data.quizPayload.nonce)) {
-           return; // Drop ignorando silenciosamente (previne ataque)
-        }
-        quizSeenNoncesRef.current.add(data.quizPayload?.nonce);
-        if (quizSeenNoncesRef.current.size > 200) { Array.from(quizSeenNoncesRef.current).slice(0, 100).forEach(n => quizSeenNoncesRef.current.delete(n)); } // Mantem limpo o set
-
-        // VIOLAÇÃO: rejeita mensagem e alerta toda a rede
-        broadcastQuizViolation(senderId, data.senderName, elapsed);
-        return; // bloqueia o quiz
-      }
-    }
-  }
   quizLastSeenRef.current[senderId] = now; // atualiza timestamp
+
   const currentLang = langRef.current;
   const qd = data.quizPayload;
   
