@@ -5328,6 +5328,10 @@ useEffect(() => { userRadiosRef.current = userRadios; }, [userRadios]);
 
 
 const [showYoutubeGrid, setShowYoutubeGrid] = useState(false);
+const [showVideoAulas, setShowVideoAulas] = useState(false);
+const [videoAulasData, setVideoAulasData] = useState(null);
+const [videoAulasLoading, setVideoAulasLoading] = useState(false);
+const [videoAulasQuery, setVideoAulasQuery] = useState('');
 const [showMediaControls, setShowMediaControls] = useState(false);
 const [showGruposPanel, setShowGruposPanel] = useState(false);
 const [showPollCreator, setShowPollCreator] = useState(false);
@@ -9144,6 +9148,20 @@ const handleStopWorldRadio = () => {
 
 
 
+const loadVideoAulas = async () => {
+  if (videoAulasData) return;
+  setVideoAulasLoading(true);
+  try {
+    const r = await fetch('https://raw.githubusercontent.com/andradepsa/MATEMATICO10/main/VídeosK10.html');
+    const txt = await r.text();
+    const re = /href="https:\/\/www\.youtube\.com\/watch\?v=([^"]+)"[^>]*>([^<]+)<\/a>(?:\s*\(([^)]+)\))?/g;
+    const list = []; let m;
+    while ((m = re.exec(txt)) !== null) list.push({ id: m[1], title: m[2].trim(), dur: m[3] || '' });
+    setVideoAulasData(list);
+  } catch(e) { setVideoAulasData([]); }
+  setVideoAulasLoading(false);
+};
+
 const handleYoutubeRadio = () => {
 if (userYoutubeStreams[peerId]) {
 const stopMsg = {
@@ -11559,6 +11577,11 @@ return (
           ◉ MEDIA
         </div>
 
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowVideoAulas(true); if (!videoAulasData) loadVideoAulas(); }}>
+          <i className="fas fa-graduation-cap" style={{color:'#f59e0b'}}></i>
+          <div><div>📚 Vídeo Aulas K10</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Buscar · assistir na janelinha</div></div>
+        </button>
+
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); if(userRadios[peerId]) { handleStopWorldRadio(); } else { setShowWorldRadios(true); } }}>
           <i className="fas fa-globe" style={{color:'#38bdf8'}}></i>
           <div><div>{userRadios[peerId] ? 'Stop World Radio' : 'World Radios'}</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>30 000+ stations · stream URL broadcast</div></div>
@@ -11808,6 +11831,47 @@ overflow: 'hidden'
 </div>
 </div>
 
+
+{showVideoAulas && (
+<div style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.7)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center',padding:'16px'}}
+  onClick={e => { if (e.target===e.currentTarget) setShowVideoAulas(false); }}>
+  <div style={{backgroundColor:'#1a1a2e',borderRadius:'12px',width:'100%',maxWidth:'440px',padding:'20px',boxShadow:'0 20px 50px rgba(0,0,0,0.8)',color:'white',fontFamily:'sans-serif'}}>
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'14px'}}>
+      <div style={{fontSize:'15px',fontWeight:'700',color:'#f59e0b'}}>📚 Vídeo Aulas K10</div>
+      <button onClick={() => setShowVideoAulas(false)} style={{background:'none',border:'none',color:'#94a3b8',fontSize:'20px',cursor:'pointer',lineHeight:1}}>×</button>
+    </div>
+    <input autoFocus type="text" placeholder="🔍 Pesquisar vídeo..."
+      value={videoAulasQuery}
+      onChange={e => setVideoAulasQuery(e.target.value)}
+      style={{width:'100%',padding:'10px 14px',borderRadius:'8px',border:'1px solid #334155',backgroundColor:'#0f172a',color:'white',outline:'none',fontSize:'13px',boxSizing:'border-box'}}
+    />
+    <div style={{marginTop:'10px',maxHeight:'320px',overflowY:'auto'}}>
+      {videoAulasLoading && <div style={{textAlign:'center',color:'#64748b',padding:'20px',fontSize:'13px'}}>Carregando playlist...</div>}
+      {videoAulasData && videoAulasQuery.trim().length < 2 && <div style={{textAlign:'center',color:'#475569',padding:'20px',fontSize:'12px'}}>Digite para pesquisar entre {videoAulasData.length} vídeos</div>}
+      {videoAulasData && videoAulasQuery.trim().length >= 2 && (() => {
+        const q = videoAulasQuery.toLowerCase();
+        const results = videoAulasData.filter(v => v.title.toLowerCase().includes(q)).slice(0, 10);
+        if (!results.length) return <div style={{textAlign:'center',color:'#475569',padding:'20px',fontSize:'12px'}}>Nenhum vídeo encontrado.</div>;
+        return results.map((v, i) => (
+          <div key={i}
+            onClick={() => { startYoutubeBroadcast('https://www.youtube.com/watch?v=' + v.id); setShowVideoAulas(false); }}
+            style={{display:'flex',alignItems:'center',gap:'10px',padding:'8px',borderRadius:'8px',cursor:'pointer',borderBottom:'1px solid #1e293b'}}
+            onMouseEnter={e => e.currentTarget.style.backgroundColor='#1e3a5f'}
+            onMouseLeave={e => e.currentTarget.style.backgroundColor='transparent'}
+          >
+            <img src={`https://img.youtube.com/vi/${v.id}/default.jpg`} alt="" style={{width:'64px',height:'48px',borderRadius:'5px',objectFit:'cover',flexShrink:0}} />
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:'12px',color:'#e2e8f0',lineHeight:'1.4',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{v.title}</div>
+              {v.dur && <div style={{fontSize:'10px',color:'#64748b',marginTop:'2px'}}>⏱ {v.dur}</div>}
+            </div>
+            <span style={{color:'#38bdf8',fontSize:'20px',flexShrink:0}}>▶</span>
+          </div>
+        ));
+      })()}
+    </div>
+  </div>
+</div>
+)}
 
 {showYoutubeGrid && (
 <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
