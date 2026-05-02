@@ -12747,6 +12747,20 @@ const K10GroupShadow = (() => {
   // FIX V79: peerInstance é local ao ChatClient (escopo ESM diferente).
   // Recebe getter para acessar o peer principal sem ReferenceError.
   let getPeerFn  = null;
+  // FIX V81-D + V83: estado para ghost-slot e backoff sem membros.
+  // emptyGroupCycles: ciclos consecutivos com members.length===0 no GID atual.
+  // Após 2 ciclos → todos os slots do grupo são liberados (ghost slot prevention).
+  // _noMemberBackoff*: backoff exponencial (20s→320s) para evitar spam ao PeerJS
+  // enquanto não há membros; reseta quando membros voltam.
+  // zombieProbeCounts: por slotId, quantos probes consecutivos retornaram alive=true.
+  // Após 3 probes (~30s), tenta claim mesmo assim — se for zumbi PeerJS o claim
+  // bem-sucede; se o peer estiver vivo recebe unavailable-id e desiste.
+  let emptyGroupCycles   = 0;
+  let zombieProbeCounts  = {};
+  const _BACKOFF_MIN_MS  = 20_000;
+  const _BACKOFF_MAX_MS  = 320_000;
+  let _noMemberBackoffMs = _BACKOFF_MIN_MS;
+  let _noMemberBackoffUntil = 0;
 
   function start(myId, gidGetter, membersGetter, stunGetter, getPeer) {
     myPeerId        = myId;
@@ -12762,6 +12776,11 @@ const K10GroupShadow = (() => {
   function stop() {
     if (probeTimer) clearInterval(probeTimer);
     probeTimer = null;
+    // FIX V81-D + V83: reseta contadores ao parar (evita estado velho na próxima sessão)
+    emptyGroupCycles   = 0;
+    zombieProbeCounts  = {};
+    _noMemberBackoffMs = _BACKOFF_MIN_MS;
+    _noMemberBackoffUntil = 0;
     for (const [slotId, s] of slots) {
       if (s.hbTimer) clearInterval(s.hbTimer);
       try { if (s.peer && !s.peer.destroyed) s.peer.destroy(); } catch(e) {}
@@ -12780,9 +12799,13 @@ const K10GroupShadow = (() => {
     if (!getPeerFn || !getPeerFn() || getPeerFn().destroyed) return;
     const gid = getMyGid && getMyGid();
 
-    // Sem grupo: libera tudo e sai
+    // Sem grupo: libera tudo e sai, reseta contadores
     if (!gid) {
       for (const slotId of [...slots.keys()]) releaseSlot(slotId);
+      emptyGroupCycles   = 0;
+      zombieProbeCounts  = {};
+      _noMemberBackoffMs = _BACKOFF_MIN_MS;
+      _noMemberBackoffUntil = 0;
       return;
     }
 
@@ -12792,21 +12815,53 @@ const K10GroupShadow = (() => {
       if (!m || m[1] !== gid) releaseSlot(slotId);
     }
 
+    // FIX V81-D + V83: verifica membros ANTES do early-return do slot ativo.
+    // Sem essa verificação, slots ativos ficavam vivos para sempre quando o grupo
+    // ficava vazio (ghost slot) — getGroupMembers era armazenado mas nunca chamado.
+    const members = getGroupMembers ? getGroupMembers() : [];
+    if (members.length === 0) {
+      emptyGroupCycles++;
+      // Após 2 ciclos consecutivos sem membros (~20s): libera ghost slots
+      if (emptyGroupCycles >= 2) {
+        for (const slotId of [...slots.keys()]) releaseSlot(slotId);
+        zombieProbeCounts = {};
+      }
+      // Backoff exponencial: evita spam ao PeerJS enquanto grupo vazio
+      if (Date.now() < _noMemberBackoffUntil) return;
+      _noMemberBackoffUntil = Date.now() + _noMemberBackoffMs;
+      _noMemberBackoffMs = Math.min(_noMemberBackoffMs * 2, _BACKOFF_MAX_MS);
+      return;
+    }
+    // Tem membros: reseta todos os contadores de "sem membros"
+    emptyGroupCycles   = 0;
+    _noMemberBackoffMs = _BACKOFF_MIN_MS;
+    _noMemberBackoffUntil = 0;
+
     // Já tenho um slot ativo neste grupo → nada a fazer
     if ([...slots.values()].some(s => s.isActive)) return;
 
     // Tenta slot 1, depois slot 2 — first-come-first-served.
     // Qualquer peer com GID válido é elegível; colisões são resolvidas
     // via jitter aleatório + unavailable-id no tryClaimSlot.
+    // FIX V81-D zombie: se probeId retorna alive=true por 3+ ciclos consecutivos
+    // (~30s), o ID pode ser um zumbi PeerJS (peer morto, ID ainda no servidor).
+    // Nesse caso tenta o claim mesmo assim — se zumbi, bem-sucede;
+    // se vivo, recebe unavailable-id e desiste normalmente.
     for (let slotNum = 1; slotNum <= 2; slotNum++) {
       const slotId = `K10-${gid}-${slotNum}`;
       const alive = await probeId(slotId);
-      if (alive) continue; // slot ocupado → tenta o próximo
+      if (alive) {
+        zombieProbeCounts[slotId] = (zombieProbeCounts[slotId] || 0) + 1;
+        if (zombieProbeCounts[slotId] < 3) continue; // slot ocupado → tenta o próximo
+        // 3+ probes bloqueados: suspeita de zumbi → força tentativa de claim
+      } else {
+        zombieProbeCounts[slotId] = 0;
+      }
       // Jitter: separa peers que chegam ao mesmo tempo (slot 1 tem jitter menor)
       await sleep(slotNum * 500 + Math.random() * 1000);
       if (!getMyGid || getMyGid() !== gid) return; // saiu do grupo durante jitter
       const claimed = await tryClaimSlot(slotId);
-      if (claimed) return; // conseguiu — não tenta mais slots
+      if (claimed) { zombieProbeCounts[slotId] = 0; return; } // conseguiu — não tenta mais slots
       // unavailable-id: outro peer ganhou a corrida → tenta slot seguinte
     }
   }
