@@ -761,11 +761,6 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.6/purify.min.js"></script>
 
-<script>
-  
-  })();
-</script>
-
 <script type="text/tsx" id="esbuild-main">
 const { useState, useEffect, useRef, useMemo, useCallback } = React;
 
@@ -4494,6 +4489,12 @@ if ((!streamType || streamType === 'radio') && userRadios && userRadios[targetId
 }
 
 if ((!streamType || streamType === 'yt') && userYoutubeStreams && userYoutubeStreams[targetId]) {
+const isArchive = userYoutubeStreams[targetId].startsWith('archive:');
+if (isArchive) {
+  const archiveId = userYoutubeStreams[targetId].slice(8);
+  const srcUrl = `https://archive.org/embed/${archiveId}?autoplay=1`;
+  return (<iframe width="100%" height="100%" src={srcUrl} frameBorder="0" allow="autoplay; fullscreen" allowFullScreen style={{ display: 'block' }}></iframe>);
+}
 const isPlaylist = userYoutubeStreams[targetId].startsWith('playlist:');
 const actualId = isPlaylist ? userYoutubeStreams[targetId].split(':')[1] : userYoutubeStreams[targetId];
 const srcUrl = isPlaylist
@@ -5332,6 +5333,11 @@ const [showVideoAulas, setShowVideoAulas] = useState(false);
 const [videoAulasData, setVideoAulasData] = useState(null);
 const [videoAulasLoading, setVideoAulasLoading] = useState(false);
 const [videoAulasQuery, setVideoAulasQuery] = useState('');
+const [showFilmes, setShowFilmes] = useState(false);
+const [filmesTab, setFilmesTab] = useState('youtube');
+const [filmesQuery, setFilmesQuery] = useState('');
+const [filmesResults, setFilmesResults] = useState([]);
+const [filmesLoading, setFilmesLoading] = useState(false);
 const [showMediaControls, setShowMediaControls] = useState(false);
 const [showGruposPanel, setShowGruposPanel] = useState(false);
 const [showPollCreator, setShowPollCreator] = useState(false);
@@ -11569,14 +11575,14 @@ return (
           <div><div>📚 Vídeo Aulas K10</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Buscar · assistir na janelinha</div></div>
         </button>
 
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowFilmes(true); setFilmesQuery(''); setFilmesResults([]); }}>
+          <i className="fas fa-film" style={{color:'#a78bfa'}}></i>
+          <div><div>🎬 Filmes Públicos</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Archive.org · transmitir na janelinha</div></div>
+        </button>
+
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); if(userRadios[peerId]) { handleStopWorldRadio(); } else { setShowWorldRadios(true); } }}>
           <i className="fas fa-globe" style={{color:'#38bdf8'}}></i>
           <div><div>{userRadios[peerId] ? 'Stop World Radio' : 'World Radios'}</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>30 000+ stations · stream URL broadcast</div></div>
-        </button>
-
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); handleYoutubeRadio(); }}>
-          <i className="fab fa-youtube" style={{color:'#f87171'}}></i>
-          <div><div>{t(lang, 'youtubeRadio')}</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Sync playback · live streams · quick-grid</div></div>
         </button>
 
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); youtubeChatId ? stopYoutubeChat() : broadcastYoutubeChat(); }} style={{ opacity: (!broadcastYoutubeChat || !stopYoutubeChat) ? 0.45 : 1 }}>
@@ -11859,6 +11865,144 @@ overflow: 'hidden'
   </div>
 </div>
 )}
+
+{showFilmes && (() => {
+  const doSearch = () => {
+    if (filmesQuery.trim().length < 2) return;
+    setFilmesLoading(true); setFilmesResults([]);
+    if (filmesTab === 'youtube') {
+      const q = encodeURIComponent(`site:youtube.com ${filmesQuery.trim()}`);
+      const ddgUrl = encodeURIComponent(`https://html.duckduckgo.com/html/?q=${q}`);
+      
+      const fetchDDG = () => fetch(`https://api.allorigins.win/raw?url=${ddgUrl}`)
+        .then(r => r.text())
+        .then(t => {
+          const itemsMap = new Map();
+          Array.from(t.matchAll(/watch%3Fv%3D([a-zA-Z0-9_\-]{11})[^\"]*\">([^<]+)<\/a>/g)).forEach(m => {
+            const vId = m[1];
+            const title = m[2];
+            if (title.includes(' - YouTube') && !itemsMap.has(vId)) {
+              itemsMap.set(vId, {
+                videoId: vId,
+                title: title.replace(' - YouTube', '').replace(/&amp;/g, '&'),
+                author: 'YouTube',
+                thumb: `https://img.youtube.com/vi/${vId}/mqdefault.jpg`
+              });
+            }
+          });
+          const items = Array.from(itemsMap.values()).slice(0, 50);
+          if (items.length > 0) return items;
+          throw new Error('No results from DDG');
+        });
+
+      fetchDDG()
+        .then(items => { setFilmesResults(items); setFilmesLoading(false); })
+        .catch(() => {
+           // Fallback to lemno / piped via cors proxy
+           const fbUrl = encodeURIComponent(`https://pipedapi.in.projectsegfau.lt/search?q=${encodeURIComponent(filmesQuery.trim())}&filter=videos`);
+           fetch(`https://api.allorigins.win/raw?url=${fbUrl}`)
+            .then(r => r.json())
+            .then(d => {
+              const items = (d?.items || []).filter(i => i.url && i.url.includes('/watch?v=')).map(i => {
+                const vId = i.url.split('v=')[1]?.split('&')[0];
+                return {
+                  videoId: vId || '', title: i.title || '', author: i.uploaderName || '',
+                  thumb: i.thumbnail || (vId ? `https://img.youtube.com/vi/${vId}/mqdefault.jpg` : '')
+                };
+              }).filter(i => i.videoId).slice(0, 50);
+              setFilmesResults(items); setFilmesLoading(false);
+            }).catch(() => { setFilmesResults([]); setFilmesLoading(false); });
+        });
+    } else {
+      fetch(`https://archive.org/advancedsearch.php?q=title:${encodeURIComponent(filmesQuery.trim())}+AND+mediatype:movies&fl[]=identifier&fl[]=title&fl[]=year&rows=50&output=json`)
+        .then(r => r.json())
+        .then(d => { setFilmesResults(d?.response?.docs || []); setFilmesLoading(false); })
+        .catch(() => setFilmesLoading(false));
+    }
+  };
+  const transmitir = (item) => {
+    const youtubeKey = filmesTab === 'youtube' ? item.videoId : 'archive:' + item.identifier;
+    if (!youtubeKey) return;
+    const radioId = peerId + '_yt_' + Date.now();
+    const msg = { type:'radio-youtube-start', id:radioId+'_start', radioId, youtubeId:youtubeKey, sender:peerId, senderName:userName, ttl:15 };
+    seenMessagesRef.current.add(msg.id);
+    connectionsRef.current.forEach(c => { if (c.open) try { c.send(msg); } catch(e){} });
+    setUserYoutubeStreams(prev => ({ ...prev, [peerId]: youtubeKey }));
+    setShowFilmes(false);
+  };
+  return (
+  <div style={{position:'fixed',inset:0,backgroundColor:'rgba(0,0,0,0.75)',zIndex:10000,display:'flex',alignItems:'center',justifyContent:'center',padding:'16px'}}
+    onClick={e => { if (e.target===e.currentTarget) setShowFilmes(false); }}>
+    <div style={{backgroundColor:'#12101a',borderRadius:'12px',width:'100%',maxWidth:'460px',padding:'20px',boxShadow:'0 20px 60px rgba(0,0,0,0.9)',color:'white',fontFamily:'sans-serif'}}>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:'12px'}}>
+        <div style={{fontSize:'15px',fontWeight:'700',color:'#a78bfa'}}>🎬 Buscar & Transmitir</div>
+        <button onClick={() => setShowFilmes(false)} style={{background:'none',border:'none',color:'#94a3b8',fontSize:'20px',cursor:'pointer',lineHeight:1}}>×</button>
+      </div>
+      {/* ABAS */}
+      <div style={{display:'flex',gap:'6px',marginBottom:'12px'}}>
+        {[{id:'youtube',label:'▶ YouTube',color:'#ef4444'},{id:'archive',label:'🎬 Archive.org',color:'#a78bfa'}].map(tab => (
+          <button key={tab.id} onClick={() => { setFilmesTab(tab.id); setFilmesResults([]); setFilmesQuery(''); }}
+            style={{flex:1,padding:'7px',borderRadius:'8px',border:'none',cursor:'pointer',fontWeight:'700',fontSize:'12px',
+              background: filmesTab===tab.id ? tab.color : '#1e293b',
+              color: filmesTab===tab.id ? 'white' : '#64748b',
+              transition:'all 0.15s'}}>
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      {/* BUSCA */}
+      <div style={{display:'flex',gap:'8px',marginBottom:'10px'}}>
+        <input autoFocus type="text"
+          placeholder={filmesTab==='youtube' ? '🔍 Buscar no YouTube...' : '🔍 Título do filme...'}
+          value={filmesQuery}
+          onChange={e => setFilmesQuery(e.target.value)}
+          onKeyDown={e => { if (e.key==='Enter') doSearch(); }}
+          style={{flex:1,padding:'10px 14px',borderRadius:'8px',border:'1px solid #334155',backgroundColor:'#0f172a',color:'white',outline:'none',fontSize:'13px'}}
+        />
+        <button onClick={doSearch}
+          style={{padding:'10px 16px',borderRadius:'8px',background: filmesTab==='youtube' ? '#ef4444' : '#7c3aed',border:'none',color:'white',fontWeight:'700',cursor:'pointer',fontSize:'13px'}}>
+          Buscar
+        </button>
+      </div>
+      {/* CAMPO COLAR URL - fallback sempre visível na aba YouTube */}
+      {filmesTab === 'youtube' && (
+        <div style={{marginBottom:'10px',display:'flex',gap:'8px',alignItems:'center'}}>
+          <input type="text" placeholder="▶ Cole URL ou ID do YouTube e pressione Enter"
+            onKeyDown={e => { if(e.key==='Enter' && e.target.value.trim()) { transmitir({videoId: e.target.value.trim().replace(/.*[?&]v=/,'').replace(/&.*/,'').replace(/.*youtu\.be\//,'').trim()}); e.target.value=''; }}}
+            style={{flex:1,padding:'8px 12px',borderRadius:'8px',border:'1px solid #1e3a5f',backgroundColor:'#0a0f1a',color:'#38bdf8',outline:'none',fontSize:'12px'}}
+          />
+        </div>
+      )}
+      {/* RESULTADOS */}
+      <div style={{maxHeight:'340px',overflowY:'auto'}}>
+        {filmesLoading && <div style={{textAlign:'center',color:'#64748b',padding:'24px',fontSize:'13px'}}>🔎 Buscando...</div>}
+        {!filmesLoading && filmesResults.length===0 && filmesQuery.trim().length>=2 && <div style={{textAlign:'center',color:'#475569',padding:'24px',fontSize:'12px'}}>Nenhum resultado encontrado.</div>}
+        {!filmesLoading && filmesQuery.trim().length<2 && filmesResults.length===0 && <div style={{textAlign:'center',color:'#475569',padding:'24px',fontSize:'12px'}}>Digite e pressione Enter para buscar.</div>}
+        {filmesResults.map((item,i) => {
+          const title = item.title;
+          const thumb = filmesTab==='youtube'
+            ? (item.thumb || `https://img.youtube.com/vi/${item.videoId}/mqdefault.jpg`)
+            : `https://archive.org/services/img/${item.identifier}`;
+          const sub = filmesTab==='youtube' ? item.author : (item.year ? `📅 ${item.year}` : '');
+          return (
+            <div key={i} onClick={() => transmitir(item)}
+              style={{display:'flex',alignItems:'center',gap:'10px',padding:'9px',borderRadius:'8px',cursor:'pointer',borderBottom:'1px solid #1e293b'}}
+              onMouseEnter={e=>e.currentTarget.style.backgroundColor='#1e1a2e'}
+              onMouseLeave={e=>e.currentTarget.style.backgroundColor='transparent'}>
+              <img src={thumb} alt="" style={{width:'64px',height:'48px',borderRadius:'5px',objectFit:'cover',flexShrink:0,background:'#1e293b'}} onError={e=>{e.target.style.display='none';}} />
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:'12px',color:'#e2e8f0',lineHeight:'1.4',display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{title}</div>
+                {sub && <div style={{fontSize:'10px',color:'#64748b',marginTop:'2px'}}>{sub}</div>}
+              </div>
+              <span style={{color: filmesTab==='youtube' ? '#ef4444' : '#a78bfa',fontSize:'20px',flexShrink:0}}>▶</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  </div>
+  );
+})()}
 
 {showYoutubeGrid && (
 <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.85)', zIndex: 10000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
