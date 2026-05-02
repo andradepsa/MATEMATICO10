@@ -7299,6 +7299,17 @@ if (data.type === 'call-pre-signal') {
 }
 
 if (data.type === 'message') {
+// ── INICIO ROTINA ANTI MENSAGEM REPETIDA (QUIZ / TEXTO) ──
+if (!window._k10SeenMessagesCache) window._k10SeenMessagesCache = new Map();
+const dedupContent = (data.text === '__QUIZ__' && data.quizPayload) ? data.quizPayload.quizQuestion : data.text;
+if (dedupContent && typeof dedupContent === 'string') {
+  const nowTm = Date.now();
+  const lastSeenTm = window._k10SeenMessagesCache.get(dedupContent);
+  if (lastSeenTm && (nowTm - lastSeenTm) < 60000) return; // Drop if exact same message arrived in last 60 seconds
+  window._k10SeenMessagesCache.set(dedupContent, nowTm);
+  if (window._k10SeenMessagesCache.size > 500) window._k10SeenMessagesCache.delete(window._k10SeenMessagesCache.keys().next().value);
+}
+// ── FIM ROTINA ANTI MENSAGEM REPETIDA ──
 if (data.text && data.text.length > 2000) { return; } // mensagem acima de 2000 chars descartada
 if (data.text === '#$%') {
 if (radioStateRef.current.status === 'idle') setRadioState({ status: 'playing', startTime: Date.now(), duration: 300, audioUrl: null, fileName: t(lang, 'radioGlobal'), sender: data.senderName || 'Server' });
@@ -7307,12 +7318,6 @@ return;
 
 // ── Quiz via relay do servidor ────────────────────────────────────
 if (data.text === '__QUIZ__' && data.quizPayload) {
-  // FIX V85: dedup — dual-server entrega a mesma mensagem por 2 conexões (K10-GATE-0002 + K10-GATE-0004)
-  // sem esse check o receptor via vê o quiz duplicado.
-  if (data.id) {
-    if (seenMessagesRef.current.has(data.id)) return;
-    seenMessagesRef.current.add(data.id);
-  }
   if (data.quizPayload.quizImageId) {
      worldQuizUsedImagesRef.current.add(data.quizPayload.quizImageId);
   }
