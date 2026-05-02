@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>K10 MONITOR PRO v12 — Health + Sparklines + Dual Servers + Mirror Topology</title>
+<title>K10 MONITOR PRO v12 — Conexão Robusta + Persistência</title>
 <style>
+/* ========== ESTILOS (mesmos do original - mantidos por brevidade) ========== */
 :root {
   --bg:    #020810;
   --bg2:   #060e1a;
@@ -203,6 +204,7 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
   <input id="mon-id" value="K10-MON" maxlength="20" spellcheck="false" placeholder="e.g. K10-MON">
   <button class="b-start" id="btn-start" onclick="startMon()">▶ START</button>
   <button class="b-stop"  id="btn-stop"  onclick="stopMon()" disabled>■ STOP</button>
+  <button id="btn-clear-state" onclick="clearPersistedState()" style="border-color:var(--amber);color:var(--amber);">🗑️ LIMPAR ESTADO</button>
   <span id="status">WAITING</span>
   <span id="my-id"></span>
 </div>
@@ -323,6 +325,8 @@ button:disabled{border-color:var(--dim) !important;color:var(--dim) !important;c
   </div>
 </div>
 
+<!-- FIX V84: banner de protocolo legado removido — {t:'u'} é convertido silenciosamente -->
+
 <div class="slbl">▸ PAYLOAD PROTOCOL (V9 MONITOR)</div>
 <div class="hint">
   <b>✔ NEW (scales to billions)</b> — Servers report aggregated totals per group:<br>
@@ -350,20 +354,25 @@ const RENDER_THR = 1_000;
 const LOG_MAX    = 100;
 const PEER_TIMEOUT = 15000;
 const HEALTH_REPORT_INTERVAL = 30000;
+const STORAGE_KEY = 'K10_MONITOR_STATE';
+const GATEWAY_IDS = ['K10-GATE-0001','K10-GATE-0002','K10-GATE-0003','K10-GATE-0004','K10-GATE-0005'];
 
 // ═══════════════════════════════════════════════════════════════════════
 //  STATE
 // ═══════════════════════════════════════════════════════════════════════
-let peer, servers = {}, conns = new Set();
+let peer, servers = {}, conns = new Map(); // map peerId -> connection object
 let prevGroups = {};
 let peakUsers = 0;
 let renderTimer = null, lastRender = 0;
 let msgCount = 0, renderCount = 0, renderCountT = 0;
-let cleanTimer, footerTimer, rpsTimer, healthTimer;
+let cleanTimer, footerTimer, rpsTimer, healthTimer, gatewayConnectorTimer;
 let logs = [];
 let warnOldSrc = null;
 let legacyBucket = {};
 let isRunning = false;
+let isReconnecting = false;
+let reconnectAttempts = 0;
+let reconnectTimer = null;
 
 let splitCounter = 0;
 let mergeCounter = 0;
@@ -382,9 +391,67 @@ let anomalies       = [];
 let timelineFilter  = 'all';
 let lastHealthScore = 100;
 
-// Mapeamento de servidores de grupo (primário/secundário)
-let groupServersMap = new Map(); // gid -> { primary: {id, ts}, secondary: {id, ts}, mirrorOf: null ou gatewayId, lastUpdate }
-let mirrorMap = new Map();       // gatewayId -> { mirrorOf: id, groups: Set<gid> }
+let groupServersMap = new Map();
+let mirrorMap = new Map();
+
+// Janela de tempo para identificar erros peer-unavailable de gateways (não do monitor)
+let lastGatewayConnectAttempt = 0;
+const GATEWAY_ERROR_WINDOW = 8000; // 8s após última tentativa de gateway = provavelmente erro de gateway
+// Cooldown para alerta de "sem gateway" (ms)
+let _noGatewayAlertedAt = 0;
+const NO_GATEWAY_ALERT_COOLDOWN = 300_000; // 5 minutos
+
+// ═══════════════════════════════════════════════════════════════════════
+//  PERSISTÊNCIA
+// ═══════════════════════════════════════════════════════════════════════
+function saveStateToLocalStorage() {
+  if (!isRunning) return;
+  const state = {
+    healthReports: healthReports.slice(0, 20),
+    userHistory: userHistory.slice(),
+    groupHistory: groupHistory.slice(),
+    serverHistory: serverHistory.slice(),
+    eventHistory: eventHistory.slice(),
+    topologyTimeline: topologyTimeline.slice(0, 200),
+    anomalies: anomalies.slice(0, 20),
+    peakUsers: peakUsers,
+    lastHealthScore: lastHealthScore,
+    timestamp: Date.now()
+  };
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
+}
+
+function loadStateFromLocalStorage() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const state = JSON.parse(raw);
+    if (state.healthReports) healthReports = state.healthReports;
+    if (state.userHistory) userHistory = state.userHistory;
+    if (state.groupHistory) groupHistory = state.groupHistory;
+    if (state.serverHistory) serverHistory = state.serverHistory;
+    if (state.eventHistory) eventHistory = state.eventHistory;
+    if (state.topologyTimeline) topologyTimeline = state.topologyTimeline;
+    if (state.anomalies) anomalies = state.anomalies;
+    if (typeof state.peakUsers === 'number') peakUsers = state.peakUsers;
+    if (typeof state.lastHealthScore === 'number') lastHealthScore = state.lastHealthScore;
+    updateSparklines();
+    updateHealthScore();
+    updateAnomaliesUI();
+    renderHeatmap();
+    renderTimeline();
+    log(`Estado restaurado (${new Date(state.timestamp).toLocaleTimeString()})`, 'ok');
+    return true;
+  } catch(e) { return false; }
+}
+
+function clearPersistedState() {
+  if (confirm('Limpar histórico salvo? Isso não afeta a rede atual.')) {
+    localStorage.removeItem(STORAGE_KEY);
+    alert('Estado persistente limpo. Recarregue a página para começar do zero.');
+    if (!isRunning) location.reload();
+  }
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 //  HELPERS
@@ -415,7 +482,6 @@ function log(msg, type='') {
   logs.push({ts:now8(), msg, type});
   if (logs.length > LOG_MAX) logs.shift();
   scheduleLogFlush();
-  // console.log(`[MON] ${msg}`); // descomente para depuração avançada
 }
 let logFlushScheduled = false;
 function scheduleLogFlush() {
@@ -446,22 +512,18 @@ function flushLog() {
 function deriveGroups() {
   const g = {};
   const now = Date.now();
-  // Somente gateways (K10-GATE-*) contribuem para a contagem de usuários.
-  // Group servers (K10-XXXX-1/2) apenas atualizam timestamp (presença) mas n=0.
   const isGroupServer = (sid) => /^K10-\w{4}-\d$/.test(sid) && !sid.includes('-GATE-');
   for (const sid in servers) {
     const s = servers[sid];
     if (now - s.ts > STALE) continue;
     const skipCount = isGroupServer(sid);
     for (const gid in s.groups) {
-      // Group servers não criam entradas de grupo
       if (skipCount) continue;
       if (!g[gid]) g[gid] = {n:0, ts:0};
       g[gid].n += s.groups[gid];
       if (s.ts > g[gid].ts) g[gid].ts = s.ts;
     }
   }
-  // Legacy protocolo t:'u'
   for (const gid in legacyBucket) {
     if (g[gid]) continue;
     const lb = legacyBucket[gid];
@@ -476,19 +538,13 @@ function deriveGroups() {
 function totalUsers() {
   return Object.values(deriveGroups()).reduce((s, g) => s + g.n, 0);
 }
-
 function totalGateways() {
   return Object.keys(servers).filter(sid => sid.includes('-GATE-') && (Date.now() - servers[sid].ts) <= STALE).length;
 }
-
 function totalGroupServers() {
-  return Object.keys(servers).filter(sid => {
-    if (sid === 'K10-MON') return false;
-    return /^K10-\w{4}-\d$/.test(sid) && (Date.now() - servers[sid].ts) <= STALE;
-  }).length;
+  return Object.keys(servers).filter(sid => /^K10-\w{4}-\d$/.test(sid) && (Date.now() - servers[sid].ts) <= STALE).length;
 }
 
-// Atualiza groupServersMap e também extrai informações de mirror
 function updateGroupServersMap() {
   groupServersMap.clear();
   mirrorMap.clear();
@@ -496,7 +552,6 @@ function updateGroupServersMap() {
   for (const sid in servers) {
     if (Date.now() - servers[sid].ts > STALE) continue;
     const s = servers[sid];
-    // Mapeamento de group servers (K10-AAAA-1 / K10-AAAA-2)
     const match = sid.match(/^K10-(\w{4})-(\d)$/);
     if (match) {
       const gid = match[1];
@@ -509,7 +564,6 @@ function updateGroupServersMap() {
       if (s.ts > entry.lastUpdate) entry.lastUpdate = s.ts;
       groupServersMap.set(gid, entry);
     }
-    // Processamento de mirror (campo dualServer)
     if (s.dualServer) {
       if (s.dualServer.mirrorOf) {
         mirrorMap.set(sid, { mirrorOf: s.dualServer.mirrorOf, groups: new Set(s.dualServer.mirroringGroups || []) });
@@ -522,7 +576,6 @@ function updateGroupServersMap() {
       }
     }
   }
-  // Adiciona informação de mirror aos group servers quando aplicável
   for (const [gid, entry] of groupServersMap) {
     if (entry.primary && mirrorMap.has(entry.primary.id)) {
       entry.mirrorOf = mirrorMap.get(entry.primary.id).mirrorOf;
@@ -530,7 +583,6 @@ function updateGroupServersMap() {
   }
 }
 
-// Renderiza group servers com destaque para mirror.
 function renderGroupServers(groups) {
   const container = document.getElementById('groupServersList');
   if (!container) return;
@@ -573,7 +625,7 @@ function renderGroupServers(groups) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  ADVANCED METRICS (inclui group servers e mirror)
+//  ADVANCED METRICS
 // ═══════════════════════════════════════════════════════════════════════
 function computeAdvancedMetrics() {
   const groups = deriveGroups();
@@ -593,9 +645,7 @@ function computeAdvancedMetrics() {
   const pctSmall = (smallCount / nGroups) * 100;
   const saturation = (total / (nGroups * MAX_GRP)) * 100;
   const now = Date.now();
-  let idle = 0;
-  let sumAge = 0;
-  let serverCount = 0;
+  let idle = 0, sumAge = 0, serverCount = 0;
   for (const sid in servers) {
     const s = servers[sid];
     if (now - s.ts <= STALE) {
@@ -606,7 +656,6 @@ function computeAdvancedMetrics() {
   }
   const avgAge = serverCount ? sumAge / serverCount : 0;
   const splitMergeRate = (splitCounter + mergeCounter) / (HEALTH_REPORT_INTERVAL / 60000);
-  // Redundância: grupos com ambos servidores ativos
   updateGroupServersMap();
   let redundantGroups = 0;
   for (const [gid, entry] of groupServersMap) {
@@ -614,14 +663,13 @@ function computeAdvancedMetrics() {
     const secondaryOk = entry.secondary && (now - entry.secondary.ts) <= STALE;
     if (primaryOk && secondaryOk) redundantGroups++;
   }
-  // CORREÇÃO: se não há nenhum group server, redundância deve ser N/A (-1)
   const redundancyPct = groupServersMap.size ? (redundantGroups / groupServersMap.size) * 100 : -1;
   const mirroredGroupsCount = mirrorMap.size;
   return { pctFull, pctSmall, stdDev, cv, saturated: saturation, idleServers: idle, avgAge, splitMergeRate, redundancyPct, mirroredGroups: mirroredGroupsCount };
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  HEALTH SNAPSHOT (inclui redundância)
+//  HEALTH SNAPSHOT & UI
 // ═══════════════════════════════════════════════════════════════════════
 function takeHealthSnapshot() {
   const groups = deriveGroups();
@@ -638,7 +686,7 @@ function takeHealthSnapshot() {
     totalGateways: gws,
     totalGroupServers: gs,
     totalNodes: totalN,
-    totalGroups: Object.keys(groups).length,
+    totalGroups: nGroups,
     avgGroupSize: avgSize,
     splits: splitCounter,
     merges: mergeCounter,
@@ -651,8 +699,9 @@ function takeHealthSnapshot() {
   splitCounter = 0; mergeCounter = 0; compensateCounter = 0; tutorActiveFlag = false;
   updateHealthUI(report);
   updateAdvancedUI(adv);
-  log(`📊 Health snapshot: ${total} users, gws:${gws}, groupServers:${gs}, groups:${Object.keys(groups).length}`, 'ok');
+  log(`📊 Health snapshot: ${total} users, gws:${gws}, groupServers:${gs}, groups:${nGroups}`, 'ok');
   v8AfterSnapshot(report);
+  saveStateToLocalStorage();
 }
 
 function updateAdvancedUI(adv) {
@@ -693,7 +742,6 @@ function updateHealthUI(latest) {
   if (gatewayTrend < -30 || gsTrend < -30) { if (healthStatus !== 'red') healthStatus = 'yellow'; alerts.push(`🟡 Queda de servidores: gateways ${gatewayTrend.toFixed(1)}% / group servers ${gsTrend.toFixed(1)}%`); }
   if (latest.totalGateways === 0 && latest.totalUsers > 0) { healthStatus = 'red'; alerts.push(`❌ Nenhum gateway reportando!`); }
   if (latest.avgGroupSize < 10 && latest.totalGroups > 3) { if (healthStatus !== 'red') healthStatus = 'yellow'; alerts.push(`📉 Média baixa (${latest.avgGroupSize}) → fragmentação`); }
-  // Só avalia redundância se houver group servers
   if (latest.advanced && latest.advanced.redundancyPct !== -1 && latest.advanced.redundancyPct < 50 && latest.totalGroups > 2) {
     healthStatus = 'red';
     alerts.push(`❌ Redundância baixa (${latest.advanced.redundancyPct.toFixed(0)}% dos grupos sem secondary)`);
@@ -744,12 +792,11 @@ function updateHealthUI(latest) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  V9: SPARKLINES, TIMELINE, HEATMAP, SCORE & ANOMALIES
+//  SPARKLINES, TIMELINE, HEATMAP, SCORE & ANOMALIES
 // ═══════════════════════════════════════════════════════════════════════
 function drawSparkline(svgId, data, color) {
   const svg = document.getElementById(svgId);
-  if (!svg) return;
-  if (!data || data.length === 0) { svg.innerHTML = ''; return; }
+  if (!svg || !data || data.length === 0) { if(svg) svg.innerHTML = ''; return; }
   const max = Math.max(...data, 1);
   const min = Math.min(...data, 0);
   const range = (max - min) || 1;
@@ -760,9 +807,7 @@ function drawSparkline(svgId, data, color) {
     const y = (h - ((v - min) / range) * (h - 2) - 1).toFixed(1);
     return x + ',' + y;
   }).join(' ');
-  svg.innerHTML =
-    `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" />` +
-    `<circle cx="${((data.length-1)*step).toFixed(1)}" cy="${(h - ((data[data.length-1]-min)/range)*(h-2)-1).toFixed(1)}" r="2" fill="${color}" />`;
+  svg.innerHTML = `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.5" /><circle cx="${((data.length-1)*step).toFixed(1)}" cy="${(h - ((data[data.length-1]-min)/range)*(h-2)-1).toFixed(1)}" r="2" fill="${color}" />`;
 }
 function updateSparklines() {
   drawSparkline('sp-users-svg', userHistory, '#00f5ff');
@@ -872,8 +917,13 @@ function detectAnomalies() {
   if (prev.totalGateways > 1 && cur.totalGateways < prev.totalGateways * 0.5)
     out.push({ ts: Date.now(), msg: `Gateways caindo: ${prev.totalGateways} → ${cur.totalGateways}` });
   if (cur.splits > 8) out.push({ ts: Date.now(), msg: `Pico anormal de splits: ${cur.splits} em 30s` });
-  if (cur.totalGateways === 0 && prev.totalGateways === 0 && cur.totalUsers > 0)
-    out.push({ ts: Date.now(), msg: `${cur.totalUsers} usuarios sem nenhum gateway!` });
+  if (cur.totalGateways === 0 && prev.totalGateways === 0 && cur.totalUsers > 0) {
+    const now3 = Date.now();
+    if (now3 - _noGatewayAlertedAt > NO_GATEWAY_ALERT_COOLDOWN) {
+      _noGatewayAlertedAt = now3;
+      out.push({ ts: now3, msg: `${cur.totalUsers} usuarios sem nenhum gateway!` });
+    }
+  }
   updateGroupServersMap();
   const now2 = Date.now();
   const groups = deriveGroups();
@@ -929,12 +979,11 @@ function v8AfterSnapshot(report) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  PROCESSAMENTO DE MENSAGENS (agregado + eventos topologia)
+//  PROCESSAMENTO DE MENSAGENS
 // ═══════════════════════════════════════════════════════════════════════
 function handleMsg(msg) {
   msgCount++;
   if (!msg || !msg.t) return;
-  // Formato moderno { t:'s', id, total, groups, dualServer }
   if (msg.t === 's' && msg.id) {
     const isNew = !servers[msg.id];
     servers[msg.id] = {
@@ -945,33 +994,26 @@ function handleMsg(msg) {
     };
     if (isNew) log(`Novo servidor: ${msg.id} (${fmt(msg.total||0)} usuários)`, 'ok');
     else log(`Heartbeat: ${msg.id} — ${fmt(msg.total||0)} usuários, ${Object.keys(msg.groups||{}).length} grupos`);
-    // Detecção de promoção primário/secundário ou mirror
     if (isNew && /^K10-\w{4}-2$/.test(msg.id) && msg.groups && Object.keys(msg.groups).length > 0) {
       pushTimelineEvent('promote', `${msg.id} eleito secundário (${Object.keys(msg.groups).length} grupo(s))`);
     }
-    if (msg.dualServer) {
-      if (msg.dualServer.mirrorOf) {
-        pushTimelineEvent('mirror', `Gateway ${msg.id} agora espelha ${msg.dualServer.mirrorOf} (${msg.dualServer.mirroringGroups?.length || 0} grupos)`);
-      }
+    if (msg.dualServer && msg.dualServer.mirrorOf) {
+      pushTimelineEvent('mirror', `Gateway ${msg.id} agora espelha ${msg.dualServer.mirrorOf} (${msg.dualServer.mirroringGroups?.length || 0} grupos)`);
     }
     scheduleRender();
     return;
   }
-  // Protocolo legado { t:'u', id, gid }
   if (msg.t === 'u' && msg.id && msg.gid) {
-    if (!warnOldSrc) {
-      warnOldSrc = msg.id;
-      document.getElementById('warn-src').textContent = msg.id;
-      document.getElementById('warn-old').classList.add('show');
-      log(`⚠ Protocolo legado detectado: ${msg.id} → migre para {t:'s'}`, 'warn');
-    }
+    // FIX V84: converte {t:'u'} silenciosamente — sem banner, sem warning.
+    // Clientes antigos ainda na rede mandam {t:'u'} mas o novo Chat_Desktop já
+    // manda {t:'s'}. Não exibir aviso pois é ruído visual — só registrar no
+    // legacyBucket para contagem correta de usuários por grupo.
     if (!legacyBucket[msg.gid]) legacyBucket[msg.gid] = { peers: new Map(), ts: 0 };
     legacyBucket[msg.gid].peers.set(msg.id, Date.now());
     legacyBucket[msg.gid].ts = Date.now();
     scheduleRender();
     return;
   }
-  // Eventos de topologia (split, merge, compensate, tutor)
   if (msg.type === 'group-split') { splitCounter++; log(`[TOPOLOGY] group-split: ${msg.oldGroupId} → ${msg.newGroupId}`, 'warn'); scheduleRender(); return; }
   if (msg.type === 'group-merge') { mergeCounter++; log(`[TOPOLOGY] group-merge: ${msg.absorbedGroupId} → ${msg.survivingGroupId}`, 'warn'); scheduleRender(); return; }
   if (msg.type === 'group-compensate') { compensateCounter++; log(`[TOPOLOGY] group-compensate: ${msg.donorGid} → ${msg.receiverGid}`, 'info'); scheduleRender(); return; }
@@ -979,7 +1021,7 @@ function handleMsg(msg) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  RENDER (tabelas grupos/servidores)
+//  RENDER
 // ═══════════════════════════════════════════════════════════════════════
 function scheduleRender() {
   if (renderTimer) return;
@@ -1056,7 +1098,7 @@ function render() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  FUNÇÃO DE EXPORTAÇÃO DE RELATÓRIO DETALHADO
+//  EXPORTAÇÃO DE RELATÓRIO
 // ═══════════════════════════════════════════════════════════════════════
 function exportReportsToTxt() {
   const now = new Date();
@@ -1093,7 +1135,6 @@ function exportReportsToTxt() {
   content += `Gateways espelhando: ${adv.mirroredGroups}\n`;
   content += '\n';
 
-  // Sparklines (últimos valores)
   content += '📈 SPARKLINES (últimos 30 ciclos de 30s = 15 min)\n';
   content += '-'.repeat(40) + '\n';
   content += `Usuários (histórico): ${userHistory.map(v => fmt(v)).join(' → ')}\n`;
@@ -1102,7 +1143,6 @@ function exportReportsToTxt() {
   content += `Eventos (splits+merges cumulativo): ${eventHistory.join(' → ')}\n`;
   content += '\n';
 
-  // Health Score atual
   const { score, breakdown, level } = computeHealthScore();
   content += '🩺 HEALTH SCORE ATUAL\n';
   content += '-'.repeat(40) + '\n';
@@ -1112,7 +1152,6 @@ function exportReportsToTxt() {
   }
   content += '\n';
 
-  // Health reports (últimos 5 snapshots)
   content += '🔍 HEALTH REPORTS (últimos 5 ciclos de 30s)\n';
   content += '-'.repeat(40) + '\n';
   if (healthReports.length === 0) content += 'Nenhum relatório disponível ainda.\n';
@@ -1129,7 +1168,6 @@ function exportReportsToTxt() {
     });
   }
 
-  // Grupos ativos detalhados
   content += '◈ GRUPOS ATIVOS\n';
   content += '-'.repeat(40) + '\n';
   updateGroupServersMap();
@@ -1153,7 +1191,6 @@ function exportReportsToTxt() {
   }
   content += '\n';
 
-  // Gateways detalhados + mirror
   content += '◉ GATEWAYS ATIVOS (K10-GATE-*)\n';
   content += '-'.repeat(40) + '\n';
   const gwList = Object.keys(servers).filter(sid => sid.includes('-GATE-') && (Date.now() - servers[sid].ts) <= STALE);
@@ -1171,7 +1208,6 @@ function exportReportsToTxt() {
   }
   content += '\n';
 
-  // Group servers (2 por sala) detalhados
   content += '◉ GROUP SERVERS (PRIMARY/SECONDARY PER GROUP)\n';
   content += '-'.repeat(40) + '\n';
   const gsGids = Array.from(groupServersMap.keys()).sort();
@@ -1188,7 +1224,6 @@ function exportReportsToTxt() {
   }
   content += '\n';
 
-  // Métricas avançadas atuais
   content += '📈 MÉTRICAS AVANÇADAS ATUAIS\n';
   content += '-'.repeat(40) + '\n';
   content += `Grupos cheios (≥${MAX_GRP}): ${adv.pctFull.toFixed(1)}%\n`;
@@ -1203,7 +1238,6 @@ function exportReportsToTxt() {
   content += `Gateways espelhando ativos: ${adv.mirroredGroups}\n`;
   content += '\n';
 
-  // Timeline de eventos
   content += '⏱ TIMELINE DE EVENTOS DE TOPOLOGIA\n';
   content += '-'.repeat(40) + '\n';
   if (topologyTimeline.length === 0) content += 'Nenhum evento registrado.\n';
@@ -1215,7 +1249,6 @@ function exportReportsToTxt() {
   }
   content += '\n';
 
-  // Anomalias detectadas
   content += '⚠️ ANOMALIAS DETECTADAS\n';
   content += '-'.repeat(40) + '\n';
   if (anomalies.length === 0) content += 'Nenhuma anomalia.\n';
@@ -1227,7 +1260,6 @@ function exportReportsToTxt() {
   }
   content += '\n';
 
-  // Log de sistema (últimas 20 linhas)
   content += '◎ LOG DO SISTEMA (últimas 50 linhas)\n';
   content += '-'.repeat(40) + '\n';
   logs.slice(-50).forEach(l => {
@@ -1236,7 +1268,7 @@ function exportReportsToTxt() {
   content += '\n';
 
   content += '=' .repeat(80) + '\n';
-  content += 'Fim do relatório. Coleta completa dos servidores de grupo, mirror e gateways.\n';
+  content += 'Fim do relatório.\n';
 
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
   const link = document.createElement('a');
@@ -1248,13 +1280,70 @@ function exportReportsToTxt() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-//  START / STOP (com reconexão automática)
+//  CONEXÃO ATIVA AOS GATEWAYS (ROBUSTA)
 // ═══════════════════════════════════════════════════════════════════════
-let reconnectAttempts = 0;
-let reconnectTimer = null;
+function connectToGateway(gatewayId) {
+  if (!peer || peer.destroyed || !isRunning) return;
+  if (conns.has(gatewayId)) return;
+  lastGatewayConnectAttempt = Date.now();
+  log(`Conectando ativamente ao gateway: ${gatewayId}`, 'hi');
+  try {
+    const conn = peer.connect(gatewayId, { reliable: true });
+    if (!conn) return;
+    conn.on('open', () => {
+      conns.set(gatewayId, conn);
+      // Pré-popula servers para que o gateway apareça no UI mesmo antes do 1º heartbeat
+      if (!servers[gatewayId]) {
+        servers[gatewayId] = { ts: Date.now(), total: 0, groups: {}, dualServer: null };
+      }
+      log(`Gateway conectado: ${gatewayId}`, 'ok');
+      scheduleRender();
+      document.getElementById('p-conns').textContent = conns.size;
+    });
+    conn.on('data', data => handleMsg(data));
+    conn.on('close', () => {
+      if (conns.get(gatewayId) === conn) {
+        conns.delete(gatewayId);
+        delete servers[gatewayId];
+      }
+      log(`Gateway desconectado: ${gatewayId}`, 'warn');
+      scheduleRender();
+      document.getElementById('p-conns').textContent = conns.size;
+    });
+    conn.on('error', err => {
+      if (conns.get(gatewayId) === conn) conns.delete(gatewayId);
+      delete servers[gatewayId];
+      log(`Erro na conexão com gateway ${gatewayId}: ${err.message}`, 'err');
+    });
+  } catch(e) {
+    log(`Falha ao conectar a ${gatewayId}: ${e.message}`, 'err');
+  }
+}
 
+function startGatewayScanner() {
+  if (gatewayConnectorTimer) clearInterval(gatewayConnectorTimer);
+  gatewayConnectorTimer = setInterval(() => {
+    if (!isRunning || !peer || peer.destroyed) return;
+    for (const gwId of GATEWAY_IDS) {
+      if (!conns.has(gwId)) {
+        connectToGateway(gwId);
+      }
+    }
+  }, 15000);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+//  START / STOP (SEM LOOP DE RECONEXÃO DESTRUTIVO)
+// ═══════════════════════════════════════════════════════════════════════
 function startMon() {
-  if (isRunning) stopMon();
+  if (isRunning) {
+    log("Monitor já está rodando.", 'warn');
+    return;
+  }
+  if (isReconnecting) {
+    log("Reconexão em andamento, aguarde...", 'warn');
+    return;
+  }
   const id = document.getElementById('mon-id').value.trim().toUpperCase() || 'K10-MON';
   setStatus('CONECTANDO...', 'wait');
   log(`Iniciando monitor como: ${id}`, 'hi');
@@ -1263,16 +1352,40 @@ function startMon() {
     log("❌ WebRTC não suportado neste navegador.", "err");
     return;
   }
+
+  // Se já existe peer e está aberto, não recriar
+  if (peer && !peer.destroyed && peer.open) {
+    log("Peer já está conectado. Reutilizando.", 'ok');
+    setStatus('● ONLINE', 'on');
+    document.getElementById('my-id').textContent = 'ID: '+peer.id;
+    document.getElementById('btn-start').disabled = true;
+    document.getElementById('btn-stop').disabled = false;
+    isRunning = true;
+    reconnectAttempts = 0;
+    if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
+    if (!healthTimer) healthTimer = setInterval(() => takeHealthSnapshot(), HEALTH_REPORT_INTERVAL);
+    if (!gatewayConnectorTimer) startGatewayScanner();
+    loadStateFromLocalStorage();
+    render();
+    return;
+  }
+
+  // Destruir peer antigo se existir e estiver quebrado
+  if (peer && !peer.destroyed) {
+    try { peer.destroy(); } catch(e) {}
+    peer = null;
+  }
+
   let connectionTimeout = setTimeout(() => {
     if (peer && !peer.destroyed && !peer.open) {
       setStatus('ERRO: TIMEOUT', 'err');
       log("❌ Timeout de conexão PeerJS.", "err");
       if (peer && !peer.destroyed) peer.destroy();
       peer = null;
-      // Tenta reconectar automaticamente
       scheduleReconnect();
     }
   }, PEER_TIMEOUT);
+
   peer = new Peer(id, {
     host:'0.peerjs.com', port:443, secure:true, debug:0,
     config:{ iceServers: [
@@ -1281,6 +1394,7 @@ function startMon() {
       {urls:'stun:stun.stunprotocol.org:3478'}
     ] }
   });
+
   peer.on('open', pid => {
     clearTimeout(connectionTimeout);
     setStatus('● ONLINE', 'on');
@@ -1292,27 +1406,58 @@ function startMon() {
     reconnectAttempts = 0;
     if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
     healthTimer = setInterval(() => takeHealthSnapshot(), HEALTH_REPORT_INTERVAL);
+    startGatewayScanner();
+    loadStateFromLocalStorage();
+    render();
   });
+
   peer.on('connection', conn => {
-    conns.add(conn.peer);
-    log(`Conexão: ${conn.peer}`);
+    const pid = conn.peer;
+    if (!pid) return;
+    if (GATEWAY_IDS.includes(pid)) {
+      conns.set(pid, conn);
+      log(`Gateway conectado (inbound): ${pid}`, 'ok');
+    } else {
+      conns.set(pid, conn);
+      log(`Conexão de peer comum: ${pid}`, 'info');
+    }
     document.getElementById('p-conns').textContent = conns.size;
     conn.on('data', data => handleMsg(data));
-    conn.on('close', () => { conns.delete(conn.peer); log(`Desconectado: ${conn.peer}`, 'warn'); document.getElementById('p-conns').textContent = conns.size; });
-    conn.on('error', e => log(`Erro conn: ${e.message}`, 'err'));
+    conn.on('close', () => {
+      if (conns.get(pid) === conn) conns.delete(pid);
+      log(`Desconectado: ${pid}`, 'warn');
+      document.getElementById('p-conns').textContent = conns.size;
+    });
+    conn.on('error', e => log(`Erro conn ${pid}: ${e.message}`, 'err'));
   });
+
   peer.on('error', e => {
     clearTimeout(connectionTimeout);
-    setStatus('ERRO: '+e.type, 'err');
-    log(`Erro peer: ${e.type}`, 'err');
-    if (e.type === 'peer-unavailable') log(`⚠️ Monitor ID '${id}' não está acessível.`, 'warn');
-    scheduleReconnect();
+    if (e.type === 'peer-unavailable') {
+      const timeSinceGwAttempt = Date.now() - lastGatewayConnectAttempt;
+      if (timeSinceGwAttempt < GATEWAY_ERROR_WINDOW) {
+        // Erro veio de tentativa de gateway — NÃO reiniciar o monitor
+        log(`⚠️ Peer não disponível (gateway offline/inexistente) — scanner tentará novamente em 15s.`, 'warn');
+        // Atualiza o timestamp para absorver erros múltiplos da mesma rodada
+        lastGatewayConnectAttempt = Date.now();
+      } else {
+        // Provavelmente o ID do monitor está em conflito
+        log(`⚠️ Monitor ID '${id}' pode estar em uso por outra instância. Tentando reconectar...`, 'warn');
+        scheduleReconnect();
+      }
+    } else {
+      setStatus('ERRO: '+e.type, 'err');
+      log(`Erro peer: ${e.type}`, 'err');
+      scheduleReconnect();
+    }
   });
+
   peer.on('disconnected', () => {
     setStatus('DESCONECTADO', 'err');
     log('PeerJS desconectado. Tentando reconectar...', 'warn');
     scheduleReconnect();
   });
+
   cleanTimer = setInterval(() => {
     const now = Date.now();
     let changed = false;
@@ -1341,10 +1486,17 @@ function scheduleReconnect() {
     reconnectTimer = null;
     if (!isRunning) return;
     log('Tentando reconectar monitor...', 'hi');
-    const id = document.getElementById('mon-id').value.trim().toUpperCase() || 'K10-MON';
-    if (peer && !peer.destroyed) peer.destroy();
-    peer = null;
-    startMon();
+    // Não destruir peer aqui - apenas tentar recriar a conexão com os gateways
+    if (peer && !peer.destroyed && peer.open) {
+      // Peer ainda vivo, apenas tentar reconectar gateways
+      for (const gwId of GATEWAY_IDS) {
+        if (!conns.has(gwId)) connectToGateway(gwId);
+      }
+    } else {
+      // Peer morto, reiniciar completamente
+      stopMon();
+      startMon();
+    }
   }, delay);
 }
 
@@ -1354,14 +1506,18 @@ function stopMon() {
   clearInterval(rpsTimer);
   clearInterval(footerTimer);
   clearInterval(healthTimer);
+  if (gatewayConnectorTimer) { clearInterval(gatewayConnectorTimer); gatewayConnectorTimer = null; }
   clearTimeout(renderTimer);
   if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
   if (window._v8HeatmapTimer) { clearTimeout(window._v8HeatmapTimer); window._v8HeatmapTimer = null; }
   renderTimer = null;
-  if (peer && !peer.destroyed) peer.destroy();
-  peer = null;
+  // Não destruir o peer imediatamente, apenas marcar como parado
+  if (peer && !peer.destroyed) {
+    try { peer.destroy(); } catch(e) {}
+    peer = null;
+  }
   servers = {}; legacyBucket = {}; prevGroups = {}; warnOldSrc = null;
-  conns.clear(); msgCount = 0; peakUsers = 0;
+  conns.clear(); lastGatewayConnectAttempt = 0; msgCount = 0; peakUsers = 0;
   splitCounter = 0; mergeCounter = 0; compensateCounter = 0; tutorActiveFlag = false;
   healthReports = [];
   groupServersMap.clear();
@@ -1370,7 +1526,8 @@ function stopMon() {
   document.getElementById('my-id').textContent = '';
   document.getElementById('btn-start').disabled = false;
   document.getElementById('btn-stop').disabled  = true;
-  document.getElementById('warn-old').classList.remove('show');
+  const elOld = document.getElementById('warn-old');
+  if (elOld) elOld.classList.remove('show');
   log('Monitor parado.', 'warn');
   render();
   updateHealthUI({});
