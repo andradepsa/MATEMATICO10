@@ -49,7 +49,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V83 (Todas salinhas GossipSub escalável)</title>
+<title>Chat K10 — V93 (Matrix: nome do usuário K10 no prefixo das mensagens)</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -178,7 +178,7 @@ text-shadow: 0 0 8px rgba(74, 222, 128, 0.3);
 
 
 /* MESSAGES */
-.chat-messages-container { flex: 1; display: flex; flex-direction: column; background: var(--surface); border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); overflow: hidden; }
+.chat-messages-container { flex: 1; display: flex; flex-direction: column; background: var(--surface); border-radius: 12px; box-shadow: 0 1px 4px rgba(0,0,0,0.07); overflow: hidden; position: relative; }
 .chat-messages { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; background: #f8fafc; }
 .message-bubble { max-width: 72%; padding: 10px 14px; border-radius: 16px; position: relative; word-wrap: break-word; }
 .message-bubble.sent { background: var(--bubble-sent); color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
@@ -377,6 +377,36 @@ body.dark-mode { --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #
 
 /* Input bar */
 .dark-mode .chat-input-container { background: #1e293b; border-top-color: #334155; }
+
+/* ── Matrix Selector Bar ── */
+#matrix-selector-bar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 12px; background: #f0f7ff;
+  border-top: 1px solid #bfdbfe; font-size: 12px; flex-shrink: 0;
+}
+.dark-mode #matrix-selector-bar {
+  background: #0f1e33; border-top-color: #1e3a5f;
+}
+.matrix-sel-label {
+  font-weight: 700; color: #2563eb; white-space: nowrap; flex-shrink: 0;
+}
+.dark-mode .matrix-sel-label { color: #60a5fa; }
+#matrix-sala-select {
+  flex: 1; border: 1px solid #bfdbfe; border-radius: 8px;
+  padding: 4px 8px; font-size: 12px; background: white; color: #1e293b;
+  cursor: pointer; min-width: 0;
+}
+.dark-mode #matrix-sala-select {
+  background: #1e293b; color: #e2e8f0; border-color: #334155;
+}
+#matrix-online-badge {
+  background: #10b981; color: white; border-radius: 12px;
+  padding: 2px 8px; font-size: 11px; font-weight: 700;
+  white-space: nowrap; flex-shrink: 0; transition: background 0.3s;
+}
+/* ── Matrix message bubble ── */
+.message-bubble[data-matrix="1"] .chat-user-bubble { color: #2563eb; }
+.dark-mode .message-bubble[data-matrix="1"] .chat-user-bubble { color: #60a5fa; }
 .dark-mode .message-input { background: #0f172a; color: #e2e8f0; border-color: #334155; }
 .dark-mode .message-input::placeholder { color: #64748b; }
 .dark-mode .icon-btn { background: #293548; border-color: #334155; color: #94a3b8; }
@@ -3728,6 +3758,10 @@ setMessages(prev => {
 const updated = [...prev, newMsgObj].slice(-500);
 return updated;
 });
+// ── Matrix Hook: envia para a sala selecionada ou salas gerais ──
+if (!selectedContact && typeof window._matrixEnviarHook === 'function') {
+  window._matrixEnviarHook(textToSend, userName);
+}
 }
 setNewMessage('');
 } catch (err) { alert(t(lang, 'sendError') + err.message); }
@@ -5259,6 +5293,8 @@ const activatedContactsRef = useRef(new Set());
 const [activatedContacts, setActivatedContacts] = useState(new Set());
 const [pendingGroup, setPendingGroup] = useState(null); // { name } — abre grupo no ChatManager
 const [messages, setMessages] = useState([]);
+    // 🌐 MATRIX BRIDGE: expõe setMessages globalmente para a integração Matrix
+    window.chatSetMessages = setMessages;
 const [newMessage, setNewMessage] = useState('');
 const [showContacts, setShowContacts] = useState(false);
 const [contacts, setContacts] = useState(() => { try { return JSON.parse(localStorage.getItem('p2pContacts') || '[]'); } catch { return []; } });
@@ -11807,6 +11843,9 @@ overflow: 'hidden'
       </div>
     )}
   </div>
+  <button onClick={() => window._matrixAbrirMenu()} style={{ marginLeft: 'auto', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap', boxShadow: '0 2px 8px rgba(16,185,129,0.3)' }}>
+    <i className="fas fa-plus-circle"></i> Explorar Salinhas
+  </button>
 </div>
 
 
@@ -12435,5 +12474,1360 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 </script>
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<!-- ============================================================
+     🌐 INTEGRAÇÃO MATRIX - Chat K10 ↔ Matrix (via Proxy GAS) v4.0
+     ✅ Modo Geral: salas "geral:true" carregam automaticamente
+     ✅ Salas Específicas: menu lateral com pesquisa + modal de entrada
+     ✅ Lista de conversas: sala ativa aparece como grupo na sidebar
+     ============================================================ -->
+
+<style>
+/* ── MATRIX SIDEBAR ITEM ── */
+.matrix-conv-item {
+  padding: 11px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  cursor: pointer;
+  transition: background 0.15s;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.matrix-conv-item:hover { background: #f0fdf4; }
+.matrix-conv-item.active { background: #dcfce7; border-left: 3px solid #10b981; }
+.matrix-conv-badge {
+  background: #10b981;
+  color: white;
+  font-size: 9px;
+  font-weight: 800;
+  border-radius: 6px;
+  padding: 2px 5px;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+.matrix-conv-name { font-weight: 600; font-size: 13px; color: #1e293b; flex: 1; }
+.matrix-conv-sub  { font-size: 10px; color: #64748b; margin-top: 1px; }
+.matrix-conv-close {
+  opacity: 0;
+  font-size: 12px;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.matrix-conv-item:hover .matrix-conv-close { opacity: 1; }
+.matrix-conv-close:hover { background: #fee2e2; color: #ef4444; }
+
+/* Dark mode */
+.dark-mode .matrix-conv-item { border-bottom-color: #1e293b; }
+.dark-mode .matrix-conv-item:hover { background: #052e16; }
+.dark-mode .matrix-conv-item.active { background: #052e16; border-left-color: #10b981; }
+.dark-mode .matrix-conv-name { color: #e2e8f0; }
+.dark-mode .matrix-conv-sub { color: #64748b; }
+
+/* ── MATRIX DIAGNOSTICS ── */
+#matrix-diag-modal {
+  position: fixed; inset: 0; z-index: 99999;
+  background: rgba(0,0,0,0.7);
+  display: flex; align-items: center; justify-content: center;
+}
+#matrix-diag-box {
+  background: #0f172a; border-radius: 14px;
+  width: min(560px, 95vw); max-height: 80vh;
+  display: flex; flex-direction: column;
+  border: 1px solid #334155;
+  box-shadow: 0 25px 60px rgba(0,0,0,0.6);
+  overflow: hidden;
+}
+#matrix-diag-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 18px;
+  background: linear-gradient(135deg,#064e3b,#065f46);
+  color: #fff; font-weight: 800; font-size: 14px;
+}
+#matrix-diag-header button {
+  background: rgba(255,255,255,0.15); border: 1px solid rgba(255,255,255,0.3);
+  color: #fff; border-radius: 6px; padding: 4px 12px;
+  cursor: pointer; font-size: 12px; font-weight: 700;
+}
+#matrix-diag-log {
+  flex: 1; overflow-y: auto; padding: 14px 16px;
+  font-family: 'JetBrains Mono', monospace; font-size: 11.5px;
+  display: flex; flex-direction: column; gap: 6px;
+  background: #020617;
+}
+.mdiag-line { display: flex; gap: 10px; line-height: 1.5; }
+.mdiag-ts  { color: #475569; white-space: nowrap; }
+.mdiag-ok  { color: #4ade80; }
+.mdiag-err { color: #f87171; }
+.mdiag-warn{ color: #fbbf24; }
+.mdiag-inf { color: #38bdf8; }
+.mdiag-sys { color: #a78bfa; }
+#matrix-diag-footer {
+  padding: 12px 16px; border-top: 1px solid #1e293b;
+  display: flex; gap: 8px; background: #0f172a;
+}
+#matrix-diag-footer button {
+  flex: 1; padding: 8px; border-radius: 8px; cursor: pointer;
+  font-size: 12px; font-weight: 700; border: none;
+}
+.mdiag-btn-run    { background: #10b981; color: #fff; }
+.mdiag-btn-fix    { background: #3b82f6; color: #fff; }
+.mdiag-btn-copy   { background: #334155; color: #94a3b8; }
+.mdiag-btn-close  { background: #1e293b; color: #64748b; }
+#matrix-chat-header button.diag-btn {
+  background: rgba(250,204,21,0.2);
+  border-color: rgba(250,204,21,0.5);
+  color: #fde047;
+}
+
+#matrix-chat-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: var(--surface);
+  z-index: 10;
+  flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+}
+#matrix-chat-overlay.ativo {
+  display: flex;
+}
+#matrix-chat-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #064e3b, #065f46);
+  color: white;
+  font-weight: 700;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+#matrix-chat-header span { flex: 1; }
+#matrix-chat-header button {
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.3);
+  color: white;
+  border-radius: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: 12px;
+}
+#matrix-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #f8fafc;
+}
+.dark-mode #matrix-chat-messages { background: #0f172a; }
+.matrix-chat-bubble {
+  background: #e2f7ee;
+  border-radius: 10px;
+  padding: 8px 12px;
+  max-width: 80%;
+  align-self: flex-start;
+  font-size: 13px;
+  color: var(--text);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.07);
+  transition: opacity 0.2s;
+}
+/* Mensagem enviada pelo próprio usuário — alinhada à direita */
+.matrix-chat-bubble.bubble-sent {
+  background: #2563eb;
+  color: #fff;
+  align-self: flex-end;
+}
+.matrix-chat-bubble.bubble-sent .matrix-bubble-name { color: #bfdbfe; }
+.matrix-chat-bubble.bubble-sent .matrix-bubble-time { color: rgba(255,255,255,0.65); }
+/* Enviando… */
+.matrix-chat-bubble.bubble-sending {
+  background: #d1fae5;
+  opacity: 0.7;
+  align-self: flex-end;
+  border: 1.5px dashed #10b981;
+}
+.matrix-chat-bubble.bubble-sending .matrix-bubble-name { color: #059669; }
+/* Falhou */
+.matrix-chat-bubble.bubble-failed {
+  background: #fee2e2;
+  align-self: flex-end;
+  border: 1.5px solid #ef4444;
+}
+.matrix-chat-bubble.bubble-failed .matrix-bubble-name { color: #dc2626; }
+.matrix-bubble-retry { font-size: 11px; color: #dc2626; cursor: pointer; text-decoration: underline; margin-top: 4px; display: inline-block; }
+.dark-mode .matrix-chat-bubble { background: #1e3a2e; color: #e2e8f0; }
+.dark-mode .matrix-chat-bubble.bubble-sent { background: #1d4ed8; }
+.dark-mode .matrix-chat-bubble.bubble-sending { background: #064e3b; }
+.dark-mode .matrix-chat-bubble.bubble-failed { background: #450a0a; }
+.matrix-bubble-name { font-size: 11px; font-weight: 700; color: #059669; margin-bottom: 3px; }
+.matrix-bubble-time { font-size: 10px; color: var(--text-muted); margin-top: 3px; text-align: right; }
+#matrix-chat-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+}
+#matrix-chat-input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--bg);
+  color: var(--text);
+  outline: none;
+}
+#matrix-chat-input:focus { border-color: #10b981; }
+#matrix-chat-send {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+  font-weight: 700;
+  font-size: 13px;
+}
+#matrix-chat-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-top: 40px;
+}
+
+/* ── MATRIX MENU BUTTON na sidebar ── */
+.matrix-add-sala-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: calc(100% - 20px);
+  margin: 8px 10px 4px;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, #059669, #10b981);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 2px 8px rgba(16,185,129,0.3);
+  letter-spacing: 0.2px;
+}
+.matrix-add-sala-btn:hover {
+  background: linear-gradient(135deg, #047857, #059669);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16,185,129,0.4);
+}
+
+/* ── MODAL DE SALAS MATRIX ── */
+.matrix-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: mxFadeIn 0.2s ease;
+}
+@keyframes mxFadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+.matrix-modal {
+  background: #ffffff;
+  border-radius: 16px;
+  width: 480px;
+  max-width: 95vw;
+  max-height: 82vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.35);
+  overflow: hidden;
+  animation: mxSlideUp 0.25s ease;
+}
+@keyframes mxSlideUp { from { transform: translateY(20px); opacity:0; } to { transform: translateY(0); opacity:1; } }
+
+.dark-mode .matrix-modal { background: #1e293b; color: #e2e8f0; }
+
+.matrix-modal-header {
+  background: linear-gradient(135deg, #059669, #10b981);
+  color: white;
+  padding: 18px 20px 14px;
+  flex-shrink: 0;
+}
+.matrix-modal-header h3 { margin: 0 0 4px; font-size: 17px; font-weight: 800; }
+.matrix-modal-header p { margin: 0; font-size: 12px; opacity: 0.85; }
+
+.matrix-modal-search {
+  padding: 12px 16px;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+  background: #f8fafc;
+}
+.dark-mode .matrix-modal-search { background: #0f172a; border-bottom-color: #334155; }
+
+.matrix-modal-search input {
+  width: 100%;
+  padding: 9px 14px 9px 36px;
+  border: 1.5px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13px;
+  outline: none;
+  font-family: inherit;
+  background: white;
+  color: #1e293b;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+.dark-mode .matrix-modal-search input { background: #1e293b; border-color: #334155; color: #e2e8f0; }
+.matrix-modal-search input:focus { border-color: #10b981; }
+.matrix-search-wrap { position: relative; }
+.matrix-search-wrap i {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.matrix-modal-categories {
+  display: flex;
+  gap: 6px;
+  padding: 8px 16px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #e2e8f0;
+  flex-shrink: 0;
+  background: #f8fafc;
+}
+.dark-mode .matrix-modal-categories { background: #0f172a; border-bottom-color: #334155; }
+
+.mx-cat-btn {
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1.5px solid #e2e8f0;
+  background: white;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.dark-mode .mx-cat-btn { background: #1e293b; border-color: #334155; color: #94a3b8; }
+.mx-cat-btn:hover { border-color: #10b981; color: #059669; }
+.mx-cat-btn.active { background: #10b981; border-color: #10b981; color: white; }
+
+.matrix-modal-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+}
+.matrix-modal-list::-webkit-scrollbar { width: 4px; }
+.matrix-modal-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+
+.mx-sala-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: background 0.12s;
+  border-bottom: 1px solid #f1f5f9;
+}
+.dark-mode .mx-sala-item { border-bottom-color: #1e293b; }
+.mx-sala-item:hover { background: #f0fdf4; }
+.dark-mode .mx-sala-item:hover { background: #052e16; }
+.mx-sala-item.already-joined { opacity: 0.45; pointer-events: none; }
+
+.mx-sala-icon {
+  font-size: 22px;
+  width: 36px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.mx-sala-info { flex: 1; min-width: 0; }
+.mx-sala-name { font-weight: 700; font-size: 13px; color: #1e293b; }
+.dark-mode .mx-sala-name { color: #e2e8f0; }
+.mx-sala-alias { font-size: 10px; color: #94a3b8; margin-top: 1px; font-family: monospace; }
+.mx-sala-cat { font-size: 9px; font-weight: 700; color: #059669; background: #dcfce7; border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
+.dark-mode .mx-sala-cat { background: #052e16; }
+
+.mx-join-btn {
+  background: #10b981;
+  color: white;
+  border: none;
+  border-radius: 7px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.mx-join-btn:hover { background: #059669; transform: scale(1.03); }
+.mx-join-btn.joined { background: #e2e8f0; color: #64748b; cursor: default; }
+.dark-mode .mx-join-btn.joined { background: #334155; color: #94a3b8; }
+
+.matrix-modal-footer {
+  padding: 10px 16px;
+  border-top: 1px solid #e2e8f0;
+  font-size: 11px;
+  color: #94a3b8;
+  text-align: center;
+  flex-shrink: 0;
+  background: #f8fafc;
+}
+.dark-mode .matrix-modal-footer { background: #0f172a; border-top-color: #334155; }
+
+/* ── TOAST DE CONFIRMAÇÃO ── */
+.matrix-toast {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: #059669;
+  color: white;
+  padding: 10px 20px;
+  border-radius: 30px;
+  font-size: 13px;
+  font-weight: 700;
+  z-index: 9999;
+  opacity: 0;
+  transition: all 0.3s ease;
+  pointer-events: none;
+  white-space: nowrap;
+  box-shadow: 0 4px 20px rgba(5,150,105,0.4);
+}
+.matrix-toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ── SECTION HEADER NA SIDEBAR ── */
+.matrix-sidebar-header {
+  padding: 8px 14px 4px;
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #10b981;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+/* ── INDICADOR DE SALA ATIVA NO HEADER ── */
+#matrix-active-room-indicator {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  background: rgba(16,185,129,0.15);
+  border: 1px solid rgba(16,185,129,0.35);
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #10b981;
+  margin-left: 6px;
+}
+</style>
+<script>
+(function() {
+
+    // ==================================================
+    // ⚙️ CONFIGURAÇÃO — altere apenas estas variáveis
+    // ==================================================
+    const PROXY_URL = 'https://script.google.com/macros/s/AKfycbwjxfGj72ILGFJ1NOvfBgC5J-_EYPawbfQRTmzDjvOS/dev';
+
+    // ==================================================
+    // 🏷️ CATEGORIAS para o menu de salas
+    // ==================================================
+    const CATEGORIAS = {
+      'geral':   '🌐 Geral',
+      'tech':    '💻 Tecnologia',
+      'linux':   '🐧 Linux',
+      'games':   '🎮 Games',
+      'br':      '🇧🇷 Brasil/PT',
+      'ciencia': '🔬 Ciência',
+      'cultura': '🎨 Cultura',
+      'crypto':  '₿ Crypto',
+      'outros':  '💬 Outros',
+    };
+
+    // 🌎 LISTA DE SALAS DO MATRIX
+    const SALAS = [
+        // --- 🌐 Geral (carregam automaticamente ao iniciar) ---
+        { alias: "#envs_lounge:matrix.org",    nome: "☕ Envs Lounge",          cat: 'geral' },
+        { alias: "#brasil:matrix.org",         nome: "🇧🇷 Brasil Geral",        cat: 'br'    },
+        { alias: "#conversa:matrix.org",       nome: "🗣️ Conversa Geral (PT)",  cat: 'br'    },
+        { alias: "#shitpost:matrix.org",       nome: "💩 Shitpost",             cat: 'geral' },
+
+        // --- 🌐 Geral (apenas no menu) ---
+        { alias: "#matrix:matrix.org",         nome: "🚀 Matrix Oficial (HQ)",               cat: 'geral' },
+        { alias: "#community:matrix.org",      nome: "👥 Comunidade Matrix",                 cat: 'geral' },
+        { alias: "#offtopic-space:envs.net",   nome: "💬 Offtopic (EN)",                     cat: 'geral' },
+        { alias: "#lounge:envs.net",           nome: "🛋️ General Lounge",                    cat: 'geral' },
+        { alias: "#memes:matrix.org",          nome: "🦄 Memes",                             cat: 'geral' },
+        { alias: "#lgbtq:matrix.org",          nome: "🏳️‍🌈 LGBTQ+",                          cat: 'geral' },
+        { alias: "#neurodiversity:matrix.org", nome: "🧩 Neurodiversidade",                  cat: 'geral' },
+        { alias: "#freelance:matrix.org",      nome: "💸 Freelance",                         cat: 'geral' },
+        { alias: "#remotework:matrix.org",     nome: "🏠 Trabalho Remoto",                   cat: 'geral' },
+
+        // --- 💻 Tecnologia ---
+        { alias: "#python:matrix.org",         nome: "🐍 Python",                            cat: 'tech'  },
+        { alias: "#javascript:matrix.org",     nome: "☕ JavaScript",                        cat: 'tech'  },
+        { alias: "#rust:matrix.org",           nome: "🦀 Rust",                              cat: 'tech'  },
+        { alias: "#golang:matrix.org",         nome: "🏎️ GoLang",                            cat: 'tech'  },
+        { alias: "#selfhosted:matrix.org",     nome: "🏠 Self-Hosted",                       cat: 'tech'  },
+        { alias: "#homelab:matrix.org",        nome: "🏡 Homelab",                           cat: 'tech'  },
+        { alias: "#docker:matrix.org",         nome: "🐳 Docker",                            cat: 'tech'  },
+        { alias: "#kubernetes:matrix.org",     nome: "☸️ Kubernetes",                        cat: 'tech'  },
+        { alias: "#devops:matrix.org",         nome: "🔄 DevOps",                            cat: 'tech'  },
+        { alias: "#sysadmin:matrix.org",       nome: "🖥️ Sysadmin",                          cat: 'tech'  },
+        { alias: "#ai:matrix.org",             nome: "🧠 Inteligência Artificial",           cat: 'tech'  },
+        { alias: "#cybersecurity:matrix.org",  nome: "🛡️ Cybersecurity",                     cat: 'tech'  },
+        { alias: "#privacy:matrix.org",        nome: "🔒 Privacy",                           cat: 'tech'  },
+        { alias: "#opensource:matrix.org",     nome: "🔓 Open Source",                       cat: 'tech'  },
+        { alias: "#electronics:matrix.org",    nome: "⚡ Eletrônica",                        cat: 'tech'  },
+        { alias: "#3dprinting:matrix.org",     nome: "🖨️ Impressão 3D",                      cat: 'tech'  },
+        { alias: "#database:matrix.org",       nome: "🗄️ Bancos de Dados",                   cat: 'tech'  },
+        { alias: "#cloud:matrix.org",          nome: "⛅ Cloud",                             cat: 'tech'  },
+        { alias: "#design:matrix.org",         nome: "🎨 Design",                            cat: 'tech'  },
+
+        // --- 🐧 Linux ---
+        { alias: "#linux:matrix.org",          nome: "🐧 Linux Geral",                       cat: 'linux' },
+        { alias: "#archlinux:matrix.org",      nome: "🤓 Arch Linux",                        cat: 'linux' },
+        { alias: "#fedora:matrix.org",         nome: "🎩 Fedora",                            cat: 'linux' },
+        { alias: "#ubuntu:matrix.org",         nome: "🍜 Ubuntu",                            cat: 'linux' },
+        { alias: "#debian:matrix.org",         nome: "🌀 Debian",                            cat: 'linux' },
+        { alias: "#kde:kde.org",               nome: "🌀 KDE",                               cat: 'linux' },
+        { alias: "#gnome:matrix.org",          nome: "👣 GNOME",                             cat: 'linux' },
+        { alias: "#foss:matrix.org",           nome: "💎 FOSS",                              cat: 'linux' },
+
+        // --- 🎮 Games ---
+        { alias: "#gaming:matrix.org",         nome: "🎮 Gaming Geral",                      cat: 'games' },
+        { alias: "#minecraft:matrix.org",      nome: "⛏️ Minecraft",                         cat: 'games' },
+        { alias: "#games:matrix.org",          nome: "👾 Games",                             cat: 'games' },
+        { alias: "#boardgames:glasgow.social",  nome: "🎲 Board Games",                       cat: 'games' },
+        { alias: "#games-br:matrix.org",       nome: "🎮 Games BR",                          cat: 'games' },
+
+        // --- 🇧🇷 Brasil / Portugal ---
+        { alias: "#pt-br:matrix.org",          nome: "🇧🇷 Comunidade BR",                    cat: 'br'    },
+        { alias: "#portugal:matrix.org",       nome: "🇵🇹 Portugal",                         cat: 'br'    },
+        { alias: "#dev-br:matrix.org",         nome: "👨‍💻 Dev Brasil",                       cat: 'br'    },
+        { alias: "#linux-br:matrix.org",       nome: "🐧 Linux Brasil",                      cat: 'br'    },
+        { alias: "#anime-br:matrix.org",       nome: "🍥 Anime BR",                          cat: 'br'    },
+        { alias: "#tecnologia:matrix.org",     nome: "📡 Tecnologia PT-BR",                  cat: 'br'    },
+
+        // --- 🔬 Ciência ---
+        { alias: "#science:matrix.org",        nome: "🔬 Ciência",                           cat: 'ciencia' },
+        { alias: "#space:matrix.org",          nome: "🚀 Espaço / Astronomia",               cat: 'ciencia' },
+        { alias: "#robotics:matrix.org",       nome: "🤖 Robótica",                          cat: 'ciencia' },
+        { alias: "#machinelearning:matrix.org",nome: "🤖 Machine Learning",                  cat: 'ciencia' },
+        { alias: "#philosophy:matrix.org",     nome: "🤔 Filosofia",                         cat: 'ciencia' },
+        { alias: "#psychology:matrix.org",     nome: "🧠 Psicologia",                        cat: 'ciencia' },
+        { alias: "#history:matrix.org",        nome: "🏛️ História",                          cat: 'ciencia' },
+
+        // --- 🎨 Cultura ---
+        { alias: "#anime:matrix.org",          nome: "🍥 Anime",                             cat: 'cultura' },
+        { alias: "#manga:matrix.org",          nome: "📖 Manga",                             cat: 'cultura' },
+        { alias: "#music:matrix.org",          nome: "🎵 Música",                            cat: 'cultura' },
+        { alias: "#art:matrix.org",            nome: "🎨 Arte",                              cat: 'cultura' },
+        { alias: "#books:matrix.org",          nome: "📚 Livros",                            cat: 'cultura' },
+        { alias: "#writing:matrix.org",        nome: "✍️ Escrita",                           cat: 'cultura' },
+        { alias: "#photography:matrix.org",    nome: "📸 Fotografia",                        cat: 'cultura' },
+        { alias: "#food:matrix.org",           nome: "🍲 Comida",                            cat: 'cultura' },
+        { alias: "#coffee:matrix.org",         nome: "☕ Café",                              cat: 'cultura' },
+        { alias: "#beer:matrix.org",           nome: "🍺 Cerveja",                           cat: 'cultura' },
+        { alias: "#travel:matrix.org",         nome: "✈️ Viagens",                           cat: 'cultura' },
+        { alias: "#sports:matrix.org",         nome: "⚽ Esportes",                          cat: 'cultura' },
+        { alias: "#formula1:matrix.org",       nome: "🏎️ Fórmula 1",                         cat: 'cultura' },
+
+        // --- ₿ Crypto ---
+        { alias: "#bitcoin:matrix.org",        nome: "₿ Bitcoin",                            cat: 'crypto' },
+        { alias: "#ethereum:matrix.org",       nome: "⬡ Ethereum",                           cat: 'crypto' },
+
+        // --- 💬 Outros ---
+        { alias: "#nextcloud:matrix.org",      nome: "☁️ Nextcloud",                         cat: 'outros' },
+        { alias: "#mozilla:matrix.org",        nome: "🔥 Mozilla",                           cat: 'outros' },
+        { alias: "#startups:matrix.org",       nome: "🚀 Startups",                          cat: 'outros' },
+        { alias: "#marketing:matrix.org",      nome: "📈 Marketing",                         cat: 'outros' },
+        { alias: "#ham-radio-space:matrix.m0aws.co.uk", nome: "📡 Radioamador",              cat: 'outros' },
+    ];
+
+    // ==================================================
+    // 🔧 INTERNOS — não precisa alterar
+    // ==================================================
+    let salasInfo      = [];
+    let pollingInterval = null;
+    let _salaAtiva      = null;
+    let _isPolling     = false; // BUG3 FIX: guard contra polling concorrente
+
+    // --------------------------------------------------
+    // JSONP helper
+    // --------------------------------------------------
+    function jsonpFetch(url) {
+        return new Promise(function(resolve, reject) {
+            var cbName = 'matrixCb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+            var script = document.createElement('script');
+            var timer = setTimeout(function() {
+                delete window[cbName];
+                if (script.parentNode) script.parentNode.removeChild(script);
+                reject(new Error('JSONP timeout'));
+            }, 15000);
+            window[cbName] = function(data) {
+                clearTimeout(timer);
+                delete window[cbName];
+                if (script.parentNode) script.parentNode.removeChild(script);
+                resolve(data);
+            };
+            script.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'callback=' + cbName;
+            script.onerror = function() {
+                clearTimeout(timer);
+                delete window[cbName];
+                if (script.parentNode) script.parentNode.removeChild(script);
+                reject(new Error('JSONP script error'));
+            };
+            document.head.appendChild(script);
+        });
+    }
+
+    function escapeHtml(texto) {
+        const div = document.createElement('div');
+        div.textContent = texto;
+        return div.innerHTML;
+    }
+
+    async function resolverRoomId(alias) {
+        try {
+            const url = `${PROXY_URL}?acao=obter_room_id&alias=${encodeURIComponent(alias)}`;
+            const dados = await jsonpFetch(url);
+            return dados.room_id || null;
+        } catch (e) {
+            console.warn(`[Matrix] Erro ao resolver alias ${alias}:`, e);
+            return null;
+        }
+    }
+
+    function injetarMensagemNoChat(sala, mensagem) {
+        if (!sala._mensagens) sala._mensagens = [];
+        const hora = new Date(mensagem.timestamp).toLocaleTimeString();
+        const remetente = mensagem.sender.split(':')[0];
+        const body = mensagem.body;
+
+        // Remove msg local com mesmo texto se existir (evita duplicata)
+        const localIdx = sala._mensagens.findIndex(m => m._local && m._texto === body);
+        if (localIdx !== -1) sala._mensagens.splice(localIdx, 1);
+
+        sala._mensagens.push({ body, sender: remetente, hora });
+
+        if (_salaAtiva === sala.alias) {
+            renderizarChatMatrix(sala);
+        }
+    }
+
+    // Renderiza a área de conversa de uma sala específica
+    function renderizarChatMatrix(sala) {
+        const overlay = document.getElementById('matrix-chat-overlay');
+        if (!overlay) return;
+        const header = document.getElementById('matrix-chat-header-title');
+        const msgArea = document.getElementById('matrix-chat-messages');
+        if (header) header.textContent = sala.nome;
+        if (!msgArea) return;
+
+        const msgs = sala._mensagens || [];
+        if (msgs.length === 0) {
+            // Só mostra loading se o histórico ainda não foi carregado
+            const status = sala._historicoCarregado
+                ? `<div id="matrix-chat-empty">📭 Nenhuma mensagem ainda em ${sala.nome}</div>`
+                : `<div id="matrix-chat-empty">⏳ Carregando mensagens de ${sala.nome}...</div>`;
+            msgArea.innerHTML = status;
+            return;
+        }
+        msgArea.innerHTML = msgs.map((m, idx) => {
+            const isLocal   = !!m._local;
+            const isFailed  = !!m._falhou;
+            const cls       = isFailed ? 'bubble-failed' : isLocal ? 'bubble-sending' : (m.sender === '👤 Você' ? 'bubble-sent' : '');
+            const label     = isFailed  ? '❌ Você (falhou)' :
+                              isLocal   ? '⏳ Você (enviando…)' :
+                              escapeHtml(m.sender);
+            const retryBtn  = isFailed
+                ? `<span class="matrix-bubble-retry" onclick="window._matrixRetry(${idx})">↩ Tentar novamente</span>`
+                : '';
+            return `
+            <div class="matrix-chat-bubble ${cls}" data-idx="${idx}">
+                <div class="matrix-bubble-name">${label}</div>
+                <div>${escapeHtml(m.body)}</div>
+                <div class="matrix-bubble-time">${m.hora}${retryBtn}</div>
+            </div>`;
+        }).join('');
+        msgArea.scrollTop = msgArea.scrollHeight;
+    }
+
+    // Garante que o overlay DOM exista dentro de chat-messages-container
+    function garantirOverlay() {
+        if (document.getElementById('matrix-chat-overlay')) return;
+        const container = document.querySelector('.chat-messages-container');
+        if (!container) return;
+        const overlay = document.createElement('div');
+        overlay.id = 'matrix-chat-overlay';
+        overlay.innerHTML = `
+            <div id="matrix-chat-header">
+                <span id="matrix-chat-header-title"></span>
+                <button class="diag-btn" onclick="window._matrixAbrirDiagnostico()" title="Diagnóstico Matrix">🔬 Diagnóstico</button>
+                <button onclick="window._matrixVoltarGeral()">← Modo Geral</button>
+            </div>
+            <div id="matrix-chat-messages"></div>
+            <div id="matrix-chat-input-row">
+                <input id="matrix-chat-input" type="text" placeholder="Mensagem para esta salinha..." autocomplete="off" />
+                <button id="matrix-chat-send" onclick="window._matrixEnviarChat()">
+                    <i class="fas fa-paper-plane"></i>
+                </button>
+            </div>
+        `;
+        container.appendChild(overlay);
+
+        // Enter para enviar
+        overlay.querySelector('#matrix-chat-input').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') window._matrixEnviarChat();
+        });
+    }
+
+    // Voltar ao Modo Geral (deseleciona sala)
+    window._matrixVoltarGeral = function() {
+        _salaAtiva = null;
+        window._matrixSalaAtual = 'geral';
+        const overlay = document.getElementById('matrix-chat-overlay');
+        if (overlay) overlay.classList.remove('ativo');
+        renderizarSidebarMatrix();
+    };
+
+    async function enviarParaSala(sala, texto) {
+        const url = `${PROXY_URL}?acao=enviar_mensagem&sala_id=${encodeURIComponent(sala.room_id)}&texto=${encodeURIComponent(texto)}`;
+        try {
+            const res = await jsonpFetch(url);
+            if (res && res.event_id) return true;           // ✅ Matrix confirmou
+            // GAS respondeu mas sem event_id → token inválido ou bot fora da sala
+            const motivo = res && res.erro ? res.erro : 'token inválido ou bot não está na sala';
+            console.error('[Matrix] ❌ Envio rejeitado pelo GAS:', motivo);
+            mostrarToast(`❌ Mensagem não enviada: ${motivo}`);
+            return false;
+        } catch(e) {
+            console.error(`[Matrix] ❌ Envio falhou:`, e);
+            mostrarToast('❌ Falha de rede ao enviar mensagem');
+            return false;
+        }
+    }
+
+    async function buscarMensagens() {
+        // BUG3 FIX: impede dois polls simultâneos que corrompem o _sinceToken
+        if (_isPolling) return;
+        _isPolling = true;
+        try {
+            for (const sala of salasInfo) {
+                if (!sala.room_id) continue;
+                try {
+                    // Manda o since token guardado pelo cliente (resolve o stateless do GAS)
+                    const sinceParam = sala._sinceToken ? `&since=${encodeURIComponent(sala._sinceToken)}` : '';
+                    const dados = await jsonpFetch(`${PROXY_URL}?acao=obter_mensagens&sala_id=${encodeURIComponent(sala.room_id)}${sinceParam}`);
+
+                    // Guarda o since token retornado para o próximo poll
+                    if (dados.since) sala._sinceToken = dados.since;
+
+                    let atualizado = false;
+                    for (const msg of (dados.mensagens || [])) {
+                        if (!sala.ultimasMensagens.has(msg.event_id)) {
+                            sala.ultimasMensagens.add(msg.event_id);
+                            injetarMensagemNoChat(sala, msg);
+                            atualizado = true;
+                        }
+                    }
+                    if (atualizado && _salaAtiva === sala.alias) {
+                        renderizarChatMatrix(sala);
+                    }
+                } catch(e) {
+                    console.warn(`[Matrix] ⚠️ Erro ao buscar mensagens de "${sala.nome}":`, e.message || e);
+                }
+            }
+        } finally {
+            _isPolling = false; // libera o guard sempre, mesmo em caso de erro
+        }
+    }
+
+    window.enviarParaMatrix = async (texto, indiceSala = 0) => { if (salasInfo[indiceSala]) await enviarParaSala(salasInfo[indiceSala], texto); };
+    window.getMatrixSalas = () => salasInfo.map((s, i) => ({ indice: i, nome: s.nome, room_id: s.room_id, geral: !!s.geral }));
+
+    window._matrixEnviarHook = async function(texto, nomeUsuario) {
+        const prefixo = `[K10·${nomeUsuario}] `;
+        if (_salaAtiva) {
+            const sala = salasInfo.find(s => s.alias === _salaAtiva);
+            if (sala) await enviarParaSala(sala, prefixo + texto);
+        } else {
+            for (const sala of salasInfo.filter(s => s.geral && s.room_id)) await enviarParaSala(sala, prefixo + texto);
+        }
+    };
+
+    function mostrarToast(msg) {
+        let t = document.getElementById('matrix-toast');
+        if (!t) { t = document.createElement('div'); t.id = 'matrix-toast'; t.className = 'matrix-toast'; document.body.appendChild(t); }
+        t.textContent = msg; t.classList.add('show');
+        setTimeout(() => t.classList.remove('show'), 2800);
+    }
+
+    // --------------------------------------------------
+    // getSidebarContainer — funciona com ou sem sidebar-tab-content
+    // --------------------------------------------------
+    function getSidebarContainer() {
+        return document.querySelector('.sidebar-tab-content')
+            || document.querySelector('.conversations-list')
+            || null;
+    }
+
+    function renderizarSidebarMatrix() {
+        let bloco = document.getElementById('matrix-sidebar-block');
+        const container = getSidebarContainer();
+        if (!container) return;
+
+        if (!bloco) {
+            bloco = document.createElement('div');
+            bloco.id = 'matrix-sidebar-block';
+            bloco.style.cssText = 'border-top: 2px solid #10b981; margin-top: 8px;';
+        }
+        if (!container.contains(bloco)) {
+            container.appendChild(bloco);
+        }
+
+        const extras = salasInfo;
+        bloco.innerHTML = `
+            ${extras.length > 0 ? `
+                <div class="matrix-sidebar-header"><i class="fas fa-comments" style="font-size:10px"></i> Salinhas</div>
+                ${extras.map(s => `
+                    <div class="matrix-conv-item ${_salaAtiva === s.alias ? 'active' : ''}"
+                         onclick="window._matrixSelecionarSala('${s.alias.replace(/'/g,"\\'")}')">
+                        <div style="flex:1"><div class="matrix-conv-name">${escapeHtml(s.nome)}</div><div class="matrix-conv-sub">${escapeHtml(s.alias)}</div></div>
+                        <span class="matrix-conv-close" onclick="event.stopPropagation();window._matrixFecharSala('${s.alias.replace(/'/g,"\\'")}')">✕</span>
+                    </div>`).join('')}
+            ` : ''}
+
+        `;
+    }
+
+    // --------------------------------------------------
+    // SELECIONAR sala ativa
+    // --------------------------------------------------
+    window._matrixSelecionarSala = function(alias) {
+        _salaAtiva = alias;
+        window._matrixSalaAtual = alias || 'geral';
+        renderizarSidebarMatrix();
+
+        garantirOverlay();
+        const overlay = document.getElementById('matrix-chat-overlay');
+
+        if (alias) {
+            const sala = salasInfo.find(s => s.alias === alias);
+            if (sala) {
+                if (!sala._mensagens) sala._mensagens = [];
+                if (overlay) overlay.classList.add('ativo');
+                // Mostra mensagens já em cache imediatamente
+                renderizarChatMatrix(sala);
+                // Só carrega histórico se ainda não carregou
+                if (!sala._historicoCarregado) {
+                    sala._historicoCarregado = true;
+                    carregarHistorico(sala, 30);
+                }
+            }
+        } else {
+            if (overlay) overlay.classList.remove('ativo');
+        }
+        console.log(`[Matrix] 🏠 Sala ativa: ${alias || 'MODO GERAL'}`);
+    };
+
+    // --------------------------------------------------
+    // FECHAR sala específica
+    // --------------------------------------------------
+    window._matrixFecharSala = function(alias) {
+        salasInfo = salasInfo.filter(s => s.alias !== alias || s.geral);
+        if (_salaAtiva === alias) {
+            _salaAtiva = null;
+            window._matrixSalaAtual = 'geral';
+            const overlay = document.getElementById('matrix-chat-overlay');
+            if (overlay) overlay.classList.remove('ativo');
+        }
+        renderizarSidebarMatrix();
+        mostrarToast('🚪 Sala fechada');
+    };
+
+    window._matrixEnviarChat = async function() {
+        const input = document.getElementById('matrix-chat-input');
+        if (!input || !input.value.trim() || !_salaAtiva) return;
+        const texto = input.value.trim();
+        input.value = '';
+        const sala = salasInfo.find(s => s.alias === _salaAtiva);
+        if (!sala || !sala.room_id) return;
+        if (!sala._mensagens) sala._mensagens = [];
+        // Prefixo com nome do usuário K10
+        const nomeK10 = localStorage.getItem('p2pUserName') || '';
+        const textoFinal = nomeK10 ? `[K10·${nomeK10}] ${texto}` : texto;
+        // Adiciona localmente com estado "enviando…"
+        const msgLocal = { body: textoFinal, sender: '👤 Você', hora: new Date().toLocaleTimeString(), _local: true, _texto: textoFinal };
+        sala._mensagens.push(msgLocal);
+        renderizarChatMatrix(sala);
+        // Tenta enviar para o Matrix via GAS
+        const ok = await enviarParaSala(sala, textoFinal);
+        if (!ok) {
+            // Marca a bolha como falhou para o usuário ver
+            msgLocal._falhou = true;
+            delete msgLocal._local;
+            renderizarChatMatrix(sala);
+        }
+        // Se ok=true, o polling substituirá a bolha local pelo event_id real do Matrix
+    };
+
+    // Retry de mensagem falhada
+    window._matrixRetry = async function(idx) {
+        const sala = salasInfo.find(s => s.alias === _salaAtiva);
+        if (!sala || !sala._mensagens[idx]) return;
+        const m = sala._mensagens[idx];
+        const texto = m._texto || m.body;
+        m._falhou = false;
+        m._local  = true;
+        renderizarChatMatrix(sala);
+        const ok = await enviarParaSala(sala, texto);
+        if (!ok) { m._falhou = true; delete m._local; renderizarChatMatrix(sala); }
+    };
+
+    // ══════════════════════════════════════════════════════════════
+    // 🔬 MATRIX DIAGNOSTICS — Relatório completo em tempo real
+    // ══════════════════════════════════════════════════════════════
+
+    window._matrixAbrirDiagnostico = function() {
+        if (document.getElementById('matrix-diag-modal')) return;
+        const modal = document.createElement('div');
+        modal.id = 'matrix-diag-modal';
+        modal.innerHTML = `
+            <div id="matrix-diag-box">
+                <div id="matrix-diag-header">
+                    <span>🔬 Diagnóstico Matrix K10</span>
+                    <button onclick="window._matrixFecharDiagnostico()">✕ Fechar</button>
+                </div>
+                <div id="matrix-diag-log">
+                    <div class="mdiag-line"><span class="mdiag-sys">Pronto. Clique em ▶ Executar para iniciar o diagnóstico completo.</span></div>
+                </div>
+                <div id="matrix-diag-footer">
+                    <button class="mdiag-btn-run"  onclick="window._matrixExecutarDiag()">▶ Executar</button>
+                    <button class="mdiag-btn-fix"  onclick="window._matrixAutoFix()">🔧 Auto-Fix</button>
+                    <button class="mdiag-btn-copy" onclick="window._matrixCopiarRelatorio()">📋 Copiar</button>
+                    <button class="mdiag-btn-close" onclick="window._matrixFecharDiagnostico()">Fechar</button>
+                </div>
+            </div>`;
+        document.body.appendChild(modal);
+    };
+
+    window._matrixFecharDiagnostico = function() {
+        const m = document.getElementById('matrix-diag-modal');
+        if (m) m.remove();
+    };
+
+    function _diagLog(msg, tipo) {
+        const log = document.getElementById('matrix-diag-log');
+        if (!log) return;
+        const ts = new Date().toLocaleTimeString();
+        const line = document.createElement('div');
+        line.className = 'mdiag-line';
+        line.innerHTML = `<span class="mdiag-ts">[${ts}]</span><span class="mdiag-${tipo||'inf'}">${escapeHtml(String(msg))}</span>`;
+        log.appendChild(line);
+        log.scrollTop = log.scrollHeight;
+        (window._diagRelatorio = window._diagRelatorio||[]).push(`[${ts}] ${msg}`);
+    }
+
+    function _diagSep(titulo) {
+        const log = document.getElementById('matrix-diag-log');
+        if (!log) return;
+        const d = document.createElement('div');
+        d.style.cssText = 'padding:8px 0 3px;color:#6366f1;font-weight:800;font-size:10px;letter-spacing:2px;border-top:1px solid #1e293b;margin-top:4px;font-family:"JetBrains Mono",monospace';
+        d.textContent = '── ' + titulo + ' ──';
+        log.appendChild(d);
+        log.scrollTop = log.scrollHeight;
+        (window._diagRelatorio = window._diagRelatorio||[]).push('\n── ' + titulo + ' ──');
+    }
+
+    window._matrixExecutarDiag = async function() {
+        const log = document.getElementById('matrix-diag-log');
+        if (log) log.innerHTML = '';
+        window._diagRelatorio = [];
+        window._diagUserId   = null;
+        window._diagEventId  = null;
+
+        // ── 1. PROXY ──
+        _diagSep('1. PROXY GAS');
+        _diagLog('URL: ' + PROXY_URL, 'inf');
+        let proxyOk = false;
+        try {
+            const r = await jsonpFetch(PROXY_URL);
+            if (r && r.status) { _diagLog('✅ Proxy ativo — v' + (r.versao||'?'), 'ok'); proxyOk = true; }
+            else { _diagLog('⚠️ Resposta estranha: ' + JSON.stringify(r), 'warn'); }
+        } catch(e) { _diagLog('❌ Proxy inacessível: ' + e.message, 'err'); return; }
+
+        // ── 2. TOKEN / WHOAMI via GAS ──
+        _diagSep('2. TOKEN — AUTENTICAÇÃO');
+        try {
+            const r = await jsonpFetch(PROXY_URL + '?acao=whoami');
+            if (r && r.user_id) {
+                _diagLog('✅ Token válido! Conta: ' + r.user_id, 'ok');
+                window._diagUserId = r.user_id;
+            } else {
+                _diagLog('❌ Token inválido ou placeholder: ' + JSON.stringify(r), 'err');
+                _diagLog('👉 Abra o GAS → linha 2 → substitua ACCESS_TOKEN → novo deploy.', 'warn');
+            }
+        } catch(e) { _diagLog('❌ Erro whoami: ' + e.message, 'err'); }
+
+        // ── 3. SALAS ──
+        _diagSep('3. SALAS CARREGADAS');
+        _diagLog('Total em salasInfo: ' + salasInfo.length, 'inf');
+        salasInfo.forEach(s => _diagLog(
+            (s.room_id ? '✅' : '❌') + ' ' + s.nome + ' → ' + (s.room_id || 'SEM room_id'),
+            s.room_id ? 'ok' : 'err'
+        ));
+
+        // ── 4. LEITURA ──
+        _diagSep('4. LEITURA DE MENSAGENS');
+        for (const sala of salasInfo.slice(0,3)) {
+            if (!sala.room_id) { _diagLog('⏭ ' + sala.nome + ' sem room_id', 'warn'); continue; }
+            try {
+                const r = await jsonpFetch(PROXY_URL + '?acao=obter_historico&sala_id=' + encodeURIComponent(sala.room_id) + '&limite=2');
+                if (r && Array.isArray(r.mensagens)) {
+                    if (r.mensagens.length > 0)
+                        _diagLog('✅ ' + sala.nome + ': ' + r.mensagens.length + ' msg(s) lida(s). Último sender: ' + r.mensagens[0].sender, 'ok');
+                    else
+                        _diagLog('⚠️ ' + sala.nome + ': lista vazia (bot fora da sala ou sala vazia)', 'warn');
+                } else {
+                    _diagLog('❌ ' + sala.nome + ': ' + JSON.stringify(r).slice(0,100), 'err');
+                }
+            } catch(e) { _diagLog('❌ ' + sala.nome + ': ' + e.message, 'err'); }
+        }
+
+        // ── 5. ENVIO ──
+        _diagSep('5. ENVIO DE MENSAGEM (teste)');
+        // Prioriza a sala que teve leitura bem-sucedida (tem mensagens) — evita testar sala que o bot não está
+        const salaEnvio = salasInfo.find(s => s.room_id && s._mensagens && s._mensagens.length > 0)
+                       || salasInfo.find(s => s.room_id);
+        if (salaEnvio) {
+            const textoTeste = '[K10·DIAG] Auto-teste ' + new Date().toLocaleTimeString();
+            _diagLog('Enviando para: ' + salaEnvio.nome, 'inf');
+            try {
+                const r = await jsonpFetch(PROXY_URL + '?acao=enviar_mensagem&sala_id=' + encodeURIComponent(salaEnvio.room_id) + '&texto=' + encodeURIComponent(textoTeste));
+                if (r && r.event_id) {
+                    _diagLog('✅ Envio OK! event_id: ' + r.event_id, 'ok');
+                    window._diagEventId = r.event_id;
+                    window._diagSalaEnvio = salaEnvio;
+                } else {
+                    const motivo = (r && r.erro) ? r.erro : JSON.stringify(r);
+                    _diagLog('❌ Envio rejeitado: ' + motivo, 'err');
+                    _diagLog('👉 Bot provavelmente fora da sala. Clique em 🔧 Auto-Fix.', 'warn');
+                }
+            } catch(e) { _diagLog('❌ Erro no envio: ' + e.message, 'err'); }
+        } else {
+            _diagLog('⏭ Nenhuma sala disponível para teste.', 'warn');
+        }
+
+        // ── 6. POLLING ──
+        _diagSep('6. POLLING — RECEBER MENSAGENS');
+        if (window._diagEventId && window._diagSalaEnvio) {
+            _diagLog('Aguardando 5s pelo poll confirmar o envio...', 'inf');
+            await new Promise(res => setTimeout(res, 5000));
+            const s = salasInfo.find(x => x.room_id === window._diagSalaEnvio.room_id);
+            const chegou = s && s.ultimasMensagens && s.ultimasMensagens.has(window._diagEventId);
+            if (chegou)
+                _diagLog('✅ Polling OK! Mensagem confirmada na fila de recebimento.', 'ok');
+            else
+                _diagLog('⚠️ Mensagem enviada mas ainda não voltou no poll (delay normal do Matrix ≤30s).', 'warn');
+        } else {
+            _diagLog('⏭ Pulando (envio não teve sucesso).', 'warn');
+        }
+
+        // ── RESUMO ──
+        _diagSep('RESUMO FINAL');
+        if (window._diagUserId && window._diagEventId)
+            _diagLog('🟢 SISTEMA OK — Token válido e envio funcionando!', 'ok');
+        else if (window._diagUserId && !window._diagEventId)
+            _diagLog('🟡 Token OK mas envio falhou — bot fora da(s) sala(s). Use 🔧 Auto-Fix.', 'warn');
+        else
+            _diagLog('🔴 Token inválido — configure ACCESS_TOKEN no GAS e faça novo deploy.', 'err');
+    };
+
+    window._matrixAutoFix = async function() {
+        _diagSep('🔧 AUTO-FIX — ENTRAR NAS SALAS');
+        for (const sala of salasInfo) {
+            if (!sala.room_id) continue;
+            _diagLog('Tentando entrar em: ' + sala.nome + '...', 'inf');
+            try {
+                const r = await jsonpFetch(PROXY_URL + '?acao=entrar_sala&sala_id=' + encodeURIComponent(sala.room_id));
+                if (r && (r.ok || r.room_id))
+                    _diagLog('✅ Entrou em: ' + sala.nome, 'ok');
+                else
+                    _diagLog('⚠️ ' + sala.nome + ': ' + JSON.stringify(r).slice(0,80), 'warn');
+            } catch(e) { _diagLog('❌ ' + sala.nome + ': ' + e.message, 'err'); }
+        }
+        _diagLog('Auto-fix concluído. Clique em ▶ Executar para confirmar.', 'sys');
+    };
+
+    window._matrixCopiarRelatorio = function() {
+        const txt = ['=== RELATÓRIO DIAGNÓSTICO MATRIX K10 ===',
+                     'Data: ' + new Date().toLocaleString(),
+                     'Proxy: ' + PROXY_URL, '',
+                     ...(window._diagRelatorio||['Nenhum diagnóstico executado.'])
+                    ].join('\n');
+        navigator.clipboard.writeText(txt).then(
+            () => mostrarToast('📋 Relatório copiado!'),
+            () => prompt('Copie o relatório:', txt)
+        );
+    };
+
+    // --------------------------------------------------
+    // ABRIR MODAL de seleção de salas
+    // --------------------------------------------------
+    window._matrixAbrirMenu = function() {
+        if (document.getElementById('matrix-modal-overlay')) return;
+        let catAtiva = 'todas';
+        let busca = '';
+        const overlay = document.createElement('div');
+        overlay.className = 'matrix-modal-overlay';
+        overlay.id = 'matrix-modal-overlay';
+        const salasDiponiveis = SALAS.filter(s => !s.geral);
+
+        function renderLista() {
+            const lista = document.getElementById('mx-sala-list');
+            if (!lista) return;
+            const juntou = new Set(salasInfo.map(s => s.alias));
+            const filtrado = salasDiponiveis.filter(s => {
+                const matchCat = catAtiva === 'todas' || s.cat === catAtiva;
+                const matchBusca = !busca || s.nome.toLowerCase().includes(busca.toLowerCase()) || s.alias.toLowerCase().includes(busca.toLowerCase());
+                return matchCat && matchBusca;
+            });
+            if (filtrado.length === 0) {
+                lista.innerHTML = '<div style="padding:24px;text-align:center;color:#94a3b8;font-size:13px">Nenhuma sala encontrada</div>';
+                return;
+            }
+            lista.innerHTML = filtrado.map(s => {
+                const joined = juntou.has(s.alias);
+                const icon = s.nome.match(/^(\p{Emoji})/u)?.[1] || '💬';
+                const nomeSemIcon = s.nome.replace(/^(\p{Emoji}\s?)/u, '');
+                return `
+                    <div class="mx-sala-item ${joined ? 'already-joined' : ''}">
+                        <div class="mx-sala-icon">${icon}</div>
+                        <div class="mx-sala-info">
+                            <div class="mx-sala-name">${escapeHtml(nomeSemIcon)} ${joined ? '<span class="mx-sala-cat">Aberta</span>' : ''}</div>
+                            <div class="mx-sala-alias">${escapeHtml(s.alias)}</div>
+                        </div>
+                        <button class="mx-join-btn ${joined ? 'joined' : ''}"
+                            onclick="window._matrixEntrarSala('${s.alias.replace(/'/g,"\\'")}','${s.nome.replace(/'/g,"\\'")}','${(s.cat||'outros').replace(/'/g,"\\'")}')">
+                            ${joined ? '✓ Aberta' : 'Entrar'}
+                        </button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        const catBtns = ['todas', ...Object.keys(CATEGORIAS)];
+        const catHtml = catBtns.map(c => `
+            <button class="mx-cat-btn ${c === 'todas' ? 'active' : ''}" data-cat="${c}"
+                onclick="window._mxSetCat('${c}')">
+                ${c === 'todas' ? '🔍 Todas' : CATEGORIAS[c]}
+            </button>
+        `).join('');
+
+        overlay.innerHTML = `
+            <div class="matrix-modal">
+                <div class="matrix-modal-header">
+                    <h3>🌐 Explorar Salinhas Matrix</h3>
+                    <p>Escolha uma salinha para adicionar à sua lista de conversas</p>
+                </div>
+                <div class="matrix-modal-search">
+                    <div class="matrix-search-wrap">
+                        <i class="fas fa-search"></i>
+                        <input id="mx-search-input" type="text" placeholder="Pesquisar salinhas..." autocomplete="off">
+                    </div>
+                </div>
+                <div class="matrix-modal-categories">${catHtml}</div>
+                <div class="matrix-modal-list" id="mx-sala-list"></div>
+                <div class="matrix-modal-footer">
+                    Clique em <strong>Entrar</strong> para abrir uma sala na lista de conversas
+                    <button onclick="document.getElementById('matrix-modal-overlay').remove()"
+                        style="margin-left:12px;background:none;border:1px solid #e2e8f0;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:11px;color:#64748b">
+                        Fechar
+                    </button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+        const inp = document.getElementById('mx-search-input');
+        inp.addEventListener('input', () => { busca = inp.value; renderLista(); });
+        inp.focus();
+        window._mxSetCat = function(cat) {
+            catAtiva = cat;
+            document.querySelectorAll('.mx-cat-btn').forEach(b => {
+                b.classList.toggle('active', b.dataset.cat === cat);
+            });
+            renderLista();
+        };
+        renderLista();
+    };
+
+    // --------------------------------------------------
+    // ENTRAR em uma sala específica (via modal)
+    // --------------------------------------------------
+    window._matrixEntrarSala = async function(alias, nome, cat) {
+        const jaAberta = salasInfo.find(s => s.alias === alias);
+        if (jaAberta) {
+            document.getElementById('matrix-modal-overlay')?.remove();
+            window._matrixSelecionarSala(alias);
+            return;
+        }
+
+        // ── 1. Resolve room_id ──
+        mostrarToast(`⏳ Resolvendo ${nome}...`);
+        const roomId = await resolverRoomId(alias);
+        if (!roomId) { mostrarToast('❌ Sala não encontrada — verifique o alias'); return; }
+
+        // ── 2. Bot entra na sala automaticamente ──
+        mostrarToast(`🚪 Entrando em ${nome}...`);
+        try {
+            const r = await jsonpFetch(`${PROXY_URL}?acao=entrar_sala&sala_id=${encodeURIComponent(roomId)}`);
+            if (!r || (!r.ok && !r.room_id)) {
+                console.warn(`[Matrix] entrar_sala aviso: ${JSON.stringify(r)}`);
+                // Não bloqueia — bot pode já estar na sala
+            }
+        } catch(e) {
+            console.warn('[Matrix] entrar_sala erro (ignorado):', e);
+        }
+
+        // ── 3. Adiciona à lista e abre ──
+        const isGeral = ALIASES_GERAL.has(alias);
+        salasInfo.push({ alias, nome, cat, geral: isGeral, room_id: roomId, ultimasMensagens: new Set(), _historicoCarregado: false, _mensagens: [], _sinceToken: null });
+        document.getElementById('matrix-modal-overlay')?.remove();
+        renderizarSidebarMatrix();
+        window._matrixSelecionarSala(alias);
+        mostrarToast(`✅ ${nome} pronta!`);
+    };
+
+    // --------------------------------------------------
+    // Carrega histórico de uma sala
+    // --------------------------------------------------
+    async function carregarHistorico(sala, limite = 30) {
+        try {
+            const url = `${PROXY_URL}?acao=obter_historico&sala_id=${encodeURIComponent(sala.room_id)}&limite=${limite}`;
+            const dados = await jsonpFetch(url);
+            if (!sala._mensagens) sala._mensagens = [];
+            // Guarda o since token para o polling começar a pegar msgs novas daqui
+            if (dados.since) sala._sinceToken = dados.since;
+            if (dados.mensagens && dados.mensagens.length > 0) {
+                for (const msg of dados.mensagens) {
+                    if (!sala.ultimasMensagens.has(msg.event_id)) {
+                        sala.ultimasMensagens.add(msg.event_id);
+                        const hora = new Date(msg.timestamp).toLocaleTimeString();
+                        const remetente = msg.sender.split(':')[0];
+                        sala._mensagens.push({ body: msg.body, sender: remetente, hora });
+                    }
+                }
+                console.log(`[Matrix] 📜 Histórico: ${dados.mensagens.length} msgs de "${sala.nome}"`);
+            }
+            if (_salaAtiva === sala.alias) renderizarChatMatrix(sala);
+        } catch (e) {
+            console.warn(`[Matrix] ⚠️ Sem histórico para "${sala.nome}":`, e);
+            if (_salaAtiva === sala.alias) renderizarChatMatrix(sala);
+        }
+    }
+
+    // Aliases das salas que devem ter geral:true (usadas pelo _matrixEnviarHook)
+    const ALIASES_GERAL = new Set([
+        "#brasil:matrix.org",
+        "#envs_lounge:matrix.org",
+        "#conversa:matrix.org"
+    ]);
+
+    // --------------------------------------------------
+    // INICIA o sistema Matrix
+    // --------------------------------------------------
+    async function iniciarMatrix() {
+        console.log('[Matrix] 🟢 Iniciando integração v4.0...');
+        if (pollingInterval) clearInterval(pollingInterval);
+
+        // Salas carregadas apenas quando o usuário selecionar no Explorar Salinhas
+        pollingInterval = setInterval(buscarMensagens, 3000);
+        console.log(`[Matrix] ✅ Modo Geral ativo. Polling: 3s. Salas carregadas: ${salasInfo.length}`);
+        injetarNaSidebar();
+
+        // FIX TIMING: se o usuário já havia selecionado uma sala antes de iniciarMatrix
+        // rodar (nos primeiros 6s), a sala não estava em salasInfo → re-abre agora
+        if (_salaAtiva) {
+            const sala = salasInfo.find(s => s.alias === _salaAtiva);
+            if (sala && !sala._historicoCarregado) {
+                console.log(`[Matrix] 🔄 Re-abrindo sala selecionada antes do init: ${_salaAtiva}`);
+                sala._historicoCarregado = true;
+                carregarHistorico(sala, 30);
+            }
+        }
+    }
+
+    function injetarNaSidebar() {
+        // Tenta injetar imediatamente
+        const container = getSidebarContainer();
+        if (container) {
+            renderizarSidebarMatrix();
+        }
+
+        // MutationObserver: re-injeta sempre que o React re-renderizar a sidebar
+        // e remover o bloco do DOM
+        const observer = new MutationObserver(function() {
+            if (!document.getElementById('matrix-sidebar-block')) {
+                renderizarSidebarMatrix();
+            }
+        });
+
+        // Observa o chat-main-container (pai da sidebar)
+        const root = document.querySelector('.chat-main-container') || document.getElementById('root') || document.body;
+        observer.observe(root, { childList: true, subtree: true });
+
+        console.log('[Matrix] 👁️ MutationObserver ativo para manter sidebar injetada');
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => setTimeout(iniciarMatrix, 2000));
+    } else {
+        setTimeout(iniciarMatrix, 2000);
+    }
+
+})();
+</script>
 </body>
 </html>
