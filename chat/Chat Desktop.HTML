@@ -12448,46 +12448,180 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
 
 
-
-
 <script>
-  // Configuração do proxy Matrix
-  const PROXY_URL = 'https://script.google.com/macros/s/AKfycbwq7C7L4YQ1D8yBA81BGaxXNdRG68hclwQqKyt-S-yyTH18Uge0jZPivRPi2jozEc6ueQ/exec';
-  const MATRIX_ROOM_ID = '!sua_sala_id:matrix.org'; // ⚠️ Substitua pelo ID real da sala
+    // ==================================================
+    // INTEGRAÇÃO MATRIX - MÚLTIPLAS SALAS (LEITURA + ESCRITA)
+    // ==================================================
 
-  // Função para enviar mensagem via proxy
-  window.enviarParaMatrix = async (texto) => {
-    try {
-      const resposta = await fetch(PROXY_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          acao: 'enviar_mensagem',
-          sala_id: MATRIX_ROOM_ID,
-          texto: texto
-        })
-      });
-      const resultado = await resposta.json();
-      console.log('✅ Mensagem enviada ao Matrix:', resultado);
-      return resultado;
-    } catch (erro) {
-      console.error('❌ Erro ao enviar para Matrix:', erro);
+    // ⚠️ ATENÇÃO: Substitua pela URL do SEU proxy do Google Apps Script
+    const PROXY_URL = 'https://script.google.com/macros/s/AKfycbwjxfGj72ILGFJ1NOvfBgC5J-_EYPawbfQRTmzDjvOS/exec';
+
+    // Lista de salas (use apelidos para exibição e aliases do Matrix)
+    // Adicione quantas quiser, basta seguir o formato
+    const SALAS = [
+        { alias: '#tecnologia:matrix.org',   nome: '💻 Tecnologia' },
+        { alias: '#matrix:matrix.org',       nome: '🔄 Matrix oficial' },
+        { alias: '#brasil:matrix.org',       nome: '🇧🇷 Brasil' }
+        // ✨ Adicione mais salas aqui
+    ];
+
+    // Armazenamento interno das informações de cada sala
+    let salasInfo = [];
+    let pollingInterval = null;
+
+    // Converte um alias (ex: #tecnologia:matrix.org) para o room_id real (ex: !abcdef:matrix.org)
+    async function resolverRoomId(alias) {
+        try {
+            const url = `https://matrix.org/_matrix/client/v3/directory/room/${encodeURIComponent(alias)}`;
+            const resposta = await fetch(url);
+            const dados = await resposta.json();
+            return dados.room_id;
+        } catch (erro) {
+            console.error(`Erro ao resolver alias ${alias}:`, erro);
+            return null;
+        }
     }
-  };
 
-  // (Opcional) Interceptar o envio de mensagem do chat
-  // Exemplo: se seu chat usa window.sendMessage, você pode encapsular
-  if (typeof window.sendMessage === 'function') {
-    const originalSend = window.sendMessage;
-    window.sendMessage = function(texto, ...args) {
-      window.enviarParaMatrix(texto);
-      return originalSend(texto, ...args);
+    // Injeta uma nova mensagem no chat (com fallback caso o React não esteja exposto globalmente)
+    function injetarMensagemNoChat(sala, mensagem) {
+        const nomeExibicao = `📢 ${sala.nome} (${mensagem.sender.split(':')[0]})`;
+        const data = new Date(mensagem.timestamp);
+        const hora = data.toLocaleTimeString();
+
+        const novaMensagem = {
+            text: mensagem.body,
+            sender: '__system__',
+            senderName: nomeExibicao,
+            time: hora,
+            type: 'text',
+            timestamp: mensagem.timestamp,
+            recipient: 'general'
+        };
+
+        // Tenta usar a função global do React para atualizar a interface
+        if (typeof window.chatSetMessages === 'function') {
+            window.chatSetMessages(prev => [...prev, novaMensagem]);
+            return;
+        }
+
+        // Fallback: insere a mensagem diretamente no DOM
+        const container = document.querySelector('.chat-messages');
+        if (!container) return;
+
+        const divMensagem = document.createElement('div');
+        divMensagem.className = 'message-bubble received';
+        divMensagem.innerHTML = `
+            <div class="chat-user-bubble">${escapeHtml(novaMensagem.senderName)}</div>
+            <div class="message-content-wrapper"><div>${escapeHtml(novaMensagem.text)}</div></div>
+            <div class="message-timestamp">${novaMensagem.time}</div>
+        `;
+        container.appendChild(divMensagem);
+        container.scrollTop = container.scrollHeight;
+    }
+
+    // Função auxiliar para limpar o HTML de textos recebidos (segurança)
+    function escapeHtml(texto) {
+        const div = document.createElement('div');
+        div.textContent = texto;
+        return div.innerHTML;
+    }
+
+    // Busca novas mensagens em todas as salas configuradas
+    async function buscarMensagens() {
+        for (const sala of salasInfo) {
+            try {
+                const url = `${PROXY_URL}?acao=obter_mensagens&sala_id=${encodeURIComponent(sala.room_id)}`;
+                const resposta = await fetch(url);
+                const dados = await resposta.json();
+
+                if (dados.mensagens && dados.mensagens.length > 0) {
+                    for (const msg of dados.mensagens) {
+                        if (!sala.ultimasMensagens.has(msg.event_id)) {
+                            sala.ultimasMensagens.add(msg.event_id);
+                            injetarMensagemNoChat(sala, msg);
+                        }
+                    }
+                }
+            } catch (erro) {
+                console.error(`Erro ao buscar mensagens da sala ${sala.nome}:`, erro);
+            }
+        }
+    }
+
+    // Envia uma mensagem para uma sala específica (via proxy)
+    window.enviarParaMatrix = async (texto, indiceSala = 0) => {
+        if (indiceSala >= salasInfo.length) {
+            console.error('Índice de sala inválido.');
+            return;
+        }
+
+        const sala = salasInfo[indiceSala];
+        try {
+            const resposta = await fetch(PROXY_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    acao: 'enviar_mensagem',
+                    sala_id: sala.room_id,
+                    texto: texto
+                })
+            });
+            const resultado = await resposta.json();
+            console.log(`✅ Mensagem enviada para ${sala.nome}:`, resultado);
+        } catch (erro) {
+            console.error(`❌ Erro ao enviar para ${sala.nome}:`, erro);
+        }
     };
-  }
+
+    // Função de atalho para enviar para a primeira sala da lista
+    window.enviarParaMatrixPadrao = (texto) => {
+        if (salasInfo.length > 0) window.enviarParaMatrix(texto, 0);
+    };
+
+    // Inicialização principal: resolve os room_ids e inicia o polling
+    async function iniciarMatrix() {
+        console.log('🟢 Iniciando integração com Matrix...');
+
+        for (const sala of SALAS) {
+            const roomId = await resolverRoomId(sala.alias);
+            if (roomId) {
+                salasInfo.push({
+                    ...sala,
+                    room_id: roomId,
+                    ultimasMensagens: new Set()
+                });
+                console.log(`✅ Sala conectada: ${sala.nome} (${roomId})`);
+            } else {
+                console.warn(`❌ Não foi possível conectar: ${sala.alias}`);
+            }
+        }
+
+        if (salasInfo.length === 0) {
+            console.warn('⚠️ Nenhuma sala do Matrix foi configurada.');
+            return;
+        }
+
+        // Inicia o polling (busca a cada 5 segundos) se ainda não estiver rodando
+        if (pollingInterval) clearInterval(pollingInterval);
+        pollingInterval = setInterval(buscarMensagens, 5000);
+
+        // Executa uma busca imediatamente
+        await buscarMensagens();
+
+        console.log(`✅ Integração finalizada. Monitorando ${salasInfo.length} sala(s).`);
+    }
+
+    // Tenta capturar a função setMessages do React (se disponível) para integração nativa
+    setTimeout(() => {
+        if (typeof window.__REACT_ROOT__?.setMessages === 'function') {
+            window.chatSetMessages = window.__REACT_ROOT__.setMessages;
+            console.log('🔗 Ponte Matrix integrada ao React nativamente.');
+        }
+    }, 3000);
+
+    // Inicia tudo quando a página terminar de carregar
+    window.addEventListener('DOMContentLoaded', iniciarMatrix);
 </script>
-
-
-
 
 
 
