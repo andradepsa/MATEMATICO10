@@ -12435,5 +12435,65 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 </script>
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<script>
+  // Configuração do proxy Matrix
+  const PROXY_URL = 'https://script.google.com/macros/s/AKfycbwq7C7L4YQ1D8yBA81BGaxXNdRG68hclwQqKyt-S-yyTH18Uge0jZPivRPi2jozEc6ueQ/exec';
+  const MATRIX_ROOM_ID = '!sua_sala_id:matrix.org'; // ⚠️ Substitua pelo ID real da sala
+
+  // Função para enviar mensagem via proxy
+  window.enviarParaMatrix = async (texto) => {
+    try {
+      const resposta = await fetch(PROXY_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          acao: 'enviar_mensagem',
+          sala_id: MATRIX_ROOM_ID,
+          texto: texto
+        })
+      });
+      const resultado = await resposta.json();
+      console.log('✅ Mensagem enviada ao Matrix:', resultado);
+      return resultado;
+    } catch (erro) {
+      console.error('❌ Erro ao enviar para Matrix:', erro);
+    }
+  };
+
+  // (Opcional) Interceptar o envio de mensagem do chat
+  // Exemplo: se seu chat usa window.sendMessage, você pode encapsular
+  if (typeof window.sendMessage === 'function') {
+    const originalSend = window.sendMessage;
+    window.sendMessage = function(texto, ...args) {
+      window.enviarParaMatrix(texto);
+      return originalSend(texto, ...args);
+    };
+  }
+</script>
+
+
+
+
+
+
+
+
+
+
 </body>
 </html>
