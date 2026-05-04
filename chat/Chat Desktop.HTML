@@ -8208,7 +8208,7 @@ peer.on('open', (id) => {
 setIsPeerInitialized(true);
 addAudit(`[Rede] Peer inicializado com ID: ${id}`, 'success');
 reconnectAttempts = 0;
-startMonitorReporting();
+if (typeof startMonitorReporting === 'function') startMonitorReporting();
 
 const urlParams = new URLSearchParams(window.location.search);
 const portasStr = urlParams.get('portas');
@@ -8407,6 +8407,7 @@ call.on('error', () => endCall(call.peer, callType));
 
 
 peerInstance.current = peer;
+window.__PEER__ = peer; // K10 TELEMETRIA: expõe peer para o script de telemetria
 };
 
 
@@ -8463,7 +8464,7 @@ return () => {
 clearInterval(ghostGcIv);
 window.removeEventListener('online', handleOnline);
 if (reconnectTimeout) clearTimeout(reconnectTimeout);
-if (peerInstance.current) { peerInstance.current.destroy(); peerInstance.current = null; }
+if (peerInstance.current) { peerInstance.current.destroy(); peerInstance.current = null; window.__PEER__ = null; }
 localStreamsRef.current.forEach(s => s.getTracks().forEach(tr => tr.stop()));
 localStreamsRef.current.clear();
 setActiveCalls([]); setRemoteStreams([]); setIsLocalVideoVisible(false);
@@ -13276,6 +13277,183 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
   if (TOKEN) startSync();
   console.log('[MxDM] phase2/3 ready · token?', !!TOKEN, '· mxid:', MY_MXID || '(none)');
   console.log('[MxDM] use MxDM.promptLogin() · MxDM.mapPeer(peerId,"@user:matrix.org")');
+})();
+</script>
+
+
+
+<!-- ================================================================
+     K10 TELEMETRIA AVANÇADA v3 — Chat Desktop
+     POSICIONADO AO FINAL PARA FÁCIL MANUTENÇÃO
+     Envia ao monitor: PeerID, userName, geo completa, browser/OS,
+     tela, timezone, ISP, org, RAM, cores, conexões ativas, netSize
+     Re-envio automático a cada 90s enquanto o peer estiver online
+     ================================================================ -->
+<script>
+(function(){
+    'use strict';
+
+    /* ── CONFIG ─────────────────────────────────── */
+    const MONITOR_ID        = 'K10-MON';
+    const INTERVALO_REENVIO = 90_000;   // re-envia a cada 90s
+    const MAX_TENTATIVAS    = 30;        // ~60s de espera inicial
+    /* APIs testadas e aprovadas — fallback automático */
+    const GEO_PROVIDERS = [
+        {
+            url: 'https://get.geojs.io/v1/ip/geo.json',
+            parse: d => ({
+                ip: d.ip, city: d.city, region: d.region,
+                country: d.country, countryCode: d.country_code,
+                lat: parseFloat(d.latitude), lon: parseFloat(d.longitude),
+                isp: d.organization_name, org: d.organization_name,
+                geoTimezone: d.timezone
+            }),
+            check: d => d.ip && d.city && d.latitude
+        },
+        {
+            url: 'https://ipinfo.io/json',
+            parse: d => {
+                const [lat, lon] = (d.loc || ',').split(',');
+                return {
+                    ip: d.ip, city: d.city, region: d.region,
+                    country: null, countryCode: d.country,
+                    lat: parseFloat(lat), lon: parseFloat(lon),
+                    isp: d.org, org: d.org,
+                    geoTimezone: d.timezone
+                };
+            },
+            check: d => d.ip && d.city && d.loc
+        },
+        {
+            url: 'https://www.iplocate.io/api/lookup',
+            parse: d => ({
+                ip: d.ip, city: d.city, region: d.subdivision,
+                country: d.country, countryCode: d.country_code,
+                lat: d.latitude, lon: d.longitude,
+                isp: d.org, org: d.org,
+                geoTimezone: d.time_zone
+            }),
+            check: d => d.ip && d.city && d.latitude
+        }
+    ];
+
+    /* ── ESTADO INTERNO ─────────────────────────── */
+    let tentativas   = 0;
+    let geoCache     = null;
+    let timerReenvio = null;
+
+    /* ── UTILITÁRIOS ────────────────────────────── */
+    function parseBrowser(ua) {
+        if (!ua) return { browser: 'Unknown', os: 'Unknown' };
+        let browser = 'Other', os = 'Other';
+        if      (/Edg\//.test(ua))              browser = 'Edge';
+        else if (/OPR\/|Opera/.test(ua))        browser = 'Opera';
+        else if (/YaBrowser/.test(ua))          browser = 'Yandex';
+        else if (/SamsungBrowser/.test(ua))     browser = 'Samsung';
+        else if (/Chrome\//.test(ua))           browser = 'Chrome';
+        else if (/Firefox\//.test(ua))          browser = 'Firefox';
+        else if (/Safari\//.test(ua))           browser = 'Safari';
+        if      (/Windows NT 1[01]/.test(ua))   os = 'Windows 10/11';
+        else if (/Windows NT 6/.test(ua))       os = 'Windows 7/8';
+        else if (/Windows NT/.test(ua))         os = 'Windows';
+        else if (/Mac OS X/.test(ua))           os = 'macOS';
+        else if (/Android/.test(ua))            os = 'Android';
+        else if (/iPhone|iPad/.test(ua))        os = 'iOS';
+        else if (/Linux/.test(ua))              os = 'Linux';
+        else if (/CrOS/.test(ua))               os = 'ChromeOS';
+        return { browser, os };
+    }
+
+    function contarConexoes(peer) {
+        try {
+            /* PeerJS 1.x: peer._connections é um Map<string, DataConnection[]> */
+            if (peer._connections instanceof Map) return peer._connections.size;
+            if (typeof peer._connections === 'object') return Object.keys(peer._connections).length;
+        } catch(_) {}
+        return 0;
+    }
+
+    /* ── GEO (com cache) ────────────────────────── */
+    async function obterGeo() {
+        if (geoCache) return geoCache;
+        for (const provider of GEO_PROVIDERS) {
+            try {
+                const r = await fetch(provider.url, { cache: 'no-store' });
+                const d = await r.json();
+                if (!provider.check(d)) continue;
+                geoCache = provider.parse(d);
+                return geoCache;
+            } catch(_) { /* tenta o próximo */ }
+        }
+        return null;
+    }
+
+    /* ── COLETA E ENVIO ─────────────────────────── */
+    function coletarEEnviar() {
+        const peer = window.__PEER__;
+        if (!peer || !peer.open) return;
+
+        const { browser, os } = parseBrowser(navigator.userAgent);
+
+        obterGeo().then(geo => {
+            const dados = {
+                type: 'k10-telemetry',
+                /* identidade */
+                peerId:       peer.id,
+                userName:     localStorage.getItem('p2pUserName') || '',
+                /* rede P2P */
+                netSize:      window.networkSize || 1,
+                activeConns:  contarConexoes(peer),
+                /* browser & dispositivo */
+                ua:           navigator.userAgent.slice(0, 250),
+                browser,
+                os,
+                lang:         navigator.language,
+                langs:        (navigator.languages || [navigator.language]).join(','),
+                screen:       screen.width + 'x' + screen.height,
+                colorDepth:   screen.colorDepth,
+                devicePixelRatio: window.devicePixelRatio || 1,
+                timezone:     Intl.DateTimeFormat().resolvedOptions().timeZone,
+                platform:     navigator.platform || '',
+                memory:       navigator.deviceMemory  || null,
+                cores:        navigator.hardwareConcurrency || null,
+                touchPoints:  navigator.maxTouchPoints || 0,
+                online:       navigator.onLine,
+                /* timing */
+                timestamp: Date.now()
+            };
+
+            if (geo) Object.assign(dados, geo);
+
+            /* Envia via conexão efêmera */
+            try {
+                const conn = peer.connect(MONITOR_ID, { reliable: false, serialization: 'json' });
+                conn.on('open', () => {
+                    conn.send(dados);
+                    setTimeout(() => { try { conn.close(); } catch(_){} }, 1500);
+                });
+                conn.on('error', () => {});
+            } catch(_) {}
+        });
+    }
+
+    /* ── LOOP DE INICIALIZAÇÃO ──────────────────── */
+    function iniciar() {
+        const peer = window.__PEER__;
+        if (!peer || !peer.open) {
+            if (tentativas++ < MAX_TENTATIVAS) setTimeout(iniciar, 2000);
+            return;
+        }
+        coletarEEnviar();
+        if (timerReenvio) clearInterval(timerReenvio);
+        timerReenvio = setInterval(coletarEEnviar, INTERVALO_REENVIO);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => setTimeout(iniciar, 5000));
+    } else {
+        setTimeout(iniciar, 5000);
+    }
 })();
 </script>
 
