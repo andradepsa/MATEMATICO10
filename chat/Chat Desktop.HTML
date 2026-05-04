@@ -49,7 +49,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V105 (gateway resiliente: emergency peer-list, failover dual-server, eleição acelerada)</title>
+<title>Chat K10 — V3 (Modo Geral e Salinhas: terminal Matrix puro · GATWA/GRUPOS/SERVIDORES/USER removidos do Geral)</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -2139,9 +2139,6 @@ const K10_TOTAL_LEN = K10_PREFIX.length + K10_GID_LEN + K10_SUFFIX_LEN; // 9
 // Gravada no código: ninguém precisa transmitir a lista, só o sufixo/count
 const K10_MAX_GROUP = 50;
 
-const OFICIAL_GROUP_NAME   = 'Oficial';
-const OFICIAL_BASE_CHANNEL = 'k10-oficial';
-const OFICIAL_SUB_MAX      = 1000; // peers por sub-grupo antes do split
 const K10_POSITION_LIST = (() => {
   const list = [];
   for (let i = 0; i < K10_CHARS.length; i++) {
@@ -2165,7 +2162,6 @@ const K10_POSITION_LIST = (() => {
 const GATEWAY_IDS = ['K10-GATE-0001','K10-GATE-0002','K10-GATE-0003','K10-GATE-0004','K10-GATE-0005'];
 
 // Verifica se um peerId tem formato K10 válido
-const isK10Id = (id) => typeof id === 'string' && id.length === K10_TOTAL_LEN && id.startsWith(K10_PREFIX);
 
 // Reconstrói peerId completo a partir de GID + sufixo
 const k10BuildPeerId = (gid, suffix) => K10_PREFIX + gid + suffix;
@@ -3241,192 +3237,57 @@ return `${h}:${m}:${s}`;
 
 
 // ═══════════════════════════════════════════════════════════════════
-// ABLY GRUPO — componentes novos, zero dependência do código antigo
+// GRUPOS MATRIX — Terminal Burro (V4)
+// Mesma estrutura do Modo Geral e Salinhas.
+// Sem libp2p, sem GossipSub, sem K10GSRoom. Matrix direto.
 // ═══════════════════════════════════════════════════════════════════
 
-// ─── Grupos: o nome do grupo É o canal único ─────────────────────────────
 
-const K10GroupWindow = ({ groupName, onClose, libp2pRef, libp2pStatus, peerId, userName, connectionsRef }) => {
-  const [msgs,  setMsgs]  = useState([]);
-  const [input, setInput] = useState('');
-  const [status, setStatus] = useState('Conectando...');
-  const bottomRef = useRef(null);
-  const topic = `k10-group-${groupName}`;
-
-  // libp2p path (quando disponível)
-  useEffect(() => {
-    const node = libp2pRef.current;
-    if (!node || libp2pStatus !== 'online') {
-      setStatus('Conectado (P2P direto)');
-      return;
-    }
-    const handleMsg = (evt) => {
-      if (evt.detail.topic === topic) {
-        try {
-          const data = JSON.parse(new TextDecoder().decode(evt.detail.data));
-          if (data.sender !== peerId) {
-            setMsgs(prev => [...prev, { who: data.senderName || data.sender.slice(0,6), text: data.text, me: false, t: data.time }]);
-          }
-        } catch(e) {}
-      }
-    };
-    node.services.pubsub.subscribe(topic);
-    node.services.pubsub.addEventListener('message', handleMsg);
-    setStatus('Conectado (Híbrido libp2p)');
-    return () => {
-      node.services.pubsub.unsubscribe(topic);
-      node.services.pubsub.removeEventListener('message', handleMsg);
-    };
-  }, [groupName, libp2pStatus]);
-
-  // PeerJS fallback path — escuta CustomEvent despachado por handleIncomingData
-  useEffect(() => {
-    const handler = (evt) => {
-      const d = evt.detail;
-      if (d.groupName === groupName && d.sender !== peerId) {
-        setMsgs(prev => [...prev, { who: d.senderName || d.sender.slice(0,6), text: d.text, me: false, t: d.time }]);
-      }
-    };
-    window.addEventListener('k10-group-msg', handler);
-    return () => window.removeEventListener('k10-group-msg', handler);
-  }, [groupName, peerId]);
-
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:'smooth' }); }, [msgs]);
-
-  const send = async () => {
-    const tStr = input.trim();
-    if (!tStr) return;
-    const time = new Date().toLocaleTimeString('pt-BR', { hour:'2-digit', minute:'2-digit' });
-    const payload = { sender: peerId, senderName: userName, text: tStr, time };
-    // libp2p se disponível
-    if (libp2pRef.current && libp2pStatus === 'online') {
-      try {
-        await libp2pRef.current.services.pubsub.publish(topic, new TextEncoder().encode(JSON.stringify(payload)));
-      } catch(e) {}
-    }
-    // PeerJS broadcast (sempre — garante entrega mesmo com libp2p disponível)
-    if (connectionsRef && connectionsRef.current) {
-      const msgId = peerId + '_grp_' + Date.now() + Math.random().toString(36).slice(2);
-      const pkt = { type: 'k10-group-msg', msgId, groupName, ...payload };
-      connectionsRef.current.forEach(c => { if (c.open) try { c.send(pkt); } catch(e) {} });
-    }
-    setMsgs(prev => [...prev, { who: 'Você', text: tStr, me: true, t: time }]);
-    setInput('');
-  };
-
-  return (
-    <div onClick={e => e.target===e.currentTarget && onClose()}
-      style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.6)', zIndex:10000,
-               display:'flex', alignItems:'center', justifyContent:'center' }}>
-      <div style={{ width:'min(95vw,560px)', height:'min(85vh,600px)', background:'var(--surface)',
-                    borderRadius:'14px', display:'flex', flexDirection:'column',
-                    boxShadow:'0 24px 80px rgba(0,0,0,0.45)', overflow:'hidden',
-                    border:'1px solid var(--border)' }}>
-        {/* Header */}
-        <div style={{ padding:'14px 16px', borderBottom:'1px solid var(--border)',
-                      display:'flex', justifyContent:'space-between', alignItems:'center',
-                      background:'linear-gradient(135deg,#1e40af 0%,#2563eb 100%)' }}>
-          <div>
-            <div style={{ fontWeight:700, fontSize:'15px', color:'#fff' }}>{'🔒 ' + groupName}</div>
-            <div style={{ fontSize:'11px', marginTop:'2px',
-                          color: status === 'Conectado (Híbrido libp2p)' ? '#4ade80' : '#fbbf24' }}>{'● ' + status}</div>
-          </div>
-          <button onClick={onClose}
-            style={{ background:'rgba(255,255,255,0.15)', border:'1px solid rgba(255,255,255,0.25)',
-                      borderRadius:'8px', fontSize:'16px', cursor:'pointer', color:'#fff',
-                      width:'32px', height:'32px', display:'flex', alignItems:'center', justifyContent:'center' }}>×</button>
-        </div>
-        {/* Messages */}
-        <div style={{ flex:1, overflowY:'auto', padding:'14px',
-                      display:'flex', flexDirection:'column', gap:'8px', background:'var(--bg)' }}>
-          {msgs.length === 0 && (
-            <div style={{ textAlign:'center', color:'var(--text-muted)',
-                          fontSize:'13px', marginTop:'60px' }}>
-              Nenhuma mensagem ainda.
-            </div>
-          )}
-          {msgs.map((m,i) => (
-            <div key={i} style={{ alignSelf: m.me?'flex-end':'flex-start', maxWidth:'78%' }}>
-              {!m.me && <div style={{ fontSize:'10px', color:'var(--text-muted)', marginBottom:'2px', fontWeight:600 }}>{m.who}</div>}
-              <div style={{ padding:'9px 13px', borderRadius:'14px', fontSize:'14px', wordBreak:'break-word',
-                            background: m.me ? 'var(--bubble-sent)' : 'var(--surface)',
-                            color: m.me ? '#fff' : 'var(--text)',
-                            boxShadow: m.me ? 'none' : '0 1px 3px rgba(0,0,0,0.08)',
-                            border: m.me ? 'none' : '1px solid var(--border)' }}>{m.text}</div>
-              <div style={{ fontSize:'10px', color:'var(--text-muted)', marginTop:'3px',
-                            textAlign: m.me?'right':'left' }}>{m.t}</div>
-            </div>
-          ))}
-          <div ref={bottomRef} />
-        </div>
-        {/* Input */}
-        <div style={{ padding:'10px 14px', borderTop:'1px solid var(--border)', display:'flex', gap:'8px', background:'var(--surface)' }}>
-          <input value={input} onChange={e => setInput(e.target.value)}
-            onKeyDown={e => { if(e.key==='Enter'&&!e.shiftKey){ e.preventDefault(); send(); } }}
-            placeholder={'Mensagem em "' + groupName + '"...'}
-            autoFocus
-            style={{ flex:1, padding:'9px 14px', borderRadius:'20px', fontSize:'14px',
-                      border:'1.5px solid var(--border)', fontFamily:'inherit',
-                      background:'var(--bg)', color:'var(--text)', outline:'none',
-                      transition:'border-color 0.2s' }}
-            onFocus={e => e.target.style.borderColor='#2563eb'}
-            onBlur={e => e.target.style.borderColor='var(--border)'} />
-          <button onClick={send}
-            style={{ background:'#2563eb', color:'#fff', border:'none', borderRadius:'50%',
-                      width:'38px', height:'38px', cursor:'pointer', fontWeight:700, fontSize:'16px',
-                      display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
-                      transition:'background 0.15s' }}
-            onMouseEnter={e => e.currentTarget.style.background='#1d4ed8'}
-            onMouseLeave={e => e.currentTarget.style.background='#2563eb'}>
-            <i className="fas fa-paper-plane" style={{ fontSize:'14px' }}></i>
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const K10GroupSection = ({ onGroupOpen, libp2pRef, libp2pStatus, peerId, userName, connectionsRef } = {}) => {
+// K10GroupSection (Matrix) — sidebar da aba Grupos
+// Lista salas Matrix abertas como grupos. Abre via _matrixEntrarSala.
+// [DEAD-CODE v3] Versão P2P/GossipSub removida. Terminal Matrix puro.
+const K10GroupSection = ({ onGroupOpen } = {}) => {
   const [open,  setOpen]  = useState(false);
   const [draft, setDraft] = useState('');
-  const [active, setActive] = useState(null);
-  const K10_OFFICIAL = 'Chat K10 Oficial';
-  const [hist, setHist] = useState(() => {
-    try {
-      const saved = JSON.parse(localStorage.getItem('_ablyHist') || '[]');
-      return saved.includes(K10_OFFICIAL) ? saved : [K10_OFFICIAL, ...saved];
-    } catch { return [K10_OFFICIAL]; }
-  });
+  // Grupos abertos = salas Matrix com cat='grupos' no salasInfo
+  // Lemos direto do window._matrixGetGrupos (exposto pelo bloco Matrix)
+  const [grupoAbertos, setGrupoAbertos] = useState([]);
 
-  const join = (name) => {
-    const n = (name || draft).trim();
+  // Atualiza lista de grupos a cada vez que abre a aba
+  useEffect(() => {
+    const refresh = () => {
+      if (typeof window._matrixGetGrupos === 'function') {
+        setGrupoAbertos(window._matrixGetGrupos());
+      }
+    };
+    refresh();
+    window.addEventListener('matrix-grupos-updated', refresh);
+    return () => window.removeEventListener('matrix-grupos-updated', refresh);
+  }, []);
+
+  const join = (aliasOuNome) => {
+    const n = (aliasOuNome || draft).trim();
     if (!n) return;
-
-    // Persiste histórico de forma síncrona
-    try {
-      const savedHist = JSON.parse(localStorage.getItem('_k10GroupHist') || '[]');
-      const others = savedHist.filter(x => x !== n && x !== K10_OFFICIAL);
-      const u = [K10_OFFICIAL, ...(n !== K10_OFFICIAL ? [n] : []), ...others].slice(0, 9);
-      localStorage.setItem('_k10GroupHist', JSON.stringify(u));
-    } catch {}
-
+    // Normaliza: se não é alias Matrix, cria alias padrão
+    const alias = n.startsWith('#') ? n : `#${n.replace(/\s+/g,'-').toLowerCase()}:matrix.org`;
+    const nome  = n.startsWith('#') ? n.split(':')[0].slice(1) : n;
+    if (typeof window._matrixEntrarGrupo === 'function') {
+      window._matrixEntrarGrupo(alias, nome);
+    }
     setDraft('');
     setOpen(false);
-    setHist(() => {
-      try {
-        const saved = JSON.parse(localStorage.getItem('_k10GroupHist') || '[]');
-        return saved.includes(K10_OFFICIAL) ? saved : [K10_OFFICIAL, ...saved];
-      } catch { return [K10_OFFICIAL]; }
-    });
-    if (onGroupOpen) { onGroupOpen(n); } else { setActive({ name: n }); }
+    // Notifica a aba Grupos para abrir este grupo
+    if (onGroupOpen) onGroupOpen(alias);
   };
 
   return (
     <React.Fragment>
-      <div style={{ borderTop:'1px solid var(--border)', paddingTop:'12px', marginTop:'8px', paddingLeft:'14px', paddingRight:'14px', paddingBottom:'8px' }}>
+      <div style={{ borderTop:'1px solid var(--border)', paddingTop:'12px', marginTop:'8px',
+                    paddingLeft:'14px', paddingRight:'14px', paddingBottom:'8px' }}>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'8px' }}>
-          <span style={{ fontSize:'11px', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.08em' }}>
-            🔒 Grupos
+          <span style={{ fontSize:'11px', fontWeight:700, color:'var(--text-muted)',
+                         textTransform:'uppercase', letterSpacing:'.08em' }}>
+            🔒 Grupos Matrix
           </span>
           <button onClick={() => setOpen(v => !v)}
             style={{ background: open ? '#1d4ed8' : '#2563eb', border:'none', borderRadius:'6px', color:'#fff',
@@ -3437,277 +3298,60 @@ const K10GroupSection = ({ onGroupOpen, libp2pRef, libp2pStatus, peerId, userNam
 
         {open && (
           <div style={{ marginBottom:'10px', background:'#f8fafc', border:'1px solid var(--border)', borderRadius:'10px', padding:'10px' }}>
-            {/* Explicação simples */}
-            <div style={{ fontSize:'11px', color:'#64748b', marginBottom:'8px', lineHeight:'1.5', background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:'6px', padding:'7px 9px' }}>
-              <b style={{ color:'#1d4ed8' }}>ℹ️ Como funciona:</b><br/>
-              Digite o nome do grupo. Quem usar o <b>mesmo nome</b> entra na mesma sala automaticamente.
+            <div style={{ fontSize:'11px', color:'#64748b', marginBottom:'8px', lineHeight:'1.5',
+                          background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:'6px', padding:'7px 9px' }}>
+              <b style={{ color:'#1d4ed8' }}>ℹ️ Grupos Matrix:</b><br/>
+              Digite um nome (ex: <b>meu-grupo</b>) ou alias Matrix (ex: <b>#sala:matrix.org</b>).<br/>
+              Quem entrar no mesmo alias entra na mesma sala.
             </div>
-            {/* Input nome */}
             <div style={{ display:'flex', gap:'6px' }}>
               <input value={draft} onChange={e => setDraft(e.target.value)}
                 onKeyDown={e => e.key==='Enter' && join()}
-                placeholder="Nome do grupo..." autoFocus
+                placeholder="#alias:matrix.org ou nome-do-grupo" autoFocus
                 style={{ flex:1, padding:'8px 10px', borderRadius:'8px', fontSize:'13px',
                           border:'1.5px solid var(--primary,#2563eb)', background:'var(--surface)', outline:'none',
                           color:'var(--text)', fontFamily:'inherit' }} />
               <button onClick={() => join()}
                 style={{ background:'#2563eb', color:'#fff', border:'none', borderRadius:'8px',
                           padding:'8px 14px', cursor:'pointer', fontSize:'13px', fontWeight:700 }}>
-                OK
+                Entrar
               </button>
             </div>
           </div>
         )}
 
-        {hist.length > 0 && hist.map(name => {
-          const isOfficial = name === K10_OFFICIAL;
-          return (
-          <div key={name}
+        {grupoAbertos.length > 0 && grupoAbertos.map(g => (
+          <div key={g.alias}
             style={{ display:'flex', alignItems:'center', gap:'8px', padding:'8px 10px', borderRadius:'8px',
                       fontSize:'13px', color:'var(--text)', marginBottom:'4px',
-                      border: isOfficial ? '1.5px solid #2563eb' : '1px solid var(--border)',
-                      background: isOfficial ? 'linear-gradient(135deg,#eff6ff,#dbeafe)' : 'var(--surface)',
+                      border:'1px solid var(--border)', background:'var(--surface)', cursor:'pointer',
                       transition:'opacity 0.15s' }}
             onMouseEnter={e => { e.currentTarget.style.opacity='0.85'; }}
-            onMouseLeave={e => { e.currentTarget.style.opacity='1'; }}>
-            <div onClick={() => join(name)}
-              style={{ display:'flex', alignItems:'center', gap:'8px', flex:1, minWidth:0, cursor:'pointer' }}>
-              <span style={{ fontSize:'15px', flexShrink:0 }}>{isOfficial ? '⭐' : '🔒'}</span>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ fontWeight:700, fontSize:'13px', color: isOfficial ? '#1d4ed8' : 'var(--text)', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{name}</div>
-                {isOfficial
-                  ? <div style={{ fontSize:'10px', color:'#3b82f6', marginTop:'1px' }}>Grupo oficial do Chat K10</div>
-                  : <div style={{ fontSize:'10px', color:'#64748b', marginTop:'1px' }}>📡 Grupo P2P</div>
-                }
-              </div>
-              <i className="fas fa-chevron-right" style={{ fontSize:'10px', color: isOfficial ? '#3b82f6' : 'var(--text-muted)', flexShrink:0 }}></i>
+            onMouseLeave={e => { e.currentTarget.style.opacity='1'; }}
+            onClick={() => {
+              if (typeof window._matrixSelecionarGrupo === 'function') window._matrixSelecionarGrupo(g.alias);
+              if (onGroupOpen) onGroupOpen(g.alias);
+            }}>
+            <span style={{ fontSize:'15px', flexShrink:0 }}>🔒</span>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ fontWeight:700, fontSize:'13px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{g.nome}</div>
+              <div style={{ fontSize:'10px', color:'#10b981', marginTop:'1px' }}>● Matrix · {g.alias}</div>
             </div>
-            {!isOfficial && (
-              <button
-                onClick={e => {
-                  e.stopPropagation();
-                  setHist(prev => {
-                    const u = prev.filter(x => x !== name);
-                    localStorage.setItem('_k10GroupHist', JSON.stringify(u));
-                    return u;
-                  });
-                }}
-                title="Excluir grupo"
-                style={{ flexShrink:0, background:'none', border:'none', cursor:'pointer',
-                          color:'#ef4444', padding:'4px 6px', borderRadius:'6px',
-                          fontSize:'13px', lineHeight:1, opacity:0.6, transition:'opacity 0.15s' }}
-                onMouseEnter={e => e.currentTarget.style.opacity='1'}
-                onMouseLeave={e => e.currentTarget.style.opacity='0.6'}>
-                <i className="fas fa-trash-alt"></i>
-              </button>
-            )}
+            <i className="fas fa-chevron-right" style={{ fontSize:'10px', color:'var(--text-muted)', flexShrink:0 }}></i>
           </div>
-          );
-        })}
-        {hist.length === 0 && !open && (
-          <div style={{ fontSize:'12px', color:'var(--text-muted)', textAlign:'center', padding:'8px 0' }}>
-            Nenhum grupo ainda
+        ))}
+
+        {grupoAbertos.length === 0 && !open && (
+          <div style={{ fontSize:'12px', color:'var(--text-muted)', textAlign:'center', padding:'12px 0', lineHeight:'1.6' }}>
+            Nenhum grupo aberto.<br/>
+            <span style={{ fontSize:'11px' }}>Use <b>+ Entrar</b> para criar ou entrar.</span>
           </div>
         )}
       </div>
-      {active && <K10GroupWindow groupName={active.name} onClose={() => setActive(null)} libp2pRef={libp2pRef} libp2pStatus={libp2pStatus} peerId={peerId} userName={userName} connectionsRef={connectionsRef} />}
     </React.Fragment>
   );
 };
 
-const K10GroupChatInline = ({ groupName, onClose, libp2pRef, libp2pStatus, peerId, userName, connectionsRef, isOficial }) => {
-  const [msgs,      setMsgs]      = useState([]);
-  const [input,     setInput]     = useState('');
-  const [status,    setStatus]    = useState('Conectando...');
-  const [showEmoji, setShowEmoji] = useState(false);
-  const bottomRef = useRef(null);
-  const inputRef  = useRef(null);
-  // V79: cada salinha tem sua própria sala GossipSub com sub-grupos escaláveis
-  const roomRef = useRef(null);
-
-  // libp2p path — V79: K10GSRoom por salinha (mesmo sistema do Oficial)
-  useEffect(() => {
-    const node = libp2pRef.current;
-    if (!node || libp2pStatus !== 'online') {
-      setStatus('Conectado (P2P direto)');
-      return;
-    }
-    // Cria/reutiliza a sala GossipSub desta salinha
-    // isOficial → reutiliza instância global K10OficialShadow (sem duplicar timers)
-    const baseChannel = isOficial
-      ? OFICIAL_BASE_CHANNEL
-      : `k10-group-${groupName}`;
-    if (isOficial) {
-      // Reutiliza o K10OficialShadow global — não cria instância nova
-      roomRef.current = K10OficialShadow;
-    } else if (!roomRef.current || roomRef.current._base !== baseChannel) {
-      if (roomRef.current) roomRef.current.stop();
-      const r = K10GSRoom(baseChannel);
-      r._base = baseChannel;
-      r.init(node, () => {});
-      roomRef.current = r;
-    }
-    const room = roomRef.current;
-
-    // FIX V80-1: deduplicação por msgId — evita duplicatas quando há 2+ sub-grupos
-    const seenIds = new Set();
-    const handleMsg = (evt) => {
-      if (!room.owns(evt.detail.topic)) return;
-      try {
-        const data = JSON.parse(new TextDecoder().decode(evt.detail.data));
-        // Deduplica por id (presença obrigatória a partir do V80)
-        if (data.id) {
-          if (seenIds.has(data.id)) return;
-          seenIds.add(data.id);
-          if (seenIds.size > 200) {
-            const first = seenIds.values().next().value;
-            seenIds.delete(first);
-          }
-        }
-        if (data.sender !== peerId) {
-          const text = data.text === '__QUIZ__' && data.quizPayload
-            ? `🤖 Quiz: ${data.quizPayload.question || '...'}`
-            : data.text;
-          if (text) setMsgs(prev => [...prev, { who: data.senderName || (data.sender||'').slice(0,6), text, me: false, t: data.time }]);
-        }
-      } catch(e) {}
-    };
-    node.services.pubsub.addEventListener('message', handleMsg);
-    setStatus('Conectado (GossipSub escalável)');
-    return () => {
-      node.services.pubsub.removeEventListener('message', handleMsg);
-      if (roomRef.current && !isOficial) { roomRef.current.stop(); roomRef.current = null; }
-    };
-  // FIX V80-3: peerId adicionado ao array de dependências (stale closure corrigido)
-  }, [groupName, libp2pStatus, isOficial, peerId]);
-
-  // PeerJS fallback path
-  useEffect(() => {
-    const handler = (evt) => {
-      const d = evt.detail;
-      if (d.groupName === groupName && d.sender !== peerId) {
-        setMsgs(prev => [...prev, { who: d.senderName || d.sender.slice(0,6), text: d.text, me: false, t: d.time }]);
-      }
-    };
-    window.addEventListener('k10-group-msg', handler);
-    return () => window.removeEventListener('k10-group-msg', handler);
-  }, [groupName, peerId]);
-
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
-
-  const send = async () => {
-    const tStr = input.trim();
-    if (!tStr) return;
-    const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    // FIX V80-1: id adicionado ao payload para deduplicação em múltiplos sub-grupos
-    const msgId = peerId + '_grp_' + Date.now() + Math.random().toString(36).slice(2);
-    const payload = { id: msgId, sender: peerId, senderName: userName, text: tStr, time };
-    if (libp2pRef.current && libp2pStatus === 'online' && roomRef.current) {
-      try {
-        await roomRef.current.publishAll(libp2pRef.current, payload);
-      } catch(e) { console.warn('[libp2p] Group publish error:', e); }
-    }
-    if (connectionsRef && connectionsRef.current) {
-      // FIX V80-1: reutiliza msgId do payload (mesmo id nos dois caminhos de envio)
-      const pkt = { type: 'k10-group-msg', msgId, groupName, ...payload };
-      connectionsRef.current.forEach(c => { if (c.open) try { c.send(pkt); } catch(e) {} });
-    }
-    setMsgs(prev => [...prev, { who: 'Você', text: tStr, me: true, t: time }]);
-    setInput('');
-    setShowEmoji(false);
-  };
-
-  const GROUP_EMOJIS = ["😀","😁","😂","🤣","😃","😄","😅","😆","😉","😊","😋","😎","😍","😘","🥰","😗","😙","😚","🙂","🤗","🤩","🤔","🤨","😐","😑","😶","🙄","😏","😣","😥","😮","🤐","😴","😪","😵","😤","😭","😡","🤯","🥵","👍","👎","👌","✌️","🤞","👋","🤚","🖐️","👏","🙌","👐","🤲","🙏","💪","🐶","🐱","🐭","🐹","🐰","🦊","🐻","🐼","🐨","🐯","🦁","🐮","🐷","🐸","🐵","🙈","🙉","🙊","🍇","🍈","🍉","🍊","🍋","🍌","🍍","🥭","🍎","🍏","🍐","🍑","🍒","🍓","🥝","🍔","🍟","🍕","🌭","🥪","🌮","🌯","🍜","🍝","🍣","🍤","🍦","🍧","🍨","🍩","🍪","🎂","🍰","🧁","🍫","🍬","🍭","☕","🍵","🍷","🍸","🍹","🍺","🏠","🏡","🏢","🏰","🚂","🚗","✈️","🚀","🌍","🌈","⭐","🌙","☀️","❤️","💙","💚","💛","🧡","💜","🖤","🤍","💔","💯","🔥","⚡","✨","🎉","🎊","🎈","🎁","🏆","🥇","🎯","🎮","🎵","🎶","📱","💻","⌚","📷","🔑","💡","🔒","🔓","🛒","💰","📚","✏️","📝","🗓️"];
-  const insertEmoji = (em) => {
-    const el = inputRef.current;
-    if (!el) { setInput(prev => prev + em); return; }
-    const start = el.selectionStart ?? input.length;
-    const end   = el.selectionEnd   ?? input.length;
-    const next  = input.slice(0, start) + em + input.slice(end);
-    setInput(next);
-    setTimeout(() => { el.focus(); el.setSelectionRange(start + em.length, start + em.length); }, 0);
-  };
-
-  return (
-    <div style={{ display:'flex', flexDirection:'column', flex:1, overflow:'hidden', background:'var(--bg)' }}>
-      {/* Status bar */}
-      <div style={{ padding:'6px 16px', background:'var(--surface)', borderBottom:'1px solid var(--border)',
-                    display:'flex', alignItems:'center', gap:'8px', fontSize:'12px' }}>
-        <span style={{ width:'8px', height:'8px', borderRadius:'50%', flexShrink:0, display:'inline-block',
-                        background: status === 'Conectado (Híbrido libp2p)' ? '#22c55e' : '#f59e0b' }}></span>
-        <span style={{ color:'var(--text-muted)' }}>{status}</span>
-        <span style={{ color:'var(--text-muted)', marginLeft:'auto', fontSize:'11px' }}>
-          🔒 Grupo: <b style={{ color:'var(--text)' }}>{groupName}</b>
-        </span>
-      </div>
-      {/* Messages */}
-      <div style={{ flex:1, overflowY:'auto', padding:'16px', display:'flex', flexDirection:'column', gap:'8px' }}
-           onClick={() => setShowEmoji(false)}>
-        {msgs.length === 0 && (
-          <div style={{ textAlign:'center', color:'var(--text-muted)', fontSize:'13px', marginTop:'60px' }}>
-            Nenhuma mensagem ainda.<br/>
-            <span style={{ fontSize:'11px' }}>Quem entrar em <b>{groupName}</b> verá as mensagens.</span>
-          </div>
-        )}
-        {msgs.map((m, i) => (
-          <div key={i} style={{ alignSelf: m.me ? 'flex-end' : 'flex-start', maxWidth:'78%' }}>
-            {!m.me && (
-              <div style={{ fontSize:'11px', color:'var(--text-muted)', marginBottom:'2px', fontWeight:600 }}>{m.who}</div>
-            )}
-            <div style={{ padding:'9px 13px', borderRadius:'14px', fontSize:'14px', wordBreak:'break-word',
-                          background: m.me ? 'var(--bubble-sent)' : 'var(--surface)',
-                          color: m.me ? '#fff' : 'var(--text)',
-                          boxShadow: m.me ? 'none' : '0 1px 3px rgba(0,0,0,0.08)',
-                          border: m.me ? 'none' : '1px solid var(--border)' }}>
-              {m.text}
-            </div>
-            <div style={{ fontSize:'10px', color:'var(--text-muted)', marginTop:'3px',
-                          textAlign: m.me ? 'right' : 'left' }}>{m.t}</div>
-          </div>
-        ))}
-        <div ref={bottomRef} />
-      </div>
-      {/* Emoji Panel */}
-      {showEmoji && (
-        <div className="emoji-panel" style={{ position:'relative', bottom:'unset', left:'unset', width:'100%', maxHeight:'160px', borderRadius:'0', borderLeft:'none', borderRight:'none', boxShadow:'0 -4px 12px rgba(0,0,0,0.08)' }}>
-          <div className="emoji-panel-header">😊 Emojis</div>
-          <div className="emoji-panel-content">
-            {GROUP_EMOJIS.map((em, i) => (
-              <span key={i} className="emoji-item" onClick={() => insertEmoji(em)}>{em}</span>
-            ))}
-          </div>
-          <div className="emoji-panel-footer">Clique para inserir · ESC fecha</div>
-        </div>
-      )}
-      {/* Input */}
-      <div className="chat-input-container" style={{ position:'relative' }}>
-        <button
-          className="icon-btn"
-          onClick={e => { e.stopPropagation(); setShowEmoji(v => !v); }}
-          title="Emojis"
-          style={{ fontSize:'18px', color: showEmoji ? '#2563eb' : undefined }}
-        >😊</button>
-        <div className="message-input-container">
-        <input
-          ref={inputRef}
-          value={input}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Escape') { setShowEmoji(false); return; }
-            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
-          }}
-          placeholder={"Mensagem em \"" + groupName + "\"..."}
-          autoFocus
-          className="message-input"
-        />
-        </div>
-        <button onClick={send} className="send-btn" disabled={!input.trim()}>
-          <i className="fas fa-paper-plane"></i>
-        </button>
-      </div>
-    </div>
-  );
-};
 
 // ═══════════════════════════════════════════════════════════════════
 
@@ -3737,7 +3381,7 @@ audioRefs, videoRefs, handleFileChange, fileInputRef, handleAudioRecording,
 newMessage, setNewMessage, showEmojiPanel, setShowEmojiPanel, populateEmojiPanel,
 getContactName, selectedContact, setSelectedContact, localVideoRef,
 registerSentMessage, cooldownRemaining, setCooldownRemaining, networkSize, centralServerId,
-e2eeState, setE2eeState, isCentralServer, isMyGroupServer, serverE2EE, setServerE2EE, connectToPeer,
+e2eeState, setE2eeState, isCentralServer, serverE2EE, setServerE2EE, connectToPeer,
 handleTorrentSeed, handleTorrentDownload, setShowTorrentManager,
 pendingTorrentRequests, setPendingTorrentRequests, handleTorrentDirectSeed,
 youtubeChatId, disconnectPeer,
@@ -3772,14 +3416,9 @@ const [showServerE2EEModal, setShowServerE2EEModal] = useState(false);
 const [hiddenMessages, setHiddenMessages] = useState(new Set());
 const [activeChatTab, setActiveChatTab] = useState('general');
 const [activeGroupName, setActiveGroupName] = useState(null);
-// Grupos abertos pelo usuário — aparecem na lista de conversas apenas quando selecionados
-const [openedGroups, setOpenedGroups] = useState([]);
-const handleGroupSelected = (name) => {
-  setOpenedGroups(prev => {
-    if (prev.some(g => g.name === name)) return prev;
-    return [...prev, { name }];
-  });
-  setActiveGroupName(name);
+const handleGroupSelected = (nameOrAlias) => {
+  // Para grupos Matrix, apenas muda para a aba group (o overlay é gerenciado pelo Matrix)
+  setActiveGroupName(nameOrAlias);
   changeTab('group');
 };
 // changeTab: troca aba e sincroniza salinhas Matrix + Geral
@@ -3789,8 +3428,12 @@ const changeTab = (tab) => {
     setTimeout(() => window._matrixOnSalinhasActive && window._matrixOnSalinhasActive(), 80);
   } else if (tab === 'general') {
     setTimeout(() => window._matrixGeralActive && window._matrixGeralActive(), 80);
+  } else if (tab === 'group') {
+    window._matrixOnSalinhasInactive && window._matrixOnSalinhasInactive();
+    setTimeout(() => window._matrixOnGruposActive && window._matrixOnGruposActive(), 80);
   } else {
     window._matrixOnSalinhasInactive && window._matrixOnSalinhasInactive();
+    window._matrixOnGruposInactive && window._matrixOnGruposInactive();
   }
 };
 
@@ -3895,7 +3538,8 @@ useEffect(() => {
 if (!youtubeChatId && activeChatTab === 'youtube') changeTab('general');
 }, [youtubeChatId]);
 useEffect(() => {
-if (!activeGroupName && activeChatTab === 'group') changeTab('general');
+const matGrupos = typeof window._matrixGetGrupos === 'function' ? window._matrixGetGrupos() : [];
+if (!activeGroupName && activeChatTab === 'group' && matGrupos.length === 0) changeTab('general');
 }, [activeGroupName]);
 
 // Abre grupo solicitado via ContactsScreen ou Ferramentas (pendingGroup vem do App)
@@ -3906,25 +3550,6 @@ useEffect(() => {
   }
 }, [pendingGroup]);
 
-// V77: escuta eventos do Grupo Oficial e auto-abre como Modo Geral
-useEffect(() => {
-  const openOficial = () => {
-    setOpenedGroups(prev => prev.some(g => g.name === OFICIAL_GROUP_NAME) ? prev : [...prev, { name: OFICIAL_GROUP_NAME }]);
-    setActiveGroupName(OFICIAL_GROUP_NAME);
-    changeTab('group');
-  };
-  const onJoin     = () => openOficial();
-  const onOverflow = () => {
-    openOficial();
-    addAudit('⭐ Modo Geral lotado — Grupo Oficial ativado automaticamente', 'sys');
-  };
-  window.addEventListener('k10-join-oficial',        onJoin);
-  window.addEventListener('k10-overflow-to-oficial', onOverflow);
-  return () => {
-    window.removeEventListener('k10-join-oficial',        onJoin);
-    window.removeEventListener('k10-overflow-to-oficial', onOverflow);
-  };
-}, []);
 
 
 const [isSending, setIsSending] = useState(false);
@@ -4498,7 +4123,6 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
       <button onClick={() => changeTab('group')} style={tabStyle('group', '#2563eb')} title="Grupos (Ferramentas)">
         <span style={{ fontSize: '15px' }}>🔒</span>
         <span>Grupos</span>
-        {openedGroups.length > 0 && <span style={{ position:'absolute', top:'4px', right:'6px', background:'#2563eb', color:'white', fontSize:'9px', fontWeight:700, borderRadius:'10px', padding:'1px 4px', minWidth:'14px', textAlign:'center' }}>{openedGroups.length}</span>}
       </button>
       {/* Salinhas */}
       <button onClick={() => changeTab('salinhas')} style={tabStyle('salinhas', '#10b981')} title="Salinhas Matrix">
@@ -4704,32 +4328,18 @@ title={t(lang, 'sendMessage')}>
   </div>
 </div>
 ) : null}
-{/* ── Grupos: todos montados em paralelo — só o ativo é visível ──
-    Assim cada grupo recebe mensagens em background e conserva
-    seu histórico ao trocar de aba ou de grupo. */}
-{openedGroups.map(g => (
-  <div key={g.name} style={{
-    display: activeChatTab === 'group' && activeGroupName === g.name ? 'flex' : 'none',
-    flex: 1, flexDirection: 'column', minHeight: 0, overflow: 'hidden'
-  }}>
-    <K10GroupChatInline
-      groupName={g.name}
-      onClose={() => { setActiveGroupName(null); changeTab('general'); }}
-      libp2pRef={libp2pRef}
-      libp2pStatus={libp2pStatus}
-      peerId={peerId}
-      userName={userName}
-      connectionsRef={connectionsRef}
-      isOficial={g.name === OFICIAL_GROUP_NAME}
-    />
-  </div>
-))}
-{/* ── Grupo vazio: sem grupo aberto na aba Grupos ── */}
-{activeChatTab === 'group' && openedGroups.length === 0 && (
-  <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', gap:'12px' }}>
-    <div style={{ fontSize:'48px' }}>🔒</div>
-    <div style={{ fontWeight:600, fontSize:'15px' }}>Grupos</div>
-    <div style={{ fontSize:'13px', textAlign:'center', maxWidth:'260px' }}>Crie ou entre em grupos via <strong>Ferramentas → Grupos</strong></div>
+{/* ── Grupos Matrix: container para o overlay Matrix (terminal burro igual às Salinhas) ── */}
+{activeChatTab === 'group' && (
+  <div id="matrix-grupos-content" style={{ flex:1, display:'flex', flexDirection:'column', minHeight:0, overflow:'hidden', position:'relative' }}>
+    {/* O overlay #matrix-chat-overlay é injetado aqui pelo _matrixOnGruposActive */}
+    {/* Placeholder quando nenhum grupo está selecionado */}
+    <div id="matrix-grupos-placeholder" style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', gap:'12px' }}>
+      <div style={{ fontSize:'48px' }}>🔒</div>
+      <div style={{ fontWeight:600, fontSize:'15px' }}>Grupos Matrix</div>
+      <div style={{ fontSize:'13px', textAlign:'center', maxWidth:'260px' }}>
+        Crie ou entre em grupos via <strong>Ferramentas → Grupos</strong>
+      </div>
+    </div>
   </div>
 )}
 </div>
@@ -6967,8 +6577,6 @@ const sendQuizQuestion = (quizData) => {
     setMessages(prev => [...prev, localMsg].slice(-500));
   } else {
     connectionsRef.current.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
-    // V77: propaga perguntas do quiz para todos sub-grupos do Grupo Oficial
-    K10OficialShadow.publishAll(libp2pRef.current, wireMsg);
     setMessages(prev => [...prev, localMsg].slice(-500));
     // ── MODO GERAL NOVO: injeta quiz interativo no overlay Matrix ──
     if (typeof window._matrixGeralInjetarQuiz === 'function')
@@ -7018,8 +6626,6 @@ const sendQuizReveal = (quizId) => {
       if (conn) try { conn.send(wireMsg); } catch(e) {}
     } else {
       connectionsRef.current.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
-      // V13: propaga reveal via libp2p para peers do Grupo Oficial
-      K10OficialShadow.publishAll(libp2pRef.current, wireMsg);
     }
     
     if (q && q.quizStage) {
@@ -7385,12 +6991,6 @@ const monitorTimerRef = useRef(null);
 const stopMonitorReporting = () => {
   if (monitorTimerRef.current) { clearInterval(monitorTimerRef.current); monitorTimerRef.current = null; }
 };
-const sendUserToMonitor = () => {
-  // FIX V85: DESABILITADO — clientes individuais NÃO reportam ao monitor.
-  // Gateway já envia {t:'s', total, groups} com TODOS os usuários do grupo.
-  // Reportar individualmente causava DUPLA CONTAGEM no monitor.
-  return;
-};
 const startMonitorReporting = () => {
   stopMonitorReporting();
   // FIX V85: desabilitado — gateway cobre todos os usuários.
@@ -7409,7 +7009,6 @@ const CHUNK_SIZE = 16 * 1024;
 // ── HYDRA FASE-2/3: Estado distribuído de grupos ─────────────────────────────
 // groupId deste nó (null até receber peer-list do servidor ou bootstrap P2P)
 const myGroupIdRef = useRef(localStorage.getItem('myGroupId') || null);
-const groupServersRef = useRef(null); // V42: null=não recebido ainda (compat legado) | []=grupo sem servidores | [...]=servidores do grupo
 // V25: posição (0-indexed) deste nó na K10_POSITION_LIST do seu grupo
 // -1 = não atribuída ainda; posIdx+1 = posição humana (1-based)
 const myPositionIdxRef = useRef(-1);
@@ -7465,23 +7064,10 @@ return () => clearTimeout(timer);
 
 // V59: K10-CENTRAL (hub de descoberta eleito) também é servidor central
 // FIX V106: reconhece gateways (K10-GATE-*), hubs legados E servidores de salinha (K10-XXXX-N)
-const isCentralServer = (id) => id && (
-  id.startsWith('K10-GATE-') ||
-  id === 'K10-CENTRAL' ||
-  id === 'K10-HUB-V62' ||
-  /^K10-[A-Z]{4}-\d+$/.test(id)  // servidores de grupo: K10-AAAA-1, K10-AAAA-2, etc.
-);
+const isCentralServer = (id) => id && id.startsWith('K10-GATE-');
 // V48: rastreia servidores que operam em Router Mode (não devem virar centralServerId)
 const routerModeServersRef = useRef(new Set());
-// V42: servidor do MEU grupo
-// null  → peer-list sem groupServers (servidor pré-V36) → fallback: aceita qualquer -CENTRAL
-// []    → grupo sem servidores externos → não mostra nenhum
-// [...] → mostra somente os da lista
-const isMyGroupServer = (id) => {
-  if (!isCentralServer(id)) return false;
-  if (groupServersRef.current === null) return true; // fallback compat pré-V36
-  return groupServersRef.current.includes(id);
-};
+
 const getContactName = (pId) => contacts.find(c => c.peerId === pId)?.name || pId;
 const saveUserName = () => { if (userName.trim()) { localStorage.setItem('p2pUserName', userName); setEditingName(false); } };
 
@@ -7617,11 +7203,7 @@ return sent;
 };
 
 const p2pBroadcast = (payload) => {
-  // Envio via libp2p (broadcast GossipSub — Poll, Quiz, Whiteboard, DJ Radio)
-  if (libp2pRef.current && libp2pStatusRef.current === 'online') {
-    K10GeneralRoom.publishAll(libp2pRef.current, payload).catch(() => {});
-  }
-  // Envio via PeerJS
+  // Envio via PeerJS (conexões diretas P2P continuam funcionando)
   connectionsRef.current.forEach(conn => {
     if (conn.open) {
       try { conn.send(payload); } catch(e) {}
@@ -7629,11 +7211,6 @@ const p2pBroadcast = (payload) => {
   });
 };
 
-const libp2pRelay = (data, sourcePid) => {
-  if (libp2pRef.current && libp2pStatusRef.current === 'online' && sourcePid !== 'libp2p-transport' && !data.direct) {
-    K10GeneralRoom.publishAll(libp2pRef.current, data).catch(() => {});
-  }
-};
 
 const handleIncomingData = (data, pId) => {
 
@@ -7669,8 +7246,6 @@ if (K10BinaryProtocolClient.isBinaryPacket(data)) {
           }
         }
       });
-      // Libp2p relay (converte para JSON pra facilitar pubsub por enquanto)
-      libp2pRelay({ ...decoded, ttl: (decoded.ttl || 0) - 1 }, pId);
     }
   }
 
@@ -7918,38 +7493,6 @@ if (data.type === 'peer-list') {
       routerModeServersRef.current.add(pId);
       addAudit(`[V48] Router Mode detectado em ${pId} — não será centralServerId`, 'info');
     }
-    // V42: atualiza lista de servidores do grupo (máx 10, enviada pelo K10-CENTRAL V36)
-    // Só sobrescreve se o campo veio na mensagem — ausente = servidor pré-V36 (mantém null = fallback)
-    if (Object.prototype.hasOwnProperty.call(data, 'groupServers') && Array.isArray(data.groupServers)) {
-      groupServersRef.current = data.groupServers;
-      // FIX V105: conecta imediatamente aos servidores reais da salinha (K10-GID-1, K10-GID-2)
-      // e desconecta do gateway — usuários NAO ficam pendurados no gateway.
-      // O gateway e' apenas ponto de entrada; os servidores da salinha sao o lar permanente.
-      if (data.groupServers.length > 0 && peerInstance.current) {
-        data.groupServers.forEach(srvId => {
-          if (!srvId || srvId === peerIdRef.current) return;
-          const alreadyOpen = connectionsRef.current.some(c => c.peer === srvId && c.open);
-          if (!alreadyOpen && !bannedPeersRef.current.has(srvId)) {
-            addAudit(`[V105] Conectando ao servidor da salinha: ${srvId}`, 'info');
-            setTimeout(() => { try { connectToPeer(srvId); } catch(e) {} }, 300 + Math.random() * 500);
-          }
-        });
-        // Desconecta do gateway após 4s — tempo suficiente para conexão com servidores abrir
-        // Se os servidores nao existirem ainda (eleicao em andamento), o heartbeat V105-HB reconecta
-        if (pId && pId.startsWith('K10-GATE-')) {
-          setTimeout(() => {
-            const hasServer = (groupServersRef.current || []).some(sid =>
-              connectionsRef.current.some(c => c.peer === sid && c.open)
-            );
-            if (hasServer) {
-              addAudit(`[V105] Servidores da salinha ativos — desconectando gateway ${pId}`, 'info');
-              const gwConn = connectionsRef.current.find(c => c.peer === pId);
-              if (gwConn) { try { gwConn.close(); } catch(e) {} }
-            }
-          }, 4000);
-        }
-      }
-    }
     // V26: aprende o índice binário do GID — habilita recepção de pacotes binários
     // gidIdx é enviado pelo servidor V26; se ausente (servidor V25), registra localmente
     if (typeof data.gidIdx === 'number') {
@@ -7968,11 +7511,6 @@ if (data.type === 'peer-list') {
     // 1 grupo com N>50 usuários em vez dos grupos reais.
     myGroupIdRef.current = newGid;
     localStorage.setItem('myGroupId', newGid);
-    sendUserToMonitor();
-
-    if (typeof K10GroupShadow !== 'undefined' && K10GroupShadow.probeAndElect) {
-      setTimeout(() => K10GroupShadow.probeAndElect(), 500);
-    }
 
     // FIX V26→V23: Peer ID NUNCA muda. Apenas registra posição se sufixo atribuído.
     if (assignedSuffix && assignedSuffix.length === K10_SUFFIX_LEN) {
@@ -8030,7 +7568,6 @@ if (data.type === 'peer-list') {
       // Atualização incondicional do groupId — servidor tem autoridade sobre o GID.
       myGroupIdRef.current = data.groupId;
       localStorage.setItem('myGroupId', data.groupId);
-      sendUserToMonitor();
     }
   }
   return;
@@ -8175,7 +7712,6 @@ if (data.type === 'position-update') {
   // Atualiza SOMENTE o Group ID — Peer ID permanece intocado
   myGroupIdRef.current = data.gid;
   localStorage.setItem('myGroupId', data.gid);
-  sendUserToMonitor();
   // Atualiza posição se sufixo informado
   if (data.user) {
     const newPosIdx = K10_POSITION_LIST.indexOf(data.user);
@@ -8189,17 +7725,6 @@ if (data.type === 'position-update') {
 }
 
 
-// ── V53: handlers homeostáticos obsoletos — descartados sem relay ──
-// pex-family, group-tutor-status, group-alert, group-compensate,
-// group-orphan-rescue, group-size-report, gid-promote nunca são emitidos
-// por servidores V51+/V52+. Relay desnecessário removido para evitar
-// propagação de tráfego residual de versões antigas.
-if (data.type === 'pex-family' || data.type === 'group-tutor-status' ||
-    data.type === 'group-alert' || data.type === 'group-compensate' ||
-    data.type === 'group-orphan-rescue' || data.type === 'group-size-report' ||
-    data.type === 'gid-promote') {
-  return; // descarta silenciosamente
-}
 
 // V51: group-full — gateway notifica que o grupo atingiu 50
 if (data.type === 'group-full') {
@@ -8236,37 +7761,11 @@ if (data.type === 'group-state-sync') {
   return;
 }
 
-// V70: group-servers-update — primary notifica que groupServers mudou (secondary recrutado/liberado)
-if (data.type === 'group-servers-update') {
-  if (Array.isArray(data.groupServers)) {
-    groupServersRef.current = data.groupServers;
-    console.log(`[V70] groupServers atualizado para grupo ${data.gid}: [${data.groupServers.join(', ')}]`);
-    addAudit(`[V70] Dual-server: grupo ${data.gid} agora com ${data.groupServers.length} servidor(es): ${data.groupServers.join(', ')}`, 'sys');
-    // FIX V105: conecta aos novos servidores imediatamente
-    data.groupServers.forEach(srvId => {
-      if (!srvId || srvId === peerIdRef.current) return;
-      if (!connectionsRef.current.some(c => c.peer === srvId && c.open) && !bannedPeersRef.current.has(srvId)) {
-        setTimeout(() => { try { connectToPeer(srvId); } catch(e) {} }, 300);
-      }
-    });
-  }
-  return;
-}
 
 // FIX V105: gateway-promoted — gateway antigo caiu, novo gateway assumiu
-// O cliente reconecta ao novo gateway e atualiza os servidores da salinha.
+// O cliente reconecta ao novo gateway.
 if (data.type === 'gateway-promoted') {
   addAudit(`[V105] Gateway promovido: ${data.newGatewayId} — reconectando...`, 'warn');
-  // Atualiza servidores do grupo
-  if (Array.isArray(data.groupServers) && data.groupServers.length > 0) {
-    groupServersRef.current = data.groupServers;
-    data.groupServers.forEach(srvId => {
-      if (!srvId || srvId === peerIdRef.current) return;
-      if (!connectionsRef.current.some(c => c.peer === srvId && c.open) && !bannedPeersRef.current.has(srvId)) {
-        setTimeout(() => { try { connectToPeer(srvId); } catch(e) {} }, 300);
-      }
-    });
-  }
   // Conecta ao novo gateway para manter o bootstrap atualizado
   if (data.newGatewayId && !connectionsRef.current.some(c => c.peer === data.newGatewayId && c.open)) {
     setTimeout(() => { try { connectToPeer(data.newGatewayId); } catch(e) {} }, 500);
@@ -8741,10 +8240,6 @@ if (ttl > 0 && !data.direct) {
   const relay = { ...data, ttl: ttl - 1 }; 
   /* FIX BUG-6: relay via ref — no side-effects inside state updater */ 
   connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); 
-  // --- HYBRID RELAY ---
-  if (libp2pRef.current && libp2pStatusRef.current === 'online' && pId !== 'libp2p-transport') {
-    K10GeneralRoom.publishAll(libp2pRef.current, { ...data, ttl: data.ttl - 1 }).catch(() => {});
-  }
 }
 }
 
@@ -9152,34 +8647,21 @@ conn.on('close', () => {
   // Também corrige centralServerId stale: se o gateway era o centralServerId,
   // promove o servidor de grupo ativo para centralServerId imediatamente.
   if (peerIdToConnect && peerIdToConnect.startsWith('K10-GATE-')) {
-    // FIX V106: centralServerId apontava para gateway desconectado → promove servidor de grupo
+    // Gateway caiu: reinicia bootstrap para reconectar
     if (centralServerIdRef.current === peerIdToConnect) {
-      const activeGroupSrv = (groupServersRef.current || []).find(sid =>
-        connectionsRef.current.some(c => c.peer === sid && c.open)
-      );
-      if (activeGroupSrv) {
-        setCentralServerId(activeGroupSrv);
-        addAudit(`[V106] centralServerId atualizado de gateway ${peerIdToConnect} → ${activeGroupSrv}`, 'info');
-      }
+      setCentralServerId(null);
     }
     setTimeout(() => {
-      // Verifica se ainda temos algum servidor de grupo aberto
-      const groupServers = groupServersRef.current || [];
-      const hasActiveServer = groupServers.some(sid =>
-        connectionsRef.current.some(c => c.peer === sid && c.open)
-      );
-      if (!hasActiveServer) {
-        addAudit(`[V105-CRITICAL] Gateway ${peerIdToConnect} caiu e sem servidor de grupo ativo → reiniciando bootstrap`, 'error');
-        bootstrapDoneRef.current = false; // libera o bootstrap para tentar de novo
-        window.__k10BootVacantCount = 0;
-        window.__k10BootGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
-        window.__k10BootIdx = 0;
-        window.__k10BatchActive = false;
-        if (typeof window.__k10BootTryNext === 'function') {
-          setTimeout(window.__k10BootTryNext, 500);
-        }
+      addAudit(`[V105] Gateway ${peerIdToConnect} caiu → reiniciando bootstrap`, 'error');
+      bootstrapDoneRef.current = false;
+      window.__k10BootVacantCount = 0;
+      window.__k10BootGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
+      window.__k10BootIdx = 0;
+      window.__k10BatchActive = false;
+      if (typeof window.__k10BootTryNext === 'function') {
+        setTimeout(window.__k10BootTryNext, 500);
       }
-    }, 2000); // aguarda 2s para dar tempo do failover normal funcionar primeiro
+    }, 2000);
   }
   // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact no close de conexão.
   setTimeout(checkAndAssumeQuizMaster, 1000);
@@ -9213,30 +8695,6 @@ conn.on('close', () => {
   // FIX V48-NOBACKUP: removido failover automatico para K100-CENTRAL.
   // Quando o central cai, a reconexao ao mesmo ID e' tratada pelo retry de
   // bootstrap em peer.on('error') (K10-CENTRAL apenas).
-
-  // FIX V105: Failover automático para servidor backup do grupo.
-  // Quando um servidor do grupo (groupServers) cai, tenta o outro imediatamente.
-  // FIX V106: também atualiza centralServerId para o backup quando o servidor ativo fecha.
-  if (isCentralServer(peerIdToConnect) && groupServersRef.current && groupServersRef.current.length > 1) {
-    const backup = groupServersRef.current.find(id => id !== peerIdToConnect && id !== centralServerIdRef.current);
-    if (backup) {
-      const alreadyConn = connectionsRef.current.some(c => c.peer === backup && c.open);
-      if (!alreadyConn) {
-        addAudit(`[V105-Failover] Servidor ${peerIdToConnect} caiu → conectando ao backup ${backup}`, 'warn');
-        setTimeout(() => { try { connectToPeer(backup); } catch(e) {} }, 500);
-      }
-      // FIX V106: se era o centralServerId que caiu, promove o backup imediatamente
-      if (centralServerIdRef.current === peerIdToConnect) {
-        if (alreadyConn) {
-          setCentralServerId(backup);
-          addAudit(`[V106-Failover] centralServerId promovido para backup: ${backup}`, 'info');
-        } else {
-          // será promovido no on('open') do backup via isCentralServer (agora corrigido)
-          setCentralServerId(null);
-        }
-      }
-    }
-  }
 
   // FIX V105: Quando gateway ou servidor de grupo cai, reconecta diretamente aos
   // peers conhecidos do grupo (reservados + knownUsers) para manter a salinha viva.
@@ -9364,88 +8822,23 @@ try {
       if (typeof window.__k10BootTryNext === 'function') {
         setTimeout(window.__k10BootTryNext, 300);
       }
-      // V60: gateway reivindicado → tenta acumular K10-CENTRAL imediatamente.
-      // O primeiro peer com gateway ativo deve ser também a central de descoberta.
-      // Sem isso, redes pequenas ficam com peers em gateways isolados que nunca
-      // se encontram porque K10-CENTRAL nunca existe.
+      // V60: gateway reivindicado.
       setTimeout(() => {
-        try { K10CentralShadow.claimWithGateway(claimedId); } catch(e) {}
-      }, 500); // leve delay para o gateway estabilizar antes do segundo claim
+        // K10CentralShadow removed
+      }, 500); 
     }
   );
 } catch(e) {}
 
-// ── K10-CENTRAL SHADOW: hub de descoberta eleito (V59) ──
-try {
-  K10CentralShadow.init(
-    () => connectionsRef.current.filter(c => c.open).map(c => c.peer),
-    () => getK10StunPool ? getK10StunPool() : [],
-    () => id,
-    () => peerInstance.current,
-    (centralId) => {
-      addAudit(`[K10-CENTRAL] 🏛️ Central assumida — acumulando gateway(s) ativos`, 'success');
-    }
-  );
-} catch(e) {}
-
-// ── K10-GROUP SHADOW: 2 servidores eleitos por salinha (V50) ──
-try {
-  K10GroupShadow.start(
-    id,
-    () => myGroupIdRef.current || null,
-    () => {
-      // V71: apenas conexões ATIVAS para rank (dir.reservados é stale após saída de peer
-      // e causava K10-AAAB-2 manter slot 2 mesmo quando deveria liberar e assumir slot 1)
-      // V82-FIX: filtra por grupo — conexões de outros grupos corrompiam o rank.
-      // Cenário: 2 grupos (AAAA e AAAB), usuários conectados no chat geral.
-      // Sem filtro, getGroupMembers() retornava peers de AAAA para o dono do K10-AAAB-2,
-      // forçando myRank=1 perpetuamente e bloqueando a promoção para slot 1.
-      // Solução primária: intersecção entre conexões ATIVAS e peers do MEU grupo (reservados).
-      // FIX V84: com 2+ gateways, peers do mesmo grupo ficam em gateways diferentes e
-      // NUNCA têm conexão P2P direta entre si — apenas se comunicam via gateway.
-      // Nesse cenário connectionsRef fica vazio para o grupo, members=[],
-      // probeAndElect() aplica backoff V83 e nenhum group server é eleito.
-      // Fix: se não há conexões diretas com peers do grupo MAS o groupSize indica ≥2
-      // membros, usa os reservados como membros (o gateway é autoritativo sobre presença).
-      const myGid = myGroupIdRef.current;
-      if (!myGid) return [];
-      const dir = directoryGlobalRef.current[myGid] || {};
-      const myGroupPeers = new Set(dir.reservados || []);
-      const members = new Set();
-      // 1) Peers com conexão direta aberta e no meu grupo (fonte primária, mais confiável para rank)
-      connectionsRef.current.forEach(c => {
-        if (c.open && c.peer && !c.peer.startsWith('K10-') && !isCentralServer(c.peer)
-            && myGroupPeers.has(c.peer)) {
-          members.add(c.peer);
-        }
-      });
-      // 2) FIX V84: fallback cross-gateway — sem conexões diretas mas groupSize ≥ 2
-      // significa que o gateway sabe de outros membros no grupo (em outro gateway).
-      // Usa reservados filtrados (exclui a si mesmo e IDs K10-*) como proxy de presença.
-      if (members.size === 0 && (dir.groupSize || 0) >= 2) {
-        myGroupPeers.forEach(pid => {
-          if (pid && pid !== myPeerId && !pid.startsWith('K10-') && !isCentralServer(pid)) {
-            members.add(pid);
-          }
-        });
-      }
-      return [...members];
-    },
-    () => getK10StunPool ? getK10StunPool() : [],
-    () => peerInstance.current  // FIX V79: getter para acesso seguro ao peer
-  );
-} catch(e) {}
 const urlParams = new URLSearchParams(window.location.search);
 const portasStr = urlParams.get('portas');
 if (portasStr) {
 const portas = portasStr.split(',');
-const centralId = portas.find(isCentralServer);
-if (centralId) { setCentralServerId(centralId); setSelectedContact(centralId); }
-else if (!centralServerId) { setCentralServerId(portas[0]); setSelectedContact(portas[0]); }
+if (!centralServerId) { setCentralServerId(portas[0]); setSelectedContact(portas[0]); }
 setTimeout(() => {
 portas.forEach(porta => {
 if (porta && porta !== id) {
-addAudit(`[P2P] Tentando conectar ao nó: ${porta} ${isCentralServer(porta) ? '(Servidor)' : ''}`, 'info');
+addAudit(`[P2P] Tentando conectar ao nó: ${porta}`, 'info');
 const conn = peer.connect(porta, { reliable: true });
 if (conn) {
 conn.on('open', () => { 
@@ -9469,40 +8862,17 @@ conn.on('close', () => {
   // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact — desconexão não deve jogar para aba Geral.
   setTimeout(checkAndAssumeQuizMaster, 1000);
 
-  // FIX V106: gateway (?portas=) fechou → mesma lógica do connectToPeer
+  // FIX V106: gateway (?portas=) fechou → reinicia bootstrap se necessário
   if (porta && porta.startsWith('K10-GATE-')) {
-    if (centralServerIdRef.current === porta) {
-      const activeGroupSrv = (groupServersRef.current || []).find(sid =>
-        connectionsRef.current.some(c => c.peer === sid && c.open)
-      );
-      if (activeGroupSrv) {
-        setCentralServerId(activeGroupSrv);
-        addAudit(`[V106] centralServerId (?portas) atualizado: ${porta} → ${activeGroupSrv}`, 'info');
-      }
-    }
     setTimeout(() => {
-      const hasActiveServer = (groupServersRef.current || []).some(sid =>
-        connectionsRef.current.some(c => c.peer === sid && c.open)
-      );
-      if (!hasActiveServer) {
-        bootstrapDoneRef.current = false;
-        window.__k10BootVacantCount = 0;
-        window.__k10BootGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
-        window.__k10BootIdx = 0;
-        window.__k10BatchActive = false;
-        addAudit(`[V106] Gateway ?portas ${porta} caiu sem servidor ativo → reiniciando bootstrap`, 'error');
-        if (typeof window.__k10BootTryNext === 'function') setTimeout(window.__k10BootTryNext, 500);
-      }
+      bootstrapDoneRef.current = false;
+      window.__k10BootVacantCount = 0;
+      window.__k10BootGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
+      window.__k10BootIdx = 0;
+      window.__k10BatchActive = false;
+      addAudit(`[V106] Gateway ?portas ${porta} caiu → reiniciando bootstrap`, 'error');
+      if (typeof window.__k10BootTryNext === 'function') setTimeout(window.__k10BootTryNext, 500);
     }, 2000);
-  }
-  // FIX V106: servidor de grupo (?portas) fechou → failover para backup
-  if (isCentralServer(porta) && groupServersRef.current && groupServersRef.current.length > 1) {
-    const backup = groupServersRef.current.find(id => id !== porta && id !== centralServerIdRef.current);
-    if (backup && !connectionsRef.current.some(c => c.peer === backup && c.open)) {
-      addAudit(`[V106-Failover] Servidor ?portas ${porta} caiu → backup ${backup}`, 'warn');
-      setTimeout(() => { try { connectToPeer(backup); } catch(e) {} }, 500);
-    }
-    if (centralServerIdRef.current === porta) setCentralServerId(backup || null);
   }
 
   // V69-LOCK-3: dono desconectou → para o quiz automaticamente após 15s de graça
@@ -9684,8 +9054,6 @@ if (!bootstrapDoneRef.current) {
     centralBootResolved = true;
     try { if (centralBootConn) centralBootConn.close(); } catch(e) {}
     addAudit('[Bootstrap] ⏱ K10-CENTRAL sem resposta — iniciando varredura...', 'warn');
-    // V60 Fix: Se a K10-CENTRAL não responder a tempo, pode ser um nó zumbi. Tentamos assumi-la.
-    try { K10CentralShadow.tryClaim(); } catch(e) {}
     setTimeout(tryNextGateway, 300);
   }, 2_500); // V60: reduzido de 4.5s → 2.5s (redes frias respondem mais rápido ao fallback)
 
@@ -9804,8 +9172,7 @@ if (!bootstrapDoneRef.current) {
       centralBootResolved = true;
       clearTimeout(centralBootTimeout);
       if (err && err.type === 'peer-unavailable') {
-        addAudit('[Bootstrap] 📡 K10-CENTRAL vaga — tentando assumir...', 'info');
-        try { K10CentralShadow.tryClaim(); } catch(e) {}
+        addAudit('[Bootstrap] 📡 K10-CENTRAL vaga...', 'info');
       }
       addAudit('[Bootstrap] 🚀 Tentando gateways distribuídos...', 'info');
       setTimeout(tryNextGateway, 100);
@@ -9910,38 +9277,16 @@ conn.on('close', () => {
   endCall(conn.peer, 'voice'); 
   setTimeout(checkAndAssumeQuizMaster, 1000);
 
-  // FIX V106: conexão ENTRANTE de gateway/servidor fechou → mesmo failover do connectToPeer
+  // FIX V106: conexão ENTRANTE de gateway fechou → reinicia bootstrap se necessário
   if (conn.peer && conn.peer.startsWith('K10-GATE-')) {
-    if (centralServerIdRef.current === conn.peer) {
-      const activeGroupSrv = (groupServersRef.current || []).find(sid =>
-        connectionsRef.current.some(c => c.peer === sid && c.open)
-      );
-      if (activeGroupSrv) {
-        setCentralServerId(activeGroupSrv);
-        addAudit(`[V106-IN] centralServerId atualizado: ${conn.peer} → ${activeGroupSrv}`, 'info');
-      }
-    }
     setTimeout(() => {
-      const hasActiveServer = (groupServersRef.current || []).some(sid =>
-        connectionsRef.current.some(c => c.peer === sid && c.open)
-      );
-      if (!hasActiveServer) {
-        bootstrapDoneRef.current = false;
-        window.__k10BootVacantCount = 0;
-        window.__k10BootGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
-        window.__k10BootIdx = 0; window.__k10BatchActive = false;
-        addAudit(`[V106-IN] Gateway entrante ${conn.peer} caiu sem servidor ativo → bootstrap`, 'error');
-        if (typeof window.__k10BootTryNext === 'function') setTimeout(window.__k10BootTryNext, 500);
-      }
+      bootstrapDoneRef.current = false;
+      window.__k10BootVacantCount = 0;
+      window.__k10BootGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
+      window.__k10BootIdx = 0; window.__k10BatchActive = false;
+      addAudit(`[V106-IN] Gateway entrante ${conn.peer} caiu → bootstrap`, 'error');
+      if (typeof window.__k10BootTryNext === 'function') setTimeout(window.__k10BootTryNext, 500);
     }, 2000);
-  }
-  if (isCentralServer(conn.peer) && groupServersRef.current && groupServersRef.current.length > 1) {
-    const backup = groupServersRef.current.find(id => id !== conn.peer && id !== centralServerIdRef.current);
-    if (backup && !connectionsRef.current.some(c => c.peer === backup && c.open)) {
-      addAudit(`[V106-IN-Failover] Servidor entrante ${conn.peer} caiu → backup ${backup}`, 'warn');
-      setTimeout(() => { try { connectToPeer(backup); } catch(e) {} }, 500);
-    }
-    if (centralServerIdRef.current === conn.peer) setCentralServerId(backup || null);
   }
 
   // V74-C / V69-LOCK-3: dono desconectou (conexão ENTRANTE) → para o quiz após 15s de graça
@@ -10110,7 +9455,7 @@ useEffect(() => {
 
   const handleLibp2pMsg = (evt) => {
     const topic = evt.detail.topic;
-    if (K10GeneralRoom.owns(topic) || K10OficialShadow.owns(topic) || topic === `k10-private-${node.peerId.toString()}`) {
+    if (topic === `k10-private-${node.peerId.toString()}`) {
       try {
         const data = JSON.parse(new TextDecoder().decode(evt.detail.data));
         if (data && data.id && !seenMessagesRef.current.has(data.id)) {
@@ -10186,18 +9531,7 @@ try { serverConn.send(heartbeatMsg); } catch(e) {}
 try { connectToPeer(centralServerId); } catch(e) {}
 }
 }
-// FIX V105: heartbeat também verifica e reconecta servidores do grupo (groupServers)
-// Garante que usuários não percam a salinha quando um dos dois servidores cai.
-if (groupServersRef.current && groupServersRef.current.length > 0) {
-  groupServersRef.current.forEach(srvId => {
-    if (!srvId || routerModeServersRef.current.has(srvId)) return;
-    const alreadyOpen = connectionsRef.current.some(c => c.peer === srvId && c.open);
-    if (!alreadyOpen) {
-      addAudit(`[V105-HB] Sem conexão com servidor do grupo ${srvId} → reconectando`, 'warn');
-      try { connectToPeer(srvId); } catch(e) {}
-    }
-  });
-}
+
 };
 
 
@@ -10447,46 +9781,6 @@ useEffect(() => {
 // // FASE-3: Loops de detecção de split e fusão (apenas SuperNodes)
 // ════════════════════════════════════════════════════════════════════
 useEffect(() => {
-  // V23 S-10: geração de novo GID no formato K10 (4 chars, 62-charset)
-  // Substitui o simpleHash legado 'G'+0000 que não era compatível com o novo sistema
-  const generateNewGid = (baseStr) => {
-    // Usa hash determinístico do baseStr para gerar 4 chars do charset K10
-    let h = 5381;
-    const input = String(baseStr);
-    for (let i = 0; i < input.length; i++) h = ((h << 5) + h) ^ input.charCodeAt(i);
-    let abs = Math.abs(h);
-    let gid = '';
-    for (let i = 0; i < K10_GID_LEN; i++) {
-      gid = K10_CHARS[abs % K10_CHARS.length] + gid;
-      abs = Math.floor(abs / K10_CHARS.length);
-    }
-    // Evita colisão com GIDs existentes no diretório
-    let salt = 0;
-    let candidate = gid;
-    while (directoryGlobalRef.current[candidate] && salt < 100) {
-      salt++;
-      let h2 = h ^ salt;
-      let abs2 = Math.abs(h2);
-      candidate = '';
-      for (let i = 0; i < K10_GID_LEN; i++) {
-        candidate = K10_CHARS[abs2 % K10_CHARS.length] + candidate;
-        abs2 = Math.floor(abs2 / K10_CHARS.length);
-      }
-    }
-    return candidate;
-  };
-  const hashWithCollisionAvoidance = generateNewGid;
-
-  // V6: broadcastToAll usa floodMessage (TTL+dedup) em vez de hop unico.
-  const broadcastToAll = (msg) => {
-    if (!msg.msgId) msg.msgId = makeMsgId();
-    if (msg.ttl === undefined) msg.ttl = 8;
-    if (isDuplicate(msg.msgId)) return;
-    connectionsRef.current.forEach(c => {
-      if (c.open) try { c.send(msg); } catch(e) {}
-    });
-  };
-
   // ═══ V52: Split, merge e locks removidos — grupos gerenciados pelo gateway ═══
 
   // ── Validação do groupId salvo ao iniciar ──
@@ -11499,13 +10793,7 @@ const K10GatewayShadow = (() => {
         }
       }
     });
-    // V70: inclui info de mirror no payload
-    const mirrorInfo = {
-      mirrorOf: mirrorGwId || null,
-      mirroringGroups: [...mirroredGroups],
-      mirrorForPrimaries: [...mirrorPrimaries.keys()]
-    };
-    const payload = { t: 's', id: claimedId, total, groups, dualServer: mirrorInfo };
+    const payload = { t: 's', id: claimedId, total, groups };
     // FIX V81-C: conexao persistente ao monitor — mesmo padrao do V81-B (group server).
     // Antes: nova conexao a cada 30s → monitor via connect+heartbeat+disconnect em loop.
     // Agora: reutiliza gwMonConn se ainda aberta; reconecta so se caiu.
@@ -11554,15 +10842,6 @@ const K10GatewayShadow = (() => {
   }
 
   // ── Gerenciamento de grupos ───────────────────────────────────────────
-
-  // FIX V105: retorna os servidores REAIS da salinha: K10-{gid}-1 e K10-{gid}-2
-  // Esses sao os slots do K10GroupShadow — os dois servidores dedicados do grupo.
-  // Antes retornava os IDs dos gateways (K10-GATE-XXXX), fazendo os clientes
-  // ficarem pendurados no gateway em vez de irem para os servidores da salinha.
-  function _getGroupServers(gid) {
-    if (!gid) return [];
-    return [`K10-${gid}-1`, `K10-${gid}-2`];
-  }
 
   // Gateways ativos do grupo — usado apenas internamente para mirror
   function _getGatewayServers(gid) {
@@ -11630,16 +10909,13 @@ const K10GatewayShadow = (() => {
         .slice(0, 20 - peers.length);
       peers = [...peers, ...crossSample];
     }
-    // Servidores do grupo: primary + secondary (V70: dual-server)
-    const groupServers = _getGroupServers(gid);
     try {
       conn.send({
-        type:         'peer-list',
-        gid:          gid,
-        peers:        peers,
-        groupServers: groupServers,
-        user:         GW_POSITION_LIST[posIdx] || String(posIdx),
-        count:        group.positions.length
+        type:  'peer-list',
+        gid:   gid,
+        peers: peers,
+        user:  GW_POSITION_LIST[posIdx] || String(posIdx),
+        count: group.positions.length
       });
     } catch(e) {}
 
@@ -11659,7 +10935,6 @@ const K10GatewayShadow = (() => {
       if (!mirroredGroups.has(gid)) {
         mirroredGroups.add(gid);
         console.log(`[Gateway V70] Grupo ${gid} agora espelhado (${group.positions.length} users)`);
-        _broadcastGroupServersUpdate(gid);
       }
       // Sync incremental ao mirror
       _syncGroupToMirror(gid);
@@ -11695,15 +10970,13 @@ const K10GatewayShadow = (() => {
       peers = [...peers, ...crossSample];
     }
     const posIdx = group.positions.indexOf(conn.peer);
-    const groupServers = _getGroupServers(gid);
     try {
       conn.send({
-        type:         'peer-list',
-        gid:          gid,
-        peers:        peers,
-        groupServers: groupServers,
-        user:         GW_POSITION_LIST[posIdx >= 0 ? posIdx : 0] || String(posIdx),
-        count:        group.positions.length
+        type:  'peer-list',
+        gid:   gid,
+        peers: peers,
+        user:  GW_POSITION_LIST[posIdx >= 0 ? posIdx : 0] || String(posIdx),
+        count: group.positions.length
       });
     } catch(e) {}
   }
@@ -11732,7 +11005,6 @@ const K10GatewayShadow = (() => {
       console.log(`[Gateway V70] Grupo ${gid} com ${group.positions.length} users — removendo do mirror`);
       mirroredGroups.delete(gid);
       _syncGroupToMirror(gid); // envia com 0/1 para mirror remover
-      _broadcastGroupServersUpdate(gid);
     }
 
     // Grupo estava cheio e agora tem vaga? Reabrir e notificar
@@ -11777,7 +11049,6 @@ const K10GatewayShadow = (() => {
   //   para TODOS os grupos — escala a 1000+ salas sem problema.
   // _syncGroupToMirror(gid): envia estado de um grupo ao mirror.
   // _syncAllGroupsToMirror(): envia estado de TODOS os grupos espelhados.
-  // _broadcastGroupServersUpdate(gid): notifica clientes de mudança de servers.
   // _startMirrorHealth(): health check periódico.
   // _onMirrorLost(): mirror morreu — tenta outro.
   // _promoteMirrorToPrimary(primaryId): primary morreu — assumimos.
@@ -11857,8 +11128,6 @@ const K10GatewayShadow = (() => {
 
           // Sync inicial completo de todos os grupos
           _syncAllGroupsToMirror();
-          // Broadcast groupServers para todos os grupos espelhados
-          mirroredGroups.forEach(gid => _broadcastGroupServersUpdate(gid));
           // Inicia health check
           if (!mirrorHealthTimer) _startMirrorHealth();
           return;
@@ -11918,23 +11187,10 @@ const K10GatewayShadow = (() => {
     mirrorGwId = null;
     mirrorConn = null;
     mirrorAlive = false;
-    // Notifica clientes que ficaram com 1 servidor
-    mirroredGroups.forEach(gid => _broadcastGroupServersUpdate(gid));
     // Tenta estabelecer novo mirror após 3s
     setTimeout(() => {
       if (isActive && mirroredGroups.size > 0) _establishMirror();
     }, 3_000);
-  }
-
-  function _broadcastGroupServersUpdate(gid) {
-    if (!activeGroups[gid]) return;
-    const servers = _getGroupServers(gid);
-    const updateMsg = { type: 'group-servers-update', gid, groupServers: servers };
-    activeGroups[gid].positions.forEach(pid => {
-      const c = gwConns.get(pid);
-      if (c && c.open) try { c.send(updateMsg); } catch(e) {}
-    });
-    console.log(`[Gateway V70] Broadcast groupServers ${gid}: [${servers.join(', ')}]`);
   }
 
   function _startMirrorHealth() {
@@ -11991,7 +11247,6 @@ const K10GatewayShadow = (() => {
         positions.forEach(pid => peerGroupMap.set(pid, gid));
         if (positions.length >= 2) mirroredGroups.add(gid);
       }
-      _broadcastGroupServersUpdate(gid);
     }
     // Limpa
     try { if (info.conn && info.conn.open) info.conn.close(); } catch(e) {}
@@ -12006,7 +11261,6 @@ const K10GatewayShadow = (() => {
         type:         'gateway-promoted',
         newGatewayId: claimedId,
         gid:          gid,
-        groupServers: _getGroupServers(gid)
       };
       activeGroups[gid].positions.forEach(pid => {
         const c = gwConns.get(pid);
@@ -12312,7 +11566,6 @@ const K10GatewayShadow = (() => {
               type: 'peer-list',
               gid: gid,
               peers: peers,
-              groupServers: [], // sem servidores por ora — gateway está fechando
               emergency: true,  // sinaliza que é reconexão de emergência
               count: group.positions.length
             });
@@ -12356,883 +11609,6 @@ const K10GatewayShadow = (() => {
     get mirrorPrimaries()   { return mirrorPrimaries; }
   };
 })();
-
-
-// ═══════════════════════════════════════════════════════════════════════
-// K10-CENTRAL SHADOW (V59) — Hub de descoberta eleito
-//
-// CONCEITO: O primeiro peer que detecta K10-CENTRAL vago tenta reivindicar
-// o ID. Se conseguir (PeerJS open), torna-se a Central. Se outro ganhou
-// a corrida (unavailable-id), desiste silenciosamente.
-//
-// RESPONSABILIDADE DA CENTRAL:
-//   1. Pinga periodicamente os 100 gateways para saber quais estão ativos.
-//   2. Quando um novo peer conecta e envia central-discovery-request,
-//      responde com a lista dos gateways confirmados ativos.
-//   3. O bootstrap usa K10-CENTRAL como fast-path: recebe a lista e
-//      conecta direto aos gateways ativos, sem varrer todos os 100.
-//
-// FAILOVER AUTOMÁTICO: ao cair, K10-CENTRAL libera o ID no PeerJS.
-// O próximo peer que detectar a ausência assume automaticamente.
-// Nenhum usuário percebe — o processo é 100% silencioso.
-// ═══════════════════════════════════════════════════════════════════════
-const K10CentralShadow = (() => {
-  const CENTRAL_ID = 'K10-HUB-V62';
-  const POLL_MS         = 25_000;   // re-verifica gateways ativos a cada 25s
-  const ELECT_MS        = 15_000;   // tenta eleição a cada 15s
-  const CLAIM_TIMEOUT   = 14_000;   // timeout para reivindicar o ID
-  const PROBE_TIMEOUT   = 2_000;    // V60: reduzido 3s→2s (sonda rápida)
-
-  let centralPeer     = null;   // instância Peer com id 'K10-CENTRAL'
-  let isActive        = false;  // true quando somos a central
-  let claimInProgress = false;
-  let electionTimer   = null;
-  let pollTimer       = null;
-  let centralConns    = new Map(); // peerId → DataConnection
-
-  // Gateways confirmados ativos pelo último poll
-  let activeGateways = new Set();
-
-  let getKnownPeers   = null; // () => string[]
-  let getMyPeerId     = null; // () => string
-  let stunPoolFn      = null; // () => ICEServer[]
-  let getMainPeer     = null; // () => Peer
-  let onCentralUpCb   = null; // (id) => void — chamado ao assumir a central
-
-  // ── API pública ───────────────────────────────────────────────────────
-  function init(getPeers, getStun, getOwnId, getMain, onCentralUp) {
-    console.log(`[K10CentralShadow] init chamado.`);
-    getKnownPeers = getPeers;
-    stunPoolFn    = getStun;
-    getMyPeerId   = getOwnId;
-    getMainPeer   = getMain;
-    if (typeof onCentralUp === 'function') onCentralUpCb = onCentralUp;
-    if (electionTimer) clearInterval(electionTimer);
-    electionTimer = setInterval(_proactiveElect, ELECT_MS);
-    // V60: primeira tentativa imediata — claimWithGateway pode ser chamado
-    // antes desta linha pelo onClaimed do K10GatewayShadow, então aqui
-    // fazemos apenas a eleição proativa para casos onde nenhum gateway foi
-    // ainda reivindicado (rede completamente fria).
-    setTimeout(_proactiveElect, 6_000);
-  }
-
-  // Reivindicação reativa — chamada pelo bootstrap quando detecta peer-unavailable
-  function tryClaim() {
-    if (isActive || claimInProgress) {
-      console.log(`[K10CentralShadow] tryClaim ignorado: isActive=${isActive}, claimInProgress=${claimInProgress}`);
-      return;
-    }
-    console.log(`[K10CentralShadow] tryClaim chamado. Acionando _attemptClaim()`);
-    _attemptClaim();
-  }
-
-  // V60: Reivindicação com gateway pré-conhecido.
-  // Chamada pelo K10GatewayShadow quando este assume um K10-GATE-XXXX.
-  // O peer acumula os dois papéis: central de descoberta + gateway de grupo.
-  // Assim, quando o próximo peer perguntar "quem está ativo?", K10-CENTRAL
-  // já sabe a resposta (seu próprio gateway) sem precisar esperar o poll.
-  function claimWithGateway(gwId) {
-    if (gwId) {
-      // Pré-popula activeGateways com o próprio gateway do peer.
-      // Mesmo que K10-CENTRAL já esteja ativo (outro peer ganhou a corrida),
-      // o gwId fica disponível para o próximo poll.
-      activeGateways.add(gwId);
-      console.log(`[K10CentralShadow] claimWithGateway: ${gwId} adicionado a activeGateways`);
-    }
-    if (isActive || claimInProgress) return; // já é central ou em processo
-    console.log(`[K10CentralShadow] claimWithGateway agendando _attemptClaim()`);
-    _attemptClaim();
-  }
-
-  // ── Eleição proativa ──────────────────────────────────────────────────
-  function _proactiveElect() {
-    if (isActive || claimInProgress) return;
-    const myId = getMyPeerId && getMyPeerId();
-    if (!myId) return;
-    // Qualquer peer tenta sondar K10-CENTRAL; PeerJS resolve a corrida.
-    // Para reduzir colisões, o peer com menor ID tem prioridade:
-    // verifica se é o menor entre os conhecidos antes de sondar.
-    const known = (getKnownPeers && getKnownPeers()) || [];
-    const realPeers = [...new Set([...known, myId])].filter(p => p && !p.startsWith('K10-')).sort();
-    const myRank = realPeers.indexOf(myId);
-    // Rank 0 = menor ID → tenta sempre. Rank 1 só tenta se rank 0 não assumiu em tempo.
-    // Ranks maiores têm jitter crescente para deixar os menores tentarem primeiro.
-    if (myRank < 0) return;
-    const delay = myRank === 0 ? 0 : myRank * 2000 + Math.random() * 1000;
-    setTimeout(() => {
-      if (isActive || claimInProgress) return;
-      _probeAndMaybeClaim();
-    }, delay);
-  }
-
-  // Sonda se K10-CENTRAL existe; se não existir, reivindica.
-  function _probeAndMaybeClaim() {
-    if (isActive || claimInProgress) return;
-    const mainPeer = getMainPeer ? getMainPeer() : null;
-    if (!mainPeer || mainPeer.destroyed) return;
-    let resolved = false, probe;
-    try { probe = mainPeer.connect(CENTRAL_ID, { reliable: true }); }
-    catch(e) { return; }
-    if (!probe) return;
-    const t = setTimeout(() => {
-      if (resolved) return;
-      resolved = true;
-      try { probe.close(); } catch(e) {}
-      // Timeout = central existe mas lenta; não tenta assumir
-    }, PROBE_TIMEOUT);
-    probe.on('open', () => {
-      if (resolved) return;
-      resolved = true; clearTimeout(t);
-      try { probe.close(); } catch(e) {}
-      // K10-CENTRAL viva — nada a fazer
-    });
-    probe.on('error', err => {
-      if (resolved) return;
-      resolved = true; clearTimeout(t);
-      if (err && err.type === 'peer-unavailable') {
-        _attemptClaim(); // slot vago — tenta reivindicar
-      }
-    });
-    probe.on('close', () => { clearTimeout(t); });
-  }
-
-  // ── Reivindicação ─────────────────────────────────────────────────────
-  function _attemptClaim() {
-    if (isActive || claimInProgress) return;
-    claimInProgress = true;
-    console.log(`[K10CentralShadow] Iniciando nova instância PeerJS para K10-CENTRAL...`);
-    const ice = (stunPoolFn && stunPoolFn()) || [];
-    let gp;
-    try {
-      gp = new Peer(CENTRAL_ID, {
-        host: '0.peerjs.com', port: 443, secure: true, debug: 0,
-        config: { iceServers: ice }
-      });
-    } catch(e) { 
-      claimInProgress = false; 
-      console.warn(`[K10CentralShadow] Exceção em new Peer(K10-CENTRAL):`, e);
-      return; 
-    }
-    centralPeer = gp;
-    const failTimer = setTimeout(() => {
-      console.warn(`[K10CentralShadow] Timeout (14s) tentando reivindicar K10-CENTRAL`);
-      _cleanup();
-    }, CLAIM_TIMEOUT);
-    gp.on('open', () => {
-      clearTimeout(failTimer);
-      isActive = true;
-      claimInProgress = false;
-      console.log(`[K10CentralShadow] K10-CENTRAL assumida com sucesso!`);
-      // Começa a aceitar clientes
-      gp.on('connection', _onClient);
-      // Inicia poll periódico dos gateways
-      _startGatewayPoll();
-      try { if (typeof onCentralUpCb === 'function') onCentralUpCb(CENTRAL_ID); } catch(e) {}
-    });
-    gp.on('error', (err) => { 
-      clearTimeout(failTimer); 
-      // FIX V33: peer-unavailable borbulha das sondagens _pollGateways — NÃO é fatal.
-      // FIX V62: suprime log de peer-unavailable (é ruído normal das sondagens periódicas).
-      if (err && err.type === 'peer-unavailable') return;
-      console.warn(`[K10CentralShadow] Erro do PeerJS em K10-CENTRAL:`, err && err.type);
-      _cleanup(); 
-    });
-    gp.on('close', () => {
-      console.log(`[K10CentralShadow] K10-CENTRAL fechada`);
-      _cleanup()
-    });
-    gp.on('disconnected', () => { /* PeerJS reconecta */ });
-  }
-
-  // ── Poll periódico dos gateways ───────────────────────────────────────
-  function _startGatewayPoll() {
-    setTimeout(_pollGateways, 1_500); // poll inicial rápido
-    if (pollTimer) clearInterval(pollTimer);
-    pollTimer = setInterval(() => {
-      if (!isActive) { clearInterval(pollTimer); pollTimer = null; return; }
-      _pollGateways();
-    }, POLL_MS);
-  }
-
-  function _pollGateways() {
-    if (!isActive || !centralPeer || centralPeer.destroyed) return;
-    // Sonda até 25 gateways em paralelo; atualiza activeGateways
-    const batch = GATEWAY_IDS.sort(() => Math.random() - 0.5).slice(0, 25);
-    batch.forEach(gwId => {
-      let probe, resolved = false;
-      try { probe = centralPeer.connect(gwId, { reliable: true }); }
-      catch(e) { return; }
-      if (!probe) return;
-      const t = setTimeout(() => {
-        if (resolved) return; resolved = true;
-        // Timeout sem open/error: o gateway existe mas está ocupado = ativo
-        activeGateways.add(gwId);
-        try { probe.close(); } catch(e) {}
-      }, 4_500);
-      probe.on('open', () => {
-        if (resolved) return; resolved = true; clearTimeout(t);
-        activeGateways.add(gwId);
-        try { probe.close(); } catch(e) {}
-      });
-      probe.on('error', err => {
-        if (resolved) return; resolved = true; clearTimeout(t);
-        if (err && err.type === 'peer-unavailable') {
-          activeGateways.delete(gwId); // gateway vago (não serve como bootstrap)
-        } else {
-          activeGateways.add(gwId); // erro de rede: assume ativo
-        }
-        try { probe.close(); } catch(e) {}
-      });
-      probe.on('close', () => clearTimeout(t));
-    });
-  }
-
-  // ── Atende clientes ───────────────────────────────────────────────────
-  function _onClient(conn) {
-    centralConns.set(conn.peer, conn);
-    // FIX V61: handle race where conn is already open when _onClient runs.
-    if (conn.open) {
-      _sendGatewayList(conn);
-    } else {
-      conn.on('open', () => {
-        // Envia lista imediatamente ao conectar
-        _sendGatewayList(conn);
-      });
-    }
-    conn.on('data', data => {
-      if (!data || !data.type) return;
-      if (data.type === 'central-discovery-request') {
-        _sendGatewayList(conn);
-      }
-    });
-    conn.on('close', () => centralConns.delete(conn.peer));
-    conn.on('error', () => centralConns.delete(conn.peer));
-  }
-
-  function _sendGatewayList(conn) {
-    // Prefere gateways confirmados ativos; se poucos, completa com lista estática
-    const confirmed = [...activeGateways];
-    const fallback  = GATEWAY_IDS.filter(id => !activeGateways.has(id)).sort(() => Math.random() - 0.5);
-    const gateways  = [...confirmed, ...fallback].slice(0, 30);
-    try {
-      conn.send({ type: 'central-response', gateways, confirmedCount: confirmed.length });
-    } catch(e) {}
-  }
-
-  // ── Limpeza ───────────────────────────────────────────────────────────
-  function _cleanup() {
-    if (centralPeer && !centralPeer.destroyed) { try { centralPeer.destroy(); } catch(e) {} }
-    centralPeer = null; isActive = false; claimInProgress = false;
-    activeGateways.clear(); centralConns.clear();
-    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-  }
-
-  return { init, tryClaim, claimWithGateway, get isActive() { return isActive; } };
-})();
-
-
-// ═══════════════════════════════════════════════════════════════════════
-// K10AnchorShadow (V76) — Eleição de até 5 Anchor Nodes via GossipSub
-//
-// Âncoras são peers browser bem conectados que:
-//   • Ficam na mesh GossipSub com fanout máximo (pontos de propagação)
-//   • Anunciam seus multiaddrs para novos peers encontrarem a rede
-//   • Servem o DHT Kademlia ativamente (clientMode: false)
-//
-// Sem servidor externo. Quanto mais usuários, mais âncoras disponíveis.
-// TTL de 90s — slot liberado automaticamente quando o browser fecha.
-// ═══════════════════════════════════════════════════════════════════════
-const K10AnchorShadow = (() => {
-  // ── Constantes ────────────────────────────────────────────────────────
-  const MAX_ANCHORS      = 5;        // slots simultâneos
-  const ANNOUNCE_INTERVAL= 30_000;   // intervalo entre anúncios (30s)
-  const ANCHOR_TTL       = 90_000;   // slot expira se não anunciar em 90s
-  const MIN_ONLINE_MS    = 120_000;  // mínimo online antes de se candidatar (2 min)
-  const MIN_CONNECTIONS  = 2;        // mínimo de conexões para se candidatar
-  const TOPIC            = 'k10-anchors';
-
-  // ── Estado ───────────────────────────────────────────────────────────
-  let node        = null;
-  let multiaddrFn = null;   // função multiaddr() importada em startLibp2p()
-  let onlineAt    = null;
-  let isAnchor    = false;
-  let mySlot      = -1;
-  let announceTimer = null;
-  let checkTimer    = null;
-  let auditFn     = () => {};
-
-  // slot (0-4) → { peerId, multiaddrs[], lastSeen }
-  const anchorPeers = new Map();
-
-  // ── Helpers ───────────────────────────────────────────────────────────
-  const getActiveAnchors = () => {
-    const now = Date.now();
-    return [...anchorPeers.entries()].filter(([, v]) => now - v.lastSeen < ANCHOR_TTL);
-  };
-
-  const isSelf = (peerId) => node && node.peerId.toString() === peerId;
-
-  // Prefere WebSocket/WSS (funcionam em browser) sobre WebRTC puro
-  const pickDialableAddrs = (multiaddrs) => {
-    const ws  = (multiaddrs || []).filter(a => a.includes('/wss') || a.includes('/ws/'));
-    const dns = (multiaddrs || []).filter(a => a.includes('/dns'));
-    return (dns.length ? dns : ws.length ? ws : (multiaddrs || [])).slice(0, 3);
-  };
-
-  // ── Anúncio de âncora ────────────────────────────────────────────────
-  const announceAnchor = async () => {
-    if (!node || !isAnchor) return;
-    try {
-      const multiaddrs = node.getMultiaddrs().map(ma => ma.toString());
-      const payload = JSON.stringify({
-        type: 'anchor-announce',
-        slot: mySlot,
-        peerId: node.peerId.toString(),
-        multiaddrs,
-        ts: Date.now()
-      });
-      await node.services.pubsub.publish(TOPIC, new TextEncoder().encode(payload));
-    } catch (e) {}
-  };
-
-  // ── Eleição ──────────────────────────────────────────────────────────
-  const tryBecomeAnchor = () => {
-    if (!node || isAnchor) return;
-    const elapsed = Date.now() - onlineAt;
-    if (elapsed < MIN_ONLINE_MS) return;
-
-    const connCount = [...node.getConnections()].length;
-    if (connCount < MIN_CONNECTIONS) return;
-
-    const active   = getActiveAnchors();
-    if (active.length >= MAX_ANCHORS) return;
-
-    // Acha primeiro slot livre
-    const usedSlots = new Set(active.map(([slot]) => Number(slot)));
-    let freeSlot = -1;
-    for (let i = 0; i < MAX_ANCHORS; i++) {
-      if (!usedSlots.has(i)) { freeSlot = i; break; }
-    }
-    if (freeSlot === -1) return;
-
-    isAnchor = true;
-    mySlot   = freeSlot;
-    auditFn(`⚓ Anchor Node eleito! Slot K10-ANCHOR-${mySlot} (${connCount} conexões ativas)`, 'success');
-
-    // Anuncia imediatamente e depois a cada ANNOUNCE_INTERVAL
-    announceAnchor();
-    if (announceTimer) clearInterval(announceTimer);
-    announceTimer = setInterval(announceAnchor, ANNOUNCE_INTERVAL);
-  };
-
-  // ── Handler de mensagens do tópico 'k10-anchors' ─────────────────────
-  const handleAnchorMessage = (data) => {
-    if (data.type !== 'anchor-announce') return;
-    if (isSelf(data.peerId)) return; // ignora próprio anúncio
-
-    const slot = Number(data.slot);
-    if (slot < 0 || slot >= MAX_ANCHORS) return;
-
-    const prev = anchorPeers.get(slot);
-    const isNew = !prev || prev.peerId !== data.peerId;
-
-    anchorPeers.set(slot, {
-      peerId: data.peerId,
-      multiaddrs: data.multiaddrs || [],
-      lastSeen: Date.now()
-    });
-
-    if (isNew) {
-      auditFn(`⚓ Anchor Slot ${slot} → ${data.peerId.slice(0, 12)}… (${(data.multiaddrs || []).length} addrs)`, 'info');
-    }
-
-    // Conecta ao âncora descoberto via seus multiaddrs (prefere WS/WSS)
-    if (node) {
-      const addrs = pickDialableAddrs(data.multiaddrs);
-      if (addrs.length > 0 && multiaddrFn) {
-        for (const addrStr of addrs) {
-          try { node.dial(multiaddrFn(addrStr)).catch(() => {}); } catch (e) {}
-        }
-      }
-      // Fallback: dial by peer ID string (libp2p v2 aceita /p2p/<id>)
-      if (multiaddrFn) {
-        try { node.dial(multiaddrFn(`/p2p/${data.peerId}`)).catch(() => {}); } catch (e) {}
-      }
-    }
-
-    // Anti-colisão: se sou âncora do mesmo slot → cede e procura outro
-    if (isAnchor && mySlot === slot && !isSelf(data.peerId)) {
-      isAnchor = false;
-      if (announceTimer) { clearInterval(announceTimer); announceTimer = null; }
-      auditFn(`⚓ Slot ${slot} ocupado por outro peer — buscando slot alternativo…`, 'warning');
-      setTimeout(tryBecomeAnchor, 5000);
-    }
-  };
-
-  // ── API pública ───────────────────────────────────────────────────────
-  return {
-    /** Inicializa com o nó libp2p já iniciado e a fn multiaddr importada. */
-    init(libp2pNode, multiaddrFnRef, addAudit) {
-      node        = libp2pNode;
-      multiaddrFn = multiaddrFnRef || null;
-      onlineAt    = Date.now();
-      auditFn     = addAudit || (() => {});
-
-      // Inscreve no tópico de âncoras
-      try { node.services.pubsub.subscribe(TOPIC); } catch (e) {}
-
-      // Escuta anúncios de âncoras no GossipSub
-      node.services.pubsub.addEventListener('message', (evt) => {
-        if (evt.detail.topic !== TOPIC) return;
-        try {
-          const data = JSON.parse(new TextDecoder().decode(evt.detail.data));
-          handleAnchorMessage(data);
-        } catch (e) {}
-      });
-
-      // Checa elegibilidade periodicamente (a cada 30s)
-      checkTimer = setInterval(tryBecomeAnchor, 30_000);
-      // Primeira tentativa após MIN_ONLINE_MS + margem
-      setTimeout(tryBecomeAnchor, MIN_ONLINE_MS + 10_000);
-
-      auditFn('⚓ K10AnchorShadow iniciado — até 5 âncoras auto-eleitas por GossipSub', 'info');
-    },
-
-    /** Para o sistema de âncora (chamado em stopLibp2p). */
-    stop() {
-      if (announceTimer) { clearInterval(announceTimer); announceTimer = null; }
-      if (checkTimer)    { clearInterval(checkTimer);    checkTimer    = null; }
-      isAnchor = false;
-      mySlot   = -1;
-      node     = null;
-      anchorPeers.clear();
-    },
-
-    get isActive()    { return isAnchor; },
-    get slot()        { return mySlot; },
-    getAnchors()      { return getActiveAnchors(); },
-    getAnchorCount()  { return getActiveAnchors().length; }
-  };
-})();
-
-// ═══════════════════════════════════════════════════════════════════════
-// K10GSRoom (V79) — Sala GossipSub com sub-grupos auto-escaláveis
-//
-// Factory genérica: cada sala (Modo Geral, Oficial, salinhas) ganha
-// seus próprios sub-tópicos (baseChannel-0, baseChannel-1…).
-// Quando um sub-grupo atinge OFICIAL_SUB_MAX peers, o próximo é criado.
-// publishAll() propaga para TODOS os sub-grupos da sala.
-// ═══════════════════════════════════════════════════════════════════════
-const K10GSRoom = (baseChannel) => {
-  const META_TOPIC  = baseChannel + '-meta';
-  const ANNOUNCE_MS = 45_000;
-
-  let node       = null;
-  let myChannel  = baseChannel + '-0';
-  let knownSubs  = new Set([baseChannel + '-0']);
-  let announceTimer = null;
-  let auditFn    = () => {};
-
-  // ── Sub-grupo com espaço disponível ───────────────────────────────────
-  const findAvailableSub = () => {
-    if (!node) return myChannel;
-    for (let i = 0; i < 500; i++) {
-      const topic = `${baseChannel}-${i}`;
-      const count = (node.services.pubsub.getSubscribers(topic) || []).length;
-      if (count < OFICIAL_SUB_MAX) return topic;
-    }
-    // Todos os 500 cheios — cria o próximo índice dinamicamente
-    const nextIdx = knownSubs.size;
-    const newTopic = `${baseChannel}-${nextIdx}`;
-    knownSubs.add(newTopic);
-    try { node.services.pubsub.subscribe(newTopic); } catch(e) {}
-    // Anuncia imediatamente para todos os peers descobrirem o novo sub-grupo
-    setTimeout(() => announce(), 0);
-    return newTopic;
-  };
-
-  // ── Anúncio de presença no sub-grupo ─────────────────────────────────
-  const announce = async () => {
-    if (!node) return;
-    const payload = JSON.stringify({
-      type: 'gsroom-announce',
-      channel: myChannel,
-      base: baseChannel,
-      ts: Date.now()
-    });
-    try {
-      await node.services.pubsub.publish(META_TOPIC, new TextEncoder().encode(payload));
-    } catch(e) {}
-  };
-
-  // ── Publicar em TODOS os sub-grupos conhecidos ────────────────────────
-  const publishAll = async (libp2pNode, payload) => {
-    if (!libp2pNode) return;
-    const enc = new TextEncoder();
-    const raw = enc.encode(JSON.stringify(payload));
-    for (const ch of knownSubs) {
-      try { await libp2pNode.services.pubsub.publish(ch, raw); } catch(e) {}
-    }
-  };
-
-  return {
-    init(libp2pNode, addAudit) {
-      node    = libp2pNode;
-      auditFn = addAudit || (() => {});
-
-      // Descobre sub-grupo disponível
-      myChannel = findAvailableSub();
-      knownSubs.add(myChannel);
-
-      // Inscreve no meta-tópico e no sub-grupo próprio
-      try { node.services.pubsub.subscribe(META_TOPIC); }  catch(e) {}
-      try { node.services.pubsub.subscribe(myChannel); }   catch(e) {}
-
-      // Escuta anúncios de outros peers
-      node.services.pubsub.addEventListener('message', (evt) => {
-        if (evt.detail.topic !== META_TOPIC) return;
-        try {
-          const d = JSON.parse(new TextDecoder().decode(evt.detail.data));
-          if (d.type === 'gsroom-announce' && d.channel && d.base === baseChannel) {
-            if (!knownSubs.has(d.channel)) {
-              knownSubs.add(d.channel);
-              try { node.services.pubsub.subscribe(d.channel); } catch(e) {}
-              auditFn(`📡 Sub-grupo descoberto: ${d.channel}`, 'info');
-            }
-          }
-        } catch(e) {}
-      });
-
-      // Anuncia presença periodicamente
-      announce();
-      announceTimer = setInterval(announce, ANNOUNCE_MS);
-
-      auditFn(`📡 K10GSRoom [${baseChannel}] ativo — canal: ${myChannel}`, 'success');
-    },
-
-    stop() {
-      if (announceTimer) { clearInterval(announceTimer); announceTimer = null; }
-      node = null;
-      knownSubs = new Set([baseChannel + '-0']);
-    },
-
-    myChannel()    { return myChannel; },
-    getKnownSubs() { return [...knownSubs]; },
-    publishAll,
-    owns: (topic) => topic === META_TOPIC || topic.startsWith(baseChannel + '-')
-  };
-};
-
-// ── Instâncias globais ─────────────────────────────────────────────────
-const K10OficialShadow = K10GSRoom(OFICIAL_BASE_CHANNEL);  // Grupo Oficial ⭐
-const K10GeneralRoom   = K10GSRoom('k10-general');          // Modo Geral
-
-// ═══════════════════════════════════════════════════════════════════════
-// K10-GROUP SHADOW (V50) — 2 servidores eleitos por salinha, em background
-//
-// Cada salinha (gid) precisa ter exatamente 2 servidores ativos em
-// qualquer momento. Os 2 sao eleitos entre os usuarios da propria
-// salinha (menor peerId = slot 1, segundo menor = slot 2).
-//
-// Quando 1 cai, o proximo da fila assume automaticamente. Tudo silencioso.
-// O usuario nao sabe que esta servindo. IDs registrados no PeerJS publico:
-//   K10-{gid}-1  (servidor primario da salinha)
-//   K10-{gid}-2  (servidor secundario da salinha)
-//
-// Cada slot atende clientes do proprio gid: relay de mensagens broadcast
-// (Modo Geral dentro da salinha) e mensagens diretas entre membros.
-// ═══════════════════════════════════════════════════════════════════════
-const K10GroupShadow = (() => {
-  const PROBE_MS         = 5_000;  // FIX V105: reduzido de 10s → 5s para eleição mais rápida
-
-  const slots = new Map();   // slotId -> { peer, conns:Map, isActive:bool, alive:number, hbTimer }
-  let probeTimer = null;
-  let myPeerId   = null;
-  let getMyGid   = null;
-  let getGroupMembers = null;  // () => Array<peerId>
-  let stunPoolFn = null;
-  // FIX V79: peerInstance é local ao ChatClient (escopo ESM diferente).
-  // Recebe getter para acessar o peer principal sem ReferenceError.
-  let getPeerFn  = null;
-  // FIX V81-D + V83: estado para ghost-slot e backoff sem membros.
-  // emptyGroupCycles: ciclos consecutivos com members.length===0 no GID atual.
-  // Após 2 ciclos → todos os slots do grupo são liberados (ghost slot prevention).
-  // _noMemberBackoff*: backoff exponencial (20s→320s) para evitar spam ao PeerJS
-  // enquanto não há membros; reseta quando membros voltam.
-  // zombieProbeCounts: por slotId, quantos probes consecutivos retornaram alive=true.
-  // Após 3 probes (~30s), tenta claim mesmo assim — se for zumbi PeerJS o claim
-  // bem-sucede; se o peer estiver vivo recebe unavailable-id e desiste.
-  let emptyGroupCycles   = 0;
-  let zombieProbeCounts  = {};
-  const _BACKOFF_MIN_MS  = 20_000;
-  const _BACKOFF_MAX_MS  = 320_000;
-  let _noMemberBackoffMs = _BACKOFF_MIN_MS;
-  let _noMemberBackoffUntil = 0;
-
-  function start(myId, gidGetter, membersGetter, stunGetter, getPeer) {
-    myPeerId        = myId;
-    getMyGid        = gidGetter;
-    getGroupMembers = membersGetter;
-    stunPoolFn      = stunGetter;
-    getPeerFn       = getPeer || null;
-    if (probeTimer) clearInterval(probeTimer);
-    probeTimer = setInterval(probeAndElect, PROBE_MS);
-    setTimeout(probeAndElect, 6000);
-  }
-
-  function stop() {
-    if (probeTimer) clearInterval(probeTimer);
-    probeTimer = null;
-    // FIX V81-D + V83: reseta contadores ao parar (evita estado velho na próxima sessão)
-    emptyGroupCycles   = 0;
-    zombieProbeCounts  = {};
-    _noMemberBackoffMs = _BACKOFF_MIN_MS;
-    _noMemberBackoffUntil = 0;
-    for (const [slotId, s] of slots) {
-      if (s.hbTimer) clearInterval(s.hbTimer);
-      try { if (s.peer && !s.peer.destroyed) s.peer.destroy(); } catch(e) {}
-    }
-    slots.clear();
-  }
-
-  function noteAlive(slotId) {
-    const s = slots.get(slotId);
-    if (s) s.alive = Date.now();
-  }
-
-  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
-  async function probeAndElect() {
-    if (!getPeerFn || !getPeerFn() || getPeerFn().destroyed) return;
-    const gid = getMyGid && getMyGid();
-
-    // Sem grupo: libera tudo e sai, reseta contadores
-    if (!gid) {
-      for (const slotId of [...slots.keys()]) releaseSlot(slotId);
-      emptyGroupCycles   = 0;
-      zombieProbeCounts  = {};
-      _noMemberBackoffMs = _BACKOFF_MIN_MS;
-      _noMemberBackoffUntil = 0;
-      return;
-    }
-
-    // Libera slots de outros grupos (troca de grupo)
-    for (const slotId of [...slots.keys()]) {
-      const m = slotId.match(/^K10-(.+)-(\d)$/);
-      if (!m || m[1] !== gid) releaseSlot(slotId);
-    }
-
-    // FIX V81-D + V83: verifica membros ANTES do early-return do slot ativo.
-    // Sem essa verificação, slots ativos ficavam vivos para sempre quando o grupo
-    // ficava vazio (ghost slot) — getGroupMembers era armazenado mas nunca chamado.
-    const members = getGroupMembers ? getGroupMembers() : [];
-    if (members.length === 0) {
-      emptyGroupCycles++;
-      // Após 2 ciclos consecutivos sem membros (~20s): libera ghost slots
-      if (emptyGroupCycles >= 2) {
-        for (const slotId of [...slots.keys()]) releaseSlot(slotId);
-        zombieProbeCounts = {};
-      }
-      // Backoff exponencial: evita spam ao PeerJS enquanto grupo vazio
-      if (Date.now() < _noMemberBackoffUntil) return;
-      _noMemberBackoffUntil = Date.now() + _noMemberBackoffMs;
-      _noMemberBackoffMs = Math.min(_noMemberBackoffMs * 2, _BACKOFF_MAX_MS);
-      return;
-    }
-    // Tem membros: reseta todos os contadores de "sem membros"
-    emptyGroupCycles   = 0;
-    _noMemberBackoffMs = _BACKOFF_MIN_MS;
-    _noMemberBackoffUntil = 0;
-
-    // Já tenho um slot ativo neste grupo → nada a fazer
-    if ([...slots.values()].some(s => s.isActive)) return;
-
-    // Tenta slot 1, depois slot 2 — first-come-first-served.
-    // Qualquer peer com GID válido é elegível; colisões são resolvidas
-    // via jitter aleatório + unavailable-id no tryClaimSlot.
-    // FIX V81-D zombie: se probeId retorna alive=true por 3+ ciclos consecutivos
-    // (~30s), o ID pode ser um zumbi PeerJS (peer morto, ID ainda no servidor).
-    // Nesse caso tenta o claim mesmo assim — se zumbi, bem-sucede;
-    // se vivo, recebe unavailable-id e desiste normalmente.
-    for (let slotNum = 1; slotNum <= 2; slotNum++) {
-      const slotId = `K10-${gid}-${slotNum}`;
-      const alive = await probeId(slotId);
-      if (alive) {
-        zombieProbeCounts[slotId] = (zombieProbeCounts[slotId] || 0) + 1;
-        if (zombieProbeCounts[slotId] < 2) continue; // slot ocupado → tenta o próximo // FIX V105: 3→2 ciclos (10s em vez de 30s)
-        // 2+ probes bloqueados: suspeita de zumbi → força tentativa de claim
-      } else {
-        zombieProbeCounts[slotId] = 0;
-      }
-      // Jitter: separa peers que chegam ao mesmo tempo (slot 1 tem jitter menor)
-      await sleep(slotNum * 500 + Math.random() * 1000);
-      if (!getMyGid || getMyGid() !== gid) return; // saiu do grupo durante jitter
-      const claimed = await tryClaimSlot(slotId);
-      if (claimed) { zombieProbeCounts[slotId] = 0; return; } // conseguiu — não tenta mais slots
-      // unavailable-id: outro peer ganhou a corrida → tenta slot seguinte
-    }
-  }
-
-  function probeId(targetId) {
-    return new Promise(resolve => {
-      const p = getPeerFn ? getPeerFn() : null;  // FIX V79
-      if (!p || p.destroyed) return resolve(false);
-      let test, resolved = false;
-      try { test = p.connect(targetId, { reliable: true }); } catch(e) { return resolve(false); }
-      if (!test) return resolve(false);
-      const t = setTimeout(() => {
-        if (!resolved) { resolved = true; try{test.close();}catch(e){} resolve(false); }
-      }, 4500);
-      test.on('open',  () => { if (!resolved) { resolved = true; clearTimeout(t); try{test.close();}catch(e){} resolve(true); } });
-      test.on('error', () => { if (!resolved) { resolved = true; clearTimeout(t); resolve(false); } });
-    });
-  }
-
-  function tryClaimSlot(slotId) {
-    return new Promise(resolve => {
-      const slot = { peer: null, conns: new Map(), isActive: false, alive: Date.now(), hbTimer: null };
-      slots.set(slotId, slot);
-      let resolved = false;
-      try {
-        const ice = (stunPoolFn && stunPoolFn()) || [];
-        slot.peer = new Peer(slotId, {
-          host: '0.peerjs.com', port: 443, secure: true, debug: 0,
-          config: { iceServers: ice }
-        });
-        const failTimer = setTimeout(() => {
-          if (resolved) return;
-          resolved = true;
-          releaseSlot(slotId);
-          resolve(false);
-        }, 12_000);
-        slot.peer.on('open', () => {
-          if (resolved) return;
-          resolved = true;
-          clearTimeout(failTimer);
-          slot.isActive = true;
-          slot.peer.on('connection', conn => onClientConn(slotId, conn));
-          // 🔥 HEARTBEAT PARA O MONITOR
-          // FIX V10: group server reporta total=0 — contagem é exclusiva do gateway.
-          // FIX V81-B: conexao persistente ao monitor — evita connect/disconnect a cada
-          // 30s que causava flood de eventos PROMOTE/ALERT no monitor (conexao efemera
-          // anterior aparecia como novo peer conectando+desconectando a cada heartbeat).
-          const monitorId = 'K10-MON';
-          slot.monConn = null; // conexao persistente reutilizavel
-          const ensureMonConn = () => {
-            if (slot.monConn && slot.monConn.open) return slot.monConn;
-            if (!slot.isActive || !slot.peer || slot.peer.destroyed) return null;
-            try {
-              const c = slot.peer.connect(monitorId, { reliable: true });
-              c.on('error', () => { if (slot.monConn === c) slot.monConn = null; });
-              c.on('close', () => { if (slot.monConn === c) slot.monConn = null; });
-              slot.monConn = c;
-              return c;
-            } catch(e) { return null; }
-          };
-          const sendHeartbeat = () => {
-            if (!slot.isActive || !slot.peer || slot.peer.destroyed) return;
-            const gid = slotId.match(/^K10-(\w{4})-\d$/)?.[1];
-            if (!gid) return;
-            const payload = { t: 's', id: slotId, total: 0, groups: { [gid]: 0 } };
-            const conn = ensureMonConn();
-            if (!conn) return;
-            if (conn.open) {
-              try { conn.send(payload); } catch(e) {}
-            } else {
-              conn.on('open', () => { try { conn.send(payload); } catch(e) {} });
-            }
-          };
-          slot.hbTimer = setInterval(sendHeartbeat, 30000);
-          sendHeartbeat(); // envia imediatamente
-          resolve(true);
-        });
-        slot.peer.on('error', err => {
-          if (err && (err.type === 'unavailable-id' || err.type === 'invalid-id')) {
-            if (resolved) return;
-            resolved = true;
-            clearTimeout(failTimer);
-            releaseSlot(slotId);
-            resolve(false);
-          } else {
-            releaseSlot(slotId);
-          }
-        });
-        slot.peer.on('close', () => releaseSlot(slotId));
-      } catch(e) {
-        releaseSlot(slotId);
-        resolve(false);
-      }
-    });
-  }
-
-  function releaseSlot(slotId) {
-    const s = slots.get(slotId);
-    if (!s) return;
-    if (s.hbTimer) clearInterval(s.hbTimer);
-    // FIX V81-B: fecha conexao persistente do monitor ao liberar o slot
-    try { if (s.monConn && s.monConn.open) s.monConn.close(); } catch(e) {}
-    s.monConn = null;
-    try { if (s.peer && !s.peer.destroyed) s.peer.destroy(); } catch(e) {}
-    slots.delete(slotId);
-  }
-
-  function onClientConn(slotId, conn) {
-    const s = slots.get(slotId);
-    if (!s) return;
-    s.conns.set(conn.peer, conn);
-    conn.on('data',  data => onClientData(slotId, conn, data));
-    conn.on('close', () => { const ss = slots.get(slotId); if (ss) ss.conns.delete(conn.peer); });
-    conn.on('error', () => { const ss = slots.get(slotId); if (ss) ss.conns.delete(conn.peer); });
-  }
-
-  function onClientData(slotId, conn, data) {
-    if (!data || !data.type) return;
-    const s = slots.get(slotId);
-    if (!s) return;
-    if (data.type === 'handshake') {
-      try { conn.send({ type: 'handshake', peerId: slotId }); } catch(e) {}
-      return;
-    }
-    // Relay de mensagens (broadcast P2P)
-    if (data.type === 'message' || data.type === 'youtube-chat-start' || data.type === 'youtube-chat-stop' || data.type === 'radio-start' || data.type === 'radio-chunk') {
-      const rawTtl = (typeof data.ttl === 'number') ? data.ttl : 8;
-      const ttl = Math.min(Math.max(0, rawTtl), 15);
-      if (ttl <= 0) return;
-      const relay = Object.assign({}, data, { ttl: ttl - 1 });
-      if (data.direct && data.recipient) {
-        const target = s.conns.get(data.recipient);
-        if (target && target.open && data.recipient !== conn.peer) {
-          try { target.send(relay); } catch(e) {}
-        }
-        return;
-      }
-      s.conns.forEach((c, pid) => {
-        if (pid !== conn.peer && c.open) {
-          try { c.send(relay); } catch(e) {}
-        }
-      });
-    }
-  }
-
-  return {
-    start, stop, noteAlive, probeAndElect,
-    get activeSlots() { return [...slots.keys()].filter(k => slots.get(k).isActive); }
-  };
-})();
-window.K10GroupShadow = K10GroupShadow;
-
-const generateInviteLink = () => {
-if (!peerId) return;
-const activePeers = connectionsRef.current.filter(c => c.open && c.peer !== peerId).map(c => c.peer); // FIX O-7 V21: era connections (stale closure)
-const allIds = [peerId, ...activePeers].slice(0, 15);
-const url = new URL(window.location.href);
-url.searchParams.set('portas', allIds.join(','));
-const finalUrl = url.toString();
-navigator.clipboard.writeText(finalUrl);
-prompt(t(lang, 'inviteLinkCopied'), finalUrl);
-};
-
-
 
 
 
@@ -13451,9 +11827,6 @@ return (
 
         {showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => {
   connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId, discipline: quizDisciplineRef.current});}catch(e){} });
-  // V77: propaga toggle do quiz para todos sub-grupos do Oficial
-  // FIX V80-2: .catch() adicionado — evita unhandled promise rejection
-  K10OficialShadow.publishAll(libp2pRef.current, { type: 'quiz-bot-global-toggle', active: act, owner: peerId, discipline: quizDisciplineRef.current }).catch(() => {});
 }} sendQuizHandoff={sendQuizHandoff} quizServerOwnerId={quizServerOwnerId} globalQuizOwner={globalQuizOwner} setGlobalQuizOwner={setGlobalQuizOwner} quizMasterIdRef={quizMasterIdRef} peerId={peerId} quizStopCooldown={quizStopCooldown} startQuizStopCooldown={startQuizStopCooldown} />}
 {showTorrentManager && (
 <TorrentManagerModal
@@ -14035,7 +12408,6 @@ cooldownRemaining={cooldownRemaining} setCooldownRemaining={setCooldownRemaining
 networkSize={networkSize} centralServerId={centralServerId}
 e2eeState={e2eeState} setE2eeState={setE2eeState}
 isCentralServer={isCentralServer}
-isMyGroupServer={isMyGroupServer}
 serverE2EE={serverE2EE} setServerE2EE={setServerE2EE} connectToPeer={connectToPeer}
 handleTorrentSeed={handleTorrentSeed} handleTorrentDownload={handleTorrentDownload}
 setShowTorrentManager={setShowTorrentManager}
@@ -14166,15 +12538,6 @@ const App = () => {
           // Canal privado para este nó
           node.services.pubsub.subscribe(`k10-private-${node.peerId.toString()}`);
 
-          K10AnchorShadow.init(node, multiaddr, addGlobalAudit);
-          K10GeneralRoom.init(node, addGlobalAudit);
-          K10OficialShadow.init(node, addGlobalAudit);
-          // Abre Grupo Oficial como Modo Geral após breve descoberta
-          setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('k10-join-oficial', {
-              detail: { channel: K10OficialShadow.myChannel() }
-            }));
-          }, 2500);
 
           // Anúncio periódico no DHT e no PubSub
           // FIX V79: libp2pStatus era capturado pela closure sempre como 'offline'
@@ -14224,9 +12587,6 @@ const App = () => {
 
     const stopLibp2p = async () => {
         if (libp2pRef.current) {
-            K10AnchorShadow.stop();
-            K10GeneralRoom.stop();
-            K10OficialShadow.stop();
             await libp2pRef.current.stop();
             libp2pRef.current = null;
             setLibp2pStatus('offline');
@@ -14459,6 +12819,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 }
 #matrix-chat-overlay.ativo {
   display: flex;
+}
+/* Esconde o placeholder de grupos quando o overlay Matrix está ativo */
+#matrix-grupos-content:has(#matrix-chat-overlay.ativo) #matrix-grupos-placeholder {
+  display: none;
 }
 #matrix-chat-messages {
   flex: 1;
@@ -15007,7 +13371,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     let salasInfo      = [];
     let pollingInterval = null;
     let _salaAtiva      = null;
-    let _isPolling      = false;
     let _syncToken      = null;   // Long poll: token global do /sync
     let _longPollAtivo  = false;  // Evita dois loops simultâneos
 
@@ -15109,8 +13472,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     // Garante que o overlay DOM exista dentro do container de salinhas
     function garantirOverlay() {
         if (document.getElementById('matrix-chat-overlay')) return;
-        // V102: prioriza o container dedicado da aba Salinhas para não cobrir a barra de abas
+        // V102: prioriza o container dedicado da aba Salinhas/Grupos para não cobrir a barra de abas
         const container = document.getElementById('matrix-salinhas-content')
+            || document.getElementById('matrix-grupos-content')
             || document.querySelector('.chat-messages-container');
         if (!container) return;
         const overlay = document.createElement('div');
@@ -15361,9 +13725,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         window._matrixSalaAtual = alias || 'geral';
         renderizarSidebarMatrix();
 
-        // V102: garante que a aba Salinhas esteja ativa antes de abrir o overlay
-        // (evita que o overlay cubra outras abas como P2P, Geral, YouTube, Grupos)
-        if (alias && !document.getElementById('matrix-salinhas-content')) {
+        // V102: garante que a aba Salinhas/Grupos esteja ativa antes de abrir o overlay
+        // (evita que o overlay cubra outras abas como P2P, Geral, YouTube)
+        if (alias && !document.getElementById('matrix-salinhas-content') && !document.getElementById('matrix-grupos-content')) {
             // Ativa a aba Salinhas clicando no botão correspondente
             const salinhasBtn = document.querySelector('[title="Salinhas Matrix"]');
             if (salinhasBtn) {
@@ -15934,6 +14298,17 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
                 </div>
             </button>`).join('');
 
+        // Imagem do World Quiz (se existir)
+        const imgHtml = quizData.quizImage
+            ? `<div class="quiz-world-image-wrap">
+                <img class="quiz-world-image"
+                     src="${quizData.quizImage}"
+                     alt="lugar do mundo"
+                     onerror="this.parentNode.style.display='none'"
+                     style="width:100%;max-height:190px;object-fit:cover;display:block;border-radius:10px" />
+               </div>`
+            : '';
+
         const bubble = document.createElement('div');
         bubble.className = 'matrix-chat-bubble';
         bubble.id = 'quiz-bubble-' + qs;
@@ -15943,7 +14318,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
                 <div class="quiz-header">
                     <span class="quiz-badge">🤖 Quiz</span>
                     ${quizData.quizSubject ? `<span class="quiz-subject">${escapeHtml(quizData.quizSubject)}</span>` : ''}
+                    ${quizData.quizStage ? `<span class="quiz-stage-badge">${quizData.quizStage === 1 ? '🌍 ETAPA 1' : '🗺️ ETAPA 2'}</span>` : ''}
                 </div>
+                ${imgHtml}
                 <div class="quiz-question-text">${escapeHtml(quizData.quizQuestion || '')}</div>
                 <div class="quiz-options" id="quiz-opts-${qs}">${optsHtml}</div>
                 <div id="quiz-banner-${qs}"></div>
@@ -16225,6 +14602,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         iniciarLongPoll();
         console.log(`[Matrix] ✅ Long poll ativo. Salas carregadas: ${salasInfo.length}`);
         injetarNaSidebar();
+        carregarGruposSalvos();
         // Login só aparece quando o usuário tentar enviar — não interrompe a navegação
 
         // FIX TIMING: se o usuário já havia selecionado uma sala antes de iniciarMatrix
@@ -16262,6 +14640,129 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
         console.log('[Matrix] 👁️ MutationObserver ativo para manter sidebar injetada');
     }
+
+    // ── GRUPOS MATRIX — Terminal Burro ──────────────────────────────────────────
+    let gruposAbertos = []; // { alias, nome, room_id }
+
+    function atualizarSidebarGrupos() {
+        window.dispatchEvent(new CustomEvent('matrix-grupos-updated'));
+    }
+
+    window._matrixGetGrupos = function() {
+        return gruposAbertos;
+    };
+
+    window._matrixEntrarGrupo = async function(alias, nome) {
+        if (gruposAbertos.some(g => g.alias === alias)) {
+            window._matrixSelecionarGrupo(alias);
+            return;
+        }
+        let roomId = await resolverRoomId(alias).catch(() => null);
+        if (!roomId) {
+            try {
+                const slug = alias.replace(/^#/, '').split(':')[0];
+                const createResp = await matrixPost('/_matrix/client/v3/createRoom', {
+                    room_alias_name: slug,
+                    name: nome,
+                    visibility: 'public',
+                    preset: 'public_chat'
+                });
+                roomId = createResp.room_id;
+                await new Promise(r => setTimeout(r, 1000));
+            } catch(e) {
+                if (typeof mostrarToast === 'function') mostrarToast('❌ Erro ao criar grupo: ' + e.message);
+                return;
+            }
+        }
+        if (MATRIX_TOKEN) {
+            try { await matrixPost(`/_matrix/client/v3/join/${encodeURIComponent(roomId)}`); } catch(e) {}
+        }
+        gruposAbertos.push({ alias, nome, room_id: roomId });
+        localStorage.setItem('k10_grupos_matrix', JSON.stringify(gruposAbertos));
+        atualizarSidebarGrupos();
+        window._matrixSelecionarGrupo(alias);
+        if (typeof mostrarToast === 'function') mostrarToast(`✅ Grupo "${nome}" aberto`);
+    };
+
+    window._matrixSelecionarGrupo = function(alias) {
+        // Garante que a sala esteja em salasInfo
+        if (!salasInfo.some(s => s.alias === alias)) {
+            const grupo = gruposAbertos.find(g => g.alias === alias);
+            if (!grupo) return;
+            salasInfo.push({
+                alias: grupo.alias,
+                nome: grupo.nome,
+                room_id: grupo.room_id,
+                geral: false,
+                ultimasMensagens: new Set(),
+                _historicoCarregado: false,
+                _mensagens: [],
+                _sinceToken: null
+            });
+        }
+        // Garante que a aba Grupos esteja ativa
+        const gruposBtn = document.querySelector('[title="Grupos (Ferramentas)"]');
+        if (gruposBtn && !document.getElementById('matrix-grupos-content')) {
+            gruposBtn.click();
+            setTimeout(() => window._matrixSelecionarSala(alias), 150);
+        } else {
+            window._matrixSelecionarSala(alias);
+        }
+    };
+
+    window._matrixFecharGrupo = function(alias) {
+        gruposAbertos = gruposAbertos.filter(g => g.alias !== alias);
+        localStorage.setItem('k10_grupos_matrix', JSON.stringify(gruposAbertos));
+        salasInfo = salasInfo.filter(s => s.alias !== alias);
+        if (_salaAtiva === alias) {
+            _salaAtiva = null;
+            const overlay = document.getElementById('matrix-chat-overlay');
+            if (overlay) overlay.classList.remove('ativo');
+        }
+        atualizarSidebarGrupos();
+    };
+
+    function carregarGruposSalvos() {
+        try {
+            const saved = localStorage.getItem('k10_grupos_matrix');
+            if (saved) {
+                gruposAbertos = JSON.parse(saved);
+                gruposAbertos.forEach(g => {
+                    if (!salasInfo.some(s => s.alias === g.alias)) {
+                        salasInfo.push({
+                            alias: g.alias,
+                            nome: g.nome,
+                            room_id: g.room_id,
+                            geral: false,
+                            ultimasMensagens: new Set(),
+                            _historicoCarregado: false,
+                            _mensagens: [],
+                            _sinceToken: null
+                        });
+                    }
+                });
+                atualizarSidebarGrupos();
+            }
+        } catch(e) {}
+    }
+
+    window._matrixOnGruposActive = function() {
+        // Re-cria o overlay dentro do #matrix-grupos-content
+        const oldOverlay = document.getElementById('matrix-chat-overlay');
+        if (oldOverlay) oldOverlay.remove();
+        garantirOverlay();
+        if (_salaAtiva) {
+            const overlay = document.getElementById('matrix-chat-overlay');
+            if (overlay) overlay.classList.add('ativo');
+            const sala = salasInfo.find(s => s.alias === _salaAtiva);
+            if (sala) renderizarChatMatrix(sala);
+        }
+    };
+
+    window._matrixOnGruposInactive = function() {
+        const overlay = document.getElementById('matrix-chat-overlay');
+        if (overlay) overlay.classList.remove('ativo');
+    };
 
     // V102: handlers chamados pelo React ao trocar de aba
     window._matrixOnSalinhasActive = function() {
