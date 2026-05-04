@@ -5604,6 +5604,842 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
   );
 };
 
+// ══════════════════════════════════════════════════════════════
+// IptvPlayer — player HLS.js para streams m3u8
+// ══════════════════════════════════════════════════════════════
+const loadHlsJs = () => new Promise(resolve => {
+  if (window.Hls) { resolve(window.Hls); return; }
+  const s = document.createElement('script');
+  s.src = 'https://cdnjs.cloudflare.com/ajax/libs/hls.js/1.4.12/hls.min.js';
+  s.onload = () => resolve(window.Hls);
+  s.onerror = () => resolve(null);
+  document.head.appendChild(s);
+});
+
+const IptvPlayer = ({ url, name, flag }) => {
+  const videoRef  = useRef(null);
+  const hlsRef    = useRef(null);
+  const [status,   setStatus]   = useState('loading');
+  const [levels,   setLevels]   = useState([]);   // qualidade disponíveis
+  const [curLevel, setCurLevel] = useState(-1);   // -1 = Auto
+  const [showRes,  setShowRes]  = useState(false);
+  const [muted,    setMuted]    = useState(false);
+  const [volume,   setVolume]   = useState(1);
+  const [fullscr,  setFullscr]  = useState(false);
+  const wrapRef = useRef(null);
+
+  useEffect(() => {
+    if (!url || !videoRef.current) return;
+    setStatus('loading');
+    setLevels([]);
+    setCurLevel(-1);
+
+    loadHlsJs().then(Hls => {
+      if (!Hls) { setStatus('error'); return; }
+      if (hlsRef.current) hlsRef.current.destroy();
+
+      if (Hls.isSupported()) {
+        const hls = new Hls({ maxBufferLength: 30, startLevel: -1 });
+        hlsRef.current = hls;
+        hls.loadSource(url);
+        hls.attachMedia(videoRef.current);
+
+        hls.on(Hls.Events.MANIFEST_PARSED, (e, data) => {
+          videoRef.current.play().catch(()=>{});
+          setStatus('playing');
+          // Monta lista de qualidades
+          const lvls = data.levels.map((l, i) => ({
+            index: i,
+            label: l.height ? `${l.height}p` : `Nível ${i+1}`,
+            bitrate: l.bitrate,
+            width: l.width,
+            height: l.height,
+          }));
+          setLevels(lvls);
+        });
+
+        hls.on(Hls.Events.LEVEL_SWITCHED, (e, data) => {
+          setCurLevel(hls.manualLevel === -1 ? -1 : data.level);
+        });
+
+        hls.on(Hls.Events.ERROR, (e, d) => { if (d.fatal) setStatus('error'); });
+
+      } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
+        videoRef.current.src = url;
+        videoRef.current.play().catch(()=>{});
+        setStatus('playing');
+      } else { setStatus('error'); }
+    });
+    return () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
+  }, [url]);
+
+  const setQuality = (index) => {
+    if (!hlsRef.current) return;
+    hlsRef.current.currentLevel = index; // -1 = Auto
+    hlsRef.current.manualLevel  = index;
+    setCurLevel(index);
+    setShowRes(false);
+  };
+
+  const toggleMute = () => {
+    if (!videoRef.current) return;
+    videoRef.current.muted = !muted;
+    setMuted(!muted);
+  };
+
+  const changeVolume = (v) => {
+    if (!videoRef.current) return;
+    videoRef.current.volume = v;
+    setVolume(v);
+    if (v === 0) setMuted(true);
+    else if (muted) { setMuted(false); videoRef.current.muted = false; }
+  };
+
+  const toggleFullscreen = () => {
+    if (!wrapRef.current) return;
+    if (!document.fullscreenElement) {
+      wrapRef.current.requestFullscreen().catch(()=>{});
+      setFullscr(true);
+    } else {
+      document.exitFullscreen();
+      setFullscr(false);
+    }
+  };
+
+  const curLabel = curLevel === -1 ? 'Auto' : (levels[curLevel]?.label || `Nível ${curLevel+1}`);
+
+  return (
+    <div ref={wrapRef} style={{ width:'100%', height:'100%', background:'#000', position:'relative',
+                                display:'flex', flexDirection:'column', overflow:'hidden' }}>
+      {/* Vídeo */}
+      <video ref={videoRef}
+        style={{ flex:1, width:'100%', display: status==='error'?'none':'block', objectFit:'contain' }}
+        onClick={() => setShowRes(false)} />
+
+      {/* Loading */}
+      {status === 'loading' && (
+        <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column',
+                      alignItems:'center', justifyContent:'center', gap:'10px', color:'white', background:'#000' }}>
+          <div style={{ fontSize:'36px' }}>{flag||'📡'}</div>
+          <div style={{ fontSize:'13px', fontWeight:700 }}>{name}</div>
+          <div style={{ display:'flex', alignItems:'center', gap:'8px', color:'#94a3b8', fontSize:'11px' }}>
+            <div style={{ width:'12px', height:'12px', borderRadius:'50%', border:'2px solid #64748b',
+                          borderTopColor:'#60a5fa', animation:'spin 0.8s linear infinite' }}></div>
+            Carregando stream...
+          </div>
+        </div>
+      )}
+
+      {/* Erro */}
+      {status === 'error' && (
+        <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column',
+                      alignItems:'center', justifyContent:'center', gap:'10px', color:'white', background:'#000' }}>
+          <div style={{ fontSize:'36px' }}>📵</div>
+          <div style={{ fontSize:'13px', fontWeight:700 }}>{name}</div>
+          <div style={{ fontSize:'11px', color:'#ef4444' }}>Stream indisponível</div>
+          <button onClick={() => { setStatus('loading'); hlsRef.current?.loadSource(url); }}
+            style={{ background:'#1e293b', border:'1px solid #334155', color:'#94a3b8',
+                     borderRadius:'6px', padding:'5px 14px', fontSize:'11px', cursor:'pointer' }}>
+            ↺ Tentar novamente
+          </button>
+        </div>
+      )}
+
+      {/* ── Barra de controles personalizados ── */}
+      {status === 'playing' && (
+        <div style={{ flexShrink:0, background:'rgba(0,0,0,0.85)', padding:'6px 10px',
+                      display:'flex', alignItems:'center', gap:'8px', borderTop:'1px solid #1e293b' }}>
+
+          {/* Mute / Volume */}
+          <button onClick={toggleMute}
+            style={{ background:'none', border:'none', color:'white', cursor:'pointer', fontSize:'14px', padding:'2px 6px' }}>
+            <i className={`fas fa-volume-${muted||volume===0?'mute':volume<0.5?'down':'up'}`}></i>
+          </button>
+          <input type="range" min="0" max="1" step="0.05" value={muted ? 0 : volume}
+            onChange={e => changeVolume(parseFloat(e.target.value))}
+            style={{ width:'64px', accentColor:'#3b82f6', cursor:'pointer' }} />
+
+          {/* Nome do canal */}
+          <span style={{ flex:1, color:'#94a3b8', fontSize:'10px', fontWeight:600,
+                         whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+            {flag} {name}
+          </span>
+
+          {/* ── Seletor de Resolução ── */}
+          {levels.length > 0 && (
+            <div style={{ position:'relative' }}>
+              <button onClick={() => setShowRes(!showRes)}
+                style={{ background: showRes?'#1d4ed8':'#1e293b', border:'1px solid #334155',
+                         color:'white', borderRadius:'6px', padding:'3px 10px',
+                         fontSize:'10px', fontWeight:700, cursor:'pointer',
+                         display:'flex', alignItems:'center', gap:'5px' }}>
+                <i className="fas fa-sliders-h" style={{fontSize:'9px'}}></i>
+                {curLabel}
+                <i className={`fas fa-chevron-${showRes?'down':'up'}`} style={{fontSize:'8px'}}></i>
+              </button>
+
+              {/* Dropdown de qualidades */}
+              {showRes && (
+                <div style={{ position:'absolute', bottom:'calc(100% + 6px)', right:0, zIndex:100,
+                              background:'#0f172a', border:'1px solid #334155', borderRadius:'8px',
+                              overflow:'hidden', minWidth:'120px', boxShadow:'0 8px 24px rgba(0,0,0,0.5)' }}>
+                  <div style={{ padding:'6px 10px', fontSize:'9px', fontWeight:700,
+                                color:'#475569', letterSpacing:'1px', borderBottom:'1px solid #1e293b' }}>
+                    RESOLUÇÃO
+                  </div>
+                  {/* Auto */}
+                  <button onClick={() => setQuality(-1)}
+                    style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
+                             width:'100%', padding:'7px 12px', background: curLevel===-1?'#1d4ed8':'transparent',
+                             border:'none', color: curLevel===-1?'white':'#e2e8f0',
+                             fontSize:'12px', fontWeight:600, cursor:'pointer', textAlign:'left' }}>
+                    <span>⚡ Auto</span>
+                    {curLevel === -1 && <i className="fas fa-check" style={{fontSize:'9px',color:'#60a5fa'}}></i>}
+                  </button>
+                  {/* Níveis disponíveis (do maior para o menor) */}
+                  {[...levels].sort((a,b) => (b.height||0)-(a.height||0)).map(lv => (
+                    <button key={lv.index} onClick={() => setQuality(lv.index)}
+                      style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
+                               width:'100%', padding:'7px 12px', background: curLevel===lv.index?'#1d4ed8':'transparent',
+                               border:'none', color: curLevel===lv.index?'white':'#e2e8f0',
+                               fontSize:'12px', fontWeight:600, cursor:'pointer', textAlign:'left' }}>
+                      <span>
+                        {lv.height >= 1080 ? '🔵 ' : lv.height >= 720 ? '🟢 ' : lv.height >= 480 ? '🟡 ' : '🔴 '}
+                        {lv.label}
+                        {lv.height >= 1080 ? ' HD' : lv.height >= 720 ? ' HD' : ''}
+                      </span>
+                      <span style={{ color:'#475569', fontSize:'9px', marginLeft:'8px' }}>
+                        {lv.bitrate ? `${Math.round(lv.bitrate/1000)}k` : ''}
+                      </span>
+                      {curLevel === lv.index && <i className="fas fa-check" style={{fontSize:'9px',color:'#60a5fa'}}></i>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Fullscreen */}
+          <button onClick={toggleFullscreen}
+            style={{ background:'none', border:'none', color:'white', cursor:'pointer', fontSize:'13px', padding:'2px 5px' }}>
+            <i className={`fas fa-${fullscr?'compress':'expand'}`}></i>
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ══════════════════════════════════════════════════════════════
+// IptvModal — browser de canais IPTV de todo o mundo
+// ══════════════════════════════════════════════════════════════
+const CONTINENTES = {
+  '🌎 América do Sul': ['BR','AR','BO','CL','CO','EC','GY','PY','PE','SR','UY','VE'],
+  '🌎 América do Norte': ['US','CA','MX','GT','BZ','HN','SV','NI','CR','PA'],
+  '🌎 Caribe': ['CU','JM','HT','DO','TT','BB','LC','VC','GD','AG','DM','KN','AW','TC'],
+  '🌍 Europa Ocidental': ['GB','DE','FR','IT','ES','PT','NL','BE','CH','AT','IE','LU','MC','AD','SM','VA'],
+  '🌍 Europa do Norte': ['SE','NO','DK','FI','IS','EE','LV','LT'],
+  '🌍 Europa do Leste': ['PL','CZ','SK','HU','RO','BG','UA','BY','MD','RU'],
+  '🌍 Balcãs': ['HR','RS','SI','BA','ME','MK','AL','GR','CY','MT'],
+  '🌍 Oriente Médio': ['SA','AE','QA','KW','BH','OM','YE','IQ','IR','SY','LB','JO','IL','TR'],
+  '🌍 África do Norte': ['EG','MA','DZ','TN','LY','SD','MR'],
+  '🌍 África Subsaariana': ['NG','ZA','KE','ET','GH','TZ','UG','SN','CI','CM','MG','MZ','ZW','ZM','RW','ML','BF','AO','CD','CG','SO'],
+  '🌏 Ásia do Sul': ['IN','PK','BD','LK','NP','AF'],
+  '🌏 Ásia Oriental': ['CN','JP','KR','TW','HK','MO','MN'],
+  '🌏 Ásia Sudeste': ['VN','TH','MM','KH','LA','MY','SG','ID','PH','BN','TL'],
+  '🌏 Ásia Central': ['KZ','UZ','TM','KG','TJ','AZ','GE','AM'],
+  '🌏 Oceania': ['AU','NZ','FJ','PG','SB','VU','WS','TO'],
+};
+const ISO_FLAGS = { AF:'🇦🇫',AL:'🇦🇱',DZ:'🇩🇿',AO:'🇦🇴',AG:'🇦🇬',AR:'🇦🇷',AM:'🇦🇲',AW:'🇦🇼',AU:'🇦🇺',AT:'🇦🇹',AZ:'🇦🇿',BS:'🇧🇸',BH:'🇧🇭',BD:'🇧🇩',BB:'🇧🇧',BY:'🇧🇾',BE:'🇧🇪',BZ:'🇧🇿',BJ:'🇧🇯',BT:'🇧🇹',BO:'🇧🇴',BA:'🇧🇦',BW:'🇧🇼',BR:'🇧🇷',BN:'🇧🇳',BG:'🇧🇬',BF:'🇧🇫',KH:'🇰🇭',CM:'🇨🇲',CA:'🇨🇦',CV:'🇨🇻',CF:'🇨🇫',TD:'🇹🇩',CL:'🇨🇱',CN:'🇨🇳',CO:'🇨🇴',CG:'🇨🇬',CD:'🇨🇩',CR:'🇨🇷',CI:'🇨🇮',HR:'🇭🇷',CU:'🇨🇺',CY:'🇨🇾',CZ:'🇨🇿',DK:'🇩🇰',DJ:'🇩🇯',DM:'🇩🇲',DO:'🇩🇴',EC:'🇪🇨',EG:'🇪🇬',SV:'🇸🇻',GQ:'🇬🇶',ER:'🇪🇷',EE:'🇪🇪',ET:'🇪🇹',FJ:'🇫🇯',FI:'🇫🇮',FR:'🇫🇷',GA:'🇬🇦',GM:'🇬🇲',GE:'🇬🇪',DE:'🇩🇪',GH:'🇬🇭',GR:'🇬🇷',GD:'🇬🇩',GT:'🇬🇹',GN:'🇬🇳',GW:'🇬🇼',GY:'🇬🇾',HT:'🇭🇹',HN:'🇭🇳',HK:'🇭🇰',HU:'🇭🇺',IS:'🇮🇸',IN:'🇮🇳',ID:'🇮🇩',IR:'🇮🇷',IQ:'🇮🇶',IE:'🇮🇪',IL:'🇮🇱',IT:'🇮🇹',JM:'🇯🇲',JP:'🇯🇵',JO:'🇯🇴',KZ:'🇰🇿',KE:'🇰🇪',KI:'🇰🇮',KP:'🇰🇵',KR:'🇰🇷',KW:'🇰🇼',KG:'🇰🇬',LA:'🇱🇦',LV:'🇱🇻',LB:'🇱🇧',LS:'🇱🇸',LR:'🇱🇷',LY:'🇱🇾',LI:'🇱🇮',LT:'🇱🇹',LU:'🇱🇺',MO:'🇲🇴',MK:'🇲🇰',MG:'🇲🇬',MW:'🇲🇼',MY:'🇲🇾',MV:'🇲🇻',ML:'🇲🇱',MT:'🇲🇹',MH:'🇲🇭',MR:'🇲🇷',MU:'🇲🇺',MX:'🇲🇽',FM:'🇫🇲',MD:'🇲🇩',MC:'🇲🇨',MN:'🇲🇳',ME:'🇲🇪',MA:'🇲🇦',MZ:'🇲🇿',MM:'🇲🇲',NA:'🇳🇦',NP:'🇳🇵',NL:'🇳🇱',NZ:'🇳🇿',NI:'🇳🇮',NE:'🇳🇪',NG:'🇳🇬',NO:'🇳🇴',OM:'🇴🇲',PK:'🇵🇰',PW:'🇵🇼',PA:'🇵🇦',PG:'🇵🇬',PY:'🇵🇾',PE:'🇵🇪',PH:'🇵🇭',PL:'🇵🇱',PT:'🇵🇹',QA:'🇶🇦',RO:'🇷🇴',RU:'🇷🇺',RW:'🇷🇼',KN:'🇰🇳',LC:'🇱🇨',VC:'🇻🇨',WS:'🇼🇸',SM:'🇸🇲',ST:'🇸🇹',SA:'🇸🇦',SN:'🇸🇳',RS:'🇷🇸',SL:'🇸🇱',SG:'🇸🇬',SK:'🇸🇰',SI:'🇸🇮',SB:'🇸🇧',SO:'🇸🇴',ZA:'🇿🇦',SS:'🇸🇸',ES:'🇪🇸',LK:'🇱🇰',SD:'🇸🇩',SE:'🇸🇪',CH:'🇨🇭',SY:'🇸🇾',TW:'🇹🇼',TJ:'🇹🇯',TZ:'🇹🇿',TH:'🇹🇭',TL:'🇹🇱',TG:'🇹🇬',TO:'🇹🇴',TT:'🇹🇹',TN:'🇹🇳',TR:'🇹🇷',TM:'🇹🇲',TC:'🇹🇨',UG:'🇺🇬',UA:'🇺🇦',AE:'🇦🇪',GB:'🇬🇧',US:'🇺🇸',UY:'🇺🇾',UZ:'🇺🇿',VU:'🇻🇺',VE:'🇻🇪',VN:'🇻🇳',YE:'🇾🇪',ZM:'🇿🇲',ZW:'🇿🇼' };
+
+const IptvModal = ({ onClose, onPlay }) => {
+  const [channels, setChannels] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [search, setSearch] = useState('');
+  const [continente, setContinente] = useState('todos');
+  const [countryFilter, setCountryFilter] = useState('todos');
+
+  useEffect(() => {
+    Promise.all([
+      fetch('https://iptv-org.github.io/api/channels.json').then(r=>r.json()),
+      fetch('https://iptv-org.github.io/api/streams.json').then(r=>r.json()),
+    ]).then(([chs, streams]) => {
+      const chMap = {};
+      chs.forEach(c => { chMap[c.id] = c; });
+      const list = streams
+        .filter(s => s.url && (s.url.includes('.m3u8') || s.url.includes('/live') || s.url.includes('stream')))
+        .map(s => {
+          const ch = chMap[s.channel] || {};
+          const iso = ch.country || 'ZZ';
+          return { id: s.channel, name: ch.name || s.channel, url: s.url, iso, flag: ISO_FLAGS[iso] || '🌐', logo: ch.logo || '', cats: (ch.categories||[]).join(',') };
+        })
+        .filter(c => c.name && c.url);
+      setChannels(list);
+      setLoading(false);
+    }).catch(e => { setError('Erro ao carregar canais: ' + e.message); setLoading(false); });
+  }, []);
+
+  // Agrupa por continente
+  const getContinent = (iso) => {
+    for (const [cont, isos] of Object.entries(CONTINENTES)) {
+      if (isos.includes(iso)) return cont;
+    }
+    return '🌐 Outros';
+  };
+
+  const filtered = channels.filter(c => {
+    if (search && !c.name.toLowerCase().includes(search.toLowerCase()) && !c.iso.toLowerCase().includes(search.toLowerCase())) return false;
+    if (continente !== 'todos' && getContinent(c.iso) !== continente) return false;
+    if (countryFilter !== 'todos' && c.iso !== countryFilter) return false;
+    return true;
+  });
+
+  const allContinentes = [...new Set(channels.map(c => getContinent(c.iso)))].sort();
+  const countriesInCont = continente === 'todos'
+    ? [...new Set(channels.map(c => c.iso))].sort()
+    : [...new Set(channels.filter(c => getContinent(c.iso) === continente).map(c => c.iso))].sort();
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.85)', zIndex:99999, display:'flex', alignItems:'center', justifyContent:'center', padding:'12px' }}>
+      <div style={{ background:'#0f172a', border:'1px solid #1e3a5f', borderRadius:'16px', width:'100%', maxWidth:'720px', height:'90vh', display:'flex', flexDirection:'column', boxShadow:'0 24px 80px rgba(0,0,0,0.8)', overflow:'hidden' }}>
+
+        {/* Header */}
+        <div style={{ padding:'16px 20px 12px', borderBottom:'1px solid #1e293b', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'10px' }}>
+            <div>
+              <h3 style={{ margin:0, color:'white', fontSize:'18px', fontWeight:700, display:'flex', alignItems:'center', gap:'10px' }}>
+                📡 IPTV Mundial
+              </h3>
+              <p style={{ margin:'3px 0 0', color:'#64748b', fontSize:'12px' }}>
+                {loading ? 'Carregando canais do mundo inteiro...' : `${filtered.length} canais disponíveis · clique para transmitir na janelinha`}
+              </p>
+            </div>
+            <button onClick={onClose} style={{ background:'none', border:'none', color:'#64748b', fontSize:'22px', cursor:'pointer' }}>✕</button>
+          </div>
+          <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Pesquisar canal ou país (ex: CNN, Brasil, US)..."
+            style={{ width:'100%', padding:'9px 14px', background:'#1e293b', border:'1px solid #334155', borderRadius:'8px', color:'#e2e8f0', fontSize:'13px', outline:'none', boxSizing:'border-box' }} />
+        </div>
+
+        {/* Continents */}
+        <div style={{ padding:'8px 12px', borderBottom:'1px solid #1e293b', display:'flex', gap:'6px', overflowX:'auto', flexShrink:0 }}>
+          {['todos', ...allContinentes].map(c => (
+            <button key={c} onClick={() => { setContinente(c); setCountryFilter('todos'); }}
+              style={{ background: continente===c?'#7c3aed':'#1e293b', color: continente===c?'white':'#94a3b8',
+                       border: continente===c?'none':'1px solid #334155', borderRadius:'20px',
+                       padding:'4px 12px', fontSize:'11px', fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+              {c === 'todos' ? '🌍 Todos' : c}
+            </button>
+          ))}
+        </div>
+
+        {/* Countries */}
+        <div style={{ padding:'6px 12px', borderBottom:'1px solid #1e293b', display:'flex', gap:'5px', overflowX:'auto', flexShrink:0 }}>
+          <button onClick={() => setCountryFilter('todos')}
+            style={{ background: countryFilter==='todos'?'#1d4ed8':'#1e293b', color: countryFilter==='todos'?'white':'#94a3b8',
+                     border: countryFilter==='todos'?'none':'1px solid #334155', borderRadius:'16px',
+                     padding:'3px 10px', fontSize:'10px', fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+            Todos os países
+          </button>
+          {countriesInCont.map(iso => (
+            <button key={iso} onClick={() => setCountryFilter(iso)}
+              style={{ background: countryFilter===iso?'#1d4ed8':'#1e293b', color: countryFilter===iso?'white':'#94a3b8',
+                       border: countryFilter===iso?'none':'1px solid #334155', borderRadius:'16px',
+                       padding:'3px 10px', fontSize:'10px', fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+              {ISO_FLAGS[iso]||'🌐'} {iso}
+            </button>
+          ))}
+        </div>
+
+        {/* Channel List */}
+        <div style={{ flex:1, overflowY:'auto' }}>
+          {loading ? (
+            <div style={{ padding:'60px', textAlign:'center', color:'#475569' }}>
+              <div style={{ fontSize:'40px', marginBottom:'12px' }}>📡</div>
+              <div style={{ color:'#94a3b8', fontWeight:600 }}>Carregando canais do mundo inteiro...</div>
+              <div style={{ fontSize:'12px', marginTop:'6px' }}>iptv-org.github.io</div>
+            </div>
+          ) : error ? (
+            <div style={{ padding:'40px', textAlign:'center', color:'#ef4444' }}>{error}</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding:'40px', textAlign:'center', color:'#475569' }}>Nenhum canal encontrado</div>
+          ) : (
+            (() => {
+              // Agrupa por país
+              const groups = {};
+              filtered.forEach(c => {
+                const key = `${c.flag} ${c.iso}`;
+                if (!groups[key]) groups[key] = [];
+                groups[key].push(c);
+              });
+              return Object.entries(groups).sort().map(([country, chs]) => (
+                <div key={country}>
+                  <div style={{ padding:'8px 16px 4px', fontSize:'11px', fontWeight:700, color:'#475569', letterSpacing:'1px', background:'#0a0f1e', position:'sticky', top:0, zIndex:1 }}>
+                    {country} · {chs.length} canal(is)
+                  </div>
+                  {chs.map((ch, i) => (
+                    <div key={i} style={{ display:'flex', alignItems:'center', padding:'10px 16px', borderBottom:'1px solid #0f172a', cursor:'pointer', transition:'background 0.15s' }}
+                      onMouseEnter={e=>e.currentTarget.style.background='#1e293b'} onMouseLeave={e=>e.currentTarget.style.background='transparent'}
+                      onClick={() => onPlay(ch.url, ch.name, ch.iso, ch.flag)}>
+                      {ch.logo ? (
+                        <img src={ch.logo} alt="" style={{ width:'36px', height:'36px', objectFit:'contain', borderRadius:'4px', marginRight:'12px', background:'#1e293b', flexShrink:0 }}
+                          onError={e=>{e.target.style.display='none'}} />
+                      ) : (
+                        <div style={{ width:'36px', height:'36px', borderRadius:'4px', background:'#1e293b', marginRight:'12px', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'18px' }}>{ch.flag}</div>
+                      )}
+                      <div style={{ flex:1, minWidth:0 }}>
+                        <div style={{ color:'#e2e8f0', fontWeight:600, fontSize:'13px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{ch.name}</div>
+                        <div style={{ color:'#475569', fontSize:'10px' }}>{ch.cats || 'general'}</div>
+                      </div>
+                      <button style={{ background:'#7c3aed', color:'white', border:'none', borderRadius:'8px', padding:'6px 14px', fontSize:'11px', fontWeight:700, cursor:'pointer', flexShrink:0, display:'flex', alignItems:'center', gap:'5px' }}>
+                        <i className="fas fa-play"></i> Transmitir
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ));
+            })()
+          )}
+        </div>
+
+        <div style={{ padding:'10px 20px', borderTop:'1px solid #1e293b', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+          <span style={{ color:'#475569', fontSize:'11px' }}>Fonte: iptv-org.github.io · {channels.length} streams carregados</span>
+          <button onClick={onClose} style={{ background:'none', border:'1px solid #334155', color:'#94a3b8', borderRadius:'6px', padding:'5px 14px', fontSize:'12px', cursor:'pointer' }}>Fechar</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ══════════════════════════════════════════════════════════════
+// IptvFilmesModal — mesmo modelo do IPTV, filtrado por filmes
+// Categorias: movies · entertainment · animation · comedy · classic
+// ══════════════════════════════════════════════════════════════
+const GENERO_LABELS = {
+  movies:        { icon:'🎬', label:'Filmes' },
+  entertainment: { icon:'🎭', label:'Entretenimento' },
+  animation:     { icon:'🎠', label:'Animação' },
+  comedy:        { icon:'😂', label:'Comédia' },
+  classic:       { icon:'🎞️', label:'Clássicos' },
+  kids:          { icon:'🧸', label:'Kids' },
+  documentary:   { icon:'🎥', label:'Documentários' },
+  music:         { icon:'🎵', label:'Música' },
+  series:        { icon:'📺', label:'Séries' },
+  general:       { icon:'▶️', label:'Geral' },
+};
+const CATS_FILMES = ['movies','entertainment','animation','comedy','classic','kids','documentary','series'];
+
+const IptvFilmesModal = ({ onClose, onPlay }) => {
+  const [channels, setChannels]   = useState([]);
+  const [loading, setLoading]     = useState(true);
+  const [error, setError]         = useState(null);
+  const [search, setSearch]       = useState('');
+  const [genero, setGenero]       = useState('todos');
+  const [countryFilter, setCountryFilter] = useState('todos');
+
+  useEffect(() => {
+    Promise.all([
+      fetch('https://iptv-org.github.io/api/channels.json').then(r => r.json()),
+      fetch('https://iptv-org.github.io/api/streams.json').then(r => r.json()),
+    ]).then(([chs, streams]) => {
+      const chMap = {};
+      chs.forEach(c => { chMap[c.id] = c; });
+
+      const list = streams
+        .filter(s => s.url && (s.url.includes('.m3u8') || s.url.includes('stream') || s.url.includes('/live')))
+        .map(s => {
+          const ch = chMap[s.channel] || {};
+          const cats = ch.categories || [];
+          const primaryCat = CATS_FILMES.find(c => cats.includes(c)) || null;
+          if (!primaryCat) return null; // descarta canais sem categoria de filmes
+          const iso = ch.country || 'ZZ';
+          return {
+            id:     s.channel,
+            name:   ch.name || s.channel,
+            url:    s.url,
+            iso,
+            flag:   ISO_FLAGS[iso] || '🌐',
+            logo:   ch.logo || '',
+            cat:    primaryCat,
+            cats:   cats,
+          };
+        })
+        .filter(Boolean);
+
+      setChannels(list);
+      setLoading(false);
+    }).catch(e => { setError('Erro: ' + e.message); setLoading(false); });
+  }, []);
+
+  const generosDisponiveis = [...new Set(channels.map(c => c.cat))].sort();
+  const paisesDisponiveis  = [...new Set(
+    (genero === 'todos' ? channels : channels.filter(c => c.cat === genero)).map(c => c.iso)
+  )].sort();
+
+  const filtered = channels.filter(c => {
+    if (genero !== 'todos' && c.cat !== genero) return false;
+    if (countryFilter !== 'todos' && c.iso !== countryFilter) return false;
+    if (search && !c.name.toLowerCase().includes(search.toLowerCase()) &&
+        !c.iso.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  // Agrupa por gênero (ou por país dentro do gênero)
+  const grupos = {};
+  filtered.forEach(c => {
+    const g = c.cat;
+    if (!grupos[g]) grupos[g] = [];
+    grupos[g].push(c);
+  });
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.88)', zIndex:99999,
+                  display:'flex', alignItems:'center', justifyContent:'center', padding:'12px' }}>
+      <div style={{ background:'#0f172a', border:'1px solid #7c3aed', borderRadius:'16px',
+                    width:'100%', maxWidth:'720px', height:'90vh', display:'flex', flexDirection:'column',
+                    boxShadow:'0 24px 80px rgba(124,58,237,0.3)', overflow:'hidden' }}>
+
+        {/* ── Header ── */}
+        <div style={{ padding:'16px 20px 12px', borderBottom:'1px solid #1e293b', flexShrink:0,
+                      background:'linear-gradient(135deg,#1e1b4b 0%,#0f172a 100%)' }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'10px' }}>
+            <div>
+              <h3 style={{ margin:0, color:'white', fontSize:'18px', fontWeight:700,
+                           display:'flex', alignItems:'center', gap:'10px' }}>
+                🎬 IPTV Filmes Mundial
+              </h3>
+              <p style={{ margin:'3px 0 0', color:'#7c3aed', fontSize:'12px' }}>
+                {loading ? 'Carregando catálogo global...'
+                         : `${filtered.length} canais · filmes, séries e entretenimento do mundo`}
+              </p>
+            </div>
+            <button onClick={onClose}
+              style={{ background:'none', border:'none', color:'#64748b', fontSize:'22px', cursor:'pointer' }}>✕</button>
+          </div>
+          <input value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="🔍 Pesquisar canal ou país..."
+            style={{ width:'100%', padding:'9px 14px', background:'#1e293b', border:'1px solid #4c1d95',
+                     borderRadius:'8px', color:'#e2e8f0', fontSize:'13px', outline:'none', boxSizing:'border-box' }} />
+        </div>
+
+        {/* ── Filtro por Gênero ── */}
+        <div style={{ padding:'8px 12px', borderBottom:'1px solid #1e293b',
+                      display:'flex', gap:'6px', overflowX:'auto', flexShrink:0, background:'#0a0e1a' }}>
+          {['todos', ...generosDisponiveis].map(g => {
+            const meta = GENERO_LABELS[g] || { icon:'▶️', label: g };
+            return (
+              <button key={g} onClick={() => { setGenero(g); setCountryFilter('todos'); }}
+                style={{ background: genero===g ? '#7c3aed' : '#1e293b',
+                         color: genero===g ? 'white' : '#94a3b8',
+                         border: genero===g ? 'none' : '1px solid #334155',
+                         borderRadius:'20px', padding:'4px 14px', fontSize:'11px',
+                         fontWeight:700, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+                {meta.icon} {g === 'todos' ? 'Todos' : meta.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* ── Filtro por País ── */}
+        <div style={{ padding:'6px 12px', borderBottom:'1px solid #1e293b',
+                      display:'flex', gap:'5px', overflowX:'auto', flexShrink:0 }}>
+          <button onClick={() => setCountryFilter('todos')}
+            style={{ background: countryFilter==='todos'?'#4c1d95':'#1e293b',
+                     color: countryFilter==='todos'?'white':'#94a3b8',
+                     border: countryFilter==='todos'?'none':'1px solid #334155',
+                     borderRadius:'16px', padding:'3px 10px', fontSize:'10px',
+                     fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+            🌍 Todos os países
+          </button>
+          {paisesDisponiveis.map(iso => (
+            <button key={iso} onClick={() => setCountryFilter(iso)}
+              style={{ background: countryFilter===iso?'#4c1d95':'#1e293b',
+                       color: countryFilter===iso?'white':'#94a3b8',
+                       border: countryFilter===iso?'none':'1px solid #334155',
+                       borderRadius:'16px', padding:'3px 10px', fontSize:'10px',
+                       fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+              {ISO_FLAGS[iso]||'🌐'} {iso}
+            </button>
+          ))}
+        </div>
+
+        {/* ── Lista de Canais ── */}
+        <div style={{ flex:1, overflowY:'auto' }}>
+          {loading ? (
+            <div style={{ padding:'60px', textAlign:'center', color:'#475569' }}>
+              <div style={{ fontSize:'48px', marginBottom:'12px' }}>🎬</div>
+              <div style={{ color:'#7c3aed', fontWeight:700, fontSize:'15px' }}>Carregando catálogo global...</div>
+              <div style={{ fontSize:'12px', color:'#475569', marginTop:'6px' }}>iptv-org.github.io · filmes · séries · entretenimento</div>
+            </div>
+          ) : error ? (
+            <div style={{ padding:'40px', textAlign:'center', color:'#ef4444' }}>{error}</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding:'40px', textAlign:'center', color:'#475569' }}>Nenhum canal encontrado</div>
+          ) : (
+            Object.entries(grupos).sort().map(([g, chs]) => {
+              const meta = GENERO_LABELS[g] || { icon:'▶️', label: g };
+              // Dentro de cada gênero, agrupa por país
+              const porPais = {};
+              chs.forEach(c => {
+                const k = `${c.flag} ${c.iso}`;
+                if (!porPais[k]) porPais[k] = [];
+                porPais[k].push(c);
+              });
+              return (
+                <div key={g}>
+                  {/* Cabeçalho do gênero */}
+                  <div style={{ padding:'10px 16px 6px', background:'linear-gradient(90deg,#1e1b4b,#0f172a)',
+                                borderBottom:'1px solid #1e293b', position:'sticky', top:0, zIndex:2,
+                                display:'flex', alignItems:'center', gap:'8px' }}>
+                    <span style={{ fontSize:'20px' }}>{meta.icon}</span>
+                    <span style={{ color:'#a78bfa', fontWeight:700, fontSize:'13px', letterSpacing:'0.5px' }}>
+                      {meta.label.toUpperCase()}
+                    </span>
+                    <span style={{ color:'#475569', fontSize:'11px' }}>· {chs.length} canal(is)</span>
+                  </div>
+
+                  {/* Canais dentro do gênero */}
+                  {Object.entries(porPais).sort().map(([pais, canais]) => (
+                    <div key={pais}>
+                      <div style={{ padding:'6px 16px 2px', fontSize:'10px', fontWeight:700,
+                                    color:'#334155', letterSpacing:'1px', background:'#0a0f1e',
+                                    position:'sticky', top:'37px', zIndex:1 }}>
+                        {pais} · {canais.length}
+                      </div>
+                      {canais.map((ch, i) => (
+                        <div key={i}
+                          style={{ display:'flex', alignItems:'center', padding:'10px 16px',
+                                   borderBottom:'1px solid #0f172a', cursor:'pointer', transition:'background 0.15s' }}
+                          onMouseEnter={e => e.currentTarget.style.background='#1e293b'}
+                          onMouseLeave={e => e.currentTarget.style.background='transparent'}
+                          onClick={() => onPlay(ch.url, ch.name, ch.iso, ch.flag)}>
+                          {ch.logo ? (
+                            <img src={ch.logo} alt="" onError={e => e.target.style.display='none'}
+                              style={{ width:'40px', height:'40px', objectFit:'contain', borderRadius:'6px',
+                                       marginRight:'12px', background:'#1e293b', flexShrink:0 }} />
+                          ) : (
+                            <div style={{ width:'40px', height:'40px', borderRadius:'6px', background:'#1e293b',
+                                          marginRight:'12px', flexShrink:0, display:'flex',
+                                          alignItems:'center', justifyContent:'center', fontSize:'20px' }}>
+                              {meta.icon}
+                            </div>
+                          )}
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div style={{ color:'#e2e8f0', fontWeight:600, fontSize:'13px',
+                                          whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>
+                              {ch.name}
+                            </div>
+                            <div style={{ color:'#475569', fontSize:'10px' }}>
+                              {ch.flag} {ch.iso} · {ch.cats.join(', ')}
+                            </div>
+                          </div>
+                          <button style={{ background:'linear-gradient(135deg,#7c3aed,#4c1d95)',
+                                           color:'white', border:'none', borderRadius:'8px',
+                                           padding:'7px 14px', fontSize:'11px', fontWeight:700,
+                                           cursor:'pointer', flexShrink:0, display:'flex',
+                                           alignItems:'center', gap:'5px' }}>
+                            <i className="fas fa-film"></i> Transmitir
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* ── Footer ── */}
+        <div style={{ padding:'10px 20px', borderTop:'1px solid #1e293b', flexShrink:0,
+                      display:'flex', alignItems:'center', justifyContent:'space-between',
+                      background:'#0a0e1a' }}>
+          <span style={{ color:'#475569', fontSize:'11px' }}>
+            🎬 {channels.length} canais de filmes · iptv-org.github.io
+          </span>
+          <button onClick={onClose}
+            style={{ background:'none', border:'1px solid #4c1d95', color:'#7c3aed',
+                     borderRadius:'6px', padding:'5px 14px', fontSize:'12px', cursor:'pointer' }}>
+            Fechar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// ══════════════════════════════════════════════════════════════════════════
+// IptvCategoryModal — componente genérico reutilizável para todas as cats
+// ══════════════════════════════════════════════════════════════════════════
+const IPTV_CAT_DEFS = {
+  noticias:  { title:'📰 IPTV Notícias',          emoji:'📰', accent:'#0ea5e9', accentDark:'#0369a1', bg:'#0c1a2e', shadow:'rgba(14,165,233,0.25)',  cats:['news'],                                   labels:{news:'📰 Notícias'},                                                        desc:'notícias e jornalismo',         btnIcon:'fa-broadcast-tower' },
+  negocios:  { title:'💼 IPTV Negócios & Clima',   emoji:'💼', accent:'#6366f1', accentDark:'#4338ca', bg:'#0d0f2e', shadow:'rgba(99,102,241,0.25)',   cats:['business','weather'],                     labels:{business:'💼 Negócios',weather:'🌤️ Clima'},                                 desc:'negócios, economia e clima',    btnIcon:'fa-chart-line'       },
+  esportes:  { title:'⚽ IPTV Esportes',           emoji:'⚽', accent:'#22c55e', accentDark:'#15803d', bg:'#052e16', shadow:'rgba(34,197,94,0.25)',    cats:['sports'],                                 labels:{sports:'⚽ Esportes'},                                                      desc:'esportes ao vivo',              btnIcon:'fa-futbol'            },
+  musica:    { title:'🎵 IPTV Música',             emoji:'🎵', accent:'#f43f5e', accentDark:'#be123c', bg:'#1a0010', shadow:'rgba(244,63,94,0.25)',    cats:['music'],                                  labels:{music:'🎵 Música'},                                                         desc:'música ao vivo',                btnIcon:'fa-music'             },
+  kids:      { title:'🧸 IPTV Kids & Família',     emoji:'🧸', accent:'#f59e0b', accentDark:'#b45309', bg:'#1c0a00', shadow:'rgba(245,158,11,0.25)',   cats:['kids','family','animation'],              labels:{kids:'🧸 Kids',family:'👨‍👩‍👧 Família',animation:'🎠 Animação'},                desc:'kids, família e animação',      btnIcon:'fa-child'             },
+  educacao:  { title:'🎓 IPTV Educação & Cultura', emoji:'🎓', accent:'#10b981', accentDark:'#065f46', bg:'#022c22', shadow:'rgba(16,185,129,0.25)',   cats:['education','culture'],                    labels:{education:'🎓 Educação',culture:'🏛️ Cultura'},                              desc:'educação e cultura',            btnIcon:'fa-graduation-cap'    },
+  lifestyle: { title:'🌿 IPTV Lifestyle',          emoji:'🌿', accent:'#84cc16', accentDark:'#3f6212', bg:'#0a1400', shadow:'rgba(132,204,22,0.25)',   cats:['cooking','travel','lifestyle','outdoor'], labels:{cooking:'👨‍🍳 Culinária',travel:'✈️ Viagem',lifestyle:'💅 Lifestyle',outdoor:'🏕️ Outdoor'}, desc:'culinária, viagem e lifestyle', btnIcon:'fa-leaf'              },
+  religioso: { title:'⛪ IPTV Religioso',          emoji:'⛪', accent:'#e879f9', accentDark:'#86198f', bg:'#1a0020', shadow:'rgba(232,121,249,0.25)',   cats:['religious'],                              labels:{religious:'⛪ Religioso'},                                                  desc:'canais religiosos do mundo',    btnIcon:'fa-church'            },
+  auto:      { title:'🚗 IPTV Auto & Variedades',  emoji:'🚗', accent:'#fb923c', accentDark:'#c2410c', bg:'#1c0800', shadow:'rgba(251,146,60,0.25)',   cats:['auto','shop','legislative'],              labels:{auto:'🚗 Auto',shop:'🛒 Shop',legislative:'🏛️ Legislativo'},                 desc:'auto, compras e variedades',    btnIcon:'fa-car'               },
+};
+
+const IptvCategoryModal = ({ configKey, onClose, onPlay }) => {
+  const cfg = IPTV_CAT_DEFS[configKey];
+  const [channels, setChannels] = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState(null);
+  const [search, setSearch]     = useState('');
+  const [catFilter, setCatFilter] = useState('todos');
+  const [countryFilter, setCountryFilter] = useState('todos');
+
+  useEffect(() => {
+    Promise.all([
+      fetch('https://iptv-org.github.io/api/channels.json').then(r => r.json()),
+      fetch('https://iptv-org.github.io/api/streams.json').then(r => r.json()),
+    ]).then(([chs, streams]) => {
+      const chMap = {};
+      chs.forEach(c => { chMap[c.id] = c; });
+      const list = streams
+        .filter(s => s.url && (s.url.includes('.m3u8') || s.url.includes('stream') || s.url.includes('/live')))
+        .map(s => {
+          const ch = chMap[s.channel] || {};
+          const cats = ch.categories || [];
+          const primaryCat = cfg.cats.find(c => cats.includes(c)) || null;
+          if (!primaryCat) return null;
+          const iso = ch.country || 'ZZ';
+          return { id:s.channel, name:ch.name||s.channel, url:s.url, iso, flag:ISO_FLAGS[iso]||'🌐', logo:ch.logo||'', cat:primaryCat, cats };
+        })
+        .filter(Boolean);
+      setChannels(list);
+      setLoading(false);
+    }).catch(e => { setError('Erro: ' + e.message); setLoading(false); });
+  }, []);
+
+  const catsDisponiveis = [...new Set(channels.map(c => c.cat))].sort();
+  const paisesDisponiveis = [...new Set(
+    (catFilter === 'todos' ? channels : channels.filter(c => c.cat === catFilter)).map(c => c.iso)
+  )].sort();
+
+  const filtered = channels.filter(c => {
+    if (catFilter !== 'todos' && c.cat !== catFilter) return false;
+    if (countryFilter !== 'todos' && c.iso !== countryFilter) return false;
+    if (search && !c.name.toLowerCase().includes(search.toLowerCase()) && !c.iso.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
+  const grupos = {};
+  filtered.forEach(c => {
+    if (!grupos[c.cat]) grupos[c.cat] = {};
+    const k = c.flag + ' ' + c.iso;
+    if (!grupos[c.cat][k]) grupos[c.cat][k] = [];
+    grupos[c.cat][k].push(c);
+  });
+
+  return (
+    <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.88)', zIndex:99999, display:'flex', alignItems:'center', justifyContent:'center', padding:'12px' }}>
+      <div style={{ background:'linear-gradient(160deg,' + cfg.bg + ' 0%,#0f172a 100%)', border:'1px solid ' + cfg.accent + '55', borderRadius:'16px', width:'100%', maxWidth:'720px', height:'90vh', display:'flex', flexDirection:'column', boxShadow:'0 24px 80px ' + cfg.shadow, overflow:'hidden' }}>
+
+        {/* Header */}
+        <div style={{ padding:'16px 20px 12px', borderBottom:'1px solid #1e293b', flexShrink:0 }}>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'10px' }}>
+            <div>
+              <h3 style={{ margin:0, color:'white', fontSize:'18px', fontWeight:700 }}>{cfg.title}</h3>
+              <p style={{ margin:'3px 0 0', color:cfg.accent, fontSize:'12px' }}>
+                {loading ? 'Carregando ' + cfg.desc + '...' : filtered.length + ' canais · ' + cfg.desc}
+              </p>
+            </div>
+            <button onClick={onClose} style={{ background:'none', border:'none', color:'#64748b', fontSize:'22px', cursor:'pointer' }}>✕</button>
+          </div>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder={'🔍 Pesquisar canal de ' + cfg.desc + '...'}
+            style={{ width:'100%', padding:'9px 14px', background:'#1e293b', border:'1px solid ' + cfg.accentDark, borderRadius:'8px', color:'#e2e8f0', fontSize:'13px', outline:'none', boxSizing:'border-box' }} />
+        </div>
+
+        {/* Filtro por Subcategoria (se tiver mais de 1 cat) */}
+        {cfg.cats.length > 1 && (
+          <div style={{ padding:'8px 12px', borderBottom:'1px solid #1e293b', display:'flex', gap:'6px', overflowX:'auto', flexShrink:0, background:'#0a0e1a' }}>
+            {['todos', ...catsDisponiveis].map(g => (
+              <button key={g} onClick={() => { setCatFilter(g); setCountryFilter('todos'); }}
+                style={{ background:catFilter===g?cfg.accent:'#1e293b', color:catFilter===g?'white':'#94a3b8', border:catFilter===g?'none':'1px solid #334155', borderRadius:'20px', padding:'4px 14px', fontSize:'11px', fontWeight:700, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+                {g === 'todos' ? cfg.emoji + ' Todos' : (cfg.labels[g] || g)}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Filtro por País */}
+        <div style={{ padding:'6px 12px', borderBottom:'1px solid #1e293b', display:'flex', gap:'5px', overflowX:'auto', flexShrink:0 }}>
+          <button onClick={() => setCountryFilter('todos')}
+            style={{ background:countryFilter==='todos'?cfg.accentDark:'#1e293b', color:countryFilter==='todos'?'white':'#94a3b8', border:countryFilter==='todos'?'none':'1px solid #334155', borderRadius:'16px', padding:'3px 10px', fontSize:'10px', fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+            🌍 Todos os países
+          </button>
+          {paisesDisponiveis.map(iso => (
+            <button key={iso} onClick={() => setCountryFilter(iso)}
+              style={{ background:countryFilter===iso?cfg.accentDark:'#1e293b', color:countryFilter===iso?'white':'#94a3b8', border:countryFilter===iso?'none':'1px solid #334155', borderRadius:'16px', padding:'3px 10px', fontSize:'10px', fontWeight:600, cursor:'pointer', whiteSpace:'nowrap', flexShrink:0 }}>
+              {ISO_FLAGS[iso]||'🌐'} {iso}
+            </button>
+          ))}
+        </div>
+
+        {/* Lista de Canais */}
+        <div style={{ flex:1, overflowY:'auto' }}>
+          {loading ? (
+            <div style={{ padding:'60px', textAlign:'center' }}>
+              <div style={{ fontSize:'48px', marginBottom:'12px' }}>{cfg.emoji}</div>
+              <div style={{ color:cfg.accent, fontWeight:700, fontSize:'15px' }}>Carregando {cfg.desc}...</div>
+              <div style={{ fontSize:'12px', color:'#475569', marginTop:'6px' }}>iptv-org.github.io</div>
+            </div>
+          ) : error ? (
+            <div style={{ padding:'40px', textAlign:'center', color:'#ef4444' }}>{error}</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding:'40px', textAlign:'center', color:'#475569' }}>Nenhum canal encontrado para esta categoria</div>
+          ) : (
+            Object.entries(grupos).sort().map(([g, porPais]) => (
+              <div key={g}>
+                <div style={{ padding:'10px 16px 6px', background:'#0a0e1a', borderBottom:'1px solid #1e293b', position:'sticky', top:0, zIndex:2, display:'flex', alignItems:'center', gap:'8px' }}>
+                  <span style={{ color:cfg.accent, fontWeight:700, fontSize:'13px', letterSpacing:'0.5px' }}>
+                    {cfg.labels[g] || g} · {Object.values(porPais).flat().length} canal(is)
+                  </span>
+                </div>
+                {Object.entries(porPais).sort().map(([pais, canais]) => (
+                  <div key={pais}>
+                    <div style={{ padding:'5px 16px 2px', fontSize:'10px', fontWeight:700, color:'#334155', letterSpacing:'1px', background:'#080d18', position:'sticky', top:'37px', zIndex:1 }}>
+                      {pais} · {canais.length}
+                    </div>
+                    {canais.map((ch, i) => (
+                      <div key={i} style={{ display:'flex', alignItems:'center', padding:'10px 16px', borderBottom:'1px solid #0f172a', cursor:'pointer', transition:'background 0.15s' }}
+                        onMouseEnter={e => e.currentTarget.style.background='#1e293b'} onMouseLeave={e => e.currentTarget.style.background='transparent'}
+                        onClick={() => onPlay(ch.url, ch.name, ch.iso, ch.flag)}>
+                        {ch.logo ? (
+                          <img src={ch.logo} alt="" onError={e => e.target.style.display='none'} style={{ width:'38px', height:'38px', objectFit:'contain', borderRadius:'6px', marginRight:'12px', background:'#1e293b', flexShrink:0 }} />
+                        ) : (
+                          <div style={{ width:'38px', height:'38px', borderRadius:'6px', background:'#1e293b', marginRight:'12px', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'20px' }}>{ch.flag}</div>
+                        )}
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ color:'#e2e8f0', fontWeight:600, fontSize:'13px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{ch.name}</div>
+                          <div style={{ color:'#475569', fontSize:'10px' }}>{ch.flag} {ch.iso} · {ch.cats.join(', ')}</div>
+                        </div>
+                        <button style={{ background:'linear-gradient(135deg,' + cfg.accent + ',' + cfg.accentDark + ')', color:'white', border:'none', borderRadius:'8px', padding:'7px 14px', fontSize:'11px', fontWeight:700, cursor:'pointer', flexShrink:0, display:'flex', alignItems:'center', gap:'5px' }}>
+                          <i className={'fas ' + cfg.btnIcon}></i> Transmitir
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding:'10px 20px', borderTop:'1px solid #1e293b', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'space-between', background:'#0a0e1a' }}>
+          <span style={{ color:'#475569', fontSize:'11px' }}>{cfg.emoji} {channels.length} canais · iptv-org.github.io</span>
+          <button onClick={onClose} style={{ background:'none', border:'1px solid ' + cfg.accentDark, color:cfg.accent, borderRadius:'6px', padding:'5px 14px', fontSize:'12px', cursor:'pointer' }}>Fechar</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const ChatClient = ({ libp2pRef, libp2pStatus, libp2pPeers, addGlobalAudit }) => {
 const [lang, setLang] = useState(() => localStorage.getItem('p2pUserLang') || detectBrowserLang());
 
@@ -6372,6 +7208,18 @@ useEffect(() => {
 }, [quizBotActive]); // FIX: mantém o ref sincronizado e limpa timers
 const [showWhiteboard, setShowWhiteboard] = useState(false);
 const [showWorldRadios, setShowWorldRadios] = useState(false);
+const [showIptv, setShowIptv] = useState(false);
+const [showIptvFilmes, setShowIptvFilmes] = useState(false);
+const [showIptvNoticias, setShowIptvNoticias] = useState(false);
+const [showIptvNegocios, setShowIptvNegocios] = useState(false);
+const [showIptvEsportes, setShowIptvEsportes] = useState(false);
+const [showIptvMusica, setShowIptvMusica] = useState(false);
+const [showIptvKids, setShowIptvKids] = useState(false);
+const [showIptvEducacao, setShowIptvEducacao] = useState(false);
+const [showIptvLifestyle, setShowIptvLifestyle] = useState(false);
+const [showIptvReligioso, setShowIptvReligioso] = useState(false);
+const [showIptvAuto, setShowIptvAuto] = useState(false);
+const [userIptvStreams, setUserIptvStreams] = useState({}); // {peerId: {url,name,country,flag}}
 const [youtubeLinks, setYoutubeLinks] = useState(YOUTUBE_LINKS_LIST);
 const [gridInput, setGridInput] = useState('');
 
@@ -7481,6 +8329,30 @@ const next = { ...prev };
 delete next[data.sender];
 return next;
 });
+return;
+}
+
+if (data.type === 'iptv-start') {
+if (seenMessagesRef.current.has(data.id)) return;
+seenMessagesRef.current.add(data.id);
+pruneSeenClient(); pruneSeenMessages();
+let ttl = capTtl(data.ttl !== undefined ? data.ttl : 8);
+if (ttl > 0) { const relay = {...data, ttl: ttl-1}; connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try{c.send(relay);}catch(e){} }); }
+setUserIptvStreams(prev => {
+  const next = {...prev, [data.sender]: {url:data.url, name:data.name, country:data.country, flag:data.flag, senderName:data.senderName}};
+  if (Object.keys(next).length > 10) delete next[Object.keys(next)[0]];
+  return next;
+});
+return;
+}
+
+if (data.type === 'iptv-stop') {
+if (seenMessagesRef.current.has(data.id)) return;
+seenMessagesRef.current.add(data.id);
+pruneSeenClient(); pruneSeenMessages();
+let ttl = capTtl(data.ttl !== undefined ? data.ttl : 8);
+if (ttl > 0) { const relay = {...data, ttl: ttl-1}; connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try{c.send(relay);}catch(e){} }); }
+setUserIptvStreams(prev => { const n={...prev}; delete n[data.sender]; return n; });
 return;
 }
 
@@ -9667,6 +10539,23 @@ setUserYoutubeStreams(prev => ({
 setShowYoutubeGrid(false);
 };
 
+
+// ── IPTV Broadcast ──────────────────────────────────────────────
+const startIptvBroadcast = (url, name, country, flag) => {
+  const msgId = peerId + '_iptv_' + Date.now();
+  const msg = { type:'iptv-start', id:msgId, url, name, country, flag, sender:peerId, senderName:userName, ttl:15 };
+  seenMessagesRef.current.add(msgId);
+  connectionsRef.current.forEach(c => { if(c.open) try{c.send(msg);}catch(e){} });
+  setUserIptvStreams(prev => ({...prev, [peerId]: {url, name, country, flag}}));
+  setShowIptv(false);
+};
+const stopIptvBroadcast = () => {
+  const msgId = peerId + '_iptv_stop_' + Date.now();
+  const msg = { type:'iptv-stop', id:msgId, sender:peerId, ttl:8 };
+  seenMessagesRef.current.add(msgId);
+  connectionsRef.current.forEach(c => { if(c.open) try{c.send(msg);}catch(e){} });
+  setUserIptvStreams(prev => { const n={...prev}; delete n[peerId]; return n; });
+};
 
 const announceList = [
 'wss://tracker.btorrent.xyz',
@@ -11929,6 +12818,17 @@ return (
 
 
 {showWorldRadios && <WorldRadiosModal lang={lang} onClose={() => setShowWorldRadios(false)} onBroadcast={startWorldRadioBroadcast} />}
+{showIptv && <IptvModal onClose={() => setShowIptv(false)} onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
+{showIptvFilmes && <IptvFilmesModal onClose={() => setShowIptvFilmes(false)} onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
+{showIptvNoticias  && <IptvCategoryModal configKey="noticias"  onClose={() => setShowIptvNoticias(false)}  onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
+{showIptvNegocios  && <IptvCategoryModal configKey="negocios"  onClose={() => setShowIptvNegocios(false)}  onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
+{showIptvEsportes  && <IptvCategoryModal configKey="esportes"  onClose={() => setShowIptvEsportes(false)}  onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
+{showIptvMusica    && <IptvCategoryModal configKey="musica"    onClose={() => setShowIptvMusica(false)}    onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
+{showIptvKids      && <IptvCategoryModal configKey="kids"      onClose={() => setShowIptvKids(false)}      onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
+{showIptvEducacao  && <IptvCategoryModal configKey="educacao"  onClose={() => setShowIptvEducacao(false)}  onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
+{showIptvLifestyle && <IptvCategoryModal configKey="lifestyle" onClose={() => setShowIptvLifestyle(false)} onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
+{showIptvReligioso && <IptvCategoryModal configKey="religioso" onClose={() => setShowIptvReligioso(false)} onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
+{showIptvAuto      && <IptvCategoryModal configKey="auto"      onClose={() => setShowIptvAuto(false)}      onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
 {showGruposPanel && (
   <div className="media-controls-overlay" onClick={e => { if (e.target === e.currentTarget) setShowGruposPanel(false); }}>
     <div className="media-controls-modal" style={{ maxWidth:'480px', width:'95vw', maxHeight:'85vh', overflowY:'auto' }}>
@@ -12034,6 +12934,61 @@ return (
         >
           <i className="fas fa-headphones" style={{color:'#fbbf24'}}></i>
           <div><div>{t(lang, 'djRadio')}</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>MP3 broadcast · P2P direct only</div></div>
+        </button>
+
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptv(true); }}>
+          <i className="fas fa-tv" style={{color:'#a78bfa'}}></i>
+          <div><div>📡 IPTV Mundial</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>TV ao vivo de todos os países · separado por continente</div></div>
+        </button>
+
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvFilmes(true); }}>
+          <i className="fas fa-film" style={{color:'#c084fc'}}></i>
+          <div><div>🎬 IPTV Filmes</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Filmes · Séries · Animação · Clássicos do mundo todo</div></div>
+        </button>
+
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvNoticias(true); }}>
+          <i className="fas fa-broadcast-tower" style={{color:'#0ea5e9'}}></i>
+          <div><div>📰 IPTV Notícias</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Jornalismo ao vivo · notícias de todos os países</div></div>
+        </button>
+
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvNegocios(true); }}>
+          <i className="fas fa-chart-line" style={{color:'#6366f1'}}></i>
+          <div><div>💼 IPTV Negócios & Clima</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Business, economia, finanças e previsão do tempo</div></div>
+        </button>
+
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvEsportes(true); }}>
+          <i className="fas fa-futbol" style={{color:'#22c55e'}}></i>
+          <div><div>⚽ IPTV Esportes</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Futebol · basquete · tênis · esportes ao vivo</div></div>
+        </button>
+
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvMusica(true); }}>
+          <i className="fas fa-music" style={{color:'#f43f5e'}}></i>
+          <div><div>🎵 IPTV Música</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Canais de música ao vivo de todo o mundo</div></div>
+        </button>
+
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvKids(true); }}>
+          <i className="fas fa-child" style={{color:'#f59e0b'}}></i>
+          <div><div>🧸 IPTV Kids & Família</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Kids · animação · conteúdo familiar</div></div>
+        </button>
+
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvEducacao(true); }}>
+          <i className="fas fa-graduation-cap" style={{color:'#10b981'}}></i>
+          <div><div>🎓 IPTV Educação & Cultura</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Educação · cultura · ciência · documentários</div></div>
+        </button>
+
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvLifestyle(true); }}>
+          <i className="fas fa-leaf" style={{color:'#84cc16'}}></i>
+          <div><div>🌿 IPTV Lifestyle</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Culinária · viagem · estilo de vida · outdoor</div></div>
+        </button>
+
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvReligioso(true); }}>
+          <i className="fas fa-church" style={{color:'#e879f9'}}></i>
+          <div><div>⛪ IPTV Religioso</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Canais religiosos e espirituais do mundo</div></div>
+        </button>
+
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvAuto(true); }}>
+          <i className="fas fa-car" style={{color:'#fb923c'}}></i>
+          <div><div>🚗 IPTV Auto & Variedades</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Auto · compras · legislativo · variedades</div></div>
         </button>
 
         {/* ─── GROUP 3: ADMIN / REFERENCE ──────────────────────── */}
@@ -12548,6 +13503,29 @@ onClose={handleYoutubeRadio}
 <StreamRenderer targetId={peerId} peerId={peerId} streamType="yt" userYoutubeStreams={userYoutubeStreams} localVideoRef={localVideoRef} videoRefs={videoRefs} />
 </FloatingWindow>
 )}
+
+{/* 📡 IPTV Local Window — minha transmissão */}
+{userIptvStreams[peerId] && (
+<FloatingWindow
+  title={`📡 ${userIptvStreams[peerId].flag||''} ${userIptvStreams[peerId].name}`}
+  initialPosition={{ x: 50, y: 50 }}
+  onClose={stopIptvBroadcast}
+>
+  <IptvPlayer url={userIptvStreams[peerId].url} name={userIptvStreams[peerId].name} flag={userIptvStreams[peerId].flag} />
+</FloatingWindow>
+)}
+
+{/* 📡 IPTV Remote Windows — transmissões dos outros */}
+{Object.entries(userIptvStreams).filter(([id]) => id !== peerId).map(([id, stream]) => (
+<FloatingWindow
+  key={id}
+  title={`📡 ${stream.flag||''} ${stream.name} · ${stream.senderName || getContactName(id)}`}
+  initialPosition={{ x: 60, y: 60 }}
+  onClose={() => setUserIptvStreams(prev => { const n={...prev}; delete n[id]; return n; })}
+>
+  <IptvPlayer url={stream.url} name={stream.name} flag={stream.flag} />
+</FloatingWindow>
+))}
 
 
 {/* Remote Streams / YouTube Gallery / World Radios */}
