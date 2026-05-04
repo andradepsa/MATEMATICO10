@@ -203,7 +203,8 @@ canvas{display:block;width:100%!important}
 <!-- ══ CONTROL BAR ═════════════════════════════════════════════════════ -->
 <div class="bar">
   <span class="lbl">ID ▶</span>
-  <input type="text" id="mon-id" value="K10-MON" maxlength="20" spellcheck="false">
+  <input type="text" id="mon-id" value="" maxlength="20" placeholder="Gerando ID..." spellcheck="false">
+  <span id="mon-id-info" style="font-size:9px;color:var(--dim);letter-spacing:1px"></span>
   <button class="btn btn-c" id="btn-start" onclick="startMon()">▶ START</button>
   <button class="btn btn-r" id="btn-stop"  onclick="stopMon()" disabled>■ STOP</button>
   <button class="btn btn-a" onclick="exportCSV()">⬇ CSV</button>
@@ -787,6 +788,17 @@ function startMon(){
 
   peer.on('error',e=>{
     clearTimeout(timeout);
+    if(e.type==='unavailable-id'){
+      // ID em uso (raro com ID aleatório) — gera outro
+      const novo=Math.random().toString(36).slice(2,11).toUpperCase();
+      log(`⚠️ ID em uso, gerando novo: ${novo}`,'warn');
+      document.getElementById('mon-id').value=novo;
+      localStorage.setItem('k10MonitorId',novo);
+      if(peer&&!peer.destroyed){try{peer.destroy()}catch(_){}}
+      peer=null; isRunning=false;
+      setTimeout(()=>startMon(),300);
+      return;
+    }
     log(`❌ Erro peer: ${e.type}`,'err');
     if(e.type==='peer-unavailable')scheduleReconnect();
     else{setStatus('ERRO: '+e.type,'err');scheduleReconnect()}
@@ -1094,7 +1106,37 @@ window.clearLog=clearLog; window.toggleLogPause=toggleLogPause;
 
 initMap();
 render();
-log('K10 Monitor PRO v3 pronto. Configure o ID e clique START.','hi');
+// ── ID ÚNICO PERSISTENTE (mesmo formato do Chat Desktop) ──
+(function(){
+  function gerarId(){
+    // 9 caracteres alfanuméricos maiúsculos — idêntico ao padrão PeerJS do chat
+    return Math.random().toString(36).slice(2,11).toUpperCase();
+  }
+  let id = localStorage.getItem('k10MonitorId');
+  if(!id){ id = gerarId(); localStorage.setItem('k10MonitorId', id); }
+  document.getElementById('mon-id').value = id;
+  document.getElementById('mon-id-info').textContent = '(ID único persistente)';
+  // Salva novo ID se o usuário alterar manualmente
+  document.getElementById('mon-id').addEventListener('change', function(){
+    const novo = this.value.trim().toUpperCase() || gerarId();
+    this.value = novo;
+    localStorage.setItem('k10MonitorId', novo);
+  });
+  // Botão regenerar ID (aparece ao lado do input)
+  const btn = document.createElement('button');
+  btn.className='btn btn-a'; btn.style.fontSize='10px'; btn.style.padding='6px 10px';
+  btn.title='Gerar novo ID aleatório';
+  btn.textContent='↺ NOVO ID';
+  btn.onclick = function(){
+    const novo = gerarId();
+    document.getElementById('mon-id').value = novo;
+    localStorage.setItem('k10MonitorId', novo);
+    document.getElementById('mon-id-info').textContent='(novo ID gerado)';
+  };
+  document.getElementById('mon-id').insertAdjacentElement('afterend', btn);
+})();
+log('K10 Monitor PRO v4 pronto. Matrix=telemetria principal · PeerJS=fallback','hi');
+log('💡 Cada monitor precisa de um ID único. Se K10-MON estiver em uso, o ID será gerado automaticamente.','hi');
 </script>
 </body>
 </html>
