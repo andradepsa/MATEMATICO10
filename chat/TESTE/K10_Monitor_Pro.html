@@ -3,655 +3,1071 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>K10 MONITOR PRO — Mapa Mundial + Matrix + P2P</title>
-<!-- Leaflet CSS + JS -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<title>K10 MONITOR PRO v3 — Dashboard Completo</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<!-- PeerJS -->
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <style>
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#020810;--bg2:#060e1a;--bg3:#0b1828;--bg4:#0e2030;
+  --cyan:#00f5ff;--cyan2:#00c8d4;--green:#00ff88;--green2:#00cc6a;
+  --amber:#ffcc00;--amber2:#e6b800;--red:#ff3366;--red2:#cc1a44;
+  --purple:#b060ff;--blue:#3b82f6;--pink:#f472b6;
+  --text:#8eb8d0;--dim:#2a4a60;--dim2:#1a3040;
+  --border:#0a3050;--border2:#143860;
+  --mono:'Courier New',monospace;
+  --glow:0 0 12px #00f5ff44;--glow-g:0 0 12px #00ff8844;
+  --glow-a:0 0 12px #ffcc0044;
 }
-:root {
-  --bg: #020810;
-  --bg2: #060e1a;
-  --bg3: #0b1828;
-  --cyan: #00f5ff;
-  --green: #00ff88;
-  --amber: #ffcc00;
-  --red: #ff3366;
-  --purple: #b060ff;
-  --text: #8eb8d0;
-  --dim: #2a4a60;
-  --border: #0a3050;
-  --mono: 'Courier New', monospace;
-  --glow: 0 0 12px #00f5ff44;
-}
-body {
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--mono);
-  font-size: 13px;
-  padding: 18px;
-  min-height: 100vh;
-}
-.header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-bottom: 18px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--border);
-}
-h1 {
-  color: var(--cyan);
-  font-size: 22px;
-  letter-spacing: 5px;
-  text-shadow: var(--glow);
-}
-h1 span.dot { color: var(--green); }
-h1 span.ver { font-size: 11px; color: var(--dim); letter-spacing: 2px; margin-left: 8px; }
-.arch-badge {
-  font-size: 9px;
-  letter-spacing: 2px;
-  color: var(--amber);
-  border: 1px solid var(--amber);
-  padding: 2px 8px;
-  background: rgba(255,204,0,.07);
-}
-.bar {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 18px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-.lbl {
-  font-size: 10px;
-  letter-spacing: 2px;
-  color: var(--cyan);
-}
-input {
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  color: var(--amber);
-  padding: 6px 10px;
-  font-family: var(--mono);
-  font-size: 13px;
-  outline: none;
-  letter-spacing: 2px;
-  width: 170px;
-  text-transform: uppercase;
-}
-button {
-  background: none;
-  border: 1px solid;
-  padding: 6px 14px;
-  font-family: var(--mono);
-  cursor: pointer;
-  font-size: 11px;
-  letter-spacing: 1px;
-  transition: .2s;
-}
-.b-start { border-color: var(--cyan); color: var(--cyan); }
-.b-start:hover { background: rgba(0,245,255,.1); }
-.b-stop { border-color: var(--red); color: var(--red); }
-.b-stop:hover { background: rgba(255,51,102,.1); }
-button:disabled { border-color: var(--dim) !important; color: var(--dim) !important; cursor: not-allowed; }
-#status { font-size: 11px; color: var(--dim); letter-spacing: 1px; }
-#status.on { color: var(--green); }
-#status.err { color: var(--red); }
-#status.wait { color: var(--amber); }
-#my-id { font-size: 10px; color: var(--dim); }
+html{scroll-behavior:smooth}
+body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:12px;padding:16px;min-height:100vh;overflow-x:hidden}
+::-webkit-scrollbar{width:4px;height:4px}
+::-webkit-scrollbar-track{background:var(--bg2)}
+::-webkit-scrollbar-thumb{background:var(--dim)}
 
-.stats {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 10px;
-  margin-bottom: 18px;
-}
-.stat {
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  padding: 12px 16px;
-  border-left: 3px solid;
-  position: relative;
-}
-.stat-l { font-size: 9px; letter-spacing: 2px; color: var(--dim); margin-bottom: 4px; text-transform: uppercase; }
-.stat-v { font-size: 26px; font-weight: 700; line-height: 1; }
-.sc .stat-v { color: var(--cyan); text-shadow: var(--glow); }
-.sg .stat-v { color: var(--green); }
-.sa .stat-v { color: var(--amber); }
-.sp .stat-v { color: var(--purple); }
+/* ── HEADER ── */
+.header{display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+h1{color:var(--cyan);font-size:20px;letter-spacing:5px;text-shadow:var(--glow)}
+h1 .dot{color:var(--green)}.h1-ver{font-size:10px;color:var(--dim);letter-spacing:2px;margin-left:8px}
+.badges{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.badge{font-size:9px;letter-spacing:1.5px;padding:2px 8px;border:1px solid}
+.badge-a{color:var(--amber);border-color:var(--amber);background:rgba(255,204,0,.05)}
+.badge-c{color:var(--cyan);border-color:var(--cyan);background:rgba(0,245,255,.05)}
+.badge-g{color:var(--green);border-color:var(--green);background:rgba(0,255,136,.05)}
+.uptime-display{font-size:11px;color:var(--green);letter-spacing:1px}
 
-.perf-row {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 16px;
-  flex-wrap: wrap;
-}
-.perf-box {
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  padding: 6px 12px;
-  font-size: 10px;
-  color: var(--dim);
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.perf-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--green);
-  animation: pulse 2s infinite;
-}
-.perf-box span { color: var(--green); }
+/* ── CONTROL BAR ── */
+.bar{display:flex;gap:8px;margin-bottom:16px;align-items:center;flex-wrap:wrap;padding:10px 14px;background:var(--bg2);border:1px solid var(--border)}
+.lbl{font-size:10px;letter-spacing:2px;color:var(--cyan)}
+input[type=text]{background:var(--bg3);border:1px solid var(--border2);color:var(--amber);padding:6px 10px;font-family:var(--mono);font-size:12px;outline:none;letter-spacing:2px;width:160px;text-transform:uppercase}
+input[type=text]:focus{border-color:var(--cyan)}
+.btn{background:none;border:1px solid;padding:6px 14px;font-family:var(--mono);cursor:pointer;font-size:11px;letter-spacing:1px;transition:.2s}
+.btn-c{border-color:var(--cyan);color:var(--cyan)}.btn-c:hover{background:rgba(0,245,255,.1)}
+.btn-r{border-color:var(--red);color:var(--red)}.btn-r:hover{background:rgba(255,51,102,.1)}
+.btn-g{border-color:var(--green);color:var(--green)}.btn-g:hover{background:rgba(0,255,136,.1)}
+.btn-a{border-color:var(--amber);color:var(--amber)}.btn-a:hover{background:rgba(255,204,0,.1)}
+.btn:disabled{border-color:var(--dim)!important;color:var(--dim)!important;cursor:not-allowed}
+#status{font-size:11px;letter-spacing:1px;padding:2px 8px;border:1px solid var(--dim);color:var(--dim)}
+#status.on{color:var(--green);border-color:var(--green);background:rgba(0,255,136,.07)}
+#status.err{color:var(--red);border-color:var(--red)}
+#status.wait{color:var(--amber);border-color:var(--amber)}
+#my-id{font-size:9px;color:var(--dim);letter-spacing:1px}
 
-.mx-panel, .map-panel, .peers-panel {
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  margin-bottom: 16px;
-  padding: 12px 16px;
-}
-.mx-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-.mx-status { font-size: 11px; }
-.mx-salas { max-height: 240px; overflow-y: auto; }
-.mx-sala-item {
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  padding: 8px 12px;
-  border-radius: 6px;
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 6px;
-}
-.mx-sala-info .nome { font-weight: 700; color: var(--cyan); }
-.mx-sala-info .alias { font-size: 9px; color: var(--dim); }
-.mx-sala-membros { color: var(--green); }
+/* ── STATS CARDS ── */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin-bottom:16px}
+.stat{background:var(--bg2);border:1px solid var(--border);padding:12px 14px;border-left:3px solid;position:relative;overflow:hidden;transition:.3s}
+.stat::after{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,currentColor,transparent);opacity:.2}
+.stat-l{font-size:8px;letter-spacing:2px;color:var(--dim);margin-bottom:6px;text-transform:uppercase}
+.stat-v{font-size:24px;font-weight:700;line-height:1;margin-bottom:2px}
+.stat-sub{font-size:9px;color:var(--dim)}
+.stat-trend{font-size:9px;position:absolute;top:10px;right:10px}
+.sc{border-left-color:var(--cyan)}.sc .stat-v{color:var(--cyan);text-shadow:var(--glow)}
+.sg{border-left-color:var(--green)}.sg .stat-v{color:var(--green);text-shadow:var(--glow-g)}
+.sa{border-left-color:var(--amber)}.sa .stat-v{color:var(--amber);text-shadow:var(--glow-a)}
+.sp{border-left-color:var(--purple)}.sp .stat-v{color:var(--purple)}
+.sb{border-left-color:var(--blue)}.sb .stat-v{color:var(--blue)}
+.sr{border-left-color:var(--red)}.sr .stat-v{color:var(--red)}
+.sk{border-left-color:var(--pink)}.sk .stat-v{color:var(--pink)}
 
-#map {
-  height: 400px;
-  border-radius: 8px;
-  margin-bottom: 10px;
-  border: 1px solid var(--border);
-}
-.peers-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 11px;
-}
-.peers-table th, .peers-table td {
-  border-bottom: 1px solid var(--border);
-  padding: 6px 4px;
-  text-align: left;
-}
-.log-strip {
-  height: 80px;
-  overflow-y: auto;
-  background: var(--bg);
-  border: 1px solid var(--border);
-  padding: 6px 10px;
-  margin-bottom: 14px;
-}
-.log-line { font-size: 10px; color: var(--dim); line-height: 1.6; }
-.log-line .ts { color: var(--border); }
-.log-line .hi { color: var(--cyan); }
-.log-line .ok-t { color: var(--green); }
-.log-line .warn-t { color: var(--amber); }
-.empty { color: var(--dim); font-size: 11px; padding: 14px; text-align: center; }
-.footer {
-  margin-top: 18px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
-  font-size: 9px;
-  display: flex;
-  justify-content: space-between;
-}
-@keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.2); } }
+/* ── PAINEL DUPLO CHARTS ── */
+.charts-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+@media(max-width:800px){.charts-row{grid-template-columns:1fr}}
+.chart-box{background:var(--bg2);border:1px solid var(--border);padding:12px 14px}
+.chart-title{font-size:9px;letter-spacing:2px;color:var(--cyan);margin-bottom:10px;display:flex;justify-content:space-between}
+canvas{display:block;width:100%!important}
 
-/* Modal login Matrix (igual ao chat) */
-.matrix-modal-overlay {
-  position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 99999;
-  display: flex; align-items: center; justify-content: center;
-}
-.matrix-modal {
-  background: #1e2030; border-radius: 14px; width: 360px; max-width: 95vw;
-  padding: 32px; box-shadow: 0 8px 40px rgba(0,0,0,.6);
-  border: 1px solid #4a5568;
-}
-.matrix-modal h3 { font-size: 22px; font-weight: 700; color: #e2e8f0; margin-bottom: 6px; }
-.matrix-modal .sub { color: #a0aec0; font-size: 13px; margin-bottom: 20px; }
-.matrix-modal input {
-  width: 100%; padding: 10px 12px; border-radius: 8px; border: 1px solid #4a5568;
-  background: #2d3748; color: #e2e8f0; font-size: 14px; margin-bottom: 10px;
-}
-.matrix-modal button.primary {
-  width: 100%; padding: 11px; border-radius: 8px; border: none;
-  background: linear-gradient(135deg,#667eea,#764ba2); color: #fff;
-  font-size: 15px; font-weight: 600; cursor: pointer;
-}
-.matrix-modal button.sso {
-  width: 100%; padding: 11px; border-radius: 8px; border: 1px solid #4a5568;
-  background: #2d3748; color: #e2e8f0; font-size: 14px; font-weight: 600;
-  cursor: pointer; margin-bottom: 8px; display: flex; align-items: center;
-  justify-content: center; gap: 10px;
-}
-.matrix-modal .separator {
-  display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
-  color: #718096; font-size: 12px;
-}
-.matrix-modal .separator hr { flex: 1; height: 1px; background: #4a5568; border: none; }
+/* ── LAYOUT MAIN ── */
+.main-layout{display:grid;grid-template-columns:1fr 320px;gap:10px;margin-bottom:16px}
+@media(max-width:1000px){.main-layout{grid-template-columns:1fr}}
+
+/* ── MAPA ── */
+.map-panel{background:var(--bg2);border:1px solid var(--border)}
+.panel-hdr{font-size:9px;letter-spacing:2px;color:var(--cyan);padding:10px 14px 8px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+#map{height:420px}
+
+/* ── SIDE PANELS ── */
+.side-col{display:flex;flex-direction:column;gap:10px}
+.side-panel{background:var(--bg2);border:1px solid var(--border);flex:1;overflow:hidden}
+.side-content{padding:8px;max-height:180px;overflow-y:auto}
+.country-row{display:flex;align-items:center;gap:8px;padding:4px 8px;margin-bottom:2px;background:var(--bg3);font-size:10px}
+.country-bar-bg{flex:1;height:6px;background:var(--bg);border-radius:3px;overflow:hidden}
+.country-bar{height:100%;background:var(--cyan);border-radius:3px;transition:.5s}
+.country-count{color:var(--amber);min-width:20px;text-align:right}
+.browser-row{display:flex;align-items:center;justify-content:space-between;padding:4px 8px;margin-bottom:2px;background:var(--bg3);font-size:10px}
+.browser-badge{padding:1px 6px;font-size:9px;background:rgba(0,245,255,.1);color:var(--cyan);border:1px solid var(--dim)}
+.os-row{display:flex;align-items:center;justify-content:space-between;padding:3px 8px;margin-bottom:2px;background:var(--bg3);font-size:10px}
+
+/* ── PEERS TABLE ── */
+.peers-panel{background:var(--bg2);border:1px solid var(--border);margin-bottom:16px}
+.table-controls{padding:8px 14px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.search-box{background:var(--bg3);border:1px solid var(--border2);color:var(--text);padding:5px 10px;font-family:var(--mono);font-size:11px;outline:none;flex:1;min-width:120px}
+.search-box:focus{border-color:var(--cyan)}
+.filter-sel{background:var(--bg3);border:1px solid var(--border2);color:var(--text);padding:5px 8px;font-family:var(--mono);font-size:10px;outline:none}
+.table-wrap{overflow-x:auto;max-height:400px;overflow-y:auto}
+.peers-table{width:100%;border-collapse:collapse;font-size:10px;white-space:nowrap}
+.peers-table th{background:var(--bg3);padding:7px 8px;text-align:left;font-size:8px;letter-spacing:1.5px;color:var(--cyan);border-bottom:1px solid var(--border);cursor:pointer;user-select:none;position:sticky;top:0;z-index:2}
+.peers-table th:hover{color:var(--amber)}
+.peers-table th .sort-icon{margin-left:4px;opacity:.4}
+.peers-table th.sorted .sort-icon{opacity:1;color:var(--amber)}
+.peers-table td{padding:6px 8px;border-bottom:1px solid var(--dim2);color:var(--text);vertical-align:middle}
+.peers-table tr:hover td{background:rgba(0,245,255,.03)}
+.peers-table tr.new-flash td{animation:rowFlash .8s ease}
+@keyframes rowFlash{0%{background:rgba(0,255,136,.15)}100%{background:transparent}}
+.pid-cell{font-family:var(--mono);color:var(--cyan);font-size:9px;cursor:pointer}
+.pid-cell:hover{color:var(--amber);text-decoration:underline}
+.online-dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:5px}
+.dot-on{background:var(--green);box-shadow:0 0 6px var(--green)}
+.dot-off{background:var(--dim)}
+.tag{display:inline-block;padding:1px 5px;font-size:8px;border-radius:2px;margin-right:2px}
+.tag-br{background:rgba(0,245,255,.1);color:var(--cyan);border:1px solid var(--dim)}
+.tag-os{background:rgba(0,255,136,.1);color:var(--green);border:1px solid var(--dim)}
+.empty-row td{text-align:center;color:var(--dim);padding:20px;letter-spacing:1px;font-size:10px}
+
+/* ── MATRIX PANEL ── */
+.mx-panel{background:var(--bg2);border:1px solid var(--border);margin-bottom:16px}
+.mx-salas{max-height:200px;overflow-y:auto;padding:8px}
+.mx-sala-item{background:var(--bg3);border:1px solid var(--border);padding:7px 10px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;font-size:10px}
+.mx-sala-nome{color:var(--cyan);font-weight:700}
+.mx-sala-alias{font-size:8px;color:var(--dim);margin-top:1px}
+.mx-membros{color:var(--green)}
+
+/* ── LOG ── */
+.log-panel{background:var(--bg2);border:1px solid var(--border);margin-bottom:16px}
+.log-body{height:160px;overflow-y:auto;padding:8px 12px;background:var(--bg)}
+.log-line{font-size:10px;line-height:1.7;display:flex;gap:6px}
+.log-ts{color:var(--dim);flex-shrink:0}
+.log-hi{color:var(--cyan)}.log-ok{color:var(--green)}.log-warn{color:var(--amber)}.log-err{color:var(--red)}
+
+/* ── PERFORMANCE BAR ── */
+.perf-row{display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap}
+.perf-box{background:var(--bg2);border:1px solid var(--border);padding:5px 12px;font-size:10px;color:var(--dim);display:flex;align-items:center;gap:6px}
+.perf-pulse{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+.perf-box span{color:var(--green)}
+@keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.3);opacity:.7}}
+
+/* ── FOOTER ── */
+.footer{margin-top:16px;padding-top:10px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;font-size:9px;color:var(--dim)}
+
+/* ── PEER DETAIL MODAL ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:9999;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)}
+.modal-box{background:var(--bg2);border:1px solid var(--border2);width:640px;max-width:95vw;max-height:85vh;overflow-y:auto;box-shadow:0 0 40px rgba(0,245,255,.1)}
+.modal-hdr{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center}
+.modal-hdr h3{color:var(--cyan);font-size:13px;letter-spacing:2px}
+.modal-close{background:none;border:none;color:var(--red);cursor:pointer;font-size:18px;padding:0 4px}
+.modal-body{padding:16px 18px}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.detail-item{background:var(--bg3);padding:8px 12px;border:1px solid var(--border)}
+.detail-key{font-size:8px;letter-spacing:1.5px;color:var(--dim);text-transform:uppercase;margin-bottom:3px}
+.detail-val{font-size:11px;color:var(--text);word-break:break-all}
+.detail-val.hi{color:var(--cyan)}
+
+/* ── MATRIX MODAL ── */
+.matrix-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:99999;display:flex;align-items:center;justify-content:center}
+.matrix-modal{background:#1e2030;border-radius:14px;width:360px;max-width:95vw;padding:32px;box-shadow:0 8px 40px rgba(0,0,0,.6);border:1px solid #4a5568}
+.matrix-modal h3{font-size:22px;font-weight:700;color:#e2e8f0;margin-bottom:6px;font-family:sans-serif}
+.matrix-modal .sub{color:#a0aec0;font-size:13px;margin-bottom:20px;font-family:sans-serif}
+.matrix-modal input{width:100%;padding:10px 12px;border-radius:8px;border:1px solid #4a5568;background:#2d3748;color:#e2e8f0;font-size:14px;margin-bottom:10px;font-family:sans-serif}
+.matrix-modal .btn-primary{width:100%;padding:11px;border-radius:8px;border:none;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-size:15px;font-weight:600;cursor:pointer;font-family:sans-serif}
+.matrix-modal .btn-sso{width:100%;padding:11px;border-radius:8px;border:1px solid #4a5568;background:#2d3748;color:#e2e8f0;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px;display:flex;align-items:center;justify-content:center;gap:10px;font-family:sans-serif}
+.matrix-modal .sep{display:flex;align-items:center;gap:10px;margin-bottom:16px;color:#718096;font-size:12px;font-family:sans-serif}
+.matrix-modal .sep hr{flex:1;height:1px;background:#4a5568;border:none}
+
+/* ── MISC ── */
+.section-title{font-size:9px;letter-spacing:2px;color:var(--cyan);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.section-title::after{content:'';flex:1;height:1px;background:var(--border)}
+.copy-btn{font-size:8px;padding:1px 5px;border:1px solid var(--dim);color:var(--dim);background:none;cursor:pointer;font-family:var(--mono)}
+.copy-btn:hover{color:var(--amber);border-color:var(--amber)}
+.flag{font-size:14px;margin-right:4px}
 </style>
 </head>
 <body>
 
+<!-- ══ HEADER ══════════════════════════════════════════════════════════ -->
 <div class="header">
   <div>
-    <h1>K10<span class="dot">.</span>MONITOR <span class="ver">FULL v14</span></h1>
-    <div style="font-size:9px;letter-spacing:2px;margin-top:4px">
-      MAPA MUNDIAL · MATRIX SSO · TELEMETRIA P2P
+    <h1>K10<span class="dot">.</span>MONITOR<span class="h1-ver">PRO v3</span></h1>
+    <div class="badges">
+      <span class="badge badge-a">▲ GEOLOCATION</span>
+      <span class="badge badge-c">◈ PEERJS P2P</span>
+      <span class="badge badge-g">✦ MATRIX SSO</span>
+      <span class="badge badge-a">⬡ REAL-TIME</span>
     </div>
   </div>
-  <div class="arch-badge">▲ REAL-TIME GEOLOCATION</div>
+  <div style="text-align:right">
+    <div class="uptime-display" id="uptime-display">UPTIME: --:--:--</div>
+    <div style="font-size:9px;color:var(--dim);margin-top:4px" id="footer-ts">—</div>
+  </div>
 </div>
 
+<!-- ══ CONTROL BAR ═════════════════════════════════════════════════════ -->
 <div class="bar">
-  <span class="lbl">MONITOR ID ▶</span>
-  <input id="mon-id" value="K10-MON" maxlength="20" spellcheck="false">
-  <button class="b-start" id="btn-start" onclick="startMon()">▶ START</button>
-  <button class="b-stop"  id="btn-stop"  onclick="stopMon()" disabled>■ STOP</button>
-  <span id="status">WAITING</span>
+  <span class="lbl">ID ▶</span>
+  <input type="text" id="mon-id" value="K10-MON" maxlength="20" spellcheck="false">
+  <button class="btn btn-c" id="btn-start" onclick="startMon()">▶ START</button>
+  <button class="btn btn-r" id="btn-stop"  onclick="stopMon()" disabled>■ STOP</button>
+  <button class="btn btn-a" onclick="exportCSV()">⬇ CSV</button>
+  <button class="btn btn-g" onclick="exportJSON()">⬇ JSON</button>
+  <button class="btn btn-a" onclick="clearPeers()" style="font-size:10px">✕ LIMPAR</button>
+  <span id="status">OFFLINE</span>
   <span id="my-id"></span>
 </div>
 
+<!-- ══ PERF ROW ═════════════════════════════════════════════════════════ -->
 <div class="perf-row">
-  <div class="perf-box"><div class="perf-dot"></div>PeerJS conns: <span id="p-conns">0</span></div>
-  <div class="perf-box">Messages recv: <span id="p-msgs">0</span></div>
-  <div class="perf-box">Last render: <span id="p-lat">—</span></div>
+  <div class="perf-box"><div class="perf-pulse"></div>Conns ativas: <span id="p-conns">0</span></div>
+  <div class="perf-box">Msgs recebidas: <span id="p-msgs">0</span></div>
+  <div class="perf-box">Último render: <span id="p-lat">—</span></div>
+  <div class="perf-box">Peers/min: <span id="p-rate">0</span></div>
+  <div class="perf-box">Reconexões: <span id="p-reconns">0</span></div>
 </div>
 
+<!-- ══ STATS CARDS ══════════════════════════════════════════════════════ -->
 <div class="stats">
-  <div class="stat sc"><div class="stat-l">PEERS ÚNICOS</div><div class="stat-v" id="s-unique">—</div><div class="stat-sub">(telemetria)</div></div>
-  <div class="stat sg"><div class="stat-l">PICO SESSÃO</div><div class="stat-v" id="s-peak">—</div><div class="stat-sub">máximo simultâneo</div></div>
-  <div class="stat sa"><div class="stat-l">NET SIZE (reportado)</div><div class="stat-v" id="s-netsize">—</div><div class="stat-sub">média dos peers</div></div>
-  <div class="stat sp"><div class="stat-l">SALAS MATRIX</div><div class="stat-v" id="s-rooms">—</div><div class="stat-sub">abertas no monitor</div></div>
+  <div class="stat sc"><div class="stat-l">PEERS ÚNICOS</div><div class="stat-v" id="s-unique">—</div><div class="stat-sub">total da sessão</div></div>
+  <div class="stat sg"><div class="stat-l">ONLINE AGORA</div><div class="stat-v" id="s-online">—</div><div class="stat-sub">último 2min</div></div>
+  <div class="stat sa"><div class="stat-l">PICO SESSÃO</div><div class="stat-v" id="s-peak">—</div><div class="stat-sub">máx simultâneo</div></div>
+  <div class="stat sp"><div class="stat-l">NET SIZE MÉD</div><div class="stat-v" id="s-netsize">—</div><div class="stat-sub">reportado pelos peers</div></div>
+  <div class="stat sb"><div class="stat-l">PAÍSES</div><div class="stat-v" id="s-countries">—</div><div class="stat-sub">distintos</div></div>
+  <div class="stat sk"><div class="stat-l">MSGS / HORA</div><div class="stat-v" id="s-mphour">—</div><div class="stat-sub">taxa de telemetria</div></div>
+  <div class="stat sr"><div class="stat-l">SEM GEO</div><div class="stat-v" id="s-nogeo">—</div><div class="stat-sub">peers sem localização</div></div>
+  <div class="stat sa"><div class="stat-l">SALAS MATRIX</div><div class="stat-v" id="s-rooms">—</div><div class="stat-sub">salas abertas</div></div>
 </div>
 
-<!-- MATRIX PANEL -->
-<div class="mx-panel">
-  <div class="mx-header">
-    <span>🌐 MATRIX INTEGRATION (SSO)</span>
-    <span id="mx-status" class="mx-status">⚪ Desconectado</span>
+<!-- ══ ACTIVITY CHARTS ═══════════════════════════════════════════════════ -->
+<div class="charts-row">
+  <div class="chart-box">
+    <div class="chart-title">
+      <span>◈ ATIVIDADE DE PEERS (últimos 60 pontos • 1pt/min)</span>
+      <span id="chart-last-val" style="color:var(--amber)">—</span>
+    </div>
+    <canvas id="chart-activity" height="90"></canvas>
   </div>
-  <button id="mx-login-btn" style="background:var(--cyan);color:#020810;border:none;margin-bottom:10px;" onclick="abrirModalLoginMatrix()">🔑 Login (Google/GitHub)</button>
-  <div id="mx-rooms-list" class="mx-salas"><div class="empty">Nenhuma sala — faça login.</div></div>
+  <div class="chart-box">
+    <div class="chart-title">
+      <span>◈ MENSAGENS RECEBIDAS (taxa/min)</span>
+      <span id="chart-msg-val" style="color:var(--green)">—</span>
+    </div>
+    <canvas id="chart-msgs" height="90"></canvas>
+  </div>
 </div>
 
-<!-- MAPA MUNDIAL -->
-<div class="map-panel">
-  <div class="slbl" style="margin-bottom:8px">🗺️ LOCALIZAÇÃO DOS PEERS (IP-APROX)</div>
-  <div id="map" style="height: 400px;"></div>
-  <div style="font-size:9px;color:var(--dim);text-align:center">Marcadores atualizados via telemetria (ip-api.com)</div>
+<!-- ══ MAIN LAYOUT: MAPA + SIDE PANELS ══════════════════════════════════ -->
+<div class="main-layout">
+  <!-- MAPA -->
+  <div class="map-panel">
+    <div class="panel-hdr">
+      <span>🗺️ LOCALIZAÇÃO DOS PEERS (IP-GEOLOCATION)</span>
+      <span style="font-size:9px;color:var(--dim)" id="map-count">0 marcadores</span>
+    </div>
+    <div id="map"></div>
+    <div style="font-size:8px;color:var(--dim);padding:6px 12px;text-align:center">Posições aproximadas via ip-api.com · Clique no marcador para detalhes</div>
+  </div>
+  <!-- SIDE PANELS -->
+  <div class="side-col">
+    <!-- TOP PAÍSES -->
+    <div class="side-panel">
+      <div class="panel-hdr">🌍 TOP PAÍSES</div>
+      <div class="side-content" id="countries-list"><div style="color:var(--dim);padding:8px;font-size:10px">Aguardando...</div></div>
+    </div>
+    <!-- BROWSERS -->
+    <div class="side-panel">
+      <div class="panel-hdr">🌐 BROWSERS</div>
+      <div class="side-content" id="browsers-list"><div style="color:var(--dim);padding:8px;font-size:10px">Aguardando...</div></div>
+    </div>
+    <!-- SISTEMAS OPERACIONAIS -->
+    <div class="side-panel">
+      <div class="panel-hdr">💻 SISTEMAS OPERACIONAIS</div>
+      <div class="side-content" id="os-list"><div style="color:var(--dim);padding:8px;font-size:10px">Aguardando...</div></div>
+    </div>
+  </div>
 </div>
 
-<!-- TABELA DE PEERS -->
+<!-- ══ PEERS TABLE ══════════════════════════════════════════════════════ -->
 <div class="peers-panel">
-  <div class="slbl" style="margin-bottom:8px">📋 PEERS ATIVOS (telemetria recebida)</div>
-  <div style="overflow-x:auto">
+  <div class="panel-hdr">
+    <span>📋 TABELA DE PEERS — TODOS OS DADOS</span>
+    <span style="font-size:9px;color:var(--amber)" id="table-count">0 peers</span>
+  </div>
+  <div class="table-controls">
+    <input type="text" class="search-box" id="search-input" placeholder="🔍 Buscar por ID, nome, país, IP..." oninput="scheduleRender()">
+    <select class="filter-sel" id="filter-country" onchange="scheduleRender()">
+      <option value="">Todos os países</option>
+    </select>
+    <select class="filter-sel" id="filter-browser" onchange="scheduleRender()">
+      <option value="">Todos os browsers</option>
+    </select>
+    <select class="filter-sel" id="filter-status" onchange="scheduleRender()">
+      <option value="">Todos</option>
+      <option value="online">Online (2min)</option>
+      <option value="offline">Offline</option>
+    </select>
+    <span style="font-size:9px;color:var(--dim)">Clique em ID para detalhes</span>
+  </div>
+  <div class="table-wrap">
     <table class="peers-table" id="peers-table">
-      <thead><tr><th>Peer ID</th><th>País</th><th>Cidade</th><th>Coordenadas</th><th>Última atualização</th></tr></thead>
-      <tbody id="peers-tbody"><tr><td colspan="5" class="empty">Aguardando dados...</td></tr></tbody>
+      <thead>
+        <tr>
+          <th onclick="sortBy('status')" title="Status">● <span class="sort-icon">⇅</span></th>
+          <th onclick="sortBy('peerId')">PEER ID <span class="sort-icon">⇅</span></th>
+          <th onclick="sortBy('userName')">NOME <span class="sort-icon">⇅</span></th>
+          <th onclick="sortBy('country')">PAÍS <span class="sort-icon">⇅</span></th>
+          <th onclick="sortBy('city')">CIDADE <span class="sort-icon">⇅</span></th>
+          <th onclick="sortBy('region')">REGIÃO <span class="sort-icon">⇅</span></th>
+          <th onclick="sortBy('ip')">IP <span class="sort-icon">⇅</span></th>
+          <th onclick="sortBy('isp')">ISP <span class="sort-icon">⇅</span></th>
+          <th onclick="sortBy('browser')">BROWSER <span class="sort-icon">⇅</span></th>
+          <th onclick="sortBy('os')">OS <span class="sort-icon">⇅</span></th>
+          <th onclick="sortBy('screen')">TELA <span class="sort-icon">⇅</span></th>
+          <th onclick="sortBy('cores')">CPU <span class="sort-icon">⇅</span></th>
+          <th onclick="sortBy('memory')">RAM <span class="sort-icon">⇅</span></th>
+          <th onclick="sortBy('netSize')">NET <span class="sort-icon">⇅</span></th>
+          <th onclick="sortBy('activeConns')">CONNS <span class="sort-icon">⇅</span></th>
+          <th onclick="sortBy('msgCount')">MSGS <span class="sort-icon">⇅</span></th>
+          <th onclick="sortBy('firstSeen')">1ª VISTA <span class="sort-icon">⇅</span></th>
+          <th onclick="sortBy('lastSeen')">ÚLTIMA <span class="sort-icon">⇅</span></th>
+        </tr>
+      </thead>
+      <tbody id="peers-tbody">
+        <tr class="empty-row"><td colspan="18">Aguardando dados de telemetria...</td></tr>
+      </tbody>
     </table>
   </div>
 </div>
 
-<div class="slbl">◎ REAL-TIME LOG</div>
-<div class="log-strip" id="log-strip"><div class="log-line"><span class="ts">[--:--:--]</span> Monitor pronto. Inicie e aguarde telemetria dos peers.</div></div>
-
-<div class="footer">
-  <span>K10 MONITOR PRO — Mapa + Matrix SSO + PeerJS</span>
-  <span id="footer-ts">—</span>
+<!-- ══ MATRIX PANEL ══════════════════════════════════════════════════════ -->
+<div class="mx-panel">
+  <div class="panel-hdr">
+    <span>🌐 MATRIX SSO INTEGRATION</span>
+    <span id="mx-status" style="font-size:10px;color:var(--dim)">⚪ Desconectado</span>
+  </div>
+  <div style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;gap:8px;align-items:center">
+    <button class="btn btn-c" onclick="abrirModalLoginMatrix()" style="font-size:10px">🔑 Login Google / GitHub</button>
+    <button class="btn btn-r" onclick="logoutMatrix()" style="font-size:10px" id="mx-logout-btn">Logout</button>
+    <span style="font-size:9px;color:var(--dim)" id="mx-mxid-label"></span>
+  </div>
+  <div class="mx-salas" id="mx-rooms-list"><div style="color:var(--dim);font-size:10px;padding:12px;text-align:center">Nenhuma sala — faça login.</div></div>
 </div>
 
-<script>
-// ============================================================
-// MONITOR COMPLETO - PEERJS + MATRIX + TELEMETRIA + MAPA
-// ============================================================
-
-// ---------- DOM ----------
-function fmt(n) { return n ? n.toLocaleString('pt-BR') : '0'; }
-function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
-function now8() { return new Date().toLocaleTimeString('pt-BR'); }
-function log(msg, type='') {
-  const el = document.getElementById('log-strip');
-  if(!el) return;
-  const line = `<div class="log-line"><span class="ts">[${now8()}]</span> <span class="${type==='ok'?'ok-t':type==='warn'?'warn-t':'hi'}">${esc(msg)}</span></div>`;
-  el.insertAdjacentHTML('beforeend', line);
-  el.scrollTop = el.scrollHeight;
-  while(el.children.length > 100) el.removeChild(el.firstChild);
-}
-function setStatus(txt,cls){ const s=document.getElementById('status'); if(s){ s.textContent=txt; s.className=cls||''; }}
-
-// ---------- PEERJS ----------
-let peer = null, conns = new Map(), isRunning = false, reconnectTimer = null, reconnectAttempts = 0;
-let peakPeers = 0, msgCount = 0, renderTimer = null;
-let uniquePeersMap = new Map(); // peerId -> { lat, lon, city, country, lastSeen, netSize }
-let avgNetSize = 0;
-
-function scheduleRender() {
-  if(renderTimer) clearTimeout(renderTimer);
-  renderTimer = setTimeout(render, 300);
-}
-function render() {
-  const t0 = performance.now();
-  document.getElementById('p-conns').textContent = conns.size;
-  document.getElementById('p-msgs').textContent = msgCount;
-  document.getElementById('p-lat').textContent = (performance.now()-t0).toFixed(1)+'ms';
-  document.getElementById('s-unique').textContent = uniquePeersMap.size;
-  if(conns.size > peakPeers) peakPeers = conns.size;
-  document.getElementById('s-peak').textContent = peakPeers;
-  let sum = 0, cnt = 0;
-  for(let p of uniquePeersMap.values()) { if(p.netSize) { sum+=p.netSize; cnt++; } }
-  avgNetSize = cnt ? Math.round(sum/cnt) : 0;
-  document.getElementById('s-netsize').textContent = avgNetSize || '—';
-  document.getElementById('footer-ts').textContent = 'UPD: '+now8();
-
-  // renderizar tabela de peers
-  const tbody = document.getElementById('peers-tbody');
-  if(uniquePeersMap.size === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty">Nenhum peer ainda. Aguardando telemetria...</td></tr>';
-  } else {
-    const rows = Array.from(uniquePeersMap.entries()).sort((a,b)=>b[1].lastSeen - a[1].lastSeen).slice(0,50).map(([id, p]) => `
-      <tr>
-        <td style="font-family:monospace">${esc(id.slice(0,16))}${id.length>16?'…':''}</td>
-        <td>${esc(p.country||'—')}</td>
-        <td>${esc(p.city||'—')}</td>
-        <td>${p.lat ? p.lat.toFixed(2)+', '+p.lon.toFixed(2) : '—'}</td>
-        <td>${new Date(p.lastSeen).toLocaleTimeString()}</td>
-      </tr>
-    `).join('');
-    tbody.innerHTML = rows;
-  }
-}
-function scheduleReconnect() {
-  if(reconnectTimer) return;
-  const delay = Math.min(30000, 1000*Math.pow(2, reconnectAttempts)) + Math.random()*1000;
-  reconnectAttempts++;
-  log(`Reconexão em ${Math.round(delay/1000)}s (tentativa ${reconnectAttempts})`, 'warn');
-  reconnectTimer = setTimeout(() => {
-    reconnectTimer = null;
-    if(!isRunning) return;
-    if(peer && !peer.destroyed && peer.open) { log('Peer conectado, nada a fazer.', 'ok'); }
-    else { stopMon(); startMon(); }
-  }, delay);
-}
-function handleMsg(data, pId) {
-  msgCount++;
-  if(data && data.type === 'k10-telemetry') {
-    log(`📡 Telemetria de ${data.peerId} — ${data.city || '?'}, ${data.country || '?'} (netSize: ${data.netSize||'?'})`, 'ok');
-    const now = Date.now();
-    const existing = uniquePeersMap.get(data.peerId) || {};
-    uniquePeersMap.set(data.peerId, {
-      lat: data.lat || existing.lat,
-      lon: data.lon || existing.lon,
-      city: data.city || existing.city,
-      country: data.country || existing.country,
-      netSize: data.netSize,
-      lastSeen: now
-    });
-    if(data.lat && data.lon) atualizarMapa(data.peerId, data.lat, data.lon, data.city, data.country);
-    scheduleRender();
-  }
-  scheduleRender();
-}
-function startMon() {
-  if(isRunning) { log("Monitor já rodando", 'warn'); return; }
-  const id = document.getElementById('mon-id').value.trim().toUpperCase() || 'K10-MON';
-  setStatus('CONECTANDO...', 'wait');
-  log(`Iniciando monitor como: ${id}`, 'hi');
-  if(peer && !peer.destroyed) { try{ peer.destroy(); }catch(e){} peer=null; }
-  let timeout = setTimeout(() => {
-    if(peer && !peer.destroyed && !peer.open) { setStatus('ERRO: TIMEOUT', 'err'); log("Timeout PeerJS", 'err'); peer.destroy(); peer=null; scheduleReconnect(); }
-  }, 15000);
-  peer = new Peer(id, { host:'0.peerjs.com', port:443, secure:true, debug:0, config:{ iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}] } });
-  peer.on('open', pid => {
-    clearTimeout(timeout);
-    setStatus('● ONLINE', 'on');
-    document.getElementById('my-id').innerHTML = 'ID: '+pid;
-    document.getElementById('btn-start').disabled = true;
-    document.getElementById('btn-stop').disabled = false;
-    log(`Monitor online: ${pid}`, 'ok');
-    isRunning = true;
-    reconnectAttempts = 0;
-    if(reconnectTimer) clearTimeout(reconnectTimer);
-    scheduleRender();
-  });
-  peer.on('connection', conn => {
-    const pid = conn.peer;
-    if(!pid) return;
-    conns.set(pid, conn);
-    log(`Conexão entrante: ${pid}`, 'ok');
-    conn.on('data', data => handleMsg(data, pid));
-    conn.on('close', () => { if(conns.get(pid)===conn) conns.delete(pid); log(`Desconectado: ${pid}`, 'warn'); scheduleRender(); });
-    conn.on('error', () => {});
-  });
-  peer.on('error', e => {
-    clearTimeout(timeout);
-    if(e.type === 'peer-unavailable') { log(`Peer indisponível, tentando reconectar...`, 'warn'); scheduleReconnect(); }
-    else { setStatus('ERRO: '+e.type, 'err'); log(`Erro peer: ${e.type}`, 'err'); scheduleReconnect(); }
-  });
-  peer.on('disconnected', () => { setStatus('DESCONECTADO', 'err'); log('PeerJS desconectado', 'warn'); scheduleReconnect(); });
-}
-function stopMon() {
-  isRunning = false;
-  if(reconnectTimer) clearTimeout(reconnectTimer);
-  if(peer && !peer.destroyed) peer.destroy();
-  peer = null;
-  conns.clear();
-  setStatus('PARADO', '');
-  document.getElementById('btn-start').disabled = false;
-  document.getElementById('btn-stop').disabled = true;
-  log('Monitor parado.', 'warn');
-  scheduleRender();
-}
-
-// ---------- MAPA (Leaflet) ----------
-let map = null, markers = {};
-function initMap() {
-  if(map) return;
-  map = L.map('map').setView([0, 0], 2);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', { attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>' }).addTo(map);
-}
-function atualizarMapa(peerId, lat, lon, city, country) {
-  if(!map) initMap();
-  if(markers[peerId]) map.removeLayer(markers[peerId]);
-  const popup = `<b>${esc(peerId)}</b><br>📍 ${esc(city||'')}, ${esc(country||'')}<br>🗺️ ${lat.toFixed(4)}, ${lon.toFixed(4)}`;
-  const marker = L.marker([lat, lon]).addTo(map).bindPopup(popup);
-  markers[peerId] = marker;
-  // centralizar suavemente no primeiro marcador
-  if(Object.keys(markers).length === 1) map.setView([lat, lon], 4);
-}
-
-// ---------- MATRIX SSO (idêntico ao chat) ----------
-const SSO_RELAY = 'https://cold-puma-46.andradepsa.deno.net';
-let MATRIX_TOKEN = localStorage.getItem('mxdmToken') || '';
-let MY_MXID = localStorage.getItem('mxdmMxid') || '';
-let SINCE = localStorage.getItem('mxdmSyncSince') || '';
-let HS = (localStorage.getItem('mxdmHomeserver') || 'https://matrix.org').replace(/\/+$/,'');
-let matrixRooms = new Map();
-let syncRunning = false;
-
-async function matrixApi(method, path, body, params) {
-  const url = new URL(HS + path);
-  if(params) Object.entries(params).forEach(([k,v]) => url.searchParams.set(k, v));
-  const headers = { 'Content-Type': 'application/json' };
-  if(MATRIX_TOKEN) headers['Authorization'] = 'Bearer '+MATRIX_TOKEN;
-  const res = await fetch(url.toString(), { method, headers, body: body ? JSON.stringify(body) : undefined });
-  let data = {};
-  try { data = await res.json(); } catch(e) {}
-  if(!res.ok && data.errcode) data._httpStatus = res.status;
-  return data;
-}
-async function matrixLogin(user, pass) {
-  const r = await matrixApi('POST', '/_matrix/client/v3/login', {
-    type: 'm.login.password',
-    identifier: { type: 'm.id.user', user },
-    password: pass,
-    initial_device_display_name: 'K10 Monitor'
-  });
-  if(r.access_token) {
-    MATRIX_TOKEN = r.access_token;
-    MY_MXID = r.user_id;
-    localStorage.setItem('mxdmToken', MATRIX_TOKEN);
-    localStorage.setItem('mxdmMxid', MY_MXID);
-    log(`✅ Matrix login: ${MY_MXID}`, 'ok');
-    document.getElementById('mx-status').innerHTML = `🟢 ${esc(MY_MXID)}`;
-    startMatrixSync();
-    return true;
-  }
-  log(`❌ Matrix login falhou: ${r.error || r.errcode}`, 'err');
-  return false;
-}
-function aplicarToken(token, userId) {
-  MATRIX_TOKEN = token;
-  MY_MXID = userId;
-  localStorage.setItem('mxdmToken', token);
-  localStorage.setItem('mxdmMxid', userId);
-  log(`✅ SSO login: ${MY_MXID}`, 'ok');
-  document.getElementById('mx-status').innerHTML = `🟢 ${esc(MY_MXID)}`;
-  startMatrixSync();
-}
-function abrirModalLoginMatrix() {
-  if(document.getElementById('mx-login-modal')) return;
-  const modalDiv = document.createElement('div');
-  modalDiv.id = 'mx-login-modal';
-  modalDiv.className = 'matrix-modal-overlay';
-  modalDiv.innerHTML = `
-    <div class="matrix-modal">
-      <h3>🔑 Login Matrix</h3>
-      <div class="sub">Acesse suas salas com Google, GitHub ou senha</div>
-      <button id="mx-sso-google" class="sso"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> Google</button>
-      <button id="mx-sso-github" class="sso"><svg width="18" height="18" viewBox="0 0 24 24" fill="#e2e8f0"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg> GitHub</button>
-      <div class="separator"><hr><span>ou</span><hr></div>
-      <input id="mx-login-user" type="text" placeholder="@usuario:matrix.org" value="">
-      <input id="mx-login-pass" type="password" placeholder="Senha">
-      <div id="mx-login-err" style="color:#fc8181;font-size:13px;min-height:18px;"></div>
-      <button id="mx-login-submit" class="primary">Entrar</button>
-      <div class="footer-text">Não tem conta? <a href="https://app.element.io/#/register" target="_blank">Criar gratuitamente</a></div>
+<!-- ══ LOG ═══════════════════════════════════════════════════════════════ -->
+<div class="log-panel">
+  <div class="panel-hdr">
+    <span>◎ LOG EM TEMPO REAL</span>
+    <div style="display:flex;gap:6px">
+      <button class="btn btn-r" onclick="clearLog()" style="font-size:9px;padding:2px 8px">LIMPAR</button>
+      <button class="btn btn-a" onclick="toggleLogPause()" id="log-pause-btn" style="font-size:9px;padding:2px 8px">⏸ PAUSAR</button>
     </div>
-  `;
-  document.body.appendChild(modalDiv);
-  modalDiv.addEventListener('click', e => { if(e.target === modalDiv) modalDiv.remove(); });
-  const openSSO = (provider) => {
-    const errDiv = modalDiv.querySelector('#mx-login-err');
-    errDiv.style.color = '#68d391';
-    errDiv.textContent = '⏳ Abrindo...';
-    const popup = window.open(`${SSO_RELAY}/sso?provider=${provider}`, 'matrix_sso', 'width=520,height=640');
-    if(!popup) { errDiv.style.color='#fc8181'; errDiv.textContent='❌ Popup bloqueado'; return; }
-    const onMessage = (ev) => {
-      if(!ev.data || ev.data.type !== 'matrix_sso_token') return;
-      window.removeEventListener('message', onMessage);
-      if(ev.data.access_token) { aplicarToken(ev.data.access_token, ev.data.user_id); modalDiv.remove(); }
-      else { errDiv.style.color='#fc8181'; errDiv.textContent='❌ Token não recebido'; }
-    };
-    window.addEventListener('message', onMessage);
-    const watch = setInterval(() => { if(popup.closed) { clearInterval(watch); window.removeEventListener('message', onMessage); if(!MATRIX_TOKEN){ errDiv.style.color='#fc8181'; errDiv.textContent='Janela fechada'; } } }, 800);
-  };
-  modalDiv.querySelector('#mx-sso-google').onclick = () => openSSO('google');
-  modalDiv.querySelector('#mx-sso-github').onclick = () => openSSO('github');
-  const doLogin = async () => {
-    const user = modalDiv.querySelector('#mx-login-user').value.trim();
-    const pass = modalDiv.querySelector('#mx-login-pass').value;
-    const errDiv = modalDiv.querySelector('#mx-login-err');
-    if(!user || !pass) { errDiv.style.color='#fc8181'; errDiv.textContent='Preencha ambos'; return; }
-    const ok = await matrixLogin(user, pass);
-    if(ok) modalDiv.remove();
-    else { errDiv.style.color='#fc8181'; errDiv.textContent='Usuário/senha inválidos'; }
-  };
-  modalDiv.querySelector('#mx-login-submit').onclick = doLogin;
-  modalDiv.querySelector('#mx-login-pass').addEventListener('keypress', e => { if(e.key === 'Enter') doLogin(); });
-}
-async function startMatrixSync() {
-  if(syncRunning || !MATRIX_TOKEN) return;
-  syncRunning = true;
-  log('🔄 Sync Matrix iniciado (long poll)', 'hi');
-  while(MATRIX_TOKEN) {
-    try {
-      const filter = JSON.stringify({ room: { timeline:{limit:1}, state:{types:['m.room.member']}, ephemeral:{types:[]} }, presence:{types:[]}, account_data:{types:[]} });
-      const params = { timeout: 25000, filter };
-      if(SINCE) params.since = SINCE;
-      const data = await matrixApi('GET', '/_matrix/client/v3/sync', null, params);
-      if(data.errcode === 'M_UNKNOWN_TOKEN') { MATRIX_TOKEN=''; localStorage.removeItem('mxdmToken'); break; }
-      if(data.next_batch) { SINCE = data.next_batch; localStorage.setItem('mxdmSyncSince', SINCE); }
-      const invited = data.rooms?.invite || {};
-      for(const roomId of Object.keys(invited)) await matrixApi('POST', `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/join`, {});
-      const joined = data.rooms?.join || {};
-      for(const [roomId, rd] of Object.entries(joined)) {
-        let roomName = roomId, memberCount=0;
-        if(rd.state?.events) {
-          for(const ev of rd.state.events) {
-            if(ev.type === 'm.room.name' && ev.content?.name) roomName = ev.content.name;
-            if(ev.type === 'm.room.member') memberCount++;
-          }
-        }
-        if(!matrixRooms.has(roomId)) {
-          matrixRooms.set(roomId, { name: roomName, alias: roomId, memberCount });
-          log(`📂 Sala Matrix: ${roomName} (${memberCount} membros)`, 'ok');
-        } else {
-          const old = matrixRooms.get(roomId);
-          if(old.memberCount !== memberCount) { old.memberCount = memberCount; matrixRooms.set(roomId, old); }
-        }
-      }
-      const container = document.getElementById('mx-rooms-list');
-      if(container) {
-        if(matrixRooms.size === 0) container.innerHTML = '<div class="empty">Nenhuma sala ativa.</div>';
-        else {
-          container.innerHTML = Array.from(matrixRooms.values()).map(r => `
-            <div class="mx-sala-item">
-              <div class="mx-sala-info"><div class="nome">${esc(r.name)}</div><div class="alias">${esc(r.alias)}</div></div>
-              <div class="mx-sala-membros">👥 ${fmt(r.memberCount)}</div>
-            </div>
-          `).join('');
-        }
-      }
-      document.getElementById('s-rooms').textContent = matrixRooms.size;
-    } catch(e) { log(`Sync error: ${e.message}`, 'warn'); await new Promise(r=>setTimeout(r,4000)); }
-  }
-  syncRunning = false;
-}
-if(MATRIX_TOKEN && MY_MXID) { document.getElementById('mx-status').innerHTML = `🟢 ${esc(MY_MXID)}`; startMatrixSync(); }
+  </div>
+  <div class="log-body" id="log-strip">
+    <div class="log-line"><span class="log-ts">[--:--:--]</span><span class="log-hi">Monitor pronto. Inicie e aguarde telemetria dos peers.</span></div>
+  </div>
+</div>
 
-// limpeza periódica de peers antigos
-setInterval(() => {
-  const now = Date.now();
-  let changed = false;
-  for(let [id, p] of uniquePeersMap.entries()) {
-    if(now - p.lastSeen > 120000) { // 2 min sem atualizar
-      uniquePeersMap.delete(id);
-      if(markers[id]) { map?.removeLayer(markers[id]); delete markers[id]; }
-      changed = true;
+<!-- ══ FOOTER ═════════════════════════════════════════════════════════════ -->
+<div class="footer">
+  <span>K10 MONITOR PRO v3 — PeerJS · Matrix SSO · Geolocation · Telemetria Avançada</span>
+  <span id="footer-right">—</span>
+</div>
+
+<!-- ══ SCRIPTS ════════════════════════════════════════════════════════════ -->
+<script>
+'use strict';
+// ============================================================
+// K10 MONITOR PRO v3 — SCRIPT COMPLETO
+// ============================================================
+
+// ── UTILITÁRIOS ──────────────────────────────────────────────
+function fmt(n){return n===null||n===undefined?'—':Number(n).toLocaleString('pt-BR')}
+function esc(s){return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+function ts(){return new Date().toLocaleTimeString('pt-BR')}
+function ago(ms){if(!ms)return'—';const s=Math.floor((Date.now()-ms)/1000);if(s<60)return s+'s';if(s<3600)return Math.floor(s/60)+'m';return Math.floor(s/3600)+'h'}
+function countryFlag(cc){if(!cc||cc.length!==2)return'🌍';const o=127397;return String.fromCodePoint(cc.toUpperCase().charCodeAt(0)+o)+String.fromCodePoint(cc.toUpperCase().charCodeAt(1)+o)}
+function isOnline(p){return p&&(Date.now()-p.lastSeen)<120_000}
+
+let logPaused = false;
+function toggleLogPause(){
+  logPaused=!logPaused;
+  document.getElementById('log-pause-btn').textContent=logPaused?'▶ RETOMAR':'⏸ PAUSAR';
+}
+function log(msg,type=''){
+  if(logPaused)return;
+  const el=document.getElementById('log-strip');
+  if(!el)return;
+  const cls={'ok':'log-ok','warn':'log-warn','err':'log-err','hi':'log-hi'}[type]||'log-hi';
+  const line=document.createElement('div');
+  line.className='log-line';
+  line.innerHTML=`<span class="log-ts">[${ts()}]</span><span class="${cls}">${esc(msg)}</span>`;
+  el.appendChild(line);
+  el.scrollTop=el.scrollHeight;
+  while(el.children.length>300)el.removeChild(el.firstChild);
+}
+function clearLog(){document.getElementById('log-strip').innerHTML=''}
+function setStatus(txt,cls){const s=document.getElementById('status');if(s){s.textContent=txt;s.className=cls||''}}
+
+// ── ESTADO PRINCIPAL ──────────────────────────────────────────
+let peer=null, conns=new Map(), isRunning=false;
+let reconnectTimer=null, reconnectAttempts=0, totalReconns=0;
+let peakPeers=0, msgCount=0, renderTimer=null;
+let uptimeStart=null, uptimeTimer=null;
+let uniquePeersMap=new Map(); // peerId → objeto completo
+let markers={}, map=null;
+let sortKey='lastSeen', sortAsc=false;
+let activityHistory=new Array(60).fill(0);
+let msgsHistory=new Array(60).fill(0);
+let lastMinuteMark=Date.now(), lastMinuteMsgs=0;
+let sessionMsgsByHour=[]; // {ts, count}
+let sessionStart=Date.now();
+
+// ── ATIVIDADE / CHARTS ────────────────────────────────────────
+function tickActivity(){
+  const online=countOnline();
+  activityHistory.push(online);
+  if(activityHistory.length>60)activityHistory.shift();
+  msgsHistory.push(msgCount-lastMinuteMsgs);
+  lastMinuteMsgs=msgCount;
+  if(msgsHistory.length>60)msgsHistory.shift();
+  drawCharts();
+}
+setInterval(tickActivity,60_000);
+
+function drawCharts(){
+  drawSparkline('chart-activity',activityHistory,'#00f5ff','chart-last-val');
+  drawSparkline('chart-msgs',msgsHistory,'#00ff88','chart-msg-val');
+}
+function drawSparkline(id,data,color,labelId){
+  const canvas=document.getElementById(id);
+  if(!canvas)return;
+  const W=canvas.offsetWidth||600, H=90;
+  canvas.width=W; canvas.height=H;
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  const max=Math.max(...data,1);
+  const pts=data.length;
+  const dx=W/pts;
+  // grid lines
+  ctx.strokeStyle='rgba(10,48,80,.6)'; ctx.lineWidth=1;
+  for(let i=0;i<=4;i++){const y=H-(i/4)*H;ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(W,y);ctx.stroke()}
+  // gradient fill
+  const grad=ctx.createLinearGradient(0,0,0,H);
+  grad.addColorStop(0,color+'44'); grad.addColorStop(1,color+'00');
+  ctx.beginPath();
+  data.forEach((v,i)=>{const x=i*dx,y=H-(v/max)*(H-4)-2;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y)});
+  ctx.lineTo((pts-1)*dx,H); ctx.lineTo(0,H); ctx.closePath();
+  ctx.fillStyle=grad; ctx.fill();
+  // line
+  ctx.beginPath(); ctx.strokeStyle=color; ctx.lineWidth=1.5;
+  data.forEach((v,i)=>{const x=i*dx,y=H-(v/max)*(H-4)-2;i===0?ctx.moveTo(x,y):ctx.lineTo(x,y)});
+  ctx.stroke();
+  // last value label
+  const lastVal=data[data.length-1]||0;
+  if(labelId){const el=document.getElementById(labelId);if(el)el.textContent=fmt(lastVal)}
+}
+
+// ── RENDER PRINCIPAL ──────────────────────────────────────────
+function scheduleRender(){
+  if(renderTimer)clearTimeout(renderTimer);
+  renderTimer=setTimeout(render,200);
+}
+function countOnline(){
+  let n=0; for(const p of uniquePeersMap.values()){if(isOnline(p))n++;}
+  return n;
+}
+function render(){
+  const t0=performance.now();
+  const online=countOnline();
+  if(online>peakPeers)peakPeers=online;
+
+  // stats
+  document.getElementById('p-conns').textContent=conns.size;
+  document.getElementById('p-msgs').textContent=fmt(msgCount);
+  document.getElementById('p-reconns').textContent=fmt(totalReconns);
+  document.getElementById('s-unique').textContent=uniquePeersMap.size||'—';
+  document.getElementById('s-online').textContent=online||'—';
+  document.getElementById('s-peak').textContent=peakPeers||'—';
+
+  // net size média
+  let nsSum=0,nsCnt=0;
+  for(const p of uniquePeersMap.values()){if(p.netSize){nsSum+=p.netSize;nsCnt++;}}
+  document.getElementById('s-netsize').textContent=nsCnt?Math.round(nsSum/nsCnt):'—';
+
+  // países distintos
+  const countries=new Set();
+  let noGeo=0;
+  for(const p of uniquePeersMap.values()){
+    if(p.country)countries.add(p.country);
+    else noGeo++;
+  }
+  document.getElementById('s-countries').textContent=countries.size||'—';
+  document.getElementById('s-nogeo').textContent=noGeo;
+
+  // msgs/hora
+  const elapsed=(Date.now()-sessionStart)/3600_000;
+  document.getElementById('s-mphour').textContent=elapsed>0?Math.round(msgCount/elapsed):'—';
+  document.getElementById('p-rate').textContent=msgsHistory[msgsHistory.length-1]||0;
+
+  document.getElementById('p-lat').textContent=(performance.now()-t0).toFixed(1)+'ms';
+  document.getElementById('footer-ts').textContent='UPD: '+ts();
+  document.getElementById('footer-right').textContent=`${uniquePeersMap.size} peers · ${conns.size} conns · ${fmt(msgCount)} msgs`;
+
+  renderSidePanels();
+  renderTable();
+  drawCharts();
+}
+
+function renderSidePanels(){
+  // TOP PAÍSES
+  const cc=new Map();
+  for(const p of uniquePeersMap.values()){
+    const k=p.country||'Unknown';
+    const c=cc.get(k)||{count:0,code:p.countryCode||''};
+    c.count++;cc.set(k,c);
+  }
+  const ccArr=[...cc.entries()].sort((a,b)=>b[1].count-a[1].count);
+  const maxC=ccArr[0]?ccArr[0][1].count:1;
+  document.getElementById('countries-list').innerHTML=ccArr.slice(0,10).map(([name,d])=>
+    `<div class="country-row">
+      <span>${countryFlag(d.code)}</span>
+      <span style="flex:0 0 100px;color:var(--text)">${esc(name)}</span>
+      <div class="country-bar-bg"><div class="country-bar" style="width:${Math.round(d.count/maxC*100)}%"></div></div>
+      <span class="country-count">${d.count}</span>
+    </div>`
+  ).join('')||'<div style="color:var(--dim);padding:8px;font-size:10px">Aguardando...</div>';
+
+  // BROWSERS
+  const bc=new Map();
+  for(const p of uniquePeersMap.values()){const k=p.browser||'Other';bc.set(k,(bc.get(k)||0)+1);}
+  const bcArr=[...bc.entries()].sort((a,b)=>b[1]-a[1]);
+  document.getElementById('browsers-list').innerHTML=bcArr.map(([name,count])=>
+    `<div class="browser-row">
+      <span>${BROWSER_ICON[name]||'🌐'} <span class="browser-badge">${esc(name)}</span></span>
+      <span style="color:var(--amber)">${count}</span>
+    </div>`
+  ).join('')||'<div style="color:var(--dim);padding:8px;font-size:10px">Aguardando...</div>';
+
+  // OS
+  const oc=new Map();
+  for(const p of uniquePeersMap.values()){const k=p.os||'Other';oc.set(k,(oc.get(k)||0)+1);}
+  const ocArr=[...oc.entries()].sort((a,b)=>b[1]-a[1]);
+  document.getElementById('os-list').innerHTML=ocArr.map(([name,count])=>
+    `<div class="os-row">
+      <span>${OS_ICON[name]||'💻'} ${esc(name)}</span>
+      <span style="color:var(--green)">${count}</span>
+    </div>`
+  ).join('')||'<div style="color:var(--dim);padding:8px;font-size:10px">Aguardando...</div>';
+
+  // Filtros dinâmicos
+  updateFilters(ccArr.map(([n])=>n), bcArr.map(([n])=>n));
+}
+
+const BROWSER_ICON={Chrome:'🟡',Firefox:'🦊',Safari:'🍎',Edge:'🔵',Opera:'🔴',Yandex:'🟠',Samsung:'📱',Other:'🌐'};
+const OS_ICON={'Windows 10/11':'🪟','Windows 7/8':'🪟',Windows:'🪟',macOS:'🍎',Linux:'🐧',Android:'🤖',iOS:'📱',ChromeOS:'🌐',Other:'💻'};
+
+function updateFilters(countries,browsers){
+  const cs=document.getElementById('filter-country');
+  const cur=cs.value;
+  cs.innerHTML='<option value="">Todos os países</option>'+countries.map(c=>`<option value="${esc(c)}" ${c===cur?'selected':''}>${esc(c)}</option>`).join('');
+  const bs=document.getElementById('filter-browser');
+  const curB=bs.value;
+  bs.innerHTML='<option value="">Todos os browsers</option>'+browsers.map(b=>`<option value="${esc(b)}" ${b===curB?'selected':''}>${esc(b)}</option>`).join('');
+}
+
+function renderTable(){
+  const search=(document.getElementById('search-input').value||'').toLowerCase();
+  const fCountry=document.getElementById('filter-country').value;
+  const fBrowser=document.getElementById('filter-browser').value;
+  const fStatus=document.getElementById('filter-status').value;
+
+  let rows=[...uniquePeersMap.entries()];
+
+  // filtros
+  if(search) rows=rows.filter(([id,p])=>
+    (id||'').toLowerCase().includes(search)||
+    (p.userName||'').toLowerCase().includes(search)||
+    (p.country||'').toLowerCase().includes(search)||
+    (p.city||'').toLowerCase().includes(search)||
+    (p.ip||'').includes(search)||
+    (p.isp||'').toLowerCase().includes(search)||
+    (p.browser||'').toLowerCase().includes(search)
+  );
+  if(fCountry) rows=rows.filter(([,p])=>p.country===fCountry);
+  if(fBrowser) rows=rows.filter(([,p])=>p.browser===fBrowser);
+  if(fStatus==='online') rows=rows.filter(([,p])=>isOnline(p));
+  if(fStatus==='offline') rows=rows.filter(([,p])=>!isOnline(p));
+
+  // sort
+  rows.sort((a,b)=>{
+    let av=a[1][sortKey]??a[0], bv=b[1][sortKey]??b[0];
+    if(typeof av==='number'&&typeof bv==='number') return sortAsc?av-bv:bv-av;
+    return sortAsc?String(av).localeCompare(String(bv)):String(bv).localeCompare(String(av));
+  });
+
+  document.getElementById('table-count').textContent=rows.length+' peer'+(rows.length!==1?'s':'');
+
+  if(rows.length===0){
+    document.getElementById('peers-tbody').innerHTML='<tr class="empty-row"><td colspan="18">Nenhum peer encontrado.</td></tr>';
+    return;
+  }
+
+  document.getElementById('peers-tbody').innerHTML=rows.slice(0,200).map(([id,p])=>{
+    const on=isOnline(p);
+    return `<tr data-id="${esc(id)}">
+      <td><span class="online-dot ${on?'dot-on':'dot-off'}" title="${on?'Online':'Offline'}"></span></td>
+      <td class="pid-cell" onclick="showDetail('${esc(id)}')" title="Clique para detalhes">${esc(id.slice(0,12))}${id.length>12?'…':''}</td>
+      <td style="color:var(--amber)">${esc(p.userName||'—')}</td>
+      <td>${p.countryCode?countryFlag(p.countryCode):''} ${esc(p.country||'—')}</td>
+      <td>${esc(p.city||'—')}</td>
+      <td style="color:var(--dim)">${esc(p.region||'—')}</td>
+      <td style="font-size:9px">${esc(p.ip||'—')}</td>
+      <td style="font-size:9px;color:var(--dim);max-width:120px;overflow:hidden;text-overflow:ellipsis" title="${esc(p.isp||'')}">${esc((p.isp||'—').slice(0,18))}</td>
+      <td><span class="tag tag-br">${esc(p.browser||'?')}</span></td>
+      <td><span class="tag tag-os">${esc(p.os||'?')}</span></td>
+      <td style="color:var(--dim)">${esc(p.screen||'—')}</td>
+      <td style="color:var(--purple)">${p.cores?p.cores+'c':'—'}</td>
+      <td style="color:var(--blue)">${p.memory?p.memory+'GB':'—'}</td>
+      <td style="color:var(--green)">${fmt(p.netSize)||'—'}</td>
+      <td style="color:var(--cyan)">${p.activeConns??'—'}</td>
+      <td style="color:var(--amber)">${fmt(p.msgCount)||0}</td>
+      <td style="font-size:9px;color:var(--dim)">${p.firstSeen?new Date(p.firstSeen).toLocaleTimeString():'—'}</td>
+      <td style="font-size:9px">${ago(p.lastSeen)}</td>
+    </tr>`;
+  }).join('');
+}
+
+function sortBy(key){
+  if(sortKey===key)sortAsc=!sortAsc; else{sortKey=key;sortAsc=false;}
+  document.querySelectorAll('.peers-table th').forEach(th=>{th.classList.remove('sorted')});
+  scheduleRender();
+}
+
+// ── PEER DETAIL MODAL ─────────────────────────────────────────
+function showDetail(id){
+  const p=uniquePeersMap.get(id);
+  if(!p)return;
+  const existing=document.getElementById('peer-detail-modal');
+  if(existing)existing.remove();
+  const div=document.createElement('div');
+  div.id='peer-detail-modal';
+  div.className='modal-overlay';
+  div.innerHTML=`
+    <div class="modal-box">
+      <div class="modal-hdr">
+        <h3>◈ PEER DETAIL — ${esc(id.slice(0,20))}</h3>
+        <button class="modal-close" onclick="document.getElementById('peer-detail-modal').remove()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="detail-grid">
+          ${detail('Peer ID',id,'hi')}
+          ${detail('Nome',p.userName||'(anônimo)')}
+          ${detail('Status',isOnline(p)?'🟢 ONLINE':'🔴 OFFLINE')}
+          ${detail('País',`${p.countryCode?countryFlag(p.countryCode):''} ${p.country||'—'}`)}
+          ${detail('Cidade',p.city||'—')}
+          ${detail('Região',p.region||'—')}
+          ${detail('IP',p.ip||'—')}
+          ${detail('ISP',p.isp||'—')}
+          ${detail('Org',p.org||'—')}
+          ${detail('Geo Timezone',p.geoTimezone||'—')}
+          ${detail('Coordenadas',p.lat?`${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`:'—')}
+          ${detail('Browser',p.browser||'—')}
+          ${detail('OS',p.os||'—')}
+          ${detail('Tela',p.screen||'—')}
+          ${detail('Color Depth',p.colorDepth?p.colorDepth+'bit':'—')}
+          ${detail('DPI',p.devicePixelRatio?'×'+p.devicePixelRatio:'—')}
+          ${detail('Timezone (JS)',p.timezone||'—')}
+          ${detail('Idioma',p.lang||'—')}
+          ${detail('Idiomas',p.langs||'—')}
+          ${detail('Platform',p.platform||'—')}
+          ${detail('CPU Cores',p.cores?p.cores+'c':'—')}
+          ${detail('RAM',p.memory?p.memory+' GB':'—')}
+          ${detail('Touch',p.touchPoints?p.touchPoints+' pontos':'nenhum')}
+          ${detail('Net Size',p.netSize||'—')}
+          ${detail('Conns Ativas',p.activeConns??'—')}
+          ${detail('Msgs Recebidas',p.msgCount||0)}
+          ${detail('1ª Vista',p.firstSeen?new Date(p.firstSeen).toLocaleString():'-')}
+          ${detail('Última Vista',p.lastSeen?new Date(p.lastSeen).toLocaleString():'-')}
+        </div>
+        <div style="margin-top:12px">
+          <div class="detail-key">USER AGENT COMPLETO</div>
+          <div style="background:var(--bg3);padding:8px;font-size:9px;color:var(--dim);border:1px solid var(--border);margin-top:4px;word-break:break-all;line-height:1.6">${esc(p.ua||'—')}</div>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+  div.addEventListener('click',e=>{if(e.target===div)div.remove()});
+}
+function detail(key,val,cls=''){return `<div class="detail-item"><div class="detail-key">${esc(key)}</div><div class="detail-val ${cls}">${esc(String(val||'—'))}</div></div>`}
+
+// ── PEERJS ────────────────────────────────────────────────────
+function handleMsg(data,pId){
+  msgCount++;
+  if(!data||data.type!=='k10-telemetry')return scheduleRender();
+
+  const now=Date.now();
+  const existing=uniquePeersMap.get(data.peerId)||{firstSeen:now,msgCount:0};
+  const updated={
+    ...existing,
+    peerId:    data.peerId,
+    userName:  data.userName||existing.userName||'',
+    ip:        data.ip||existing.ip,
+    lat:       data.lat||existing.lat,
+    lon:       data.lon||existing.lon,
+    city:      data.city||existing.city,
+    country:   data.country||existing.country,
+    countryCode: data.countryCode||existing.countryCode,
+    region:    data.region||existing.region,
+    isp:       data.isp||existing.isp,
+    org:       data.org||existing.org,
+    geoTimezone: data.geoTimezone||existing.geoTimezone,
+    netSize:   data.netSize||existing.netSize,
+    activeConns: data.activeConns??existing.activeConns,
+    ua:        data.ua||existing.ua,
+    browser:   data.browser||existing.browser,
+    os:        data.os||existing.os,
+    lang:      data.lang||existing.lang,
+    langs:     data.langs||existing.langs,
+    screen:    data.screen||existing.screen,
+    colorDepth: data.colorDepth||existing.colorDepth,
+    devicePixelRatio: data.devicePixelRatio||existing.devicePixelRatio,
+    timezone:  data.timezone||existing.timezone,
+    platform:  data.platform||existing.platform,
+    memory:    data.memory??existing.memory,
+    cores:     data.cores??existing.cores,
+    touchPoints: data.touchPoints??existing.touchPoints,
+    lastSeen:  now,
+    msgCount:  (existing.msgCount||0)+1
+  };
+  uniquePeersMap.set(data.peerId, updated);
+
+  if(data.lat&&data.lon)atualizarMapa(data.peerId,data.lat,data.lon,data);
+
+  const geoStr=data.city?`${data.city}, ${data.country}`:(data.country||'Sem geo');
+  const devStr=data.browser?` | ${data.browser}/${data.os}`:'';
+  log(`📡 ${data.peerId.slice(0,12)} — ${data.userName||'anon'} — ${geoStr}${devStr} | Net:${data.netSize||'?'} Conns:${data.activeConns??'?'}`, 'ok');
+
+  scheduleRender();
+}
+
+function startMon(){
+  if(isRunning){log('Monitor já rodando','warn');return}
+  const id=document.getElementById('mon-id').value.trim().toUpperCase()||'K10-MON';
+  setStatus('CONECTANDO...','wait');
+  log(`▶ Iniciando monitor como: ${id}`,'hi');
+  if(peer&&!peer.destroyed){try{peer.destroy()}catch(_){} peer=null}
+
+  let timeout=setTimeout(()=>{
+    if(peer&&!peer.open){setStatus('TIMEOUT','err');log('Timeout PeerJS','err');peer.destroy();peer=null;scheduleReconnect()}
+  },15000);
+
+  peer=new Peer(id,{host:'0.peerjs.com',port:443,secure:true,debug:0,
+    config:{iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]}});
+
+  peer.on('open',pid=>{
+    clearTimeout(timeout);
+    setStatus('● ONLINE','on');
+    document.getElementById('my-id').innerHTML='MY-ID: '+pid;
+    document.getElementById('btn-start').disabled=true;
+    document.getElementById('btn-stop').disabled=false;
+    log(`✅ Monitor online: ${pid}`,'ok');
+    isRunning=true; reconnectAttempts=0;
+    if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null}
+    sessionStart=Date.now();
+    startUptime();
+    scheduleRender();
+  });
+
+  peer.on('connection',conn=>{
+    const pid=conn.peer;
+    if(!pid)return;
+    conns.set(pid,conn);
+    log(`🔗 Conexão entrante: ${pid}`,'hi');
+    conn.on('data',data=>handleMsg(data,pid));
+    conn.on('close',()=>{if(conns.get(pid)===conn)conns.delete(pid);scheduleRender()});
+    conn.on('error',()=>{});
+    scheduleRender();
+  });
+
+  peer.on('error',e=>{
+    clearTimeout(timeout);
+    log(`❌ Erro peer: ${e.type}`,'err');
+    if(e.type==='peer-unavailable')scheduleReconnect();
+    else{setStatus('ERRO: '+e.type,'err');scheduleReconnect()}
+  });
+
+  peer.on('disconnected',()=>{
+    setStatus('DESCONECTADO','err');
+    log('PeerJS desconectado','warn');
+    scheduleReconnect();
+  });
+}
+
+function stopMon(){
+  isRunning=false;
+  if(reconnectTimer)clearTimeout(reconnectTimer);
+  if(peer&&!peer.destroyed)peer.destroy();
+  peer=null; conns.clear();
+  setStatus('PARADO','');
+  document.getElementById('btn-start').disabled=false;
+  document.getElementById('btn-stop').disabled=true;
+  stopUptime();
+  log('■ Monitor parado.','warn');
+  scheduleRender();
+}
+
+function scheduleReconnect(){
+  if(reconnectTimer)return;
+  const delay=Math.min(30000,1000*Math.pow(2,reconnectAttempts))+Math.random()*1000;
+  reconnectAttempts++; totalReconns++;
+  log(`⏳ Reconexão em ${Math.round(delay/1000)}s (tentativa ${reconnectAttempts})`,'warn');
+  reconnectTimer=setTimeout(()=>{
+    reconnectTimer=null;
+    if(!isRunning)return;
+    if(peer&&!peer.destroyed&&peer.open){log('Peer conectado, nada a fazer.','ok')}
+    else{stopMon();startMon()}
+  },delay);
+}
+
+// ── UPTIME ────────────────────────────────────────────────────
+function startUptime(){uptimeStart=Date.now();if(uptimeTimer)clearInterval(uptimeTimer);uptimeTimer=setInterval(updateUptime,1000)}
+function stopUptime(){if(uptimeTimer)clearInterval(uptimeTimer);document.getElementById('uptime-display').textContent='UPTIME: --:--:--'}
+function updateUptime(){
+  if(!uptimeStart)return;
+  const s=Math.floor((Date.now()-uptimeStart)/1000);
+  const h=Math.floor(s/3600),m=Math.floor((s%3600)/60),ss=s%60;
+  document.getElementById('uptime-display').textContent=`UPTIME: ${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}`;
+}
+
+// ── MAPA ──────────────────────────────────────────────────────
+function initMap(){
+  if(map)return;
+  map=L.map('map').setView([20,0],2);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>',
+    maxZoom:19
+  }).addTo(map);
+}
+
+function atualizarMapa(peerId,lat,lon,p){
+  if(!map)initMap();
+  if(markers[peerId])map.removeLayer(markers[peerId]);
+  const on=isOnline(p);
+  const color=on?'#00ff88':'#ff3366';
+  const icon=L.divIcon({
+    className:'',
+    html:`<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid ${on?'#00cc6a':'#cc1a44'};box-shadow:0 0 8px ${color}88"></div>`,
+    iconSize:[14,14],iconAnchor:[7,7]
+  });
+  const popup=`
+    <div style="font-family:monospace;font-size:11px;min-width:200px">
+      <b style="color:#00f5ff">${esc(p.peerId||peerId)}</b><br>
+      ${p.userName?`<span style="color:#ffcc00">👤 ${esc(p.userName)}</span><br>`:''}
+      📍 ${esc(p.city||'?')}, ${p.countryCode?countryFlag(p.countryCode):''} ${esc(p.country||'?')}<br>
+      🌐 ${esc(p.ip||'?')}<br>
+      💻 ${esc(p.browser||'?')} / ${esc(p.os||'?')}<br>
+      📡 Net: ${p.netSize||'?'} · Conns: ${p.activeConns??'?'}
+    </div>`;
+  const marker=L.marker([lat,lon],{icon}).addTo(map).bindPopup(popup);
+  markers[peerId]=marker;
+  document.getElementById('map-count').textContent=Object.keys(markers).length+' marcadores';
+}
+
+// ── CLEANUP PERIÓDICO ─────────────────────────────────────────
+setInterval(()=>{
+  const now=Date.now();
+  let changed=false;
+  for(const[id,p] of uniquePeersMap.entries()){
+    if(now-p.lastSeen>600_000){ // 10 min
+      if(markers[id]){map?.removeLayer(markers[id]);delete markers[id]}
+      changed=true;
     }
   }
-  if(changed) scheduleRender();
-}, 60000);
+  if(changed)scheduleRender();
+},120_000);
 
-window.startMon = startMon;
-window.stopMon = stopMon;
-window.abrirModalLoginMatrix = abrirModalLoginMatrix;
+// ── EXPORT ────────────────────────────────────────────────────
+function exportCSV(){
+  const cols=['peerId','userName','country','city','region','ip','isp','org','lat','lon','browser','os','screen','lang','timezone','cores','memory','netSize','activeConns','msgCount','firstSeen','lastSeen','ua'];
+  const header=cols.join(',');
+  const rows=[...uniquePeersMap.values()].map(p=>cols.map(k=>{
+    const v=p[k]??'';
+    return '"'+String(v).replace(/"/g,'""')+'"';
+  }).join(','));
+  download([header,...rows].join('\n'),'k10-peers-'+Date.now()+'.csv','text/csv');
+  log('⬇ CSV exportado ('+uniquePeersMap.size+' peers)','ok');
+}
+function exportJSON(){
+  const data={exportedAt:new Date().toISOString(),total:uniquePeersMap.size,peers:[...uniquePeersMap.values()]};
+  download(JSON.stringify(data,null,2),'k10-peers-'+Date.now()+'.json','application/json');
+  log('⬇ JSON exportado ('+uniquePeersMap.size+' peers)','ok');
+}
+function download(content,filename,mime){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([content],{type:mime}));
+  a.download=filename; a.click(); URL.revokeObjectURL(a.href);
+}
+function clearPeers(){
+  if(!confirm('Limpar todos os peers do monitor?'))return;
+  uniquePeersMap.clear();
+  for(const m of Object.values(markers))map?.removeLayer(m);
+  Object.keys(markers).forEach(k=>delete markers[k]);
+  peakPeers=0; msgCount=0;
+  activityHistory.fill(0); msgsHistory.fill(0);
+  log('✕ Dados limpos.','warn');
+  scheduleRender();
+}
+
+// ── MATRIX SSO ───────────────────────────────────────────────
+const SSO_RELAY='https://cold-puma-46.andradepsa.deno.net';
+let MATRIX_TOKEN=localStorage.getItem('mxdmToken')||'';
+let MY_MXID=localStorage.getItem('mxdmMxid')||'';
+let SINCE=localStorage.getItem('mxdmSyncSince')||'';
+let HS=(localStorage.getItem('mxdmHomeserver')||'https://matrix.org').replace(/\/+$/,'');
+let matrixRooms=new Map(), syncRunning=false;
+
+async function matrixApi(method,path,body,params){
+  const url=new URL(HS+path);
+  if(params)Object.entries(params).forEach(([k,v])=>url.searchParams.set(k,v));
+  const headers={'Content-Type':'application/json'};
+  if(MATRIX_TOKEN)headers['Authorization']='Bearer '+MATRIX_TOKEN;
+  const res=await fetch(url.toString(),{method,headers,body:body?JSON.stringify(body):undefined});
+  let data={};try{data=await res.json()}catch(_){}
+  return data;
+}
+
+async function matrixLogin(user,pass){
+  const r=await matrixApi('POST','/_matrix/client/v3/login',{type:'m.login.password',identifier:{type:'m.id.user',user},password:pass,initial_device_display_name:'K10 Monitor PRO'});
+  if(r.access_token){
+    aplicarToken(r.access_token,r.user_id);
+    return true;
+  }
+  log(`❌ Matrix login falhou: ${r.error||r.errcode}`,'err');
+  return false;
+}
+
+function aplicarToken(token,userId){
+  MATRIX_TOKEN=token; MY_MXID=userId;
+  localStorage.setItem('mxdmToken',token);
+  localStorage.setItem('mxdmMxid',userId);
+  log(`✅ Matrix login: ${MY_MXID}`,'ok');
+  document.getElementById('mx-status').innerHTML=`🟢 ${esc(MY_MXID)}`;
+  document.getElementById('mx-mxid-label').textContent=MY_MXID;
+  startMatrixSync();
+}
+
+function logoutMatrix(){
+  MATRIX_TOKEN=''; MY_MXID=''; SINCE='';
+  localStorage.removeItem('mxdmToken'); localStorage.removeItem('mxdmMxid'); localStorage.removeItem('mxdmSyncSince');
+  matrixRooms.clear(); syncRunning=false;
+  document.getElementById('mx-status').textContent='⚪ Desconectado';
+  document.getElementById('mx-mxid-label').textContent='';
+  document.getElementById('s-rooms').textContent='—';
+  document.getElementById('mx-rooms-list').innerHTML='<div style="color:var(--dim);font-size:10px;padding:12px;text-align:center">Desconectado.</div>';
+  log('Logout Matrix realizado.','warn');
+}
+
+function abrirModalLoginMatrix(){
+  if(document.getElementById('mx-login-modal'))return;
+  const div=document.createElement('div');
+  div.id='mx-login-modal';
+  div.className='matrix-modal-overlay';
+  div.innerHTML=`
+    <div class="matrix-modal">
+      <h3>🔑 Login Matrix</h3>
+      <div class="sub">Acesse com Google, GitHub ou usuário/senha</div>
+      <button id="mx-sso-google" class="btn-sso"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> Google</button>
+      <button id="mx-sso-github" class="btn-sso"><svg width="18" height="18" viewBox="0 0 24 24" fill="#e2e8f0"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg> GitHub</button>
+      <div class="sep"><hr><span>ou senha</span><hr></div>
+      <input id="mx-user" type="text" placeholder="@usuario:matrix.org">
+      <input id="mx-pass" type="password" placeholder="Senha">
+      <div id="mx-err" style="color:#fc8181;font-size:12px;min-height:16px;margin-bottom:8px;font-family:sans-serif"></div>
+      <button id="mx-submit" class="btn-primary">Entrar</button>
+    </div>`;
+  document.body.appendChild(div);
+  div.addEventListener('click',e=>{if(e.target===div)div.remove()});
+  const openSSO=provider=>{
+    const err=div.querySelector('#mx-err');
+    err.style.color='#68d391'; err.textContent='⏳ Abrindo...';
+    const popup=window.open(`${SSO_RELAY}/sso?provider=${provider}`,'matrix_sso','width=520,height=640');
+    if(!popup){err.style.color='#fc8181';err.textContent='❌ Popup bloqueado';return}
+    const onMsg=ev=>{
+      if(!ev.data||ev.data.type!=='matrix_sso_token')return;
+      window.removeEventListener('message',onMsg);
+      if(ev.data.access_token){aplicarToken(ev.data.access_token,ev.data.user_id);div.remove()}
+      else{err.style.color='#fc8181';err.textContent='❌ Token não recebido'}
+    };
+    window.addEventListener('message',onMsg);
+  };
+  div.querySelector('#mx-sso-google').onclick=()=>openSSO('google');
+  div.querySelector('#mx-sso-github').onclick=()=>openSSO('github');
+  const doLogin=async()=>{
+    const user=div.querySelector('#mx-user').value.trim();
+    const pass=div.querySelector('#mx-pass').value;
+    const err=div.querySelector('#mx-err');
+    if(!user||!pass){err.textContent='Preencha usuário e senha';return}
+    err.style.color='#68d391';err.textContent='⏳ Entrando...';
+    const ok=await matrixLogin(user,pass);
+    if(ok)div.remove(); else{err.style.color='#fc8181';err.textContent='Usuário/senha inválidos'}
+  };
+  div.querySelector('#mx-submit').onclick=doLogin;
+  div.querySelector('#mx-pass').addEventListener('keypress',e=>{if(e.key==='Enter')doLogin()});
+}
+
+async function startMatrixSync(){
+  if(syncRunning||!MATRIX_TOKEN)return;
+  syncRunning=true;
+  log('🔄 Matrix sync iniciado','hi');
+  while(MATRIX_TOKEN){
+    try{
+      const filter=JSON.stringify({room:{timeline:{limit:2},state:{types:['m.room.member','m.room.name']},ephemeral:{types:[]}},presence:{types:[]},account_data:{types:[]}});
+      const params={timeout:25000,filter};
+      if(SINCE)params.since=SINCE;
+      const data=await matrixApi('GET','/_matrix/client/v3/sync',null,params);
+      if(data.errcode==='M_UNKNOWN_TOKEN'){MATRIX_TOKEN='';localStorage.removeItem('mxdmToken');break}
+      if(data.next_batch){SINCE=data.next_batch;localStorage.setItem('mxdmSyncSince',SINCE)}
+      const invited=data.rooms?.invite||{};
+      for(const rid of Object.keys(invited))await matrixApi('POST',`/_matrix/client/v3/rooms/${encodeURIComponent(rid)}/join`,{});
+      const joined=data.rooms?.join||{};
+      for(const[roomId,rd] of Object.entries(joined)){
+        let roomName=roomId,mc=0;
+        if(rd.state?.events){for(const ev of rd.state.events){
+          if(ev.type==='m.room.name'&&ev.content?.name)roomName=ev.content.name;
+          if(ev.type==='m.room.member')mc++;
+        }}
+        const old=matrixRooms.get(roomId)||{};
+        matrixRooms.set(roomId,{name:roomName,alias:roomId,memberCount:mc||old.memberCount||0});
+      }
+      renderMatrixRooms();
+    }catch(e){log(`Matrix sync error: ${e.message}`,'warn');await new Promise(r=>setTimeout(r,5000))}
+  }
+  syncRunning=false;
+}
+
+function renderMatrixRooms(){
+  const container=document.getElementById('mx-rooms-list');
+  document.getElementById('s-rooms').textContent=matrixRooms.size||'—';
+  if(matrixRooms.size===0){container.innerHTML='<div style="color:var(--dim);font-size:10px;padding:12px;text-align:center">Nenhuma sala ativa.</div>';return}
+  container.innerHTML=[...matrixRooms.values()].sort((a,b)=>b.memberCount-a.memberCount).map(r=>`
+    <div class="mx-sala-item">
+      <div><div class="mx-sala-nome">${esc(r.name)}</div><div class="mx-sala-alias">${esc(r.alias)}</div></div>
+      <div class="mx-membros">👥 ${fmt(r.memberCount)}</div>
+    </div>`).join('');
+}
+
+if(MATRIX_TOKEN&&MY_MXID){
+  document.getElementById('mx-status').innerHTML=`🟢 ${esc(MY_MXID)}`;
+  document.getElementById('mx-mxid-label').textContent=MY_MXID;
+  startMatrixSync();
+}
+
+// ── INIT ──────────────────────────────────────────────────────
+window.startMon=startMon; window.stopMon=stopMon;
+window.sortBy=sortBy; window.scheduleRender=scheduleRender;
+window.showDetail=showDetail; window.abrirModalLoginMatrix=abrirModalLoginMatrix;
+window.logoutMatrix=logoutMatrix; window.exportCSV=exportCSV;
+window.exportJSON=exportJSON; window.clearPeers=clearPeers;
+window.clearLog=clearLog; window.toggleLogPause=toggleLogPause;
+
 initMap();
 render();
+log('K10 Monitor PRO v3 pronto. Configure o ID e clique START.','hi');
 </script>
 </body>
 </html>
