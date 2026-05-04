@@ -49,7 +49,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V100 (Matrix: SSO Google/GitHub via Deno relay + postMessage)</title>
+<title>Chat K10 — V102 (Salinhas: overlay corrigido — mesmo modelo das abas)</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -166,7 +166,7 @@ text-shadow: 0 0 8px rgba(74, 222, 128, 0.3);
 .sidebar-tab.active-salinhas { color: #10b981; border-bottom-color: #10b981; background: #f0fdf4; }
 .sidebar-tab:hover:not(.active-private):not(.active-general):not(.active-youtube):not(.active-group):not(.active-salinhas) { background: #f8fafc; color: #475569; }
 /* Salinhas sidebar container */
-#matrix-salinhas-sidebar { display: none; flex: 1; overflow-y: auto; flex-direction: column; }
+#matrix-salinhas-sidebar { display: none; flex: 1; overflow-y: auto; flex-direction: column; align-items: stretch; justify-content: flex-start; }
 #matrix-salinhas-sidebar.ativo { display: flex; }
 .sidebar-tab-icon { font-size: 15px; }
 .sidebar-tab-badge { position: absolute; top: 4px; right: 6px; background: #ef4444; color: white; font-size: 9px; font-weight: 700; border-radius: 10px; padding: 1px 5px; min-width: 16px; text-align: center; }
@@ -4017,9 +4017,7 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
       <i className="fas fa-plus-circle"></i> Explorar Salinhas
     </button>
   </div>
-  <div style={{ padding:'4px 0', color:'var(--text-muted)', fontSize:'12px', flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}>
-    {/* Matrix injeta a lista de salinhas aqui via renderizarSidebarMatrix() */}
-  </div>
+  {/* Matrix injeta #matrix-sidebar-block aqui diretamente, sem div intermediário */}
 </div>
 </div>
 
@@ -4308,10 +4306,12 @@ title={t(lang, 'sendMessage')}>
 </div>
 ) : activeChatTab === 'salinhas' ? (
 /* ── ABA SALINHAS: Matrix ── */
-<div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', gap:'12px', position:'relative' }}>
-  <div style={{ fontSize:'48px' }}>💬</div>
-  <div style={{ fontWeight:600, fontSize:'15px' }}>Salinhas Matrix</div>
-  <div style={{ fontSize:'13px', textAlign:'center', maxWidth:'260px' }}>Selecione uma salinha no painel esquerdo ou use <strong>Explorar Salinhas</strong> para adicionar mais</div>
+<div id="matrix-salinhas-content" style={{ flex:1, display:'flex', flexDirection:'column', position:'relative', overflow:'hidden' }}>
+  <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', gap:'12px' }}>
+    <div style={{ fontSize:'48px' }}>💬</div>
+    <div style={{ fontWeight:600, fontSize:'15px' }}>Salinhas Matrix</div>
+    <div style={{ fontSize:'13px', textAlign:'center', maxWidth:'260px' }}>Selecione uma salinha no painel esquerdo ou use <strong>Explorar Salinhas</strong> para adicionar mais</div>
+  </div>
 </div>
 ) : null}
 {/* ── Grupos: todos montados em paralelo — só o ativo é visível ──
@@ -12703,11 +12703,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 .mdiag-btn-fix    { background: #3b82f6; color: #fff; }
 .mdiag-btn-copy   { background: #334155; color: #94a3b8; }
 .mdiag-btn-close  { background: #1e293b; color: #64748b; }
-#matrix-chat-header button.diag-btn {
-  background: rgba(250,204,21,0.2);
-  border-color: rgba(250,204,21,0.5);
-  color: #fde047;
-}
 
 #matrix-chat-overlay {
   display: none;
@@ -12716,32 +12711,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
   background: var(--surface);
   z-index: 10;
   flex-direction: column;
-  border-radius: 12px;
   overflow: hidden;
 }
 #matrix-chat-overlay.ativo {
   display: flex;
-}
-#matrix-chat-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
-  background: linear-gradient(135deg, #064e3b, #065f46);
-  color: white;
-  font-weight: 700;
-  font-size: 14px;
-  flex-shrink: 0;
-}
-#matrix-chat-header span { flex: 1; }
-#matrix-chat-header button {
-  background: rgba(255,255,255,0.15);
-  border: 1px solid rgba(255,255,255,0.3);
-  color: white;
-  border-radius: 6px;
-  padding: 4px 10px;
-  cursor: pointer;
-  font-size: 12px;
 }
 #matrix-chat-messages {
   flex: 1;
@@ -13264,9 +13237,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     function renderizarChatMatrix(sala) {
         const overlay = document.getElementById('matrix-chat-overlay');
         if (!overlay) return;
-        const header = document.getElementById('matrix-chat-header-title');
         const msgArea = document.getElementById('matrix-chat-messages');
-        if (header) header.textContent = sala.nome;
         if (!msgArea) return;
 
         const msgs = sala._mensagens || [];
@@ -13298,19 +13269,16 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         msgArea.scrollTop = msgArea.scrollHeight;
     }
 
-    // Garante que o overlay DOM exista dentro de chat-messages-container
+    // Garante que o overlay DOM exista dentro do container de salinhas
     function garantirOverlay() {
         if (document.getElementById('matrix-chat-overlay')) return;
-        const container = document.querySelector('.chat-messages-container');
+        // V102: prioriza o container dedicado da aba Salinhas para não cobrir a barra de abas
+        const container = document.getElementById('matrix-salinhas-content')
+            || document.querySelector('.chat-messages-container');
         if (!container) return;
         const overlay = document.createElement('div');
         overlay.id = 'matrix-chat-overlay';
         overlay.innerHTML = `
-            <div id="matrix-chat-header">
-                <span id="matrix-chat-header-title"></span>
-                <button class="diag-btn" onclick="window._matrixAbrirDiagnostico()" title="Diagnóstico Matrix">🔬 Diagnóstico</button>
-                <button onclick="window._matrixVoltarGeral()">← Modo Geral</button>
-            </div>
             <div id="matrix-chat-messages"></div>
             <div id="matrix-chat-input-row">
                 <input id="matrix-chat-input" type="text" placeholder="Mensagem para esta salinha..." autocomplete="off" />
@@ -13454,7 +13422,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         if (!bloco) {
             bloco = document.createElement('div');
             bloco.id = 'matrix-sidebar-block';
-            bloco.style.cssText = 'flex:1;overflow-y:auto;';
+            bloco.style.cssText = 'overflow-y:auto;';
         }
         if (!container.contains(bloco)) {
             container.appendChild(bloco);
@@ -13476,14 +13444,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     // --------------------------------------------------
     // SELECIONAR sala ativa
     // --------------------------------------------------
-    window._matrixSelecionarSala = function(alias) {
-        _salaAtiva = alias;
-        window._matrixSalaAtual = alias || 'geral';
-        renderizarSidebarMatrix();
-
+    function _abrirOverlaySala(alias) {
         garantirOverlay();
         const overlay = document.getElementById('matrix-chat-overlay');
-
         if (alias) {
             const sala = salasInfo.find(s => s.alias === alias);
             if (sala) {
@@ -13499,6 +13462,28 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             }
         } else {
             if (overlay) overlay.classList.remove('ativo');
+        }
+    }
+
+    window._matrixSelecionarSala = function(alias) {
+        _salaAtiva = alias;
+        window._matrixSalaAtual = alias || 'geral';
+        renderizarSidebarMatrix();
+
+        // V102: garante que a aba Salinhas esteja ativa antes de abrir o overlay
+        // (evita que o overlay cubra outras abas como P2P, Geral, YouTube, Grupos)
+        if (alias && !document.getElementById('matrix-salinhas-content')) {
+            // Ativa a aba Salinhas clicando no botão correspondente
+            const salinhasBtn = document.querySelector('[title="Salinhas Matrix"]');
+            if (salinhasBtn) {
+                salinhasBtn.click();
+                // Aguarda o React renderizar o #matrix-salinhas-content
+                setTimeout(function() { _abrirOverlaySala(alias); }, 150);
+            } else {
+                _abrirOverlaySala(alias);
+            }
+        } else {
+            _abrirOverlaySala(alias);
         }
         console.log(`[Matrix] 🏠 Sala ativa: ${alias || 'MODO GERAL'}`);
     };
@@ -14119,14 +14104,19 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         console.log('[Matrix] 👁️ MutationObserver ativo para manter sidebar injetada');
     }
 
-    // V101: handlers chamados pelo React ao trocar de aba
+    // V102: handlers chamados pelo React ao trocar de aba
     window._matrixOnSalinhasActive = function() {
         renderizarSidebarMatrix();
-        // Se havia uma sala ativa, re-exibe o overlay
+        // Se havia uma sala ativa, re-cria o overlay no novo #matrix-salinhas-content
         if (_salaAtiva) {
+            // O #matrix-salinhas-content foi recriado pelo React — overlay precisa ser recriado
+            const oldOverlay = document.getElementById('matrix-chat-overlay');
+            if (oldOverlay) oldOverlay.remove(); // remove overlay antigo (possivelmente orphan)
             garantirOverlay();
             const overlay = document.getElementById('matrix-chat-overlay');
             if (overlay) overlay.classList.add('ativo');
+            const sala = salasInfo.find(s => s.alias === _salaAtiva);
+            if (sala) renderizarChatMatrix(sala);
         }
     };
 
