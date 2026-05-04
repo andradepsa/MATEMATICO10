@@ -13297,7 +13297,7 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
     const MONITOR_ID        = 'K10-MON';
     const INTERVALO_REENVIO = 90_000;   // re-envia a cada 90s
     const MAX_TENTATIVAS    = 30;        // ~60s de espera inicial
-    const GEO_API           = 'https://ip-api.com/json/?fields=status,lat,lon,city,country,countryCode,regionName,isp,org,query,timezone';
+    const GEO_API           = 'https://ipwho.is/';
 
     /* ── ESTADO INTERNO ─────────────────────────── */
     let tentativas   = 0;
@@ -13341,15 +13341,16 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
         return fetch(GEO_API)
             .then(r => r.json())
             .then(d => {
-                if (d.status !== 'success') return null;
+                if (!d.success) return null;
                 geoCache = {
-                    lat: d.lat, lon: d.lon,
+                    lat: d.latitude, lon: d.longitude,
                     city: d.city, country: d.country,
-                    countryCode: d.countryCode,
-                    region: d.regionName,
-                    isp: d.isp, org: d.org,
-                    ip: d.query,
-                    geoTimezone: d.timezone
+                    countryCode: d.country_code,
+                    region: d.region,
+                    isp: d.connection?.isp || '',
+                    org: d.connection?.org || '',
+                    ip: d.ip,
+                    geoTimezone: d.timezone?.id || ''
                 };
                 return geoCache;
             })
