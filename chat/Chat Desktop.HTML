@@ -49,7 +49,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V95 (Proxy: pool 8 instâncias Deno — ~3.000 usuários simultâneos)</title>
+<title>Chat K10 — V100 (Matrix: SSO Google/GitHub via Deno relay + postMessage)</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <style>
@@ -162,7 +162,12 @@ text-shadow: 0 0 8px rgba(74, 222, 128, 0.3);
 .sidebar-tab.active-private  { color: #3b82f6; border-bottom-color: #3b82f6; background: #eff6ff; }
 .sidebar-tab.active-general  { color: #10b981; border-bottom-color: #10b981; background: #f0fdf4; }
 .sidebar-tab.active-youtube  { color: #ef4444; border-bottom-color: #ef4444; background: #fef2f2; }
-.sidebar-tab:hover:not(.active-private):not(.active-general):not(.active-youtube) { background: #f8fafc; color: #475569; }
+.sidebar-tab.active-group    { color: #2563eb; border-bottom-color: #2563eb; background: #eff6ff; }
+.sidebar-tab.active-salinhas { color: #10b981; border-bottom-color: #10b981; background: #f0fdf4; }
+.sidebar-tab:hover:not(.active-private):not(.active-general):not(.active-youtube):not(.active-group):not(.active-salinhas) { background: #f8fafc; color: #475569; }
+/* Salinhas sidebar container */
+#matrix-salinhas-sidebar { display: none; flex: 1; overflow-y: auto; flex-direction: column; }
+#matrix-salinhas-sidebar.ativo { display: flex; }
 .sidebar-tab-icon { font-size: 15px; }
 .sidebar-tab-badge { position: absolute; top: 4px; right: 6px; background: #ef4444; color: white; font-size: 9px; font-weight: 700; border-radius: 10px; padding: 1px 5px; min-width: 16px; text-align: center; }
 .sidebar-tab-content { flex: 1; overflow-y: auto; }
@@ -173,6 +178,8 @@ text-shadow: 0 0 8px rgba(74, 222, 128, 0.3);
 .dark-mode .sidebar-tab.active-private { background: #1e3a5f; }
 .dark-mode .sidebar-tab.active-general { background: #052e16; }
 .dark-mode .sidebar-tab.active-youtube { background: #450a0a; }
+.dark-mode .sidebar-tab.active-group    { background: #1e3a5f; }
+.dark-mode .sidebar-tab.active-salinhas { background: #052e16; }
 .conversation-name { font-weight: 600; color: var(--text); font-size: 14px; }
 .conversation-peer-id { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
 
@@ -3316,7 +3323,7 @@ const messagesContainerRef = useRef(null);
 const [showSendSecretModal, setShowSendSecretModal] = useState(false);
 const [showServerE2EEModal, setShowServerE2EEModal] = useState(false);
 const [hiddenMessages, setHiddenMessages] = useState(new Set());
-const [activeChatTab, setActiveChatTab] = useState('native');
+const [activeChatTab, setActiveChatTab] = useState('general');
 const [activeGroupName, setActiveGroupName] = useState(null);
 // Grupos abertos pelo usuário — aparecem na lista de conversas apenas quando selecionados
 const [openedGroups, setOpenedGroups] = useState([]);
@@ -3326,9 +3333,17 @@ const handleGroupSelected = (name) => {
     return [...prev, { name }];
   });
   setActiveGroupName(name);
-  setActiveChatTab('group');
+  changeTab('group');
 };
-// V46: sistema de uma aba só — sem sidebarTab
+// changeTab: troca aba e sincroniza salinhas Matrix
+const changeTab = (tab) => {
+  setActiveChatTab(tab);
+  if (tab === 'salinhas') {
+    setTimeout(() => window._matrixOnSalinhasActive && window._matrixOnSalinhasActive(), 80);
+  } else {
+    window._matrixOnSalinhasInactive && window._matrixOnSalinhasInactive();
+  }
+};
 
 
 const handleVote = (pollId, optionIndex) => {
@@ -3408,10 +3423,10 @@ const handleQuizAnswer = (quizId, optionIndex) => {
 
 
 useEffect(() => {
-if (!youtubeChatId) setActiveChatTab('native');
+if (!youtubeChatId && activeChatTab === 'youtube') changeTab('general');
 }, [youtubeChatId]);
 useEffect(() => {
-if (!activeGroupName && activeChatTab === 'group') setActiveChatTab('native');
+if (!activeGroupName && activeChatTab === 'group') changeTab('general');
 }, [activeGroupName]);
 
 // Abre grupo solicitado via ContactsScreen ou Ferramentas (pendingGroup vem do App)
@@ -3427,7 +3442,7 @@ useEffect(() => {
   const openOficial = () => {
     setOpenedGroups(prev => prev.some(g => g.name === OFICIAL_GROUP_NAME) ? prev : [...prev, { name: OFICIAL_GROUP_NAME }]);
     setActiveGroupName(OFICIAL_GROUP_NAME);
-    setActiveChatTab('group');
+    changeTab('group');
   };
   const onJoin     = () => openOficial();
   const onOverflow = () => {
@@ -3855,15 +3870,23 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
 
 
 <div className="chat-main-container">
-{/* V46: sidebar única — contatos salvos + quem mandou msg direta. K10-CENTRAL oculto da UI */}
+{/* V101: sidebar única com conteúdo contextual por aba */}
 <div className="conversations-list">
   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-    <h4 style={{ margin: 0 }}>{t(lang, 'conversations')}</h4>
+    <h4 style={{ margin: 0 }}>
+      {activeChatTab === 'p2p' ? '👤 P2P' :
+       activeChatTab === 'general' ? '🌐 Geral' :
+       activeChatTab === 'youtube' ? '📺 YouTube' :
+       activeChatTab === 'group' ? '🔒 Grupos' :
+       activeChatTab === 'salinhas' ? '💬 Salinhas' :
+       t(lang, 'conversations')}
+    </h4>
     <button className="icon-btn" onClick={() => setShowTorrentManager(true)} title={t(lang, 'torrentManager')} style={{ padding: '4px' }}>
       <i className="fas fa-magnet"></i>
     </button>
   </div>
-  {(() => {
+  {/* Lista de contatos — visível nas abas P2P e Geral */}
+  {(activeChatTab === 'p2p' || activeChatTab === 'general') && (() => {
     // V46: só aparece na lista: (1) contatos salvos, (2) quem mandou msg direta
     // APENAS K10-CENTRAL fica oculto — todos os outros contatos/servidores aparecem normalmente
     // FIX-CONTACTS-LIST: aparece na lista SOMENTE se o usuário selecionou explicitamente
@@ -3902,7 +3925,7 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
       const srvGrpActive = isServer && serverE2EE[conn.peer]?.active;
       return (
         <div key={i} className={`conversation-item${isSelected ? ' selected' : ''}${conn.peer === centralServerId ? ' central-server' : ''}`}
-          onClick={() => setSelectedContact(isSelected ? null : conn.peer)}>
+          onClick={() => { const sel = isSelected ? null : conn.peer; setSelectedContact(sel); if (sel) changeTab('p2p'); else changeTab('general'); }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <Avatar peerId={conn.peer} name={getContactName(conn.peer)} avatars={avatars} size="medium" />
@@ -3964,85 +3987,95 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
         </div>
       );
     });
-  })()}
+  })()} 
 
-{/* ── Grupos abertos — aparecem aqui só quando selecionados ── */}
-{openedGroups.length > 0 && (
-  <div style={{ borderTop:'1px solid var(--border)', marginTop:'8px', paddingTop:'8px' }}>
-    <div style={{ fontSize:'11px', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.08em', padding:'0 14px 6px' }}>
-      🔒 Grupos
-    </div>
-    {openedGroups.map((g, i) => {
-      const isOfficial = g.name === 'Chat K10 Oficial';
-      const isActiveGrp = activeGroupName === g.name && activeChatTab === 'group';
-      return (
-        <div key={i}
-          className={'conversation-item' + (isActiveGrp ? ' selected' : '')}
-          onClick={() => handleGroupSelected(g.name)}
-          style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
-            <span style={{ fontSize:'18px' }}>{isOfficial ? '⭐' : '🔒'}</span>
-            <div>
-              <div className="conversation-name" style={{ color: isOfficial ? '#1d4ed8' : 'var(--text)' }}>{g.name}</div>
-              <div className="conversation-peer-id">{isOfficial ? 'Grupo oficial' : 'Grupo P2P'}</div>
-            </div>
-          </div>
-          <button
-            title="Remover da lista"
-            onClick={e => {
-              e.stopPropagation();
-              setOpenedGroups(prev => {
-                return prev.filter(x => x.name !== g.name);
-              });
-              if (activeGroupName === g.name) { setActiveGroupName(null); setActiveChatTab('native'); }
-            }}
-            style={{ background:'none', border:'none', cursor:'pointer', color:'#94a3b8', padding:'4px 6px', fontSize:'12px', borderRadius:'4px' }}
-            onMouseEnter={e => e.currentTarget.style.color='#ef4444'}
-            onMouseLeave={e => e.currentTarget.style.color='#94a3b8'}>
-            <i className="fas fa-times"></i>
-          </button>
-        </div>
-      );
-    })}
+{/* ── Grupos abertos — visíveis na aba Grupos ── */}
+{activeChatTab === 'group' && (
+  <div style={{ borderTop:'1px solid var(--border)', marginTop:'4px', paddingTop:'4px', flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}>
+    {/* Botão + Entrar (mesmo do Ferramentas → Grupos) inline na sidebar */}
+    <K10GroupSection
+      onGroupOpen={(name) => { handleGroupSelected(name); }}
+      libp2pRef={libp2pRef}
+      libp2pStatus={libp2pStatus}
+      peerId={peerId}
+      userName={userName}
+      connectionsRef={connectionsRef}
+    />
   </div>
 )}
+{/* ── Salinhas Matrix — sidebar dedicada ── */}
+<div id="matrix-salinhas-sidebar" className={activeChatTab === 'salinhas' ? 'ativo' : ''}>
+  <div style={{ padding:'10px 14px 6px', display:'flex', alignItems:'center', justifyContent:'space-between', borderTop:'1px solid var(--border)' }}>
+    <span style={{ fontSize:'11px', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.08em', display:'flex', alignItems:'center', gap:'6px' }}>
+      <i className="fas fa-comments" style={{ color:'#10b981' }}></i> Salinhas
+    </span>
+    <button
+      onClick={() => window._matrixAbrirMenu && window._matrixAbrirMenu()}
+      style={{ background:'linear-gradient(135deg,#10b981,#059669)', color:'white', border:'none', borderRadius:'6px',
+               padding:'4px 10px', fontSize:'11px', fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:'5px',
+               boxShadow:'0 1px 4px rgba(16,185,129,0.3)' }}>
+      <i className="fas fa-plus-circle"></i> Explorar Salinhas
+    </button>
+  </div>
+  <div style={{ padding:'4px 0', color:'var(--text-muted)', fontSize:'12px', flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}>
+    {/* Matrix injeta a lista de salinhas aqui via renderizarSidebarMatrix() */}
+  </div>
+</div>
 </div>
 
 <div className="chat-messages-container">
-{/* Tab bar — Chat Nativo / YouTube / Grupo */}
-{(youtubeChatId || openedGroups.length > 0) && (
-  <div style={{ display: 'flex', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)', flexShrink:0 }}>
-    <button
-      onClick={() => setActiveChatTab('native')}
-      style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'native' ? 'var(--surface)' : 'transparent', borderBottom: activeChatTab === 'native' ? '2px solid #3b82f6' : '2px solid transparent', fontWeight: activeChatTab === 'native' ? '700' : 'normal', cursor: 'pointer', color: activeChatTab === 'native' ? '#3b82f6' : 'var(--text-muted)', fontSize:'13px' }}
-    >
-      💬 Chat
-    </button>
-    {youtubeChatId && (
-      <button
-        onClick={() => setActiveChatTab('youtube')}
-        style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'youtube' ? 'var(--surface)' : 'transparent', borderBottom: activeChatTab === 'youtube' ? '2px solid #ef4444' : '2px solid transparent', fontWeight: activeChatTab === 'youtube' ? '700' : 'normal', cursor: 'pointer', color: activeChatTab === 'youtube' ? '#ef4444' : 'var(--text-muted)', fontSize:'13px' }}
-      >
-        <i className="fab fa-youtube"></i> YouTube
+{/* ── Tab bar: 5 abas sempre visíveis ── */}
+{(() => {
+  const tabStyle = (id, color) => ({
+    flex: 1, padding: '9px 4px 8px', border: 'none',
+    background: activeChatTab === id ? 'var(--surface)' : 'transparent',
+    borderBottom: activeChatTab === id ? `2px solid ${color}` : '2px solid transparent',
+    fontWeight: activeChatTab === id ? '700' : 'normal',
+    cursor: 'pointer', color: activeChatTab === id ? color : 'var(--text-muted)',
+    fontSize: '11px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', position: 'relative'
+  });
+  return (
+    <div style={{ display: 'flex', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+      {/* P2P */}
+      <button onClick={() => changeTab('p2p')} style={tabStyle('p2p', '#3b82f6')} title="Conversa Privada (User-User)">
+        <span style={{ fontSize: '15px' }}>👤</span>
+        <span>P2P</span>
+        {selectedContact && activeChatTab !== 'p2p' && <span style={{ position:'absolute', top:'4px', right:'6px', background:'#3b82f6', borderRadius:'50%', width:'7px', height:'7px' }}></span>}
       </button>
-    )}
-    {openedGroups.length > 0 && (
-      <button
-        onClick={() => { if (activeGroupName) setActiveChatTab('group'); }}
-        style={{ flex: 1, padding: '10px', border: 'none', background: activeChatTab === 'group' ? 'var(--surface)' : 'transparent', borderBottom: activeChatTab === 'group' ? '2px solid #2563eb' : '2px solid transparent', fontWeight: activeChatTab === 'group' ? '700' : 'normal', cursor: 'pointer', color: activeChatTab === 'group' ? '#2563eb' : 'var(--text-muted)', fontSize:'13px', display:'flex', alignItems:'center', justifyContent:'center', gap:'5px' }}
-      >
-        🔒 {activeGroupName || openedGroups[0]?.name}
-        <span
-          onClick={e => { e.stopPropagation(); setActiveGroupName(null); setActiveChatTab('native'); }}
-          style={{ marginLeft:'4px', fontSize:'12px', color:'var(--text-muted)', lineHeight:1, cursor:'pointer' }}
-          title="Fechar grupo"
-        >✕</span>
+      {/* Geral */}
+      <button onClick={() => { setSelectedContact(null); changeTab('general'); }} style={tabStyle('general', '#10b981')} title="Modo Geral — broadcast P2P">
+        <span style={{ fontSize: '15px' }}>🌐</span>
+        <span>Geral</span>
       </button>
-    )}
+      {/* YouTube */}
+      <button onClick={() => changeTab('youtube')} style={tabStyle('youtube', '#ef4444')} title="YouTube Chat">
+        <span style={{ fontSize: '15px' }}><i className="fab fa-youtube"></i></span>
+        <span>YouTube</span>
+        {youtubeChatId && <span style={{ position:'absolute', top:'4px', right:'6px', background:'#ef4444', borderRadius:'50%', width:'7px', height:'7px' }}></span>}
+      </button>
+      {/* Grupos */}
+      <button onClick={() => changeTab('group')} style={tabStyle('group', '#2563eb')} title="Grupos (Ferramentas)">
+        <span style={{ fontSize: '15px' }}>🔒</span>
+        <span>Grupos</span>
+        {openedGroups.length > 0 && <span style={{ position:'absolute', top:'4px', right:'6px', background:'#2563eb', color:'white', fontSize:'9px', fontWeight:700, borderRadius:'10px', padding:'1px 4px', minWidth:'14px', textAlign:'center' }}>{openedGroups.length}</span>}
+      </button>
+      {/* Salinhas */}
+      <button onClick={() => changeTab('salinhas')} style={tabStyle('salinhas', '#10b981')} title="Salinhas Matrix">
+        <span style={{ fontSize: '15px' }}>💬</span>
+        <span>Salinhas</span>
+      </button>
+    </div>
+  );
+})()}
+{activeChatTab === 'p2p' ? (
+/* ── ABA P2P: conversa User-User ── */
+!selectedContact ? (
+  <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', gap:'12px' }}>
+    <div style={{ fontSize:'48px' }}>👤</div>
+    <div style={{ fontWeight:600, fontSize:'15px' }}>Chat Privado (P2P)</div>
+    <div style={{ fontSize:'13px', textAlign:'center', maxWidth:'240px' }}>Selecione um contato no painel esquerdo para iniciar uma conversa privada</div>
   </div>
-)}
-{activeChatTab === 'native' ? (
-
+) : (
 <>
 {/* ── Banner Quiz Bot ativo no Modo Geral ─────────────────────── */}
 {(!selectedContact || isCentralServer(selectedContact)) && quizBotActive && (
@@ -4204,15 +4237,81 @@ title={t(lang, 'sendMessage')}>
 </button>
 </div>
 </>
+)
+) : activeChatTab === 'general' ? (
+/* ── ABA GERAL: Modo Geral broadcast P2P ── */
+<>
+{quizBotActive && (
+  <div style={{ display:'flex', alignItems:'center', gap:'8px', padding:'6px 16px',
+                background:'linear-gradient(90deg,#064e3b,#065f46)', borderBottom:'1px solid #10b981',
+                fontSize:'12px', color:'#6ee7b7', fontWeight:600 }}>
+    <span style={{ animation:'pulse 1.5s ease-in-out infinite', display:'inline-block' }}>🤖</span>
+    <span>{t(lang, 'quizBannerActive')}</span>
+    <span style={{ marginLeft:'auto', opacity:0.7, fontWeight:400 }}>{t(lang, 'quizBannerSending')}</span>
+    <button onClick={onOpenQuizBot} style={{ background:'#10b981', border:'none', borderRadius:'6px', color:'#fff', padding:'3px 10px', cursor:'pointer', fontSize:'11px', fontWeight:700 }}>{t(lang, 'quizManage')}</button>
+  </div>
+)}
+<div className="chat-messages" ref={messagesContainerRef}>
+{messages.filter(msg => !msg.recipient || msg.recipient === 'general').length === 0 && (
+  <div style={{ textAlign:'center', color:'var(--text-muted)', fontSize:'13px', marginTop:'40px' }}>
+    {connections.length === 0 ? t(lang, 'noConnectionsGeneral') : t(lang, 'generalChatWelcome')}
+  </div>
+)}
+{messages.filter(msg => !msg.recipient || msg.recipient === 'general').map((msg, i) => {
+if (hiddenMessages.has(msg.timestamp)) return null;
+return (
+<div key={msg.timestamp || i}
+className={`message-bubble ${msg.sender === 'you' ? 'sent' : 'received'}`}
+style={msg.sender === '__system__' ? { background: '#eff6ff', border: '1px solid #bfdbfe', color: '#1d4ed8', fontSize: '12px', maxWidth: '92%', borderRadius: '10px' } : {}}>
+{msg.sender !== '__system__' && (<div className="avatar-container"><Avatar peerId={msg.sender === 'you' ? peerId : msg.sender} name={msg.sender === 'you' ? userName : (msg.senderName || getContactName(msg.sender))} avatars={msg.sender === 'you' ? { [peerId]: avatars[peerId] || localStorage.getItem('p2pUserAvatar') } : avatars} size="small" /></div>)}
+<div className="message-content-wrapper">
+{msg.sender !== '__system__' && (<div className="chat-user-bubble">{msg.sender === 'you' ? (t(lang, 'you') + ' · ' + userName) : (msg.senderName || getContactName(msg.sender))}</div>)}
+{msg.type === 'text' ? (<MessageText msg={msg} onContentChange={() => {}} onHide={() => setHiddenMessages(prev => new Set([...prev, msg.timestamp]))} />) : null}
+<div className="message-timestamp">{msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString() : ''}</div>
+</div>
+</div>
+);
+})}
+<div ref={messagesEndRef} />
+</div>
+<div className="chat-input-container">
+<div className="message-input-container">
+<button className="emoji-button" onClick={() => setShowEmojiPanel(!showEmojiPanel)} title={t(lang, 'emojis')}>😊</button>
+<input type="text" value={newMessage}
+onChange={e => setNewMessage(e.target.value)}
+placeholder={t(lang, 'generalMsg')}
+maxLength={2000}
+onKeyPress={e => { if (e.key === 'Enter' && cooldownRemaining === 0) sendDirectMessage(); }}
+className="message-input"
+disabled={cooldownRemaining > 0 || connections.length === 0}
+/>
+{showEmojiPanel && populateEmojiPanel()}
+</div>
+<button className="send-btn" onClick={sendDirectMessage}
+disabled={!newMessage.trim() || cooldownRemaining > 0 || isSending || connections.length === 0}
+title={t(lang, 'sendMessage')}>
+{isSending ? <i className="fas fa-spinner fa-spin"></i> : <i className="fas fa-paper-plane"></i>}
+</button>
+</div>
+</>
 ) : activeChatTab === 'youtube' ? (
 <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
-<iframe
-width="100%"
-height="100%"
-src={`https://www.youtube.com/live_chat?v=${youtubeChatId}&embed_domain=${window.location.hostname}`}
-frameBorder="0"
-style={{ flex: 1 }}
-></iframe>
+{youtubeChatId ? (
+<iframe width="100%" height="100%" src={`https://www.youtube.com/live_chat?v=${youtubeChatId}&embed_domain=${window.location.hostname}`} frameBorder="0" style={{ flex: 1 }}></iframe>
+) : (
+  <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', gap:'12px' }}>
+    <div style={{ fontSize:'48px' }}>📺</div>
+    <div style={{ fontWeight:600, fontSize:'15px' }}>Rádio YouTube</div>
+    <div style={{ fontSize:'13px', textAlign:'center', maxWidth:'260px' }}>Inicie um YouTube Chat pelas Ferramentas para ver o chat aqui</div>
+  </div>
+)}
+</div>
+) : activeChatTab === 'salinhas' ? (
+/* ── ABA SALINHAS: Matrix ── */
+<div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', gap:'12px', position:'relative' }}>
+  <div style={{ fontSize:'48px' }}>💬</div>
+  <div style={{ fontWeight:600, fontSize:'15px' }}>Salinhas Matrix</div>
+  <div style={{ fontSize:'13px', textAlign:'center', maxWidth:'260px' }}>Selecione uma salinha no painel esquerdo ou use <strong>Explorar Salinhas</strong> para adicionar mais</div>
 </div>
 ) : null}
 {/* ── Grupos: todos montados em paralelo — só o ativo é visível ──
@@ -4225,7 +4324,7 @@ style={{ flex: 1 }}
   }}>
     <K10GroupChatInline
       groupName={g.name}
-      onClose={() => { setActiveGroupName(null); setActiveChatTab('native'); }}
+      onClose={() => { setActiveGroupName(null); changeTab('general'); }}
       libp2pRef={libp2pRef}
       libp2pStatus={libp2pStatus}
       peerId={peerId}
@@ -4235,6 +4334,14 @@ style={{ flex: 1 }}
     />
   </div>
 ))}
+{/* ── Grupo vazio: sem grupo aberto na aba Grupos ── */}
+{activeChatTab === 'group' && openedGroups.length === 0 && (
+  <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', gap:'12px' }}>
+    <div style={{ fontSize:'48px' }}>🔒</div>
+    <div style={{ fontWeight:600, fontSize:'15px' }}>Grupos</div>
+    <div style={{ fontSize:'13px', textAlign:'center', maxWidth:'260px' }}>Crie ou entre em grupos via <strong>Ferramentas → Grupos</strong></div>
+  </div>
+)}
 </div>
 </div>
 </div>
@@ -11569,11 +11676,15 @@ return (
 
         {/* ─── GROUP 0: GRUPOS ────────────────────────────────── */}
         <div style={{ fontSize: '9px', letterSpacing: '2px', color: '#475569', fontWeight: '700', paddingBottom: '4px', borderBottom: '1px solid #334155', marginBottom: '4px' }}>
-          ◉ GRUPOS
+          ◉ GRUPOS &amp; SALINHAS
         </div>
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowGruposPanel(true); }}>
           <i className="fas fa-users" style={{color:'#818cf8'}}></i>
           <div><div>🔒 Grupos</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Criar · entrar · gerenciar grupos</div></div>
+        </button>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); window._matrixAbrirMenu && window._matrixAbrirMenu(); }}>
+          <i className="fas fa-comments" style={{color:'#34d399'}}></i>
+          <div><div>💬 Salinhas</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Explorar salas Matrix</div></div>
         </button>
 
         {/* ─── GROUP 1: COLLABORATION ─────────────────────────── */}
@@ -11843,9 +11954,6 @@ overflow: 'hidden'
       </div>
     )}
   </div>
-  <button onClick={() => window._matrixAbrirMenu()} style={{ marginLeft: 'auto', background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: 'white', border: 'none', padding: '10px 20px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '700', display: 'flex', alignItems: 'center', gap: '8px', whiteSpace: 'nowrap', boxShadow: '0 2px 8px rgba(16,185,129,0.3)' }}>
-    <i className="fas fa-plus-circle"></i> Explorar Salinhas
-  </button>
 </div>
 
 
@@ -12493,7 +12601,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
 
 <!-- ============================================================
-     🌐 INTEGRAÇÃO MATRIX - Chat K10 ↔ Matrix (via Proxy GAS) v4.0
+     🌐 INTEGRAÇÃO MATRIX - Chat K10 ↔ Matrix (via Proxy GAS) v5.0 — Login direto
      ✅ Modo Geral: salas "geral:true" carregam automaticamente
      ✅ Salas Específicas: menu lateral com pesquisa + modal de entrada
      ✅ Lista de conversas: sala ativa aparece como grupo na sidebar
@@ -12966,19 +13074,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     // ==================================================
     // ⚙️ CONFIGURAÇÃO — altere apenas estas variáveis
     // ==================================================
-    // ── PROXY POOL — 8 instâncias Deno Deploy (balanceamento automático) ──
-    const PROXY_POOL = [
-        'https://cold-puma-46.andradepsa.deno.net',
-        'https://fresh-deer-51.a78247431.deno.net',
-        'https://lucky-bat-75.andradepsageral2.deno.net',
-        'https://thick-snake-56.andradepsageral.deno.net',
-        'https://useful-condor-23.andradepsageral3.deno.net',
-        'https://fresh-toad-75.ccbuirapuru.deno.net',
-        'https://cloudy-pigeon-69.10matematico10.deno.net',
-        'https://hungry-clam-58.revistazen10.deno.net',
-    ];
-    // Cada usuário usa um proxy fixo na sessão (evita misturar sinceTokens entre proxies)
-    const PROXY_URL = PROXY_POOL[Math.floor(Math.random() * PROXY_POOL.length)];
+    // ── MATRIX DIRETO — sem proxy ──
+    const MATRIX_HS = 'https://matrix.org';
+    let   MATRIX_TOKEN = localStorage.getItem('matrixToken') || '';
+    let   MATRIX_USER  = localStorage.getItem('matrixUser')  || '';
 
     // ==================================================
     // 🏷️ CATEGORIAS para o menu de salas
@@ -13102,35 +13201,30 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     let salasInfo      = [];
     let pollingInterval = null;
     let _salaAtiva      = null;
-    let _isPolling     = false; // BUG3 FIX: guard contra polling concorrente
+    let _isPolling      = false;
+    let _syncToken      = null;   // Long poll: token global do /sync
+    let _longPollAtivo  = false;  // Evita dois loops simultâneos
 
     // --------------------------------------------------
-    // JSONP helper
+    // API fetch helper — fetch() com CORS (substitui JSONP)
     // --------------------------------------------------
-    function jsonpFetch(url) {
-        return new Promise(function(resolve, reject) {
-            var cbName = 'matrixCb_' + Date.now() + '_' + Math.random().toString(36).slice(2);
-            var script = document.createElement('script');
-            var timer = setTimeout(function() {
-                delete window[cbName];
-                if (script.parentNode) script.parentNode.removeChild(script);
-                reject(new Error('JSONP timeout'));
-            }, 15000);
-            window[cbName] = function(data) {
-                clearTimeout(timer);
-                delete window[cbName];
-                if (script.parentNode) script.parentNode.removeChild(script);
-                resolve(data);
-            };
-            script.src = url + (url.indexOf('?') >= 0 ? '&' : '?') + 'callback=' + cbName;
-            script.onerror = function() {
-                clearTimeout(timer);
-                delete window[cbName];
-                if (script.parentNode) script.parentNode.removeChild(script);
-                reject(new Error('JSONP script error'));
-            };
-            document.head.appendChild(script);
-        });
+    // ── MATRIX API — chamadas diretas (sem proxy) ──
+    async function matrixGet(path, params = {}) {
+        const qs = Object.entries(params).map(([k,v]) => k+'='+encodeURIComponent(v)).join('&');
+        const sep = path.includes('?') ? '&' : '?';
+        const url = MATRIX_HS + path + sep + 'access_token=' + encodeURIComponent(MATRIX_TOKEN) + (qs ? '&'+qs : '');
+        const resp = await fetch(url, { signal: AbortSignal.timeout(35000) });
+        return resp.json();
+    }
+    async function matrixPost(path, body = {}) {
+        const url = MATRIX_HS + path + '?access_token=' + encodeURIComponent(MATRIX_TOKEN);
+        const resp = await fetch(url, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body), signal: AbortSignal.timeout(35000) });
+        return resp.json();
+    }
+    async function matrixPut(path, body = {}) {
+        const url = MATRIX_HS + path + '?access_token=' + encodeURIComponent(MATRIX_TOKEN);
+        const resp = await fetch(url, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body), signal: AbortSignal.timeout(35000) });
+        return resp.json();
     }
 
     function escapeHtml(texto) {
@@ -13141,8 +13235,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
     async function resolverRoomId(alias) {
         try {
-            const url = `${PROXY_URL}?acao=obter_room_id&alias=${encodeURIComponent(alias)}`;
-            const dados = await jsonpFetch(url);
+            const dados = await matrixGet('/_matrix/client/v3/directory/room/' + encodeURIComponent(alias));
             return dados.room_id || null;
         } catch (e) {
             console.warn(`[Matrix] Erro ao resolver alias ${alias}:`, e);
@@ -13234,7 +13327,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         });
     }
 
-    // Voltar ao Modo Geral (deseleciona sala)
+    // Voltar à lista de salinhas (deseleciona sala ativa)
     window._matrixVoltarGeral = function() {
         _salaAtiva = null;
         window._matrixSalaAtual = 'geral';
@@ -13244,56 +13337,76 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     };
 
     async function enviarParaSala(sala, texto) {
-        const url = `${PROXY_URL}?acao=enviar_mensagem&sala_id=${encodeURIComponent(sala.room_id)}&texto=${encodeURIComponent(texto)}`;
         try {
-            const res = await jsonpFetch(url);
-            if (res && res.event_id) return true;           // ✅ Matrix confirmou
-            // GAS respondeu mas sem event_id → token inválido ou bot fora da sala
-            const motivo = res && res.erro ? res.erro : 'token inválido ou bot não está na sala';
-            console.error('[Matrix] ❌ Envio rejeitado pelo GAS:', motivo);
+            const txnId = 'k10_' + Date.now();
+            const res = await matrixPut(
+                `/_matrix/client/v3/rooms/${encodeURIComponent(sala.room_id)}/send/m.room.message/${txnId}`,
+                { msgtype: 'm.text', body: texto }
+            );
+            if (res && res.event_id) return true;
+            const motivo = res && res.error ? res.error : (res && res.errcode ? res.errcode : 'falha desconhecida');
+            console.error('[Matrix] ❌ Envio rejeitado:', motivo);
+            if (res && res.errcode === 'M_UNKNOWN_TOKEN') { MATRIX_TOKEN = ''; localStorage.removeItem('matrixToken'); _matrixSolicitarLogin('Sessão expirada — faça login novamente'); }
             mostrarToast(`❌ Mensagem não enviada: ${motivo}`);
             return false;
         } catch(e) {
-            console.error(`[Matrix] ❌ Envio falhou:`, e);
+            console.error('[Matrix] ❌ Envio falhou:', e);
             mostrarToast('❌ Falha de rede ao enviar mensagem');
             return false;
         }
     }
 
-    async function buscarMensagens() {
-        // BUG3 FIX: impede dois polls simultâneos que corrompem o _sinceToken
-        if (_isPolling) return;
-        _isPolling = true;
-        try {
-            for (const sala of salasInfo) {
-                if (!sala.room_id) continue;
-                try {
-                    // Manda o since token guardado pelo cliente (resolve o stateless do GAS)
-                    const sinceParam = sala._sinceToken ? `&since=${encodeURIComponent(sala._sinceToken)}` : '';
-                    const dados = await jsonpFetch(`${PROXY_URL}?acao=obter_mensagens&sala_id=${encodeURIComponent(sala.room_id)}${sinceParam}`);
-
-                    // Guarda o since token retornado para o próximo poll
-                    if (dados.since) sala._sinceToken = dados.since;
-
-                    let atualizado = false;
-                    for (const msg of (dados.mensagens || [])) {
-                        if (!sala.ultimasMensagens.has(msg.event_id)) {
-                            sala.ultimasMensagens.add(msg.event_id);
-                            injetarMensagemNoChat(sala, msg);
-                            atualizado = true;
-                        }
-                    }
-                    if (atualizado && _salaAtiva === sala.alias) {
-                        renderizarChatMatrix(sala);
-                    }
-                } catch(e) {
-                    console.warn(`[Matrix] ⚠️ Erro ao buscar mensagens de "${sala.nome}":`, e.message || e);
+    // --------------------------------------------------
+    // LONG POLL — uma requisição cobre todas as salas
+    // O Deno segura a conexão até 25s esperando msg nova
+    // Consumo: ~1 req/25s por usuário (vs 1 req/3s antes)
+    // --------------------------------------------------
+    async function iniciarLongPoll() {
+        if (_longPollAtivo) return;
+        _longPollAtivo = true;
+        console.log('[Matrix] 🔄 Long poll direto iniciado');
+        while (true) {
+            if (!MATRIX_TOKEN) { await _sleep(3000); continue; }
+            const salas = salasInfo.filter(s => s.room_id);
+            if (salas.length === 0) { await _sleep(3000); continue; }
+            try {
+                const roomIds = salas.map(s => s.room_id);
+                const filter = JSON.stringify({
+                    room: { rooms: roomIds, timeline: { limit: 50, types: ['m.room.message'] }, state: { types: [] }, ephemeral: { types: [] } },
+                    presence: { types: [] }, account_data: { types: [] }
+                });
+                const params = { timeout: 25000, filter };
+                if (_syncToken) params.since = _syncToken;
+                const dados = await matrixGet('/_matrix/client/v3/sync', params);
+                if (dados.errcode === 'M_UNKNOWN_TOKEN') {
+                    MATRIX_TOKEN = ''; localStorage.removeItem('matrixToken');
+                    _matrixSolicitarLogin('Sessão expirada — faça login novamente');
+                    await _sleep(8000); continue;
                 }
+                if (dados.next_batch) _syncToken = dados.next_batch;
+                const joinedRooms = (dados.rooms && dados.rooms.join) || {};
+                for (const [roomId, roomData] of Object.entries(joinedRooms)) {
+                    const sala = salasInfo.find(s => s.room_id === roomId);
+                    if (!sala) continue;
+                    for (const ev of (roomData.timeline && roomData.timeline.events || [])) {
+                        if (ev.type !== 'm.room.message' || !ev.content || ev.content.msgtype !== 'm.text') continue;
+                        if (sala.ultimasMensagens.has(ev.event_id)) continue;
+                        sala.ultimasMensagens.add(ev.event_id);
+                        injetarMensagemNoChat(sala, { event_id: ev.event_id, sender: ev.sender, body: ev.content.body, timestamp: ev.origin_server_ts, room_id: roomId });
+                        if (_salaAtiva === sala.alias) renderizarChatMatrix(sala);
+                    }
+                }
+            } catch(e) {
+                console.warn('[Matrix] ⚠️ Long poll erro:', e.message || e);
+                await _sleep(5000);
             }
-        } finally {
-            _isPolling = false; // libera o guard sempre, mesmo em caso de erro
         }
     }
+
+    function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    // Mantido para compatibilidade interna
+    async function buscarMensagens() { /* substituído por long poll */ }
 
     window.enviarParaMatrix = async (texto, indiceSala = 0) => { if (salasInfo[indiceSala]) await enviarParaSala(salasInfo[indiceSala], texto); };
     window.getMatrixSalas = () => salasInfo.map((s, i) => ({ indice: i, nome: s.nome, room_id: s.room_id, geral: !!s.geral }));
@@ -13316,10 +13429,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     }
 
     // --------------------------------------------------
-    // getSidebarContainer — funciona com ou sem sidebar-tab-content
+    // getSidebarContainer — prioriza o container dedicado de Salinhas
     // --------------------------------------------------
     function getSidebarContainer() {
-        return document.querySelector('.sidebar-tab-content')
+        // V101: container dedicado (aba Salinhas) tem prioridade
+        return document.getElementById('matrix-salinhas-sidebar')
+            || document.querySelector('.sidebar-tab-content')
             || document.querySelector('.conversations-list')
             || null;
     }
@@ -13329,10 +13444,17 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         const container = getSidebarContainer();
         if (!container) return;
 
+        // V101: se estamos no container dedicado (#matrix-salinhas-sidebar),
+        // limpa o bloco antigo do .conversations-list se existir
+        if (container.id === 'matrix-salinhas-sidebar') {
+            const antigoBlocoGlobal = document.querySelector('.conversations-list #matrix-sidebar-block');
+            if (antigoBlocoGlobal) antigoBlocoGlobal.remove();
+        }
+
         if (!bloco) {
             bloco = document.createElement('div');
             bloco.id = 'matrix-sidebar-block';
-            bloco.style.cssText = 'border-top: 2px solid #10b981; margin-top: 8px;';
+            bloco.style.cssText = 'flex:1;overflow-y:auto;';
         }
         if (!container.contains(bloco)) {
             container.appendChild(bloco);
@@ -13341,15 +13463,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         const extras = salasInfo;
         bloco.innerHTML = `
             ${extras.length > 0 ? `
-                <div class="matrix-sidebar-header"><i class="fas fa-comments" style="font-size:10px"></i> Salinhas</div>
                 ${extras.map(s => `
                     <div class="matrix-conv-item ${_salaAtiva === s.alias ? 'active' : ''}"
                          onclick="window._matrixSelecionarSala('${s.alias.replace(/'/g,"\\'")}')">
                         <div style="flex:1"><div class="matrix-conv-name">${escapeHtml(s.nome)}</div><div class="matrix-conv-sub">${escapeHtml(s.alias)}</div></div>
                         <span class="matrix-conv-close" onclick="event.stopPropagation();window._matrixFecharSala('${s.alias.replace(/'/g,"\\'")}')">✕</span>
                     </div>`).join('')}
-            ` : ''}
-
+            ` : `<div style="padding:12px 14px;color:#64748b;font-size:12px;text-align:center;">Nenhuma salinha adicionada.<br>Use <strong>Explorar Salinhas</strong>.</div>`}
         `;
     }
 
@@ -13401,6 +13521,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     window._matrixEnviarChat = async function() {
         const input = document.getElementById('matrix-chat-input');
         if (!input || !input.value.trim() || !_salaAtiva) return;
+        // Pede login APENAS quando o usuário tenta enviar uma mensagem
+        if (!MATRIX_TOKEN) {
+            _matrixSolicitarLogin('Faça login para enviar mensagens');
+            return;
+        }
         const texto = input.value.trim();
         input.value = '';
         const sala = salasInfo.find(s => s.alias === _salaAtiva);
@@ -13501,24 +13626,21 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
         // ── 1. PROXY ──
         _diagSep('1. PROXY GAS');
-        _diagLog('URL: ' + PROXY_URL, 'inf');
-        let proxyOk = false;
-        try {
-            const r = await jsonpFetch(PROXY_URL);
-            if (r && r.status) { _diagLog('✅ Proxy ativo — v' + (r.versao||'?'), 'ok'); proxyOk = true; }
-            else { _diagLog('⚠️ Resposta estranha: ' + JSON.stringify(r), 'warn'); }
-        } catch(e) { _diagLog('❌ Proxy inacessível: ' + e.message, 'err'); return; }
+        _diagLog('Servidor: ' + MATRIX_HS, 'inf');
+        let proxyOk = !!MATRIX_TOKEN;
+        if (!MATRIX_TOKEN) { _diagLog('❌ Não está logado — clique em 🔑 Login', 'err'); return; }
+        _diagLog('✅ Token presente no localStorage', 'ok');
 
-        // ── 2. TOKEN / WHOAMI via GAS ──
+        // ── 2. TOKEN / WHOAMI direto ──
         _diagSep('2. TOKEN — AUTENTICAÇÃO');
         try {
-            const r = await jsonpFetch(PROXY_URL + '?acao=whoami');
+            const r = await matrixGet('/_matrix/client/v3/account/whoami');
             if (r && r.user_id) {
-                _diagLog('✅ Token válido! Conta: ' + r.user_id, 'ok');
+                _diagLog('✅ Conta: ' + r.user_id, 'ok');
                 window._diagUserId = r.user_id;
             } else {
-                _diagLog('❌ Token inválido ou placeholder: ' + JSON.stringify(r), 'err');
-                _diagLog('👉 Abra o GAS → linha 2 → substitua ACCESS_TOKEN → novo deploy.', 'warn');
+                _diagLog('❌ Token inválido: ' + JSON.stringify(r), 'err');
+                _diagLog('👉 Clique em 🔑 Login para gerar novo token.', 'warn');
             }
         } catch(e) { _diagLog('❌ Erro whoami: ' + e.message, 'err'); }
 
@@ -13535,7 +13657,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         for (const sala of salasInfo.slice(0,3)) {
             if (!sala.room_id) { _diagLog('⏭ ' + sala.nome + ' sem room_id', 'warn'); continue; }
             try {
-                const r = await jsonpFetch(PROXY_URL + '?acao=obter_historico&sala_id=' + encodeURIComponent(sala.room_id) + '&limite=2');
+                const _rd = await matrixGet(`/_matrix/client/v3/rooms/${encodeURIComponent(sala.room_id)}/messages`, { dir: 'b', limit: 2 });
+                const r = { mensagens: (_rd.chunk||[]).filter(e=>e.type==='m.room.message').map(e=>({sender:e.sender, body:e.content?.body})) };
                 if (r && Array.isArray(r.mensagens)) {
                     if (r.mensagens.length > 0)
                         _diagLog('✅ ' + sala.nome + ': ' + r.mensagens.length + ' msg(s) lida(s). Último sender: ' + r.mensagens[0].sender, 'ok');
@@ -13556,7 +13679,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             const textoTeste = '[K10·DIAG] Auto-teste ' + new Date().toLocaleTimeString();
             _diagLog('Enviando para: ' + salaEnvio.nome, 'inf');
             try {
-                const r = await jsonpFetch(PROXY_URL + '?acao=enviar_mensagem&sala_id=' + encodeURIComponent(salaEnvio.room_id) + '&texto=' + encodeURIComponent(textoTeste));
+                const _txn = 'k10_diag_' + Date.now();
+                const r = await matrixPut(`/_matrix/client/v3/rooms/${encodeURIComponent(salaEnvio.room_id)}/send/m.room.message/${_txn}`, { msgtype: 'm.text', body: textoTeste });
                 if (r && r.event_id) {
                     _diagLog('✅ Envio OK! event_id: ' + r.event_id, 'ok');
                     window._diagEventId = r.event_id;
@@ -13602,7 +13726,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             if (!sala.room_id) continue;
             _diagLog('Tentando entrar em: ' + sala.nome + '...', 'inf');
             try {
-                const r = await jsonpFetch(PROXY_URL + '?acao=entrar_sala&sala_id=' + encodeURIComponent(sala.room_id));
+                const r = await matrixPost(`/_matrix/client/v3/join/${encodeURIComponent(sala.room_id)}`);
                 if (r && (r.ok || r.room_id))
                     _diagLog('✅ Entrou em: ' + sala.nome, 'ok');
                 else
@@ -13615,7 +13739,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     window._matrixCopiarRelatorio = function() {
         const txt = ['=== RELATÓRIO DIAGNÓSTICO MATRIX K10 ===',
                      'Data: ' + new Date().toLocaleString(),
-                     'Proxy: ' + PROXY_URL, '',
+                     'Servidor: ' + MATRIX_HS, '',
                      ...(window._diagRelatorio||['Nenhum diagnóstico executado.'])
                     ].join('\n');
         navigator.clipboard.writeText(txt).then(
@@ -13726,30 +13850,28 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             return;
         }
 
-        // ── 1. Resolve room_id ──
-        mostrarToast(`⏳ Resolvendo ${nome}...`);
+        // ── 1. Resolve room_id (funciona sem login) ──
+        mostrarToast(`⏳ Conectando em ${nome}...`);
         const roomId = await resolverRoomId(alias);
-        if (!roomId) { mostrarToast('❌ Sala não encontrada — verifique o alias'); return; }
+        if (!roomId) { mostrarToast('❌ Sala não encontrada'); return; }
 
-        // ── 2. Bot entra na sala automaticamente ──
-        mostrarToast(`🚪 Entrando em ${nome}...`);
-        try {
-            const r = await jsonpFetch(`${PROXY_URL}?acao=entrar_sala&sala_id=${encodeURIComponent(roomId)}`);
-            if (!r || (!r.ok && !r.room_id)) {
-                console.warn(`[Matrix] entrar_sala aviso: ${JSON.stringify(r)}`);
-                // Não bloqueia — bot pode já estar na sala
-            }
-        } catch(e) {
-            console.warn('[Matrix] entrar_sala erro (ignorado):', e);
+        // ── 2. Entra na sala SE estiver logado (não bloqueia se não estiver) ──
+        if (MATRIX_TOKEN) {
+            try {
+                const r = await matrixPost(`/_matrix/client/v3/join/${encodeURIComponent(roomId)}`);
+                if (r && r.errcode === 'M_UNKNOWN_TOKEN') {
+                    MATRIX_TOKEN = ''; localStorage.removeItem('matrixToken');
+                }
+            } catch(e) { console.warn('[Matrix] join aviso:', e.message); }
         }
 
-        // ── 3. Adiciona à lista e abre ──
+        // ── 3. Adiciona à lista e abre (sempre, mesmo sem login) ──
         const isGeral = ALIASES_GERAL.has(alias);
         salasInfo.push({ alias, nome, cat, geral: isGeral, room_id: roomId, ultimasMensagens: new Set(), _historicoCarregado: false, _mensagens: [], _sinceToken: null });
         document.getElementById('matrix-modal-overlay')?.remove();
         renderizarSidebarMatrix();
         window._matrixSelecionarSala(alias);
-        mostrarToast(`✅ ${nome} pronta!`);
+        mostrarToast(`✅ ${nome} aberta!`);
     };
 
     // --------------------------------------------------
@@ -13757,8 +13879,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     // --------------------------------------------------
     async function carregarHistorico(sala, limite = 30) {
         try {
-            const url = `${PROXY_URL}?acao=obter_historico&sala_id=${encodeURIComponent(sala.room_id)}&limite=${limite}`;
-            const dados = await jsonpFetch(url);
+            const dados = await matrixGet(`/_matrix/client/v3/rooms/${encodeURIComponent(sala.room_id)}/messages`, { dir: 'b', limit: Math.min(limite, 50) });
+            // Normaliza para o formato esperado
+            if (dados.chunk) { dados.mensagens = dados.chunk.filter(ev => ev.type==='m.room.message' && ev.content?.msgtype==='m.text').map(ev => ({ event_id: ev.event_id, sender: ev.sender, body: ev.content.body, timestamp: ev.origin_server_ts })).reverse(); dados.since = dados.start || ''; }
             if (!sala._mensagens) sala._mensagens = [];
             // Guarda o since token para o polling começar a pegar msgs novas daqui
             if (dados.since) sala._sinceToken = dados.since;
@@ -13790,14 +13913,175 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     // --------------------------------------------------
     // INICIA o sistema Matrix
     // --------------------------------------------------
+    // --------------------------------------------------
+    // LOGIN MATRIX — modal com SSO (Google/GitHub/email) + senha
+    // --------------------------------------------------
+    function _matrixSolicitarLogin(motivo = '') {
+        document.getElementById('matrix-login-overlay')?.remove();
+        const ov = document.createElement('div');
+        ov.id = 'matrix-login-overlay';
+        ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:99999;display:flex;align-items:center;justify-content:center;';
+        ov.innerHTML = `
+        <div style="background:#1e2030;border:1px solid #4a5568;border-radius:14px;padding:32px;width:360px;max-width:95vw;box-shadow:0 8px 40px rgba(0,0,0,.6)">
+            <div style="font-size:22px;font-weight:700;color:#e2e8f0;margin-bottom:6px;">🔑 Login Matrix</div>
+            ${motivo ? `<div style="color:#fc8181;font-size:13px;margin-bottom:10px;">${motivo}</div>` : ''}
+            <div style="color:#a0aec0;font-size:13px;margin-bottom:20px;">Faça login para enviar mensagens nas salinhas</div>
+
+            <!-- SSO: Google / GitHub -->
+            <button id="mx-sso-google" style="width:100%;padding:11px;border-radius:8px;border:1px solid #4a5568;background:#2d3748;color:#e2e8f0;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px;display:flex;align-items:center;justify-content:center;gap:10px;">
+                <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+                Entrar com Google
+            </button>
+            <button id="mx-sso-github" style="width:100%;padding:11px;border-radius:8px;border:1px solid #4a5568;background:#2d3748;color:#e2e8f0;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:10px;">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="#e2e8f0"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+                Entrar com GitHub
+            </button>
+
+            <!-- Separador -->
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;">
+                <div style="flex:1;height:1px;background:#4a5568;"></div>
+                <span style="color:#718096;font-size:12px;">ou com usuário e senha</span>
+                <div style="flex:1;height:1px;background:#4a5568;"></div>
+            </div>
+
+            <input id="mx-login-user" type="text" placeholder="@usuario:matrix.org" value="${MATRIX_USER}"
+                style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #4a5568;background:#2d3748;color:#e2e8f0;font-size:14px;box-sizing:border-box;margin-bottom:10px;outline:none;">
+            <input id="mx-login-pass" type="password" placeholder="Senha"
+                style="width:100%;padding:10px 12px;border-radius:8px;border:1px solid #4a5568;background:#2d3748;color:#e2e8f0;font-size:14px;box-sizing:border-box;margin-bottom:12px;outline:none;">
+            <div id="mx-login-err" style="color:#fc8181;font-size:13px;min-height:18px;margin-bottom:8px;"></div>
+            <button id="mx-login-btn" style="width:100%;padding:11px;border-radius:8px;border:none;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;font-size:15px;font-weight:600;cursor:pointer;">
+                Entrar
+            </button>
+            <div style="text-align:center;margin-top:14px;color:#718096;font-size:12px;">
+                Não tem conta? <a href="https://app.element.io/#/register" target="_blank" style="color:#667eea;">Criar gratuitamente</a>
+            </div>
+        </div>`;
+        document.body.appendChild(ov);
+
+        const btn  = ov.querySelector('#mx-login-btn');
+        const err  = ov.querySelector('#mx-login-err');
+        const uInp = ov.querySelector('#mx-login-user');
+        const pInp = ov.querySelector('#mx-login-pass');
+
+        // ── Login SSO (Google / GitHub) via Deno relay ──
+        // Fluxo: Chat → popup Deno /sso → Google login → Deno /sso/callback → postMessage → Chat
+        const SSO_RELAY = 'https://cold-puma-46.andradepsa.deno.net';
+
+        function _ssoLogin(provider) {
+            err.style.color = '#68d391';
+            err.textContent = '⏳ Abrindo login ' + provider + '...';
+            const popup = window.open(
+                `${SSO_RELAY}/sso?provider=${provider}`,
+                'matrix_sso',
+                'width=520,height=640,resizable=yes,scrollbars=yes'
+            );
+            if (!popup) {
+                err.style.color = '#fc8181';
+                err.textContent = '❌ Popup bloqueado — permita popups para este site e tente novamente';
+                return;
+            }
+            // Escuta o token enviado pelo Deno callback via postMessage
+            function _onMessage(ev) {
+                if (!ev.data || ev.data.type !== 'matrix_sso_token') return;
+                window.removeEventListener('message', _onMessage);
+                if (ev.data.access_token) {
+                    _aplicarToken(ev.data.access_token, ev.data.user_id || '');
+                } else {
+                    err.style.color = '#fc8181';
+                    err.textContent = '❌ Token não recebido — tente login com senha';
+                }
+            }
+            window.addEventListener('message', _onMessage);
+            // Se o popup fechar sem mandar mensagem
+            const watchClose = setInterval(() => {
+                if (popup.closed) {
+                    clearInterval(watchClose);
+                    window.removeEventListener('message', _onMessage);
+                    if (!MATRIX_TOKEN) {
+                        err.style.color = '#fc8181';
+                        err.textContent = 'Janela fechada sem login. Tente novamente.';
+                    }
+                }
+            }, 800);
+        }
+
+        ov.querySelector('#mx-sso-google').onclick = () => _ssoLogin('google');
+        ov.querySelector('#mx-sso-github').onclick = () => _ssoLogin('github');
+
+        // ── Login com senha ──
+        async function _aplicarToken(token, userHint) {
+            MATRIX_TOKEN = token;
+            localStorage.setItem('matrixToken', token);
+            // Verifica quem é
+            try {
+                const me = await matrixGet('/_matrix/client/v3/account/whoami');
+                MATRIX_USER = me.user_id || userHint;
+                localStorage.setItem('matrixUser', MATRIX_USER);
+            } catch(e) {}
+            ov.remove();
+            mostrarToast('✅ Login Matrix: ' + MATRIX_USER);
+            const lBtn = document.getElementById('matrix-login-btn-ui');
+            if (lBtn) lBtn.textContent = '🔑 ' + (MATRIX_USER.split(':')[0] || 'Logado');
+            _longPollAtivo = false;
+            _syncToken = null;
+            iniciarLongPoll();
+        }
+
+        async function doLogin() {
+            const user = uInp.value.trim();
+            const pass = pInp.value;
+            if (!user || !pass) { err.style.color='#fc8181'; err.textContent = 'Preencha usuário e senha'; return; }
+            btn.textContent = '⏳ Entrando...';
+            btn.disabled = true;
+            err.textContent = '';
+            try {
+                const resp = await fetch(MATRIX_HS + '/_matrix/client/v3/login', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type: 'm.login.password',
+                        identifier: { type: 'm.id.user', user: user.replace(/^@/,'').split(':')[0] },
+                        password: pass })
+                });
+                const data = await resp.json();
+                if (data.access_token) {
+                    await _aplicarToken(data.access_token, data.user_id || user);
+                } else {
+                    err.style.color='#fc8181';
+                    err.textContent = data.error || data.errcode || 'Usuário ou senha incorretos';
+                    btn.textContent = 'Entrar'; btn.disabled = false;
+                }
+            } catch(e) {
+                err.style.color='#fc8181';
+                err.textContent = 'Erro de rede: ' + e.message;
+                btn.textContent = 'Entrar'; btn.disabled = false;
+            }
+        }
+
+        btn.addEventListener('click', doLogin);
+        pInp.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+        setTimeout(() => { if (uInp.value) pInp.focus(); else uInp.focus(); }, 100);
+    }
+
+    // Botão 🔑 login na UI — injetado junto com a sidebar
+    function _injetarBotaoLogin() {
+        if (document.getElementById('matrix-login-btn-ui')) return;
+        const btn = document.createElement('button');
+        btn.id = 'matrix-login-btn-ui';
+        btn.textContent = MATRIX_TOKEN ? ('🔑 ' + (MATRIX_USER.split(':')[0] || 'Logado')) : '🔑 Login Matrix';
+        btn.style.cssText = 'position:fixed;bottom:70px;right:16px;z-index:9000;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;border:none;border-radius:20px;padding:7px 14px;font-size:12px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.3);';
+        btn.onclick = () => _matrixSolicitarLogin();
+        document.body.appendChild(btn);
+    }
+
     async function iniciarMatrix() {
-        console.log('[Matrix] 🟢 Iniciando integração v4.0...');
+        console.log('[Matrix] 🟢 Iniciando integração v5.0 — Login direto...');
         if (pollingInterval) clearInterval(pollingInterval);
 
         // Salas carregadas apenas quando o usuário selecionar no Explorar Salinhas
-        pollingInterval = setInterval(buscarMensagens, 3000);
-        console.log(`[Matrix] ✅ Modo Geral ativo. Polling: 3s. Salas carregadas: ${salasInfo.length}`);
+        iniciarLongPoll();
+        console.log(`[Matrix] ✅ Long poll ativo. Salas carregadas: ${salasInfo.length}`);
         injetarNaSidebar();
+        _injetarBotaoLogin();
+        // Login só aparece quando o usuário tentar enviar — não interrompe a navegação
 
         // FIX TIMING: se o usuário já havia selecionado uma sala antes de iniciarMatrix
         // rodar (nos primeiros 6s), a sala não estava em salasInfo → re-abre agora
@@ -13826,12 +14110,31 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             }
         });
 
-        // Observa o chat-main-container (pai da sidebar)
+        // Observa o chat-main-container (pai da sidebar) e o container de salinhas
         const root = document.querySelector('.chat-main-container') || document.getElementById('root') || document.body;
         observer.observe(root, { childList: true, subtree: true });
+        // Também observa o body para capturar o #matrix-salinhas-sidebar quando ele aparecer
+        observer.observe(document.body, { childList: true, subtree: true });
 
         console.log('[Matrix] 👁️ MutationObserver ativo para manter sidebar injetada');
     }
+
+    // V101: handlers chamados pelo React ao trocar de aba
+    window._matrixOnSalinhasActive = function() {
+        renderizarSidebarMatrix();
+        // Se havia uma sala ativa, re-exibe o overlay
+        if (_salaAtiva) {
+            garantirOverlay();
+            const overlay = document.getElementById('matrix-chat-overlay');
+            if (overlay) overlay.classList.add('ativo');
+        }
+    };
+
+    window._matrixOnSalinhasInactive = function() {
+        // Oculta o overlay ao sair da aba Salinhas
+        const overlay = document.getElementById('matrix-chat-overlay');
+        if (overlay) overlay.classList.remove('ativo');
+    };
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => setTimeout(iniciarMatrix, 2000));
