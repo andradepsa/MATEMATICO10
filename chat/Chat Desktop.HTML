@@ -1,4 +1,3 @@
-<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -2134,187 +2133,22 @@ const K10_GID_LEN = 4;
 const K10_SUFFIX_LEN = 2;
 const K10_TOTAL_LEN = K10_PREFIX.length + K10_GID_LEN + K10_SUFFIX_LEN; // 9
 
-// ── V25: Lista de 1800 posições fixas — idêntica em TODOS os nós ──────────
-// Posição 1→'AA', Posição 2→'AB', ..., Posição 1800→'dB'
-// Gravada no código: ninguém precisa transmitir a lista, só o sufixo/count
-const K10_MAX_GROUP = 50;
-
-const K10_POSITION_LIST = (() => {
-  const list = [];
-  for (let i = 0; i < K10_CHARS.length; i++) {
-    for (let j = 0; j < K10_CHARS.length; j++) {
-      if (list.length >= K10_MAX_GROUP) break;
-      list.push(K10_CHARS[i] + K10_CHARS[j]);
-    }
-    if (list.length >= K10_MAX_GROUP) break;
-  }
-  return list; // ['AA','AB','AC',...,'dB'] — exatamente 1800 entradas
-})();
+// LEGACY-REMOVED: K10_MAX_GROUP e K10_POSITION_LIST (gerência de posição em grupo K10).
 
 // ══════════════════════════════════════════════════════════════════════════════
-// V27: PROTOCOLO HOMEOSTÁTICO DE GRUPOS — Constantes
 // Estas constantes governam Mitose, Tutela, Compensação e Fusão de grupos.
 // O Peer ID do usuário NUNCA é alterado por nenhuma dessas operações.
-// Apenas myGroupIdRef (GID) e directoryGlobalRef são modificados.
 // ══════════════════════════════════════════════════════════════════════════════
-// Homeostase removida — grupos gerenciados pelo gateway (doAssignPeer + close).
-// GATEWAY_IDS: 5 gateways para bootstrap
-const GATEWAY_IDS = []; /* PHASE1: gateway K10 desligado, transporte agora é Matrix DM */
 
 // Verifica se um peerId tem formato K10 válido
 
 // Reconstrói peerId completo a partir de GID + sufixo
-const k10BuildPeerId = (gid, suffix) => K10_PREFIX + gid + suffix;
 
 
-// ── V26: Protocolo Binário K10 (cliente) ──────────────────────────────────────
 // Mesmo protocolo do servidor — MAGIC=0xB1, 7 bytes fixos por pacote de topologia
-// C-V26: classe injetada aqui e instância k10bin criada globalmente
 // Compatibilidade total com V25: JSON continua funcionando como fallback
-const K10B_MAGIC    = 0xB1;
-const K10B_SIZE     = 7;
-const K10B_TYPE_CLI = { PEX_UPDATE:0x01, POSITION_UPDATE:0x02, GID_PROMOTE:0x03, JOIN_UPDATE:0x04 };
-const K10B_SEQ_MASK_CLI  = 0x1F;
-const K10B_TTL_SHIFT_CLI = 5;
-const K10B_TTL_MAX_CLI   = 6;
-
-class K10BinaryProtocolClient {
-  constructor() {
-    this._gidToIdx  = new Map();
-    this._idxToGid  = new Map();
-    this._nextIdx   = 0;
-    this._seqCounters = new Map();
-    this._dedupCache  = new Set();
-    this._dedupOrder  = [];
-  }
-  // ── Registry ────────────────────────────────────────────────────────────────
-  registerGid(gid) {
-    if (this._gidToIdx.has(gid)) return this._gidToIdx.get(gid);
-    const idx = this._nextIdx++;
-    this._gidToIdx.set(gid, idx); this._idxToGid.set(idx, gid);
-    return idx;
-  }
-  /** Aprende GID + índice vindos do campo gidIdx do peer-list JSON */
-  learnGid(gid, idx) {
-    if (typeof idx !== 'number' || idx < 0 || !gid) return;
-    this._gidToIdx.set(gid, idx); this._idxToGid.set(idx, gid);
-    if (idx >= this._nextIdx) this._nextIdx = idx + 1;
-  }
-  getIdx(gid) { return this._gidToIdx.has(gid) ? this._gidToIdx.get(gid) : -1; }
-  getGid(idx) { return this._idxToGid.get(idx) || null; }
-  getOrRegisterIdx(gid) {
-    const idx = this.getIdx(gid);
-    return idx >= 0 ? idx : this.registerGid(gid);
-  }
-  // ── Dedup ────────────────────────────────────────────────────────────────────
-  nextSeq(gidIdx) {
-    const next = ((this._seqCounters.get(gidIdx) || 0) + 1) & K10B_SEQ_MASK_CLI;
-    this._seqCounters.set(gidIdx, next); return next;
-  }
-  isDuplicate(gidIdx, type, seq) {
-    const key = `${gidIdx}:${type}:${seq}`;
-    if (this._dedupCache.has(key)) return true;
-    this._dedupCache.add(key); this._dedupOrder.push(key);
-    if (this._dedupOrder.length > 128) this._dedupCache.delete(this._dedupOrder.shift());
-    return false;
-  }
-  // ── Detecção ─────────────────────────────────────────────────────────────────
-  static isBinaryPacket(data) {
-    if (data instanceof ArrayBuffer) return data.byteLength >= K10B_SIZE && new Uint8Array(data)[0] === K10B_MAGIC;
-    if (data instanceof Uint8Array)  return data.length   >= K10B_SIZE && data[0]                  === K10B_MAGIC;
-    return false;
-  }
-  // ── Decode ───────────────────────────────────────────────────────────────────
-  decode(buffer) {
-    const buf = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-    if (buf.length < K10B_SIZE || buf[0] !== K10B_MAGIC) return null;
-    const view = new DataView(buf.buffer, buf.byteOffset);
-    return {
-      type:   buf[1],
-      paramA: view.getUint16(2, true),
-      paramB: view.getUint16(4, true),
-      ttl:    (buf[6] >> K10B_TTL_SHIFT_CLI) & 0x07,
-      seq:    buf[6] & K10B_SEQ_MASK_CLI,
-    };
-  }
-  /**
-   * Decodifica pacote binário para objeto JS com mesmo formato dos
-   * objetos JSON V25 correspondentes. Retorna null se GID desconhecido.
-   */
-  decodeToObject(buffer) {
-    const pkt = this.decode(buffer);
-    if (!pkt) return null;
-    switch (pkt.type) {
-      case K10B_TYPE_CLI.PEX_UPDATE: {
-        const gid = this.getGid(pkt.paramA);
-        if (!gid) return null;
-        const newCount = pkt.paramB;
-        return {
-          type: 'pex-update', gid,
-          user: K10_POSITION_LIST[newCount] || null,
-          newCount,
-          ttl: pkt.ttl, _seq: pkt.seq, _gidIdx: pkt.paramA, _binary: true,
-        };
-      }
-      case K10B_TYPE_CLI.POSITION_UPDATE: {
-        const gid = this.getGid(pkt.paramA);
-        if (!gid) return null;
-        return {
-          type: 'position-update', gid,
-          user: K10_POSITION_LIST[pkt.paramB] || null,
-          _binary: true,
-        };
-      }
-      case K10B_TYPE_CLI.JOIN_UPDATE: {
-        const gid = this.getGid(pkt.paramA);
-        if (!gid) return null;
-        const newCount = pkt.paramB;
-        return {
-          type: 'join-update', gid,
-          user: newCount > 0 ? (K10_POSITION_LIST[newCount - 1] || null) : null,
-          newCount,
-          ttl: pkt.ttl, _seq: pkt.seq, _gidIdx: pkt.paramA, _binary: true,
-        };
-      }
-      case K10B_TYPE_CLI.GID_PROMOTE: {
-        const gidA = this.getGid(pkt.paramA);
-        const gidB = this.getGid(pkt.paramB);
-        if (!gidA || !gidB) return null;
-        return {
-          type: 'gid-promote',
-          formerDominantGid: gidA, formerRecessiveGid: gidB,
-          ttl: pkt.ttl, _seq: pkt.seq, _binary: true,
-        };
-      }
-      default: return null;
-    }
-  }
-  // ── Encode (para relay P2P) ──────────────────────────────────────────────────
-  encode(type, gidIdxA, paramB, ttl = K10B_TTL_MAX_CLI, seq = -1) {
-    if (gidIdxA < 0) return null;
-    const buf = new Uint8Array(K10B_SIZE);
-    const view = new DataView(buf.buffer);
-    const safeSeq = seq < 0 ? this.nextSeq(gidIdxA & 0xFFFF) : (seq & K10B_SEQ_MASK_CLI);
-    buf[0] = K10B_MAGIC; buf[1] = type;
-    view.setUint16(2, gidIdxA & 0xFFFF, true);
-    view.setUint16(4, paramB  & 0xFFFF, true);
-    buf[6] = ((Math.min(Math.max(0,ttl),K10B_TTL_MAX_CLI) & 0x07) << K10B_TTL_SHIFT_CLI) | safeSeq;
-    return buf;
-  }
-  /** Re-codifica um pacote recebido com TTL-1 para relay P2P */
-  reencodeWithDecrementedTtl(buffer) {
-    const pkt = this.decode(buffer);
-    if (!pkt || pkt.ttl === 0) return null;
-    return this.encode(pkt.type, pkt.paramA, pkt.paramB, pkt.ttl - 1, pkt.seq);
-  }
-}
-
-// Instância global do cliente — compartilhada por todo o handleIncomingData
-const k10bin = new K10BinaryProtocolClient();
-// ── Fim V26 Protocolo Binário (cliente) ──────────────────────────────────────
 
 // generateId V23: gera peerId simples de 9 chars aleatórios
-// Peer ID é PERMANENTE — nunca muda. Group ID é gerenciado separadamente via myGroupIdRef.
 const generateId = () => {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
   const buffer = new Uint8Array(9);
@@ -3829,7 +3663,6 @@ textToSend = GROUP_E2EE_PREFIX + await encryptMsg(newMessage, serverE2EE[selecte
 textToSend = E2EE_PREFIX + await encryptMsg(newMessage, e2eeState[selectedContact].mySecret);
 }
 const conn = connectionsRef.current.find(c => c.peer === selectedContact && c.open); // FIX N-8 V20: era connections.find (stale pós-await encryptMsg)
-// V70-DIRECT-FALLBACK: sem conexão direta, roteia pelo gateway (K10GatewayShadow faz relay por recipient)
 const fallbackConn = conn ? null : connectionsRef.current.find(c => c.open && isCentralServer(c.peer));
 const sendConn = conn || fallbackConn;
 
@@ -6278,7 +6111,6 @@ useEffect(() => { centralServerIdRef.current = centralServerId; }, [centralServe
 const [cooldownRemaining, setCooldownRemaining] = useState(0);
 const [networkSize, setNetworkSize] = useState(1);
 const [isSuperNode, _setIsSuperNodeRaw] = useState(false);
-// V7-B15: wrapper que respeita canBeReservadoRef
 const setIsSuperNode = (v) => {
   if (v === true && canBeReservadoRef && canBeReservadoRef.current === false) {
     console.warn('[V7-B15] Bloqueado: dispositivo mobile/low-mem não pode ser SuperNode');
@@ -6290,8 +6122,7 @@ const setIsSuperNode = (v) => {
 // FIX BUG-2: refs always hold the latest value, solving stale-closure inside useEffect([peerId])
 const isSuperNodeRef = useRef(false);
 useEffect(() => { isSuperNodeRef.current = isSuperNode; }, [isSuperNode]);
-// V52: flag anti-loop bootstrap — impede re-tentativa após alocação bem-sucedida
-const bootstrapDoneRef = useRef(false);
+// LEGACY-REMOVED: bootstrapDoneRef (anti-loop bootstrap K10 — bootstrap removido).
 // V35 FIX-BOOTSTRAP: ref sempre atualizada para a versão mais recente de handleIncomingData
 // Resolve stale closure: event handlers registrados em initPeer() capturavam a versão
 // antiga de handleIncomingData (com isPeerInitialized=false), fazendo connectToPeer retornar
@@ -7024,18 +6855,6 @@ const pendingRadioFiles = useRef({});
 const radioIntervalRef = useRef(null);
 const knownUsersRef = useRef(new Set());
 const peerIdRef = useRef(null);
-// ── K10 MONITOR: ID fixo, oculto — igual ao K10-CENTRAL ──────────────────────
-const K10_MONITOR_ID = 'K10-MON';
-const monitorTimerRef = useRef(null);
-const stopMonitorReporting = () => {
-  if (monitorTimerRef.current) { clearInterval(monitorTimerRef.current); monitorTimerRef.current = null; }
-};
-const startMonitorReporting = () => {
-  stopMonitorReporting();
-  // FIX V85: desabilitado — gateway cobre todos os usuários.
-  // sendUserToMonitor(); — removido (dupla contagem)
-  // monitorTimerRef.current = setInterval(sendUserToMonitor, 30000); — removido
-};
 const lastMessageTimeRef = useRef(new Map());
 const bannedPeersRef = useRef(new Set());
 const spamViolationsRef = useRef(new Map());
@@ -7045,43 +6864,17 @@ const spamViolationsRef = useRef(new Map());
 const seenMsgIdsRef = useRef(new Map());
 const CHUNK_SIZE = 16 * 1024;
 
-// ── HYDRA FASE-2/3: Estado distribuído de grupos ─────────────────────────────
-// groupId deste nó (null até receber peer-list do servidor ou bootstrap P2P)
-const myGroupIdRef = useRef(localStorage.getItem('myGroupId') || null);
-// V25: posição (0-indexed) deste nó na K10_POSITION_LIST do seu grupo
-// -1 = não atribuída ainda; posIdx+1 = posição humana (1-based)
-const myPositionIdxRef = useRef(-1);
-// Diretório global: { [groupId]: { reservados: string[], groupSize: number } }
-const directoryGlobalRef = useRef({});
-// V26 binário: mapa de presença por grupo (bits por posição)
-const groupPresenceBitsRef = useRef({});
+// LEGACY-REMOVED: myGroupIdRef, myPositionIdxRef, directoryGlobalRef, groupPresenceBitsRef
+// (estado de grupo K10 / diretório global / mapa de presença binário — todos descontinuados).
 
-// ─── HYDRA V6 PATCH-3: capacidade do device + Visibility API ─────────────────
 // iOS, Android low-end e tabs com pouca RAM nunca devem virar reservados:
 // drenam bateria, perdem heartbeats em background e desestabilizam consenso.
-const canBeReservadoRef = useRef(true);
+const canBeReservadoRef = useRef(false); // LEGACY STUB
 
 
 
 const isPageVisibleRef = useRef(true);
 
-useEffect(() => {
-  const ua = navigator.userAgent || '';
-  const isIOS = /iPhone|iPad|iPod/i.test(ua);
-  const isAndroid = /Android/i.test(ua);
-  const isMobile = isIOS || isAndroid;
-  const lowMem = (navigator.deviceMemory ?? 4) < 4;
-  const lowCPU = (navigator.hardwareConcurrency ?? 4) < 4;
-  canBeReservadoRef.current = !isMobile && !lowMem && !lowCPU;
-  // canBeReservado calculado (dados de hardware não logados)
-
-  const onVis = () => {
-    isPageVisibleRef.current = !document.hidden;
-    // visibilidade atualizada
-  };
-  document.addEventListener('visibilitychange', onVis);
-  return () => document.removeEventListener('visibilitychange', onVis);
-}, []);
 
 
 useEffect(() => {
@@ -7101,11 +6894,9 @@ return () => clearTimeout(timer);
 }, [cooldownRemaining]);
 
 
-// V59: K10-CENTRAL (hub de descoberta eleito) também é servidor central
-// FIX V106: reconhece gateways (K10-GATE-*), hubs legados E servidores de salinha (K10-XXXX-N)
-const isCentralServer = (id) => id && id.startsWith('K10-GATE-');
-// V48: rastreia servidores que operam em Router Mode (não devem virar centralServerId)
-const routerModeServersRef = useRef(new Set());
+// LEGACY-STUB: isCentralServer mantido como () => false (referenciado pelo ChatManager UI).
+const isCentralServer = (id) => false;
+// LEGACY-REMOVED: routerModeServersRef (Router Mode de gateway K10 descontinuado).
 
 const getContactName = (pId) => contacts.find(c => c.peerId === pId)?.name || pId;
 const saveUserName = () => { if (userName.trim()) { localStorage.setItem('p2pUserName', userName); setEditingName(false); } };
@@ -7200,48 +6991,8 @@ toDelete.forEach(k => s.delete(k));
 // Qualquer peer malicioso que envia TTL=9999 causaria relay indefinido sem este cap
 const capTtl = (raw, max = 15) => Math.min(Math.max(0, parseInt(raw) || 0), max);
 
-const ensureGroupPresenceBits = (gid) => {
-if (!gid) return null;
-if (!groupPresenceBitsRef.current[gid]) {
-  groupPresenceBitsRef.current[gid] = new Uint8Array(Math.ceil(K10_MAX_GROUP / 8));
-}
-return groupPresenceBitsRef.current[gid];
-};
+// LEGACY-REMOVED: ensureGroupPresenceBits / setGroupPresenceBit / fillGroupPresenceBits.
 
-const fillGroupPresenceBits = (gid, count) => {
-const bits = ensureGroupPresenceBits(gid);
-if (!bits) return null;
-const safeCount = Math.min(Math.max(0, parseInt(count) || 0), K10_MAX_GROUP);
-bits.fill(0);
-for (let i = 0; i < safeCount; i++) bits[i >> 3] |= (1 << (i & 7));
-return bits;
-};
-
-const setGroupPresenceBit = (gid, index, online = true) => {
-const bits = ensureGroupPresenceBits(gid);
-if (!bits) return;
-if (typeof index !== 'number' || index < 0 || index >= K10_MAX_GROUP) return;
-const byte = index >> 3;
-const mask = 1 << (index & 7);
-if (online) bits[byte] |= mask;
-else bits[byte] &= (~mask) & 0xFF;
-};
-
-const sendBinaryGroupPacket = (type, gid, paramB, ttl = 5, exceptPeer = null) => {
-if (!gid) return false;
-const gidIdx = k10bin.getOrRegisterIdx(gid);
-if (gidIdx < 0) return false;
-const pkt = k10bin.encode(type, gidIdx, Math.min(Math.max(0, parseInt(paramB) || 0), K10_MAX_GROUP), ttl);
-if (!pkt) return false;
-const buf = pkt.buffer.slice(pkt.byteOffset, pkt.byteOffset + pkt.byteLength);
-let sent = false;
-connectionsRef.current.forEach(c => {
-  if (c.peer !== exceptPeer && c.open) {
-    try { c.send(buf); sent = true; } catch(e) {}
-  }
-});
-return sent;
-};
 
 const p2pBroadcast = (payload) => {
   // Matrix DM também participa dos broadcasts de ferramentas/sync, sem gateway/grupo K10.
@@ -7348,42 +7099,6 @@ const handleIncomingData = (data, pId) => {
 
 const maxConnections = isSuperNode ? 50 : 15;
 
-// ── V26: Intercepção de pacotes BINÁRIOS K10 ─────────────────────────────────
-// Detectada ANTES de qualquer JSON.parse — ArrayBuffer com magic byte 0xB1
-// Converte para objeto JS com mesmo formato V25 e deixa cair nos handlers abaixo
-if (K10BinaryProtocolClient.isBinaryPacket(data)) {
-  const decoded = k10bin.decodeToObject(data);
-  if (!decoded) {
-    // GID ainda não aprendido (peer conectou antes do peer-list) — ignora silenciosamente
-    return;
-  }
-
-  // Dedup binário: usa gidIdx + type numérico do pacote + seq
-  // IMPORTANTE: usa pkt.type (numérico direto do pacote) — não deriva do objeto decodificado
-  // Evita colisão: pex-update=0x01, position-update=0x02, gid-promote=0x03
-  const rawPkt = k10bin.decode(data instanceof ArrayBuffer ? new Uint8Array(data) : data);
-  if (rawPkt && decoded._gidIdx !== undefined && decoded._seq !== undefined) {
-    if (k10bin.isDuplicate(decoded._gidIdx, rawPkt.type, decoded._seq)) return;
-  }
-
-  // Relay binário P2P: recodifica com TTL decrementado — sem JSON.stringify/parse
-  if ((decoded.ttl || 0) > 0) {
-    const relayBuf = k10bin.reencodeWithDecrementedTtl(data instanceof ArrayBuffer ? new Uint8Array(data) : data);
-    if (relayBuf) {
-      connectionsRef.current.forEach(c => {
-        if (c.peer !== pId && c.open) {
-          try { c.send(relayBuf.buffer); } catch(e) {
-            // Fallback JSON para peers que não suportam binário
-            try { c.send(decoded); } catch(e2) {}
-          }
-        }
-      });
-    }
-  }
-
-  // Substitui 'data' pelo objeto decodificado — os handlers V25 abaixo processam normalmente
-  data = decoded;
-}
 // ── Fim V26 intercepção binária ───────────────────────────────────────────────
 
 // ── VIGILÂNCIA DE SEGURANÇA (FIX-AUDIT-CLI): XSS, OOM, TTL ────────────────────
@@ -7438,17 +7153,6 @@ if (data.type === 'quiz-violation') {
   return;
 }
 
-if (data.type === 'master-claim') {
-  // ── SOLUÇÃO 5: Resolução de Conflito de Split Brain ──
-  // Se outro peer clama ser mestre e tem um ID menor que o meu (prioridade), eu recuo.
-  if (data.senderId < peerId && quizMasterIdRef.current === peerId) {
-     console.log("🏳️ Cedi a coroa P2P para um nó prioritário pós-conflito:", data.senderId);
-     quizMasterIdRef.current = data.senderId;
-     if (quizTimerRef.current) clearTimeout(quizTimerRef.current);
-     if (quizJitterTimerRef.current) clearTimeout(quizJitterTimerRef.current);
-  }
-  return;
-}
 
 if (data.type === 'subscribe-world-quiz') {
   worldQuizSubscribersRef.current.add(data.myId);
@@ -7543,42 +7247,24 @@ return;
 }
 
 
-if (data.type === 'migrate-to-p2p' && Array.isArray(data.peers)) {
-// Servidor migrou para P2P — conectando aos peers
-if (peerInstance.current) {
-data.peers.forEach(newPId => {
-const activeCount = Object.keys(peerInstance.current.connections).length;
-if (activeCount < maxConnections && newPId !== peerId && !peerInstance.current.connections[newPId] && !bannedPeersRef.current.has(newPId)) {
-setTimeout(() => connectToPeer(newPId), Math.random() * 3000); // Random delay to prevent connection storms
-}
-});
-}
-// FASE-2: proteção mútua — se não temos groupId ainda, o servidor/reservado já
-// enviou o groupId via peer-list; aqui apenas registramos o message do sistema
-setMessages(prev => [...prev, { text: data.message || "Servidor lotado. Você foi migrado para a rede descentralizada (P2P) automaticamente.", sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500));
-return;
-}
+// LEGACY-REMOVED: handler 'migrate-to-p2p' (gateway/grupo K10 descontinuado).
+if (data.type === 'migrate-to-p2p') return;
 
 
-if (data.type === 'handshake') { 
-  // V48: não seta como central se for servidor em Router Mode (ele vai desconectar após atribuir grupo)
-  if (isCentralServer(pId) && !routerModeServersRef.current.has(pId)) setCentralServerId(pId); 
+if (data.type === 'handshake') {
+  // LEGACY-REMOVED: setCentralServerId via isCentralServer/routerMode (gateway K10 desligado).
   if (data.avatar) {
     setAvatars(prev => ({ ...prev, [pId]: data.avatar }));
   }
-  // FIX-CONTACT-OPEN: o outro lado nos selecionou explicitamente como contato → aparecer na lista de conversas
+  // FIX-CONTACT-OPEN: o outro lado nos selecionou explicitamente como contato → aparecer na lista
   if (data.contactOpen && !directPeersRef.current.has(pId)) {
     directPeersRef.current.add(pId);
     setDirectPeers(prev => { const s = new Set(prev); s.add(pId); return s; });
   }
-  return; 
+  return;
 }
 
 // V52: group0-welcome — legado: ignorado silenciosamente (gateway agora envia peer-list direto)
-if (data.type === 'group0-welcome') {
-  bootstrapDoneRef.current = true;
-  return;
-}
 // ── FIM K10 V52: group0-welcome removido ──────────────────────────────────
 
 if (data.type === 'avatar-update' && data.avatar) {
@@ -7614,314 +7300,28 @@ return;
 }
 
 
-if (data.type === 'peer-list') {
-  bootstrapDoneRef.current = true; // V52: sinaliza que gateway respondeu com alocação
-  if (window.__k10StallTimer) { clearTimeout(window.__k10StallTimer); window.__k10StallTimer = null; }
-  // ── V25 C-19: peer-list comprimido K10 ──────────────────────────────
-  // Servidor envia V25: { gid, user, count }
-  //   'user'  = sufixo atribuído a ESTE peer (K10_POSITION_LIST[posIdx])
-  //   'count' = total de membros no grupo agora
-  //   → Para saber quem são: K10_POSITION_LIST[0..count-1] — lista pré-definida!
-  // Servidor envia V24 compat: { gid, suffix, users:[2chars] }
-  // Mantém compatibilidade com formato antigo { peers:[], groupId }
-
-  if (data.gid) {
-    // ── Formato V25/V24: recebe GID e sufixo/user atribuído ──
-    const newGid = data.gid;
-    // V48: se o servidor que enviou o peer-list opera em Router Mode, marca-o para não reconectar
-    if (data.routerMode === true && isCentralServer(pId)) {
-      routerModeServersRef.current.add(pId);
-      addAudit(`[V48] Router Mode detectado em ${pId} — não será centralServerId`, 'info');
-    }
-    // V26: aprende o índice binário do GID — habilita recepção de pacotes binários
-    // gidIdx é enviado pelo servidor V26; se ausente (servidor V25), registra localmente
-    if (typeof data.gidIdx === 'number') {
-      k10bin.learnGid(newGid, data.gidIdx);
-    } else {
-      k10bin.registerGid(newGid); // fallback: atribui índice local
-    }
-    // V25: 'user' é o sufixo atribuído; V24: 'suffix'
-    const assignedSuffix = data.user || data.suffix;
-
-    // Atualiza GID do nó — o servidor é sempre autoritativo na atribuição
-    // FIX V39-GROUP: a condição anterior bloqueava a atualização quando o usuário
-    // já tinha um savedGroupId no localStorage (ex: AAAA) e o servidor atribuía um
-    // grupo filho (ex: AAAB). Resultado: todos os clientes ficavam reportando AAAA
-    // ao monitor mesmo após o servidor criar grupos filhos, fazendo o monitor mostrar
-    // 1 grupo com N>50 usuários em vez dos grupos reais.
-    myGroupIdRef.current = newGid;
-    localStorage.setItem('myGroupId', newGid);
-
-    // FIX V26→V23: Peer ID NUNCA muda. Apenas registra posição se sufixo atribuído.
-    if (assignedSuffix && assignedSuffix.length === K10_SUFFIX_LEN) {
-      const posIdx = K10_POSITION_LIST.indexOf(assignedSuffix);
-      if (posIdx >= 0) myPositionIdxRef.current = posIdx;
-      addAudit(`[K10] Grupo ${newGid} atribuído (pos ${posIdx+1}). Peer ID mantido: ${peerIdRef.current}`, 'sys');
-    }
-
-    // V25: conecta aos peers do grupo usando K10_POSITION_LIST[0..count-1]
-    // Não precisa de lista de sufixos — a lista pré-definida é suficiente!
-    const count = data.count !== undefined ? data.count
-      : (Array.isArray(data.users) ? data.users.length : 0);
-
-    if (!directoryGlobalRef.current[newGid]) {
-      directoryGlobalRef.current[newGid] = { reservados: [], groupSize: 0 };
-    }
-    directoryGlobalRef.current[newGid].groupSize = count;
-    fillGroupPresenceBits(newGid, count);
-
-    if (peerInstance.current && count > 0) {
-      const maxConns = isSuperNodeRef.current ? 50 : 15;
-      // FIX V33-PEERLIST: conecta usando IDs PeerJS reais enviados pelo servidor (data.peers).
-      // Bug V25: iterava K10_POSITION_LIST para construir IDs sintéticos (K10AAAA+sufixo) que
-      // nunca existem na rede PeerJS — peer IDs reais são aleatórios (ex: QYTPF8YAM).
-      // Fix: usa data.peers[] com os IDs reais, conforme enviado pelo servidor V33+.
-      if (Array.isArray(data.peers) && data.peers.length > 0) {
-        const connectDelay = data.emergency ? 200 : 3000; // FIX V105: emergência conecta em 200ms
-        data.peers.forEach((fullPeerId) => {
-          if (fullPeerId === peerIdRef.current) return; // não conecta a si mesmo
-          const activeCount = Object.keys(peerInstance.current.connections).length;
-          if (activeCount < maxConns
-              && !peerInstance.current.connections[fullPeerId]
-              && !bannedPeersRef.current.has(fullPeerId)) {
-            setTimeout(() => connectToPeer(fullPeerId), Math.random() * connectDelay);
-          }
-        });
-      }
-    }
-
-  } else if (Array.isArray(data.peers)) {
-    // ── Formato legado (compatibilidade): peers com IDs completos ──
-    if (peerInstance.current) {
-      const maxConns = isSuperNodeRef.current ? 50 : 15;
-      data.peers.forEach(newPId => {
-        const activeCount = Object.keys(peerInstance.current.connections).length;
-        if (activeCount < maxConns
-            && newPId !== peerId
-            && !peerInstance.current.connections[newPId]
-            && !bannedPeersRef.current.has(newPId)) {
-          setTimeout(() => connectToPeer(newPId), Math.random() * 3000);
-        }
-      });
-    }
-    if (data.groupId) {
-      // Atualização incondicional do groupId — servidor tem autoridade sobre o GID.
-      myGroupIdRef.current = data.groupId;
-      localStorage.setItem('myGroupId', data.groupId);
-    }
-  }
-  return;
-}
 
 
-if (data.type === 'pex') {
-// V23 S-10: PEX comprimido — suporta {gid, users:[2chars]} e formato legado {peers, groupId}
-const gid = data.gid || data.groupId;
-if (gid) {
-  if (!directoryGlobalRef.current[gid]) {
-    directoryGlobalRef.current[gid] = { reservados: [], groupSize: 0 };
-  }
-  // FIX-AUDIT-CLI4: groupSize só é inflado por count (campo autoritativo V25) ou pelo servidor central
-  // Peers P2P com dados stale podem ter groupSize desatualizado — usamos apenas para conectar, não para inflar
-  const fromServer = isCentralServer(pId);
-  // V25: campo 'count' = autoritativo (vem do servidor junto com peer-list/pex)
-  if (typeof data.count === 'number' && data.count > 0) {
-    const safe = Math.min(data.count, K10_MAX_GROUP);
-    if (fromServer || safe > (directoryGlobalRef.current[gid].groupSize || 0)) {
-      directoryGlobalRef.current[gid].groupSize = safe;
-    }
-    fillGroupPresenceBits(gid, directoryGlobalRef.current[gid].groupSize || safe);
-  }
-  // Formato V23: lista comprimida (tamanho real da lista)
-  if (Array.isArray(data.users)) {
-    // Só inflamos se vier do servidor; de peers P2P aceita apenas se maior pelo número real de entradas
-    const listLen = data.users.length;
-    if (fromServer) {
-      directoryGlobalRef.current[gid].groupSize = Math.max(directoryGlobalRef.current[gid].groupSize || 0, listLen);
-    }
-    if (data.isReservado && data.suffix) {
-      const set = new Set(directoryGlobalRef.current[gid].reservados);
-      set.add(k10BuildPeerId(gid, data.suffix));
-      directoryGlobalRef.current[gid].reservados = [...set].slice(0, 10);
-    }
-  }
-  // Formato legado: groupSize scalar — só do servidor para evitar inflação P2P
-  if (data.groupSize !== undefined && fromServer) {
-    const safeGs = Math.min(Math.max(0, parseInt(data.groupSize) || 0), K10_MAX_GROUP);
-    directoryGlobalRef.current[gid].groupSize = Math.max(directoryGlobalRef.current[gid].groupSize || 0, safeGs);
-  }
-  if (data.isReservado && data.peerId) {
-    const set = new Set(directoryGlobalRef.current[gid].reservados);
-    set.add(data.peerId);
-    directoryGlobalRef.current[gid].reservados = [...set].slice(0, 10);
-  }
-}
-// Conecta a peers da lista (formato V23 ou legado)
-if (peerInstance.current) {
-const activeCount = Object.keys(peerInstance.current.connections).length;
-if (activeCount < maxConnections) {
-  // Formato V23: reconstrói peerIds a partir dos sufixos
-  if (gid && Array.isArray(data.users)) {
-    data.users.forEach(suffix => {
-      if (typeof suffix !== 'string' || suffix.length !== K10_SUFFIX_LEN) return;
-      const fullPeerId = k10BuildPeerId(gid, suffix);
-      if (fullPeerId !== peerId && !peerInstance.current.connections[fullPeerId] && !bannedPeersRef.current.has(fullPeerId)) {
-        setTimeout(() => connectToPeer(fullPeerId), 2000);
-      }
-    });
-  }
-  // Formato legado
-  if (Array.isArray(data.peers)) {
-    data.peers.forEach(newPId => {
-      if (newPId !== peerId && !peerInstance.current.connections[newPId] && !bannedPeersRef.current.has(newPId)) {
-        setTimeout(() => connectToPeer(newPId), 2000);
-      }
-    });
-  }
-}
-}
-return;
-}
+// LEGACY-REMOVED: handler 'pex' (gateway/grupo K10 + diretório global descontinuados).
+if (data.type === 'pex') return;
 
 
 // ── V26: join-update — broadcast compacto de entrada/contagem de grupo ───────
-if (data.type === 'join-update') {
-  const newCount = typeof data.newCount === 'number'
-    ? Math.min(Math.max(0, data.newCount), K10_MAX_GROUP)
-    : -1;
 
-  if (data.gid && newCount >= 0) {
-    if (!directoryGlobalRef.current[data.gid]) {
-      directoryGlobalRef.current[data.gid] = { reservados: [], groupSize: 0 };
-    }
-    const cur = directoryGlobalRef.current[data.gid].groupSize || 0;
-    directoryGlobalRef.current[data.gid].groupSize = Math.max(cur, newCount);
-    fillGroupPresenceBits(data.gid, newCount);
-    addAudit(`[K10-V26] join-update binário: grupo ${data.gid} → ${newCount} usuários`, 'sys');
 
-    // FIX-3-JOIN-UPDATE: loop de IDs sintéticos removido. k10BuildPeerId(gid,suffix) gera
-    // IDs K10AAAA+sufixo que não existem no PeerJS (peer IDs reais são aleatórios, ex: QYTPF8YAM).
-    // Conexão P2P é feita via peer-list (V33), que envia data.peers[] com IDs reais do servidor.
-  }
-  return;
-}
-
-// ── V25/V26: pex-update — broadcast compacto de saída de peer ────────────────
-// V26 binário: relay já foi feito no interceptor acima; só processa estado local
-// V25 JSON:    relay normal com TTL decrementado
-if (data.type === 'pex-update') {
-  // V26 binário usa newCount direto; V25 JSON deriva de indexOf(user)
-  const newCount = (data._binary && typeof data.newCount === 'number')
-    ? data.newCount
-    : (data.user ? K10_POSITION_LIST.indexOf(data.user) : -1);
-
-  if (data.gid && newCount >= 0) {
-    if (!directoryGlobalRef.current[data.gid]) {
-      directoryGlobalRef.current[data.gid] = { reservados: [], groupSize: 0 };
-    }
-    // Atualiza groupSize apenas se for redução (nunca inflamos por pex-update)
-    const cur = directoryGlobalRef.current[data.gid].groupSize || 0;
-    directoryGlobalRef.current[data.gid].groupSize = cur > newCount ? newCount : cur;
-    fillGroupPresenceBits(data.gid, newCount);
-    const tag = data._binary ? '[K10-V26] pex-update binário' : '[K10-V25] pex-update';
-    addAudit(`${tag}: grupo ${data.gid} → ${newCount} usuários`, 'sys');
-  }
-
-  // Relay JSON apenas para pacotes V25 (binários já foram relayados no interceptor)
-  if (!data._binary) {
-    const pexJsonMsgId = data.msgId || (pId + '_pexupd_' + Date.now());
-    if (isDuplicate(pexJsonMsgId)) return;
-    const safeTtlUpd = Math.min(Math.max(0, parseInt(data.ttl) || 0), 6);
-    if (safeTtlUpd > 0) {
-      const relay = { ...data, ttl: safeTtlUpd - 1, msgId: pexJsonMsgId };
-      connectionsRef.current.forEach(c => {
-        if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {}
-      });
-    }
-  }
-  return;
-}
-
-// ── position-update — atualiza APENAS myGroupId (GID) ──
-// NUNCA altera o Peer ID (p2pChatClientId). Apenas aceita se vier
-// do servidor central (isCentralServer) para prevenir spoofing.
-if (data.type === 'position-update') {
-  if (!data.gid) return;
-  // Segurança: só aceita do servidor central
-  if (!isCentralServer(pId) && pId !== centralServerIdRef.current) return;
-  // Atualiza SOMENTE o Group ID — Peer ID permanece intocado
-  myGroupIdRef.current = data.gid;
-  localStorage.setItem('myGroupId', data.gid);
-  // Atualiza posição se sufixo informado
-  if (data.user) {
-    const newPosIdx = K10_POSITION_LIST.indexOf(data.user);
-    if (newPosIdx >= 0) {
-      myPositionIdxRef.current = newPosIdx;
-      setGroupPresenceBit(data.gid, newPosIdx, true);
-    }
-  }
-  addAudit(`[Hydra] position-update recebido do servidor: novo GID = ${data.gid}`, 'sys');
-  return;
-}
 
 
 
 // V51: group-full — gateway notifica que o grupo atingiu 50
-if (data.type === 'group-full') {
-  const { gid, size } = data;
-  if (gid && directoryGlobalRef.current[gid]) {
-    directoryGlobalRef.current[gid].groupSize = size || K10_MAX_GROUP;
-  }
-  addAudit(`[V51] Grupo ${gid} CHEIO (${size}/${K10_MAX_GROUP})`, 'warn');
-  // V77: redireciona overflow para Grupo Oficial descentralizado
-  window.dispatchEvent(new CustomEvent('k10-overflow-to-oficial'));
-  return;
-}
 
 // V51: group-reopened — gateway notifica que o grupo reabriu (49)
-if (data.type === 'group-reopened') {
-  const { gid, size } = data;
-  if (gid && directoryGlobalRef.current[gid]) {
-    directoryGlobalRef.current[gid].groupSize = size || K10_MAX_GROUP - 1;
-  }
-  addAudit(`[V51] Grupo ${gid} REABERTO (${size}/${K10_MAX_GROUP})`, 'ok');
-  return;
-}
 
 // V52: group-state-sync — gossip entre gateways, atualiza diretório local
-if (data.type === 'group-state-sync') {
-  const { gid, size, open } = data;
-  if (gid) {
-    if (!directoryGlobalRef.current[gid]) {
-      directoryGlobalRef.current[gid] = { reservados: [], groupSize: 0, lastUpdate: Date.now() };
-    }
-    directoryGlobalRef.current[gid].groupSize = size || 0;
-    directoryGlobalRef.current[gid].lastUpdate = Date.now();
-  }
-  return;
-}
 
 
-// FIX V105: gateway-promoted — gateway antigo caiu, novo gateway assumiu
-// O cliente reconecta ao novo gateway.
-if (data.type === 'gateway-promoted') {
-  addAudit(`[V105] Gateway promovido: ${data.newGatewayId} — reconectando...`, 'warn');
-  // Conecta ao novo gateway para manter o bootstrap atualizado
-  if (data.newGatewayId && !connectionsRef.current.some(c => c.peer === data.newGatewayId && c.open)) {
-    setTimeout(() => { try { connectToPeer(data.newGatewayId); } catch(e) {} }, 500);
-  }
-  return;
-}
 
-// V51: server-full — gateway lotado, tenta outro
-if (data.type === 'server-full') {
-  addAudit(`[V51] Gateway lotado, tentando outro...`, 'warn');
-  if (Array.isArray(data.gateways) && data.gateways.length > 0 && peerInstance.current) {
-    const next = data.gateways[Math.floor(Math.random() * data.gateways.length)];
-    setTimeout(() => connectToPeer(next), 1000);
-  }
-  return;
-}
+// LEGACY-REMOVED: handler 'server-full' (eleição/failover de gateway descontinuados).
+if (data.type === 'server-full') return;
 
 
 // ════════════════════════════════════════════════════════════════════
@@ -7949,84 +7349,13 @@ try {
 // V52: group-operation-lock removido (lógica de trava homeostática eliminada)
 
 // FASE-3/Caso5: eleição de novo reservado após split
-if (data.type === 'new-reservado' && data.peerId && data.groupId) {
-  addAudit(`[Hydra] Novo Reservado eleito: ${data.peerId} para o grupo ${data.groupId}`, 'sys');
-  if (directoryGlobalRef.current[data.groupId]) {
-    const set = new Set(directoryGlobalRef.current[data.groupId].reservados);
-    set.add(data.peerId);
-    directoryGlobalRef.current[data.groupId].reservados = [...set].slice(0, 10); // PATCH-B: V6=10
-  }
-  // Propagar para demais
-  connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(data); } catch(e) {} });
-  return;
-}
 
 // V52: group-split e group-merge removidos (lógica homeostática eliminada)
 
 // V6 (P1+P2): handler de p2p-heartbeat — relay apenas (tracking removido V52)
-if (data.type === 'p2p-heartbeat') {
-  if (data.msgId && isDuplicate(data.msgId)) return;
-  // relay
-  if (data.ttl !== undefined && data.ttl > 0) {
-    const relay = { ...data, ttl: capTtl(data.ttl) - 1 };
-    connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
-  }
-  return;
-}
 
-// ─── HYDRA V6 PATCH-A: directory-announce global ─────────────────────────────
-// Líder de cada grupo emite anúncio inter-grupo via flooding TTL=8.
-// Resolve cobertura incompleta do diretório (proteção mútua passa a funcionar).
-if (data.type === 'directory-announce') {
-  if (data.msgId && isDuplicate(data.msgId)) return;
-  if (!data.groupId) return;
-  const cur = directoryGlobalRef.current[data.groupId];
-  const incomingEpoch = data.epoch || 0;
-  if (!cur || (cur.epoch || 0) <= incomingEpoch) {
-    directoryGlobalRef.current[data.groupId] = {
-      reservados: Array.isArray(data.reservados) ? data.reservados.slice(0, 10) : [],
-      groupSize: typeof data.groupSize === 'number' ? data.groupSize : 0,
-      epoch: incomingEpoch,
-      lastUpdate: Date.now()
-    };
-  }
-  const ttl = capTtl(data.ttl) - 1;
-  if (ttl > 0) {
-    const relay = { ...data, ttl };
-    connectionsRef.current.forEach(c => {
-      if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {}
-    });
-  }
-  return;
-}
 
 // FASE-2: update-peer — mensagem de topologia com TTL=5, filtrada por grupo
-if (data.type === 'update-peer') {
-  if (data.msgId && isDuplicate(data.msgId)) return; // V7-B4 dedup
-  // Descartar se não for do meu grupo (flooding contido ao grupo)
-  if (data.groupId && myGroupIdRef.current && data.groupId !== myGroupIdRef.current) return;
-  // Atualizar diretório com info do nó
-  if (data.groupId && data.peerId) {
-    if (!directoryGlobalRef.current[data.groupId]) {
-      directoryGlobalRef.current[data.groupId] = { reservados: [], groupSize: 0 };
-    }
-    if (data.isReservado) {
-      const set = new Set(directoryGlobalRef.current[data.groupId].reservados);
-      set.add(data.peerId);
-      directoryGlobalRef.current[data.groupId].reservados = [...set].slice(0, 10); // PATCH-B: V6=10 reservados
-    }
-    if (data.groupSize !== undefined) {
-      directoryGlobalRef.current[data.groupId].groupSize = data.groupSize;
-    }
-  }
-  // Relay com TTL decrementado (TTL=5 para mensagens de topologia)
-  const ttl = capTtl(data.ttl !== undefined ? data.ttl : 5);
-  if (ttl > 0) {
-    const relay = { ...data, ttl: ttl - 1 };
-    connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
-  }
-  return;
-}
 
 
 if (data.type === 'radio-request-sync') {
@@ -8724,25 +8053,8 @@ conn.on('open', () => {
 clearTimeout(timeoutId);
 addAudit(`[P2P] Conexão estabelecida com ${peerIdToConnect}`, 'success');
 
-// V52: se ainda sem grupo → envia group0-request ao gateway (SOMENTE K10-GATE-*)
-// FIX V106: servidores de salinha (K10-XXXX-N) não respondem group0-request — sem esse check
 // o código fazia early return sem chamar setConnections/sendHandshake para o servidor do grupo.
-if (!bootstrapDoneRef.current && !myGroupIdRef.current && peerIdToConnect.startsWith('K10-GATE-')) {
-  try { conn.send({ type: 'group0-request' }); } catch(e) {}
-  addAudit('[Bootstrap] ↗️ group0-request enviado a ' + peerIdToConnect, 'info');
-  return;
-}
-// FIX V46-FAILOVER-SETCENTRAL: ao conectar em servidor -CENTRAL (ex: failover K10-CENTRAL → K100-CENTRAL),
-// se o centralServerId atual está morto (sem conexão aberta), atualiza imediatamente.
-// Garante que heartbeats e mensagens passem a usar o servidor de backup sem esperar o próximo ciclo.
-if (isCentralServer(peerIdToConnect) && !routerModeServersRef.current.has(peerIdToConnect)) {
-  const isCurrentCentralAlive = centralServerIdRef.current &&
-    connectionsRef.current.some(c => c.peer === centralServerIdRef.current && c.open);
-  if (!isCurrentCentralAlive) {
-    setCentralServerId(peerIdToConnect);
-    addAudit(`[Failover] ✅ Central atualizado para ${peerIdToConnect}`, 'ok');
-  }
-}
+// LEGACY-REMOVED: failover K10-CENTRAL/setCentralServerId no open (gateway K10 desligado).
 setConnections(prev => [...prev.filter(c => c.peer !== peerIdToConnect), conn]);
 sendHandshake(conn);
 sendRadioSync(conn);
@@ -8780,30 +8092,7 @@ conn.on('close', () => {
   worldQuizSubscribersRef.current.delete(peerIdToConnect);
   setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect));
 
-  // FIX V106-CRITICAL: Se o peer que fechou era um gateway (K10-GATE-XXXX)
-  // e não temos mais nenhum servidor de grupo ativo, reinicia o bootstrap
-  // para encontrar o novo gateway eleito. Sem isso, os usuários ficam
-  // "soltos" para sempre — bootstrapDoneRef true impede nova tentativa.
-  // Também corrige centralServerId stale: se o gateway era o centralServerId,
-  // promove o servidor de grupo ativo para centralServerId imediatamente.
-  if (peerIdToConnect && peerIdToConnect.startsWith('K10-GATE-')) {
-    // Gateway caiu: reinicia bootstrap para reconectar
-    if (centralServerIdRef.current === peerIdToConnect) {
-      setCentralServerId(null);
-    }
-    setTimeout(() => {
-      addAudit(`[V105] Gateway ${peerIdToConnect} caiu → reiniciando bootstrap`, 'error');
-      bootstrapDoneRef.current = false;
-      window.__k10BootVacantCount = 0;
-      window.__k10BootGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
-      window.__k10BootIdx = 0;
-      window.__k10BatchActive = false;
-      if (typeof window.__k10BootTryNext === 'function') {
-        setTimeout(window.__k10BootTryNext, 500);
-      }
-    }, 2000);
-  }
-  // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact no close de conexão.
+  // LEGACY-REMOVED: comentário V106 sobre gateway/bootstrap (K10-GATE descontinuado).
   setTimeout(checkAndAssumeQuizMaster, 1000);
   // V8-BUG#9: reset contador em close limpo
   if (window.__v8ReconAttempts) window.__v8ReconAttempts.delete(peerIdToConnect);
@@ -8832,30 +8121,7 @@ conn.on('close', () => {
     }, 15000);
   }
 
-  // FIX V48-NOBACKUP: removido failover automatico para K100-CENTRAL.
-  // Quando o central cai, a reconexao ao mesmo ID e' tratada pelo retry de
-  // bootstrap em peer.on('error') (K10-CENTRAL apenas).
-
-  // FIX V105: Quando gateway ou servidor de grupo cai, reconecta diretamente aos
-  // peers conhecidos do grupo (reservados + knownUsers) para manter a salinha viva.
-  // Isso garante que os usuários NÃO caiam mesmo que todos os servidores caiam —
-  // eles continuam se comunicando P2P diretamente entre si.
-  if (isCentralServer(peerIdToConnect)) {
-    const myGidNow = myGroupIdRef.current;
-    const dir = myGidNow && directoryGlobalRef.current[myGidNow];
-    const groupPeers = dir && dir.reservados ? [...dir.reservados] : [];
-    // Também inclui peers que já estiveram conectados (knownUsers do mesmo grupo)
-    if (groupPeers.length > 0) {
-      addAudit(`[V105-P2P-Recovery] Servidor ${peerIdToConnect} caiu → tentando ${groupPeers.length} peer(s) P2P do grupo ${myGidNow}`, 'warn');
-      groupPeers.forEach(pid => {
-        if (!pid || pid === peerIdRef.current) return;
-        const alreadyOpen = connectionsRef.current.some(c => c.peer === pid && c.open);
-        if (!alreadyOpen && !bannedPeersRef.current.has(pid)) {
-          setTimeout(() => { try { connectToPeer(pid); } catch(e) {} }, 800 + Math.random() * 500);
-        }
-      });
-    }
-  }
+  // LEGACY-REMOVED: comentário V48-NOBACKUP e bloco V105-P2P-Recovery (gateway/diretório K10).
 });
 conn.on('data', data => handleIncomingDataRef.current(data, peerIdToConnect));
 } catch (err) { alert(t(langRef.current, 'connectError') + err.message); } // FIX C-14: langRef.current evita stale closure no catch
@@ -8937,15 +8203,12 @@ debug: 1
 });
 
 
-// ══ K10 V52: bootstrapDoneRef — flag anti-loop group0-request ═════════
 
 peer.on('open', (id) => {
 setIsPeerInitialized(true);
 addAudit(`[Rede] Peer inicializado com ID: ${id}`, 'success');
 reconnectAttempts = 0;
 startMonitorReporting();
-// ── K10-GATEWAY SHADOW: eleição de slot vago (V53) ──
-try { /* PHASE1: K10GatewayShadow desativado (Matrix DM substitui eleição/relay) */ } catch(e) {}
 
 const urlParams = new URLSearchParams(window.location.search);
 const portasStr = urlParams.get('portas');
@@ -8960,12 +8223,7 @@ const conn = peer.connect(porta, { reliable: true });
 if (conn) {
 conn.on('open', () => { 
   addAudit(`[P2P] Conexão estabelecida com: ${porta}`, 'success');
-  // V52: sem grupo e sem bootstrap → envia group0-request (SOMENTE para gateways K10-GATE-*)
-  if (!bootstrapDoneRef.current && !myGroupIdRef.current && porta.startsWith('K10-GATE-')) {
-    try { conn.send({ type: 'group0-request' }); } catch(e) {}
-    addAudit('[Bootstrap] ↗️ group0-request enviado a ' + porta, 'info');
-    return;
-  }
+  // LEGACY-REMOVED: early-return para K10-GATE no bootstrap.
   setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]);
   sendHandshake(conn); // FIX BUG-B: peer remoto precisa saber nossa identidade
   sendRadioSync(conn); 
@@ -8979,18 +8237,7 @@ conn.on('close', () => {
   // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact — desconexão não deve jogar para aba Geral.
   setTimeout(checkAndAssumeQuizMaster, 1000);
 
-  // FIX V106: gateway (?portas=) fechou → reinicia bootstrap se necessário
-  if (porta && porta.startsWith('K10-GATE-')) {
-    setTimeout(() => {
-      bootstrapDoneRef.current = false;
-      window.__k10BootVacantCount = 0;
-      window.__k10BootGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
-      window.__k10BootIdx = 0;
-      window.__k10BatchActive = false;
-      addAudit(`[V106] Gateway ?portas ${porta} caiu → reiniciando bootstrap`, 'error');
-      if (typeof window.__k10BootTryNext === 'function') setTimeout(window.__k10BootTryNext, 500);
-    }, 2000);
-  }
+  // LEGACY-REMOVED: reset bootstrapDoneRef em close de gateway K10-GATE.
 
   // V69-LOCK-3: dono desconectou → para o quiz automaticamente após 15s de graça
   if (quizBotActiveRef.current && globalQuizOwnerRef.current && globalQuizOwnerRef.current === porta) {
@@ -9026,289 +8273,8 @@ conn.on('error', (e) => {
 }
 });
 }, 1000);
-} else {
-// ── V31 BOOTSTRAP AUTOMÁTICO: sem ?portas= → conecta ao Group 0 padrão ──
-// Permite entrada direta sem URL params: abre o chat → entra no Grupo 0 →
-// FASE 2/3: Bootstrap K10/Gateway/Hydra desativado. Entrada user↔user agora é Matrix DM;
-// PeerJS fica apenas para fallback e/ou WebRTC direto quando já houver conexão manual.
-if (false && !bootstrapDoneRef.current) {
-  myGroupIdRef.current = null;
-  localStorage.removeItem('myGroupId');
-  // Embaralha lista de 100 gateways (Fisher-Yates)
-  const shuffledGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
-  window.__k10BootGateways = shuffledGateways;
-  window.__k10BootIdx = 0;
-
-  // FIX V69: varredura paralela em lotes de 5 conexões simultâneas.
-  // V69: Remove REST API (404 no peerjs.com público).
-  // V69: Corrige double-trigger — peer.on('error',peer-unavailable) E onBcFail()
-  //      disparavam tryNextGateway simultaneamente, criando cascata de conexões
-  //      que derrubava o WebSocket de sinalização com erro 'network'.
-  // Fix: flag __k10BatchLock impede que o handler global peer.on('error')
-  //      chame tryNextGateway enquanto o lote do batch já gerencia retentativas.
-  const BOOT_BATCH = 5;
-  let bootBatchPending = 0;
-  let bootBatchGotOpen = false; // alguma conexão do lote atual abriu (aguardando peer-list)
-  let bootBatchScheduled = false; // evita agendar múltiplos tryNextGateway simultâneos
-
-  // V69: flag global — TRUE enquanto o batch está gerenciando retentativas
-  // Impede que peer.on('error', peer-unavailable) dispare um segundo tryNextGateway
-  window.__k10BatchActive = false;
-
-  const tryNextGateway = () => {
-    if (bootstrapDoneRef.current || !peerInstance.current || peerInstance.current.destroyed) return;
-    bootBatchPending = 0;
-    bootBatchGotOpen = false;
-    bootBatchScheduled = false;
-    window.__k10BatchActive = true; // bloqueia o handler global durante este lote
-    let launched = 0;
-
-    for (let i = 0; i < BOOT_BATCH; i++) {
-      if ((window.__k10BootIdx || 0) >= (window.__k10BootGateways || []).length) {
-        // Reinicia lista quando esgotada
-        window.__k10BootGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
-        window.__k10BootIdx = 0;
-        if (typeof K10GatewayShadow !== 'undefined' && !K10GatewayShadow.isActive) {
-          const nextId = window.__k10BootGateways[0];
-          addAudit('[Bootstrap] Lista esgotada, forçando claim no slot ' + nextId, 'warn');
-          try { K10GatewayShadow.tryClaim(nextId); } catch(e) {}
-        }
-      }
-      const targetId = (window.__k10BootGateways || shuffledGateways)[window.__k10BootIdx];
-      window.__k10BootIdx = (window.__k10BootIdx || 0) + 1;
-      if (!targetId) break;
-      launched++;
-      bootBatchPending++;
-
-      window.__k10LastBootTarget = targetId;
-      addAudit(`[Bootstrap] 🔄 Tentando ${targetId}...`, 'info');
-      const bc = peerInstance.current.connect(targetId, { reliable: true });
-      if (!bc) { bootBatchPending--; continue; }
-
-      let peerListTimer = null;
-      let bcDone = false;
-
-      // Chamado quando esta conexão falha ou fecha sem sucesso
-      const onBcFail = () => {
-        if (bcDone) return;
-        bcDone = true;
-        if (peerListTimer) { clearTimeout(peerListTimer); peerListTimer = null; }
-        setConnections(prev => prev.filter(c => c.peer !== targetId));
-        bootBatchPending--;
-        // Quando todo o lote falhou e nenhum está aguardando peer-list → próximo lote
-        // V69: delay mínimo de 400ms entre lotes para não inundar o WebSocket de sinalização
-        if (bootBatchPending <= 0 && !bootBatchGotOpen && !bootstrapDoneRef.current && !bootBatchScheduled) {
-          bootBatchScheduled = true;
-          window.__k10BatchActive = false;
-          setTimeout(() => {
-            if (typeof window.__k10BootTryNext === 'function') window.__k10BootTryNext();
-          }, 400);
-        }
-      };
-
-      bc.on('open', () => {
-        if (bootstrapDoneRef.current) { try { bc.close(); } catch(e) {} return; }
-        bootBatchGotOpen = true;
-        addAudit(`[Bootstrap] ✅ Conectado: ${targetId}`, 'success');
-        setCentralServerId(targetId);
-        setConnections(prev => [...prev.filter(c => c.peer !== targetId), bc]);
-        try { bc.send({ type: 'group0-request' }); } catch(e) {}
-        // Se peer-list não chegar em 8s, considera gateway zumbi → próximo lote
-        peerListTimer = setTimeout(() => {
-          if (bootstrapDoneRef.current) return;
-          addAudit(`[Bootstrap] ⏱ Timeout aguardando peer-list de ${targetId} — próximo...`, 'warn');
-          try { bc.close(); } catch(e) {}
-          bootBatchGotOpen = false;
-          window.__k10BatchActive = false;
-          if (!bootBatchScheduled) {
-            bootBatchScheduled = true;
-            if (typeof window.__k10BootTryNext === 'function') window.__k10BootTryNext();
-          }
-        }, 8_000);
-      });
-      bc.on('data', d => {
-        if (peerListTimer) { clearTimeout(peerListTimer); peerListTimer = null; }
-        // FIX V67-BUG1: marca bcDone=true ao receber peer-list para que onBcFail
-        // não remova a conexão vencedora de connections quando o gateway fechar.
-        if (d && d.type === 'peer-list') bcDone = true;
-        handleIncomingDataRef.current(d, targetId);
-      });
-      bc.on('close', () => { onBcFail(); });
-      bc.on('error', () => { onBcFail(); });
-    }
-
-    if (launched === 0 && !bootstrapDoneRef.current) {
-      window.__k10BatchActive = false;
-      setTimeout(() => { if (typeof window.__k10BootTryNext === 'function') window.__k10BootTryNext(); }, 1000);
-    }
-  };
-
-  // V53: stall-detection — se após 60s o bootstrap ainda não completou, reinicia
-  window.__k10StallTimer = setTimeout(() => {
-    if (!bootstrapDoneRef.current && typeof window.__k10BootTryNext === 'function') {
-      addAudit('[Bootstrap] ⚠️ Stall detectado após 60s — reiniciando varredura...', 'warn');
-      window.__k10BootGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
-      window.__k10BootIdx = 0;
-      window.__k10BatchActive = false;
-      window.__k10BootTryNext();
-    }
-  }, 60_000);
-
-  window.__k10BootTryNext = tryNextGateway;
-
-  // V59: Fast-path via K10-CENTRAL
-  // Tenta conectar a K10-CENTRAL primeiro para receber lista de gateways ativos.
-  // Se K10-CENTRAL responder, a lista é usada para ordenar o bootstrap.
-  // Se não existir (peer-unavailable), tenta assumir e inicia varredura normal.
-  // Se não responder em 4s, cai direto na varredura normal.
-  addAudit('[Bootstrap] 🏛️ Tentando K10-CENTRAL para descoberta rápida...', 'info');
-  let centralBootResolved = false;
-  let centralBootConn;
-  try { centralBootConn = peerInstance.current.connect('K10-HUB-V62', { reliable: true }); } catch(e) {}
-
-  const centralBootTimeout = setTimeout(() => {
-    if (centralBootResolved) return;
-    centralBootResolved = true;
-    try { if (centralBootConn) centralBootConn.close(); } catch(e) {}
-    addAudit('[Bootstrap] ⏱ K10-CENTRAL sem resposta — iniciando varredura...', 'warn');
-    setTimeout(tryNextGateway, 300);
-  }, 2_500); // V60: reduzido de 4.5s → 2.5s (redes frias respondem mais rápido ao fallback)
-
-  if (centralBootConn) {
-    centralBootConn.on('open', () => {
-      if (centralBootResolved) return;
-      // Solicita lista de gateways ativos
-      try { centralBootConn.send({ type: 'central-discovery-request' }); } catch(e) {}
-    });
-    centralBootConn.on('data', d => {
-      if (centralBootResolved) return;
-      if (d && d.type === 'central-response' && Array.isArray(d.gateways) && d.gateways.length > 0) {
-        centralBootResolved = true;
-        clearTimeout(centralBootTimeout);
-        try { centralBootConn.close(); } catch(e) {}
-        const confirmed = d.confirmedCount || d.gateways.length;
-        addAudit(`[Bootstrap] ✅ K10-CENTRAL: ${confirmed} gateways ativos recebidos`, 'success');
-
-        // FIX V66: tenta TODOS os gateways confirmados em paralelo.
-        // O modelo anterior colocava a lista na fila sequencial — com 53 confirmados
-        // e batch=8, o primeiro gate do lote podia ser um vazio (grupo novo).
-        // Agora: dispara até 20 conexões simultâneas nos confirmados, aceita o
-        // primeiro que responder com peer-list que tenha count>1 (grupo com peers).
-        // Se todos tiverem count<=1, aceita o primeiro que responder.
-        const probeGates = d.gateways.slice(0, 20);
-        let parallelDone = false;
-        let firstResult = null; // { conn, data, targetId } — primeiro peer-list recebido
-        let populated = null;   // primeiro peer-list com count>1
-
-        const tryAccept = () => {
-          const winner = populated || firstResult;
-          if (!winner) return;
-          parallelDone = true;
-          // Fecha todas as outras conexões paralelas
-          probeGates.forEach(id => {
-            if (id !== winner.targetId) {
-              try { winner._allConns && winner._allConns.get(id) && winner._allConns.get(id).close(); } catch(e) {}
-            }
-          });
-          // Processa o peer-list do vencedor
-          handleIncomingDataRef.current(winner.data, winner.targetId);
-        };
-
-        const allConns = new Map();
-        let pending = probeGates.length;
-
-        probeGates.forEach(targetId => {
-          if (bootstrapDoneRef.current) return;
-          addAudit(`[Bootstrap] 🔄 Tentando ${targetId}...`, 'info');
-          const bc2 = peerInstance.current ? peerInstance.current.connect(targetId, { reliable: true }) : null;
-          if (!bc2) { pending--; return; }
-          allConns.set(targetId, bc2);
-
-          let bc2done = false;
-          let plTimer = null;
-
-          bc2.on('open', () => {
-            if (bootstrapDoneRef.current || parallelDone) { try { bc2.close(); } catch(e) {} return; }
-            addAudit(`[Bootstrap] ✅ Conectado: ${targetId}`, 'success');
-            setCentralServerId(targetId);
-            setConnections(prev => [...prev.filter(c => c.peer !== targetId), bc2]);
-            try { bc2.send({ type: 'group0-request' }); } catch(e) {}
-            plTimer = setTimeout(() => {
-              if (!bc2done) {
-                bc2done = true;
-                addAudit(`[Bootstrap] ⏱ Timeout peer-list de ${targetId}`, 'warn');
-                try { bc2.close(); } catch(e) {}
-                pending--;
-                if (pending <= 0 && !parallelDone) tryAccept();
-              }
-            }, 8_000);
-          });
-          bc2.on('data', data => {
-            if (plTimer) { clearTimeout(plTimer); plTimer = null; }
-            if (data && data.type === 'peer-list' && !bc2done) {
-              bc2done = true;
-              const result = { conn: bc2, data, targetId, _allConns: allConns };
-              if (!firstResult) firstResult = result;
-              if (!populated && data.count > 1) populated = result;
-              pending--;
-              // Se temos grupo populado, aceita imediatamente
-              if (populated && !parallelDone) { tryAccept(); return; }
-              // Se todos responderam e nenhum tem peers, aceita o primeiro
-              if (pending <= 0 && !parallelDone) tryAccept();
-            } else {
-              handleIncomingDataRef.current(data, targetId);
-            }
-          });
-          bc2.on('error', () => {
-            if (plTimer) { clearTimeout(plTimer); plTimer = null; }
-            if (!bc2done) { bc2done = true; pending--; }
-            if (pending <= 0 && !parallelDone) tryAccept();
-          });
-          bc2.on('close', () => {
-            if (plTimer) { clearTimeout(plTimer); plTimer = null; }
-            if (!bc2done) { bc2done = true; pending--; }
-            if (pending <= 0 && !parallelDone) tryAccept();
-          });
-        });
-
-        // Fallback: se os confirmados não produzirem resultado em 10s, cai na varredura
-        setTimeout(() => {
-          if (!bootstrapDoneRef.current && !parallelDone) {
-            parallelDone = true;
-            addAudit('[Bootstrap] ⏱ Timeout confirmados — iniciando varredura...', 'warn');
-            const rest = GATEWAY_IDS.filter(id => !d.gateways.includes(id)).sort(() => Math.random() - 0.5);
-            window.__k10BootGateways = [...rest];
-            window.__k10BootIdx = 0;
-            setTimeout(tryNextGateway, 100);
-          }
-        }, 10_000);
-      }
-    });
-    centralBootConn.on('error', err => {
-      if (centralBootResolved) return;
-      centralBootResolved = true;
-      clearTimeout(centralBootTimeout);
-      if (err && err.type === 'peer-unavailable') {
-        addAudit('[Bootstrap] 📡 K10-CENTRAL vaga...', 'info');
-      }
-      addAudit('[Bootstrap] 🚀 Tentando gateways distribuídos...', 'info');
-      setTimeout(tryNextGateway, 100);
-    });
-    centralBootConn.on('close', () => {
-      if (centralBootResolved) return;
-      centralBootResolved = true;
-      clearTimeout(centralBootTimeout);
-      setTimeout(tryNextGateway, 100);
-    });
-  } else {
-    // Falha ao criar conexão — inicia varredura direto
-    clearTimeout(centralBootTimeout);
-    centralBootResolved = true;
-    addAudit('[Bootstrap] 🚀 Tentando gateways distribuídos...', 'info');
-    setTimeout(tryNextGateway, 100);
-  }
 }
-}
+// LEGACY-REMOVED: bootstrap K10/Gateway/Hydra autom\u00e1tico (sem ?portas=).
 });
 
 
@@ -9322,18 +8288,7 @@ window.location.reload();
 } else if (['socket-error', 'network', 'socket-closed'].includes(err.type)) {
 console.log("Network error detected, will attempt reconnect...");
 } else if (err.type === 'peer-unavailable') {
-  // V60 Fix: Se o gateway não existe (vago), passamos para o próximo.
-  if (!bootstrapDoneRef.current) {
-    // Incrementa contador de gateways vagos lidos
-    window.__k10BootVacantCount = (window.__k10BootVacantCount || 0) + 1;
-    const lastTried = window.__k10LastBootTarget;
-    // Com lista de 5 gateways: assume após varrer todos (>=5) sem achar ninguém
-    if (window.__k10BootVacantCount >= GATEWAY_IDS.length && lastTried && lastTried.startsWith('K10-GATE-') && !K10GatewayShadow.isActive) {
-      try { K10GatewayShadow.tryClaim(lastTried); } catch(e) {}
-    }
-    // V69: NÃO dispara __k10BootTryNext aqui — o batch já gerencia retentativas via onBcFail.
-    // Chamar aqui causaria double-trigger → flood de conexões → erro 'network' → mass disconnected.
-  }
+  // LEGACY-REMOVED: tratamento especial de gateway K10 inexistente.
 } else {
 setMessages(prev => [...prev, { text: `System: PeerJS Error (${err.type})`, sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now() }].slice(-500));
 }
@@ -9394,17 +8349,7 @@ conn.on('close', () => {
   endCall(conn.peer, 'voice'); 
   setTimeout(checkAndAssumeQuizMaster, 1000);
 
-  // FIX V106: conexão ENTRANTE de gateway fechou → reinicia bootstrap se necessário
-  if (conn.peer && conn.peer.startsWith('K10-GATE-')) {
-    setTimeout(() => {
-      bootstrapDoneRef.current = false;
-      window.__k10BootVacantCount = 0;
-      window.__k10BootGateways = [...GATEWAY_IDS].sort(() => Math.random() - 0.5);
-      window.__k10BootIdx = 0; window.__k10BatchActive = false;
-      addAudit(`[V106-IN] Gateway entrante ${conn.peer} caiu → bootstrap`, 'error');
-      if (typeof window.__k10BootTryNext === 'function') setTimeout(window.__k10BootTryNext, 500);
-    }, 2000);
-  }
+  // LEGACY-REMOVED: reset bootstrap em close de gateway K10-GATE entrante.
 
   // V74-C / V69-LOCK-3: dono desconectou (conexão ENTRANTE) → para o quiz após 15s de graça
   if (quizBotActiveRef.current && globalQuizOwnerRef.current && globalQuizOwnerRef.current === conn.peer) {
@@ -9430,45 +8375,7 @@ conn.on('close', () => {
     }, 15000);
   }
 
-  // V25: em modo P2P (sem servidor), broadcast pex-update quando peer do meu grupo sai
-  // FIX V106: NÃO decrementar groupSize quando é um servidor de salinha (K10-XXXX-N) que fecha.
-  // O servidor não ocupa uma posição de usuário no grupo — decrementar causava contagem errada
-  // e pex-update falso que tirava o último usuário da lista de presença.
-  const myGidNow = myGroupIdRef.current;
-  // FIX V26→V23: não é possível extrair GID do peer ID (formato simples).
-  // Assumimos que peers conectados pertencem ao nosso grupo.
-  if (myGidNow && !isCentralServer(conn.peer)) {
-    const mySize = directoryGlobalRef.current[myGidNow]?.groupSize || 0;
-    if (mySize > 0) {
-      // Decrementa localmente
-      directoryGlobalRef.current[myGidNow].groupSize = Math.max(0, mySize - 1);
-      // Broadcast compacto: anuncia que a última posição "saiu"
-      const newSize = directoryGlobalRef.current[myGidNow].groupSize;
-      fillGroupPresenceBits(myGidNow, newSize);
-      const lastSuffix = K10_POSITION_LIST[mySize - 1]; // sufixo da posição que "saiu"
-      // V26-FIX: envia binário como otimização, mas NÃO suprime o JSON pex-update
-// que é necessário para peers que ainda não aprenderam este GID.
-sendBinaryGroupPacket(K10B_TYPE_CLI.PEX_UPDATE, myGidNow, newSize, 5, conn.peer);
-      if (lastSuffix) {
-        // FIX V25-BUG2: msgId DETERMINÍSTICO por (gid+sufixo+bucket 5s)
-        // Sem isso, cada peer gera msgId único → deduplicação falha → groupSize decrementado N× em vez de 1×
-        const timeBucket = Math.floor(Date.now() / 5000);
-        const pexUpd = {
-          type: 'pex-update',
-          gid: myGidNow,
-          user: lastSuffix,
-          ttl: 5,
-          msgId: `pexupd_${myGidNow}_${lastSuffix}_${timeBucket}`
-        };
-        connectionsRef.current.forEach(c => {
-          if (c.peer !== conn.peer && c.open) try { c.send(pexUpd); } catch(e) {}
-        });
-        addAudit(`[K10-V25] P2P pex-update: grupo ${myGidNow} → ${newSize} usuários`, 'sys');
-      } else if (sentBinary) {
-        addAudit(`[K10-V26] P2P pex-update binário: grupo ${myGidNow} → ${newSize} usuários`, 'sys');
-      }
-    }
-  }
+  // LEGACY-REMOVED: decrement de groupSize + broadcast 'pex-update' (diretório K10 desativado).
 });
 conn.on('error', (e) => { 
   addAudit(`[P2P] Erro na conexão com ${conn.peer}: ${e?.message || '?' }`, 'error');
@@ -9623,99 +8530,8 @@ if (torrentClientRef.current) torrentClientRef.current.destroy();
 }, []);
 
 
-useEffect(() => {
-const sendHeartbeat = () => { if (true) return; /* PHASE1: heartbeat K10 desligado */
-if (!peerInstance.current || !peerId) return;
-
-
-const heartbeatMsg = { 
-  type: 'heartbeat', 
-  peerId,
-  worldQuizAtivo: quizBotActiveRef.current && quizDisciplineRef.current === 'world'
-};
-
-
-// FIX N-6 V20: era connections.find (stale closure dentro de setInterval) → connectionsRef.current.find
-if (centralServerId) {
-const serverConn = connectionsRef.current.find(c => c.peer === centralServerId && c.open);
-if (serverConn) {
-try { serverConn.send(heartbeatMsg); } catch(e) {}
-} else if (!routerModeServersRef.current.has(centralServerId)) {
-// FIX V32-HEARTBEAT: era raw peer.connect() com tempConn.close() após 2s.
-// Isso criava uma conexão paralela que ao fechar derrubava a conexão permanente.
-// Solução: usa connectToPeer → rastreado em connectionsRef → sem duplicatas → sem fechamento forçado.
-// V48: NÃO reconecta se centralServerId for Router Mode server (ele desconecta intencionalmente)
-try { connectToPeer(centralServerId); } catch(e) {}
-}
-}
-
-};
-
-
-const interval = setInterval(sendHeartbeat, 30000);
-// Send initial heartbeat after a short delay
-const timeout = setTimeout(sendHeartbeat, 5000);
-
-
-return () => {
-clearInterval(interval);
-clearTimeout(timeout);
-};
-}, [peerId, centralServerId]); // FIX O-5 V21: era [peerId, centralServerId, connections.length] — recriava interval a cada conexão; após N-6 a dep connections.length é desnecessária
-
-
-useEffect(() => {
-return; // FASE 2/3: PEX/topologia K10 desligada; Matrix DM substitui descoberta/relay user↔user.
-const iv = setInterval(() => {
-// FIX N-7 V20: era connections (stale closure dentro de setInterval) → connectionsRef.current; deps [] evita recriar o interval a cada nova conexão
-const conns = connectionsRef.current;
-if (conns.length > 0) {
-// V25 C-19: PEX comprimido — envia {gid, user, count} em vez de {gid, users:[N sufixos]}
-// 'user' = sufixo da ÚLTIMA posição ocupada do grupo (K10_POSITION_LIST[groupSize-1])
-// 'count' = total de membros — receptor reconstrói quem são via K10_POSITION_LIST[0..count-1]
-// FIX V25-BANDA: removido users:[] — economiza ~83% de bytes no PEX periódico
-const myGroupId = myGroupIdRef.current;
-const myPeerIdNow = peerIdRef.current;
-const myGroupSize = myGroupId && directoryGlobalRef.current[myGroupId]
-  ? directoryGlobalRef.current[myGroupId].groupSize
-  : conns.length + 1;
-
-// Sufixo da última posição = K10_POSITION_LIST[groupSize-1]
-const lastPositionSuffix = myGroupSize > 0 && myGroupSize <= K10_MAX_GROUP
-  ? K10_POSITION_LIST[myGroupSize - 1]
-  : undefined;
-
-if (myGroupId) fillGroupPresenceBits(myGroupId, myGroupSize);
-// V26-FIX: binário é otimização ADICIONAL — JSON PEX SEMPRE é enviado
-// pois carrega gidIdx/peer-list necessários para peers aprenderem o GID.
-// Suprimir o JSON quebra a propagação para peers recém-conectados (mensagens não chegam).
-if (myGroupId) sendBinaryGroupPacket(K10B_TYPE_CLI.JOIN_UPDATE, myGroupId, myGroupSize, 5, null);
-
-conns.forEach(conn => {
-if (conn.open) try {
-  if (true) {
-    conn.send({
-      type: 'pex',
-      // V25: campos compactos (receptor reconstrói lista via K10_POSITION_LIST)
-      gid: myGroupId || undefined,
-      user: lastPositionSuffix || undefined,  // V25: sufixo da última posição
-      count: myGroupSize,                      // V25: contagem total
-      isReservado: isSuperNodeRef.current,
-      // Compat mínima V24/V23 (scalars, custo negligenciável):
-      // FIX V26→V23: peer ID simples, sem sufixo K10
-      groupSize: myGroupSize,
-      groupId: myGroupId || undefined,
-      peerId: myPeerIdNow
-      // REMOVIDO: users:[N sufixos] — V25 usa K10_POSITION_LIST[0..count-1]
-      // Economia: ~83% menos bytes no PEX a cada 30s por conexão
-    });
-  }
-} catch(e) {}
-});
-}
-}, 30000);
-return () => clearInterval(iv);
-}, []); // FIX N-7 V20: era [connections] — recriava o interval a cada nova conexão
+// LEGACY-REMOVED: useEffect sendHeartbeat (servidor central K10 descontinuado).
+// LEGACY-REMOVED: useEffect PEX periódico (K10 PEX/topologia desligada — Matrix DM substitui).
 
 
 // ════════════════════════════════════════════════════════════════════
@@ -9759,166 +8575,23 @@ return () => { clearInterval(v7MsgCapId); clearInterval(v7GcId); };
 // FASE-2: Broadcast periódico de update-peer para manter diretório global
 // SuperNodes: a cada 60s | Regulares: a cada 300s
 // ════════════════════════════════════════════════════════════════════
-useEffect(() => {
-  return; // FASE 2/3: update-peer/Hydra desligado; sem grupos/gateways para P2P privado.
-  const intervalMs = isSuperNode ? 60000 : 300000;
-  const updatePeerInterval = setInterval(() => {
-    const myGroupId = myGroupIdRef.current;
-    if (!myGroupId || connectionsRef.current.length === 0) return; // FIX O-4 V21: era connections.length (stale)
-    const myGroupSize = directoryGlobalRef.current[myGroupId]?.groupSize ?? connectionsRef.current.length + 1; // FIX O-4 V21
-    const myPeerIdNow = peerIdRef.current;
-    const msg = {
-      type: 'update-peer', msgId: 'up_'+myPeerIdNow+'_'+Date.now()+'_'+Math.random().toString(36).slice(2,8),
-      peerId: myPeerIdNow,
-      gid: myGroupId,              // V23: campo gid explícito
-      // FIX V26→V23: peer ID é simples, não tem sufixo K10
-      groupId: myGroupId,          // compatibilidade legada
-      groupSize: myGroupSize,
-      isReservado: isSuperNodeRef.current,
-      ttl: 5
-    };
-    connectionsRef.current.forEach(c => { if (c.open) try { c.send(msg); } catch(e) {} });
-  }, intervalMs);
-  return () => clearInterval(updatePeerInterval);
-}, [isSuperNode]); // FIX O-4 V21: era [isSuperNode, connections] — recriava interval a cada nova conexão
 
 
 // ════════════════════════════════════════════════════════════════════
 // ════════════════════════════════════════════════════════════════════
-// HYDRA V6: Helpers de flooding com TTL+dedup (corrige P8)
 // ════════════════════════════════════════════════════════════════════
 const makeMsgId = () => {
   return (peerIdRef.current || 'anon') + '-' + Date.now() + '-' + Math.random().toString(36).slice(2, 8);
 };
-const isDuplicate = (msgId) => {
-  // V8-F16: LRU com hard-cap absoluto 5000 + GC por TTL
-  const cache = seenMsgIdsRef.current;
-  const HARD_CAP = 5000;
-  const now = Date.now();
-  // GC por TTL primeiro (entradas expiradas)
-  if (cache.size > 500) {
-    for (const [k, exp] of cache) if (exp < now) cache.delete(k);
-  }
-  // Hard-cap LRU: remove os 1000 mais antigos (Map preserva ordem de inserção)
-  while (cache.size > HARD_CAP) {
-    const k = cache.keys().next().value;
-    if (k === undefined) break;
-    cache.delete(k);
-  }
-  if (!msgId) return false;
-  if (cache.has(msgId)) {
-    // touch: re-insert para atualizar ordem LRU
-    const exp = cache.get(msgId);
-    cache.delete(msgId);
-    cache.set(msgId, exp);
-    return true;
-  }
-  cache.set(msgId, now + 300000);
-  return false;
-};
-const floodMessage = (msg, excludePeer) => {
-  // Garantir msgId e TTL
-  if (!msg.msgId) msg.msgId = makeMsgId();
-  if (msg.ttl === undefined) msg.ttl = 5;
-  if (isDuplicate(msg.msgId)) return;
-  if (msg.ttl <= 0) return;
-  const relayMsg = { ...msg, ttl: msg.ttl - 1 };
-  connectionsRef.current.forEach(c => {
-    if (c.open && c.peer !== excludePeer) {
-      try { c.send(relayMsg); } catch(e) {}
-    }
-  });
-};
+// LEGACY-REMOVED: isDuplicate / floodMessage (TTL flood K10 desativado).
+// seenMsgIdsRef permanece — usado pelo handler 'k10-group-msg' (relay de grupo Matrix-fallback).
 
 // ════════════════════════════════════════════════════════════════════
 // V6 FIX: sincroniza peerIdRef com peerId state (necessario para makeMsgId/heartbeat)
 useEffect(() => { peerIdRef.current = peerId; }, [peerId]);
 
-// V6: Heartbeat P2P para relay (V52: GC e contagem por heartbeat removidos)
-useEffect(() => {
-  return; // FASE 2/3: heartbeat/directory-announce K10 desligados.
-  const HB_INTERVAL = 30000;
-  const sendHB = setInterval(() => {
-    const myGroupId = myGroupIdRef.current;
-    if (!myGroupId) return;
-    const hb = {
-      type: 'p2p-heartbeat',
-      peerId: peerIdRef.current || peerId,
-      groupId: myGroupId,
-      isReservado: isSuperNodeRef.current,
-      ts: Date.now(),
-      afk: !isPageVisibleRef.current
-    };
-    floodMessage(hb, null);
-  }, HB_INTERVAL);
-
-  // ─── PATCH-A: directory-announce global (líder do grupo emite a cada 60s) ──
-  const announceIv = setInterval(() => {
-    if (!isSuperNodeRef.current) return;
-    const myGroupId = myGroupIdRef.current;
-    if (!myGroupId) return;
-    const dirEntry = directoryGlobalRef.current[myGroupId] || {};
-    if (directoryGlobalRef.current[myGroupId]) {
-      directoryGlobalRef.current[myGroupId].lastUpdate = Date.now();
-    }
-    floodMessage({
-      type: 'directory-announce',
-      groupId: myGroupId,
-      groupSize: dirEntry.groupSize || 1,
-      reservados: [peerIdRef.current].filter(Boolean),
-      ttl: 8
-    }, null);
-  }, 60000);
-
-  // ─── GC do diretório (remove grupos sem announce há 5 min) ────────
-  const dirGcIv = setInterval(() => {
-    const now = Date.now();
-    const dir = directoryGlobalRef.current;
-    for (const gid in dir) {
-      const entry = dir[gid];
-      if (entry.lastUpdate && now - entry.lastUpdate > 300000 &&
-          gid !== myGroupIdRef.current) {
-        delete dir[gid];
-      }
-    }
-    const keys = Object.keys(dir);
-    if (keys.length > 500) {
-      const sorted = keys
-        .filter(k => k !== myGroupIdRef.current)
-        .sort((a,b) => (dir[a].lastUpdate || 0) - (dir[b].lastUpdate || 0));
-      const toRemove = sorted.slice(0, keys.length - 500);
-      toRemove.forEach(k => delete dir[k]);
-    }
-  }, 60000);
-
-  return () => {
-    clearInterval(sendHB);
-    clearInterval(announceIv);
-    clearInterval(dirGcIv);
-  };
-}, [isSuperNode, peerId]);
-
-// // FASE-3: Loops de detecção de split e fusão (apenas SuperNodes)
-// ════════════════════════════════════════════════════════════════════
-useEffect(() => {
-  // ═══ V52: Split, merge e locks removidos — grupos gerenciados pelo gateway ═══
-
-  // ── Validação do groupId salvo ao iniciar ──
-  const startupCheckTimer = setTimeout(() => {
-    const savedGroupId = localStorage.getItem('myGroupId');
-    if (savedGroupId) {
-      const dirSize = Object.keys(directoryGlobalRef.current || {}).length;
-      if (!directoryGlobalRef.current[savedGroupId] && dirSize >= 2) {
-        myGroupIdRef.current = null;
-        localStorage.removeItem('myGroupId');
-      }
-    }
-  }, 90000);
-
-  return () => {
-    clearTimeout(startupCheckTimer);
-  };
-}, [isSuperNode]);
+// LEGACY-REMOVED: useEffect heartbeat P2P + directory-announce + dir GC (K10 desligado).
+// LEGACY-REMOVED: useEffect startupCheck split/merge (myGroupId/directoryGlobalRef obsoletos).
 
 
 useEffect(() => {
@@ -10672,1077 +9345,12 @@ return (
 // Concept: any user who opens the chat is a CANDIDATE. The lowest peerId
 // (lex order) among connected peers wins and silently registers a 2nd
 // PeerJS instance with id 'K10-CENTRAL'. This shadow peer answers
-// group0-request from new entrants (Modo Geral / Group Zero entry).
 // 
 // When the elected user disconnects (closes tab, network drop), the ID
 // 'K10-CENTRAL' is freed in PeerJS. The next user with lowest peerId
 // wins the next election after a probe timeout.
 // 
 // User UX: ZERO. No badge, no notification, no opt-in. The chat works
-// the same whether you are central or not. K10-CENTRAL is filtered from
-// contact lists by isCentralServer().
-// ═══════════════════════════════════════════════════════════════════════
-// ═══════════════════════════════════════════════════════════════════════
-// K10-GATEWAY SHADOW (V53) — eleição distribuída de slots de bootstrap
-//
-// Quando o bootstrap detecta que um slot K10-GATE-XXXX está vago
-// (peer-unavailable), este módulo tenta registrar aquele PeerJS ID.
-// Se conseguir (open), o cliente serve como gateway público para outros
-// clientes que enviarem group0-request. Se unavailable-id, outro ganhou;
-// o bootstrap segue para o próximo slot normalmente.
-//
-// Resultado: cada slot dos 100 gateways é sempre preenchido por algum
-// par vivo. Não há ponto central: qualquer cliente pode ser gateway.
-// ═══════════════════════════════════════════════════════════════════════
-const K10GatewayShadow = (() => {
-  // ── Constantes ────────────────────────────────────────────────────────
-  const GW_MAX_GROUP       = 50;          // max peers por grupo
-  const GW_ELECTION_MS     = 12_000;      // intervalo de eleição proativa
-  const GW_PROBE_TIMEOUT   = 5_000;       // timeout para sondar se slot está ocupado (FIX V34: 3s→5s, evita falso-positivo quando poll K10-CENTRAL sobrecarrega PeerJS)
-  const GW_CLAIM_TIMEOUT   = 14_000;      // timeout para reivindicar slot
-
-  // Lista de sufixos de posição (AA, AB, … até 50 entradas)
-  const GW_POSITION_LIST = (() => {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-    const list = [];
-    outer: for (let i = 0; i < chars.length; i++) {
-      for (let j = 0; j < chars.length; j++) {
-        list.push(chars[i] + chars[j]);
-        if (list.length >= GW_MAX_GROUP) break outer;
-      }
-    }
-    return list;
-  })();
-
-  // ── Estado global do módulo ───────────────────────────────────────────
-  let claimedId       = null;   // ID do gateway que estamos servindo
-  let gwPeer          = null;   // instância Peer do gateway
-  let isActive        = false;  // true quando servindo como gateway
-  // FIX V57: impede double-claim por corrida de async (dois tryClaim antes de open chegar)
-  let claimInProgress = false;
-  let getKnownPeers   = null;   // () => string[]  — peers conhecidos
-  let getMyPeerId     = null;   // () => string     — nosso próprio ID
-  let stunPoolFn      = null;   // () => ICEServer[] — servidores STUN
-  let getMainPeer     = null;   // () => Peer       — peer principal do App (para sondagem)
-  // FIX V57: callback acionado quando claim bem-sucedido, para reconectar o bootstrap
-  let onClaimedCb     = null;   // (gatewayId: string) => void
-  // FIX V81-C: conexao persistente ao monitor (evita efemera a cada 30s)
-  let gwMonConn       = null;
-
-  // Estado dos grupos gerenciados (só ativo quando isActive === true)
-  let activeGroups  = {};     // { gid: { positions: string[], open: bool } }
-  let peerGroupMap  = new Map(); // peerId → gid
-  let gwConns       = new Map(); // peerId → conn (todos os clientes conectados)
-  let gidCounter    = 0;     // contador sequencial para GIDs
-
-  // FIX V58: peers descobertos em outros gateways via cross-gateway sampling.
-  // Incluídos no peer-list quando o grupo local está vazio/pequeno, permitindo
-  // que clientes de gateways diferentes se conectem diretamente entre si.
-  let crossGatewayPeers = new Set(); // peerId (não-K10) de outros gateways
-  let crossGwDiscovTimer = null;
-
-  // ── V70: DUAL-SERVER PER GROUP (MIRROR MODEL) ──────────────────────────
-  // Cada sala com 2+ usuários deve ter DOIS servidores (primary + secondary).
-  //
-  // ARQUITETURA: cada gateway mantém UMA conexão persistente com outro
-  // gateway (o "mirror"). Todos os grupos com ≥2 users são espelhados
-  // nessa única conexão — sem abrir 1 conn por grupo.
-  //
-  // Com 5 gateways e 1000 salas: apenas 5 conexões de mirror no total.
-  //
-  // Quando somos PRIMARY (temos o mirror):
-  //   mirrorGwId, mirrorConn — conexão única ao mirror
-  //   mirroredGroups — Set<gid> — quais grupos estão sendo espelhados
-  //
-  // Quando somos MIRROR (espelhando grupos de outro primary):
-  //   mirrorPrimaries — Map<primaryGwId, { conn, groups: {gid: {positions}}, lastPing }>
-  // ─────────────────────────────────────────────────────────────────────
-  let mirrorGwId          = null;    // ID do gateway que espelha nossos grupos
-  let mirrorConn          = null;    // DataConnection única ao mirror
-  let mirrorAlive         = false;
-  let mirrorLastPing      = 0;
-  let mirroredGroups      = new Set(); // gids com ≥2 users que estamos espelhando
-
-  // Quando somos o MIRROR de outro primary:
-  let mirrorPrimaries     = new Map(); // primaryGwId → { conn, groups: {gid: positions[]}, lastPing }
-
-  const GW_MIRROR_SYNC_MS     = 10_000; // sync completo periódico
-  const GW_MIRROR_PING_MS     = 15_000; // ping de health
-  const GW_MIRROR_TIMEOUT     = 12_000; // FIX V105: 40s→12s — promoção mais rápida quando primary cai
-  let mirrorSyncTimer         = null;
-  let mirrorHealthTimer       = null;
-  // ─────────────────────────────────────────────────────────────────────
-
-  // Timer de eleição proativa
-  let electionTimer = null;
-
-  // ── API pública ───────────────────────────────────────────────────────
-
-  // Inicializa o módulo. Chamado uma vez quando o Peer principal abre.
-  function init(getPeers, getStun, getOwnId, getMain, onClaimed) {
-    console.log(`[K10GatewayShadow] init chamado. getKnownPeers=${!!getPeers}, getMain=${!!getMain}`);
-    getKnownPeers = getPeers;
-    stunPoolFn    = getStun;
-    getMyPeerId   = getOwnId;
-    getMainPeer   = getMain;
-    // FIX V57: callback de reconexão pós-claim
-    if (typeof onClaimed === 'function') onClaimedCb = onClaimed;
-    // Inicia eleição proativa periódica
-    if (electionTimer) clearInterval(electionTimer);
-    electionTimer = setInterval(_proactiveElect, GW_ELECTION_MS);
-    // Primeira eleição após estabilização inicial
-    setTimeout(_proactiveElect, 8_000);
-  }
-
-  // Reivindicação reativa (chamada pelo bootstrap quando peer-unavailable)
-  function tryClaim(gatewayId) {
-    // FIX V57: guarda duplo — isActive E claimInProgress evitam race condition
-    if (isActive || claimInProgress) return;
-    _attemptClaim(gatewayId);
-  }
-
-  // ── Eleição proativa ──────────────────────────────────────────────────
-  // A cada ciclo: monta lista global de peers, ordena por peerId.
-  // Se minha posição p < 100, verifico se GATEWAY_IDS[p] está vago.
-  // Se estiver, reivindico o slot.
-  function _proactiveElect() {
-    if (isActive || claimInProgress) return;
-    const myId = getMyPeerId && getMyPeerId();
-    if (!myId) return;
-    const known = (getKnownPeers && getKnownPeers()) || [];
-    // Inclui apenas peers reais (exclui IDs K10-*)
-    const allPeers = [...new Set([...known, myId])]
-      .filter(p => p && !p.startsWith('K10-'))
-      .sort();
-    const myRank = allPeers.indexOf(myId);
-    console.log(`[Gateway] _proactiveElect myRank=${myRank} in allPeers=${allPeers.length}`);
-    if (myRank < 0 || myRank >= 100) return;
-    const targetGw = GATEWAY_IDS[myRank];
-    if (!targetGw) return;
-    console.log(`[Gateway] _proactiveElect targetGw=${targetGw}`);
-    _probeAndClaim(targetGw);
-  }
-
-  // Sonda se o gateway está ocupado; se não estiver, reivindica.
-  function _probeAndClaim(gatewayId) {
-    if (isActive) return;
-    const mainPeer = getMainPeer ? getMainPeer() : null;
-    if (!mainPeer || mainPeer.destroyed) {
-      console.warn(`[Gateway] _probeAndClaim: mainPeer indisponível para sondar ${gatewayId}`);
-      return;
-    }
-    let resolved = false;
-    let probe;
-    try { probe = mainPeer.connect(gatewayId, { reliable: true }); }
-    catch(e) { 
-      console.warn(`[Gateway] Exceção ao sondar ${gatewayId}`, e);
-      return; 
-    }
-    if (!probe) return;
-    console.log(`[Gateway] Sondando ${gatewayId}...`);
-    const t = setTimeout(() => {
-      if (resolved) return;
-      resolved = true;
-      try { probe.close(); } catch(e) {}
-      // FIX V34: timeout sem resposta = PeerJS lento (ex: rede fria, poll K10-CENTRAL paralelo).
-      // Tentar reivindicar: se slot ocupado, _attemptClaim falha com unavailable-id (inofensivo);
-      // se vago, assume o slot. Resolve o loop gateway em redes com 1 peer.
-      _attemptClaim(gatewayId);
-    }, GW_PROBE_TIMEOUT);
-    probe.on('open', () => {
-      if (resolved) return;
-      resolved = true;
-      clearTimeout(t);
-      try { probe.close(); } catch(e) {}
-      // Gateway vivo — nada a fazer
-    });
-    probe.on('error', err => {
-      if (resolved) return;
-      resolved = true;
-      clearTimeout(t);
-      console.log(`[Gateway] Sondagem ${gatewayId} falhou (provavelmente vago):`, err && err.type);
-      if (err && err.type === 'peer-unavailable') {
-        // Slot vago! Reivindicar.
-        _attemptClaim(gatewayId);
-      }
-    });
-  }
-
-  // ── Reivindicação de slot ─────────────────────────────────────────────
-  function _attemptClaim(gatewayId) {
-    if (isActive || claimInProgress) return;
-    if (!gatewayId) return;
-    // FIX V57: marca claim em progresso antes de qualquer await/async
-    claimInProgress = true;
-    console.log('[Gateway] Tentando reivindicar', gatewayId);
-    const ice = (stunPoolFn && stunPoolFn()) || [];
-    let resolved = false;
-    let gp;
-    try {
-      gp = new Peer(gatewayId, {
-        host: '0.peerjs.com', port: 443, secure: true, debug: 0,
-        config: { iceServers: ice }
-      });
-    } catch(e) {
-      console.warn('[Gateway] Exceção ao criar Peer para', gatewayId, e);
-      return;
-    }
-    gwPeer = gp;
-
-    const failTimer = setTimeout(() => {
-      if (resolved) return;
-      resolved = true;
-      console.warn('[Gateway] Timeout ao reivindicar', gatewayId);
-      _cleanup();
-    }, GW_CLAIM_TIMEOUT);
-
-   gp.on('open', () => {
-  if (resolved) return;
-  resolved = true;
-  console.log('[Gateway] Reivindicado com sucesso:', gatewayId);
-  clearTimeout(failTimer);
-  isActive        = true;
-  claimInProgress = false;  // FIX V57: libera flag (claim concluído)
-  claimedId       = gatewayId;
-
-  // ─────────────────────────────────────────────────────────────
-  // NOVO: Reporte periódico ao K10-MONITOR (formato agregado)
-  // V70: inclui grupos espelhados (mirror) no reporte
-  // ─────────────────────────────────────────────────────────────
-  setInterval(() => {
-    if (!isActive) return;
-    // Grupos onde somos primary
-    let total = Object.values(activeGroups).reduce((sum, g) => sum + (g.positions?.length || 0), 0);
-    const groups = {};
-    for (const gid in activeGroups) {
-      groups[gid] = activeGroups[gid].positions?.length || 0;
-    }
-    // V70: Adiciona grupos onde somos mirror de outro primary
-    mirrorPrimaries.forEach((info, primaryId) => {
-      for (const gid in (info.groups || {})) {
-        const mCount = info.groups[gid]?.length || 0;
-        if (!groups[gid]) {
-          groups[gid] = mCount;
-          total += mCount;
-        }
-      }
-    });
-    const payload = { t: 's', id: claimedId, total, groups };
-    // FIX V81-C: conexao persistente ao monitor — mesmo padrao do V81-B (group server).
-    // Antes: nova conexao a cada 30s → monitor via connect+heartbeat+disconnect em loop.
-    // Agora: reutiliza gwMonConn se ainda aberta; reconecta so se caiu.
-    if (!gwMonConn || !gwMonConn.open) {
-      try {
-        gwMonConn = gwPeer.connect('K10-MON', { reliable: true });
-        gwMonConn.on('error', () => { gwMonConn = null; });
-        gwMonConn.on('close', () => { gwMonConn = null; });
-      } catch(e) { gwMonConn = null; }
-    }
-    if (!gwMonConn) return;
-    if (gwMonConn.open) {
-      try { gwMonConn.send(payload); } catch(e) {}
-    } else {
-      gwMonConn.on('open', () => { try { gwMonConn.send(payload); } catch(e) {} });
-    }
-  }, 30000);
-  // ─────────────────────────────────────────────────────────────
-
-  // Reinicia estado dos grupos
-  activeGroups = {};
-  peerGroupMap.clear();
-  gwConns.clear();
-  gidCounter = 0;
-  // Começa a aceitar conexões
-  gp.on('connection', _onClient);
-  // FIX V57: notifica o bootstrap para reconectar imediatamente ao
-  // gateway recém-eleito (resolve o race bootstrap × claim async)
-  try { if (typeof onClaimedCb === 'function') onClaimedCb(gatewayId); } catch(e) {}
-  // FIX V58: inicia descoberta cross-gateway para o Modo Geral funcionar
-  _startCrossGatewayDiscovery();
-});
-     
-
-    gp.on('error', (err) => {
-      // unavailable-id = outro ganhou a corrida — desiste silenciosamente
-      if (resolved) return;
-      resolved = true;
-      clearTimeout(failTimer);
-      console.warn('[Gateway] Falha ao reivindicar:', gatewayId, err && err.type);
-      _cleanup();
-    });
-
-    gp.on('close',        () => _cleanup());
-    gp.on('disconnected', () => { /* PeerJS reconecta automaticamente */ });
-  }
-
-  // ── Gerenciamento de grupos ───────────────────────────────────────────
-
-  // Gateways ativos do grupo — usado apenas internamente para mirror
-  function _getGatewayServers(gid) {
-    const servers = claimedId ? [claimedId] : [];
-    if (mirrorGwId && mirrorAlive && mirroredGroups.has(gid)) {
-      servers.push(mirrorGwId);
-    }
-    mirrorPrimaries.forEach((info, primaryId) => {
-      if (info.groups && info.groups[gid]) {
-        if (!servers.includes(primaryId)) servers.unshift(primaryId);
-        if (claimedId && !servers.includes(claimedId)) servers.push(claimedId);
-      }
-    });
-    return servers;
-  }
-
-  // Gera o próximo GID sequencial (AAAA, AAAB, …)
-  function _nextGid() {
-    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    let n = gidCounter++;
-    let gid = '';
-    for (let i = 0; i < 4; i++) {
-      gid = chars[n % chars.length] + gid;
-      n = Math.floor(n / chars.length);
-    }
-    return gid;
-  }
-
-  // Encontra um grupo aberto com vaga
-  function _findOpenGroup() {
-    for (const gid in activeGroups) {
-      const g = activeGroups[gid];
-      if (g.open && g.positions.length < GW_MAX_GROUP) return gid;
-    }
-    return null;
-  }
-
-  // Atribui um peer recém-conectado a um grupo, envia peer-list
-  function _doAssignPeer(conn) {
-    // Evita dupla atribuição
-    if (peerGroupMap.has(conn.peer)) return;
-    // V70: não atribuir conexões gateway-to-gateway (recruitment, sampling, etc.)
-    if (conn.peer && conn.peer.startsWith('K10-')) return;
-
-    let gid = _findOpenGroup();
-    if (!gid) {
-      gid = _nextGid();
-      activeGroups[gid] = { positions: [], open: true };
-    }
-    const group = activeGroups[gid];
-    const posIdx = group.positions.length;
-    group.positions.push(conn.peer);
-    peerGroupMap.set(conn.peer, gid);
-
-    // Envia peer-list ao novo cliente (até 20 peers do mesmo grupo)
-    const localPeers = group.positions.filter(p => p !== conn.peer).slice(0, 20);
-    // FIX V58: se grupo local pequeno, completa com peers de outros gateways
-    // (cross-gateway sampling). Permite que clientes de gateways diferentes
-    // se encontrem e se conectem diretamente via WebRTC P2P.
-    let peers = localPeers;
-    if (peers.length < 5 && crossGatewayPeers.size > 0) {
-      const crossSample = [...crossGatewayPeers]
-        .filter(id => id !== conn.peer && !group.positions.includes(id))
-        .sort(() => Math.random() - 0.5)
-        .slice(0, 20 - peers.length);
-      peers = [...peers, ...crossSample];
-    }
-    try {
-      conn.send({
-        type:  'peer-list',
-        gid:   gid,
-        peers: peers,
-        user:  GW_POSITION_LIST[posIdx] || String(posIdx),
-        count: group.positions.length
-      });
-    } catch(e) {}
-
-    // Anuncia entrada para os demais membros do grupo
-    const joinMsg = { type: 'join-update', gid, count: group.positions.length };
-    group.positions.forEach(pid => {
-      if (pid === conn.peer) return;
-      const c = gwConns.get(pid);
-      if (c && c.open) try { c.send(joinMsg); } catch(e) {}
-    });
-
-    // V70: Quando grupo atinge 2+ usuários, espelha no mirror
-    if (group.positions.length >= 2) {
-      // Estabelece mirror se ainda não temos
-      if (!mirrorGwId) _establishMirror();
-      // Adiciona grupo ao set de espelhados
-      if (!mirroredGroups.has(gid)) {
-        mirroredGroups.add(gid);
-        console.log(`[Gateway V70] Grupo ${gid} agora espelhado (${group.positions.length} users)`);
-      }
-      // Sync incremental ao mirror
-      _syncGroupToMirror(gid);
-    }
-
-    // Grupo atingiu 50? Fechar e notificar
-    if (group.positions.length >= GW_MAX_GROUP) {
-      group.open = false;
-      const fullMsg = { type: 'group-full', gid, size: group.positions.length };
-      group.positions.forEach(pid => {
-        const c = gwConns.get(pid);
-        if (c && c.open) try { c.send(fullMsg); } catch(e) {}
-      });
-      _gossipState(gid, group);
-    }
-  }
-
-  // FIX V61: Re-send peer-list for already-assigned peer.
-  // Called when group0-request arrives but the peer was already auto-assigned
-  // on open. The original peer-list may have been lost if the client's DataChannel
-  // wasn't fully ready to receive when the gateway sent it.
-  function _resendPeerList(conn) {
-    const gid = peerGroupMap.get(conn.peer);
-    if (!gid || !activeGroups[gid]) return;
-    const group = activeGroups[gid];
-    const localPeers = group.positions.filter(p => p !== conn.peer).slice(0, 20);
-    let peers = localPeers;
-    if (peers.length < 5 && crossGatewayPeers.size > 0) {
-      const crossSample = [...crossGatewayPeers]
-        .filter(id => id !== conn.peer && !group.positions.includes(id))
-        .sort(() => Math.random() - 0.5)
-        .slice(0, 20 - peers.length);
-      peers = [...peers, ...crossSample];
-    }
-    const posIdx = group.positions.indexOf(conn.peer);
-    try {
-      conn.send({
-        type:  'peer-list',
-        gid:   gid,
-        peers: peers,
-        user:  GW_POSITION_LIST[posIdx >= 0 ? posIdx : 0] || String(posIdx),
-        count: group.positions.length
-      });
-    } catch(e) {}
-  }
-
-  // Remove peer do grupo quando desconecta
-  function _onPeerLeave(peerId) {
-    const gid = peerGroupMap.get(peerId);
-    peerGroupMap.delete(peerId);
-    gwConns.delete(peerId);
-    if (!gid || !activeGroups[gid]) return;
-    const group = activeGroups[gid];
-    const idx = group.positions.indexOf(peerId);
-    if (idx !== -1) {
-      // Swap-remove para manter array denso
-      const last = group.positions.pop();
-      if (idx < group.positions.length) group.positions[idx] = last;
-    }
-
-    // V70: Sincroniza leave com mirror
-    if (mirroredGroups.has(gid)) {
-      _syncGroupToMirror(gid);
-    }
-
-    // V70: Se grupo ficou com <2 usuários, remove do espelhamento
-    if (group.positions.length < 2 && mirroredGroups.has(gid)) {
-      console.log(`[Gateway V70] Grupo ${gid} com ${group.positions.length} users — removendo do mirror`);
-      mirroredGroups.delete(gid);
-      _syncGroupToMirror(gid); // envia com 0/1 para mirror remover
-    }
-
-    // Grupo estava cheio e agora tem vaga? Reabrir e notificar
-    if (!group.open && group.positions.length < GW_MAX_GROUP) {
-      group.open = true;
-      const reopenMsg = { type: 'group-reopened', gid, size: group.positions.length };
-      group.positions.forEach(pid => {
-        const c = gwConns.get(pid);
-        if (c && c.open) try { c.send(reopenMsg); } catch(e) {}
-      });
-      _gossipState(gid, group);
-    }
-    // Anuncia saída (pex-update)
-    if (group.positions.length > 0) {
-      const leaveMsg = { type: 'pex-update', gid, user: peerId, ttl: 5 };
-      group.positions.forEach(pid => {
-        const c = gwConns.get(pid);
-        if (c && c.open) try { c.send(leaveMsg); } catch(e) {}
-      });
-    }
-    // Remove grupo vazio
-    if (group.positions.length === 0) delete activeGroups[gid];
-  }
-
-  // Propaga estado do grupo para todos os clientes conectados (gossip)
-  function _gossipState(gid, group) {
-    const syncMsg = {
-      type:      'group-state-sync',
-      gid:       gid,
-      size:      group.positions.length,
-      open:      group.open,
-      timestamp: Date.now()
-    };
-    gwConns.forEach(c => {
-      if (c && c.open) try { c.send(syncMsg); } catch(e) {}
-    });
-  }
-
-  // ── V70: Mirror Gateway — funções core ─────────────────────────────────
-  //
-  // _establishMirror(): conecta a UM outro gateway como espelho. UMA conexão
-  //   para TODOS os grupos — escala a 1000+ salas sem problema.
-  // _syncGroupToMirror(gid): envia estado de um grupo ao mirror.
-  // _syncAllGroupsToMirror(): envia estado de TODOS os grupos espelhados.
-  // _startMirrorHealth(): health check periódico.
-  // _onMirrorLost(): mirror morreu — tenta outro.
-  // _promoteMirrorToPrimary(primaryId): primary morreu — assumimos.
-  // ─────────────────────────────────────────────────────────────────────
-
-  function _establishMirror() {
-    if (!isActive || !gwPeer || gwPeer.destroyed) return;
-    if (mirrorConn && mirrorAlive) return; // já temos mirror
-
-    // Escolhe o candidato com round-robin simples (exclui a si mesmo)
-    const candidates = GATEWAY_IDS.filter(id => id !== claimedId);
-    if (candidates.length === 0) return;
-
-    let resolved = false;
-    let attempts = 0;
-
-    function _tryNextCandidate() {
-      if (resolved || attempts >= candidates.length) return;
-      const candidateId = candidates[attempts++];
-
-      let probe;
-      try { probe = gwPeer.connect(candidateId, { reliable: true }); }
-      catch(e) { _tryNextCandidate(); return; }
-      if (!probe) { _tryNextCandidate(); return; }
-
-      const t = setTimeout(() => {
-        if (resolved) return;
-        try { probe.close(); } catch(e) {}
-        _tryNextCandidate();
-      }, 6_000);
-
-      probe.on('open', () => {
-        if (resolved) { clearTimeout(t); try { probe.close(); } catch(e) {} return; }
-        // Pede para ser nosso mirror
-        try {
-          probe.send({
-            type: 'gw-mirror-request',
-            primaryId: claimedId
-          });
-        } catch(e) { clearTimeout(t); try { probe.close(); } catch(e2) {} _tryNextCandidate(); return; }
-      });
-
-      probe.on('data', d => {
-        if (resolved) return;
-        if (d && d.type === 'gw-mirror-accept') {
-          resolved = true;
-          clearTimeout(t);
-          mirrorGwId = candidateId;
-          mirrorConn = probe;
-          mirrorAlive = true;
-          mirrorLastPing = Date.now();
-          console.log(`[Gateway V70] Mirror estabelecido: ${candidateId} (1 conexão para todos os grupos)`);
-
-          // Listener de dados do mirror (pongs, relays)
-          probe.on('data', mirrorData => {
-            if (!mirrorData || !mirrorData.type) return;
-            if (mirrorData.type === 'gw-mirror-pong') {
-              mirrorLastPing = Date.now();
-            }
-            if (mirrorData.type === 'gw-mirror-relay') {
-              // Relay de mensagem vinda de cliente no mirror
-              const gid = mirrorData.gid;
-              const payload = mirrorData.payload;
-              if (payload && gid && activeGroups[gid]) {
-                activeGroups[gid].positions.forEach(pid => {
-                  if (pid === mirrorData.originPeer) return;
-                  const c = gwConns.get(pid);
-                  if (c && c.open) try { c.send(payload); } catch(e) {}
-                });
-              }
-            }
-          });
-
-          // Listener de desconexão
-          probe.on('close', () => _onMirrorLost());
-          probe.on('error', () => _onMirrorLost());
-
-          // Sync inicial completo de todos os grupos
-          _syncAllGroupsToMirror();
-          // Inicia health check
-          if (!mirrorHealthTimer) _startMirrorHealth();
-          return;
-        }
-        if (d && d.type === 'gw-mirror-reject') {
-          clearTimeout(t);
-          try { probe.close(); } catch(e) {}
-          _tryNextCandidate();
-        }
-      });
-
-      probe.on('error', () => {
-        if (resolved) return;
-        clearTimeout(t);
-        _tryNextCandidate();
-      });
-    }
-
-    _tryNextCandidate();
-  }
-
-  function _syncGroupToMirror(gid) {
-    if (!mirrorConn || !mirrorConn.open || !mirrorAlive) return;
-    const group = activeGroups[gid];
-    try {
-      mirrorConn.send({
-        type: 'gw-mirror-sync',
-        gid: gid,
-        positions: group ? group.positions.slice() : [],
-        count: group ? group.positions.length : 0,
-        active: mirroredGroups.has(gid)
-      });
-    } catch(e) { console.warn('[Gateway V70] Falha ao sincronizar grupo', gid, e); }
-  }
-
-  function _syncAllGroupsToMirror() {
-    if (!mirrorConn || !mirrorConn.open) return;
-    const allGroups = {};
-    for (const gid of mirroredGroups) {
-      if (activeGroups[gid]) {
-        allGroups[gid] = activeGroups[gid].positions.slice();
-      }
-    }
-    try {
-      mirrorConn.send({
-        type: 'gw-mirror-full-sync',
-        primaryId: claimedId,
-        groups: allGroups
-      });
-    } catch(e) { console.warn('[Gateway V70] Falha no full-sync ao mirror', e); }
-  }
-
-  function _onMirrorLost() {
-    if (!mirrorGwId) return;
-    console.log(`[Gateway V70] Mirror ${mirrorGwId} perdido — tentando outro`);
-    const lostId = mirrorGwId;
-    mirrorGwId = null;
-    mirrorConn = null;
-    mirrorAlive = false;
-    // Tenta estabelecer novo mirror após 3s
-    setTimeout(() => {
-      if (isActive && mirroredGroups.size > 0) _establishMirror();
-    }, 3_000);
-  }
-
-  function _startMirrorHealth() {
-    if (mirrorHealthTimer) return;
-    mirrorHealthTimer = setInterval(() => {
-      const now = Date.now();
-
-      // PRIMARY → ping mirror
-      if (mirrorConn && mirrorConn.open && mirrorAlive) {
-        try { mirrorConn.send({ type: 'gw-mirror-ping' }); } catch(e) {}
-        if (now - mirrorLastPing > GW_MIRROR_TIMEOUT) {
-          console.warn(`[Gateway V70] Mirror ${mirrorGwId} timeout`);
-          _onMirrorLost();
-        }
-      }
-
-      // MIRROR → ping primaries
-      mirrorPrimaries.forEach((info, primaryId) => {
-        if (info.conn && info.conn.open) {
-          try { info.conn.send({ type: 'gw-mirror-ping' }); } catch(e) {}
-        }
-        if (now - (info.lastPing || 0) > GW_MIRROR_TIMEOUT) {
-          console.warn(`[Gateway V70] Primary ${primaryId} timeout — promovendo`);
-          _promoteMirrorToPrimary(primaryId);
-        }
-      });
-
-      // Se não temos papel dual, parar timer
-      if (!mirrorGwId && mirrorPrimaries.size === 0) {
-        clearInterval(mirrorHealthTimer);
-        mirrorHealthTimer = null;
-      }
-    }, GW_MIRROR_PING_MS);
-
-    // SYNC periódico — envia estado completo ao mirror a cada ciclo
-    if (!mirrorSyncTimer) {
-      mirrorSyncTimer = setInterval(() => {
-        if (mirrorConn && mirrorConn.open && mirrorAlive) {
-          _syncAllGroupsToMirror();
-        }
-      }, GW_MIRROR_SYNC_MS);
-    }
-  }
-
-  function _promoteMirrorToPrimary(primaryId) {
-    const info = mirrorPrimaries.get(primaryId);
-    if (!info) return;
-    console.log(`[Gateway V70] PROMOÇÃO: assumindo ${Object.keys(info.groups || {}).length} grupos do primary ${primaryId}`);
-    // Migra todos os grupos para activeGroups
-    for (const gid in (info.groups || {})) {
-      const positions = info.groups[gid] || [];
-      if (!activeGroups[gid] && positions.length > 0) {
-        activeGroups[gid] = { positions: positions, open: positions.length < GW_MAX_GROUP };
-        positions.forEach(pid => peerGroupMap.set(pid, gid));
-        if (positions.length >= 2) mirroredGroups.add(gid);
-      }
-    }
-    // Limpa
-    try { if (info.conn && info.conn.open) info.conn.close(); } catch(e) {}
-    mirrorPrimaries.delete(primaryId);
-
-    // FIX V105: Após promoção, envia gateway-promoted a todos os clientes dos grupos herdados.
-    // Os clientes reconectam ao novo gateway (nós) imediatamente.
-    // Sem isso, os clientes ficam conectados ao primary morto para sempre.
-    for (const gid in (info.groups || {})) {
-      if (!activeGroups[gid]) continue;
-      const promotionMsg = {
-        type:         'gateway-promoted',
-        newGatewayId: claimedId,
-        gid:          gid,
-      };
-      activeGroups[gid].positions.forEach(pid => {
-        const c = gwConns.get(pid);
-        if (c && c.open) try { c.send(promotionMsg); } catch(e) {}
-      });
-      addAudit && console.log(`[Gateway V105] Promoção broadcast para grupo ${gid}: ${activeGroups[gid].positions.length} cliente(s)`);
-    }
-
-    // Estabelece novo mirror IMEDIATAMENTE (nao espera 3s) — garante sempre ter backup
-    if (mirroredGroups.size > 0 && !mirrorGwId) {
-      _establishMirror();
-    }
-  }
-
-  // ── Cross-gateway peer discovery (FIX V58) ───────────────────────────
-  //
-  // Problema: cada gateway elege-se de forma independente e cria grupos
-  // isolados. Peers em gateways diferentes nunca se descobrem.
-  //
-  // Solução: gwPeer sonda 3 gateways aleatórios via DataConnection, envia
-  // gw-peer-sample-request e armazena os IDs recebidos em crossGatewayPeers.
-  // Quando um novo cliente conecta e o grupo local está vazio, esses IDs são
-  // incluídos no peer-list — o cliente os conecta diretamente via WebRTC.
-  // ─────────────────────────────────────────────────────────────────────────
-
-  // FIX V62: intervalo adaptativo — primeiros ciclos rápidos (5s), depois estável (30s).
-  // Cobre a janela de entrada de novos peers sem sobrecarregar a rede no longo prazo.
-  let _discovCycle = 0; // conta ciclos para controle do intervalo adaptativo
-
-  function _startCrossGatewayDiscovery() {
-    _discovCycle = 0;
-    if (crossGwDiscovTimer) { clearTimeout(crossGwDiscovTimer); crossGwDiscovTimer = null; }
-    // Primeiro sample logo após o claim (aguarda gateways vizinhos subirem)
-    crossGwDiscovTimer = setTimeout(_runDiscoveryCycle, 4_000);
-  }
-
-  function _runDiscoveryCycle() {
-    crossGwDiscovTimer = null;
-    if (!isActive) return;
-    _discoverCrossGatewayPeers();
-    _discovCycle++;
-    // Primeiros 3 ciclos a cada 5s (cobre janela de entrada); depois 30s
-    const nextMs = _discovCycle < 3 ? 5_000 : 30_000;
-    crossGwDiscovTimer = setTimeout(_runDiscoveryCycle, nextMs);
-  }
-
-  function _discoverCrossGatewayPeers() {
-    if (!isActive || !gwPeer || gwPeer.destroyed) return;
-    const prevSize = crossGatewayPeers.size;
-    // Sonda 3 gateways aleatórios (excluindo o próprio)
-    const targets = GATEWAY_IDS
-      .filter(id => id !== claimedId)
-      .sort(() => Math.random() - 0.5)
-      .slice(0, 3);
-
-    // FIX V62: após todos os probes terminarem, se crossGatewayPeers cresceu,
-    // empurra peer-list atualizado para clientes já conectados com grupo pequeno.
-    let pending = targets.length;
-    function _onProbesDone() {
-      if (crossGatewayPeers.size > prevSize) {
-        console.log(`[Gateway] Cross-discovery: ${crossGatewayPeers.size - prevSize} novos peers — pushing peer-list para clientes existentes`);
-        gwConns.forEach(c => {
-          if (!c || !c.open) return;
-          const gid = peerGroupMap.get(c.peer);
-          if (!gid || !activeGroups[gid]) return;
-          // Só envia se o grupo local é pequeno (beneficia de cross-peers)
-          if (activeGroups[gid].positions.length < 5) {
-            _resendPeerList(c);
-          }
-        });
-      }
-    }
-
-    targets.forEach(gwTargetId => {
-      let resolved = false;
-      let probe;
-      try { probe = gwPeer.connect(gwTargetId, { reliable: true }); }
-      catch(e) { pending--; if (pending === 0) _onProbesDone(); return; }
-      if (!probe) { pending--; if (pending === 0) _onProbesDone(); return; }
-
-      const t = setTimeout(() => {
-        if (resolved) return;
-        resolved = true;
-        try { probe.close(); } catch(e) {}
-        pending--; if (pending === 0) _onProbesDone();
-      }, 6_000);
-
-      probe.on('open', () => {
-        if (resolved) return;
-        // Solicita amostra de peers do gateway remoto
-        try { probe.send({ type: 'gw-peer-sample-request' }); } catch(e) {}
-      });
-
-      probe.on('data', d => {
-        if (resolved) return;
-        // Aguarda especificamente gw-peer-sample-response (ignora peer-list etc.)
-        if (d && d.type === 'gw-peer-sample-response' && Array.isArray(d.peers)) {
-          resolved = true;
-          clearTimeout(t);
-          d.peers.forEach(id => {
-            if (id && typeof id === 'string' && !id.startsWith('K10-')) {
-              crossGatewayPeers.add(id);
-            }
-          });
-          console.log(`[Gateway] Cross-sample de ${gwTargetId}: +${d.peers.length} peers (total: ${crossGatewayPeers.size})`);
-          try { probe.close(); } catch(e) {}
-          pending--; if (pending === 0) _onProbesDone();
-        }
-      });
-
-      probe.on('error', () => {
-        clearTimeout(t);
-        if (resolved) return;
-        resolved = true;
-        pending--; if (pending === 0) _onProbesDone();
-        try { probe.close(); } catch(e) {}
-      });
-      probe.on('close', () => { clearTimeout(t); });
-    });
-  }
-
-  // ── Handlers de conexão ───────────────────────────────────────────────
-
-  function _onClient(conn) {
-    gwConns.set(conn.peer, conn);
-    // FIX V61: handle race where conn is already open when _onClient runs.
-    // In some PeerJS timing scenarios, the DataConnection's open event fires
-    // before the connection event handler sets up the listener, causing
-    // _doAssignPeer to never be called and peer-list to never be sent.
-    if (conn.open) {
-      _doAssignPeer(conn);
-    } else {
-      conn.on('open',  () => _doAssignPeer(conn));
-    }
-    conn.on('data',  data => _onData(conn, data));
-    conn.on('close', ()   => _onPeerLeave(conn.peer));
-    conn.on('error', ()   => _onPeerLeave(conn.peer));
-  }
-
-  function _onData(conn, data) {
-    if (!data || !data.type) return;
-
-    // FIX V58: Cross-gateway peer sampling — outro gateway sonda nossos peers.
-    // Responde com até 10 IDs reais (não-K10), depois remove o probe do grupo
-    // e fecha a conexão para não poluir os grupos locais.
-    if (data.type === 'gw-peer-sample-request') {
-      const allPeers = [...peerGroupMap.keys()].filter(id => id !== conn.peer && !id.startsWith('K10-'));
-      const sample   = allPeers.sort(() => Math.random() - 0.5).slice(0, 10);
-      try { conn.send({ type: 'gw-peer-sample-response', peers: sample }); } catch(e) {}
-      // Remove o probe do grupo (foi auto-atribuído no open) e fecha a conexão
-      _onPeerLeave(conn.peer);
-      setTimeout(() => { try { conn.close(); } catch(e) {} }, 800);
-      return;
-    }
-
-    // ── V70: Protocolo mirror gateway ───────────────────────────────────
-    // Outro gateway quer que nós sejamos seu mirror (UMA conexão → todos os grupos)
-    if (data.type === 'gw-mirror-request') {
-      const primaryId = data.primaryId;
-      console.log(`[Gateway V70] Mirror request de ${primaryId}`);
-      // Aceitar sempre (sem limite — é apenas 1 conexão)
-      try { conn.send({ type: 'gw-mirror-accept', mirrorId: claimedId }); } catch(e) {}
-
-      mirrorPrimaries.set(primaryId, {
-        conn: conn,
-        groups: {},
-        lastPing: Date.now()
-      });
-
-      // Escuta desconexão do primary
-      conn.on('close', () => {
-        console.log(`[Gateway V70] Primary ${primaryId} desconectou`);
-        // Timeout irá detectar e promover se necessário
-        const info = mirrorPrimaries.get(primaryId);
-        if (info) info.conn = null;
-      });
-
-      // Inicia health check se não rodando
-      if (!mirrorHealthTimer) _startMirrorHealth();
-      return;
-    }
-    if (data.type === 'gw-mirror-reject') return; // noop, tratado no callback
-
-    // Sync incremental: um grupo mudou no primary
-    if (data.type === 'gw-mirror-sync') {
-      const senderId = conn.peer;
-      const info = mirrorPrimaries.get(senderId);
-      if (info) {
-        info.lastPing = Date.now();
-        if (data.active && data.positions && data.positions.length > 0) {
-          info.groups[data.gid] = data.positions;
-        } else {
-          delete info.groups[data.gid]; // grupo removido do espelhamento
-        }
-      }
-      return;
-    }
-
-    // Sync completo: todos os grupos do primary de uma vez
-    if (data.type === 'gw-mirror-full-sync') {
-      const primaryId = data.primaryId || conn.peer;
-      const info = mirrorPrimaries.get(primaryId);
-      if (info) {
-        info.groups = data.groups || {};
-        info.lastPing = Date.now();
-        console.log(`[Gateway V70] Full-sync de ${primaryId}: ${Object.keys(info.groups).length} grupos espelhados`);
-      }
-      return;
-    }
-
-    // Pings de health
-    if (data.type === 'gw-mirror-ping') {
-      // Atualizar lastPing
-      const info = mirrorPrimaries.get(conn.peer);
-      if (info) info.lastPing = Date.now();
-      if (conn.peer === mirrorGwId) mirrorLastPing = Date.now();
-      try { conn.send({ type: 'gw-mirror-pong' }); } catch(e) {}
-      return;
-    }
-    if (data.type === 'gw-mirror-pong') {
-      const info = mirrorPrimaries.get(conn.peer);
-      if (info) info.lastPing = Date.now();
-      if (conn.peer === mirrorGwId) mirrorLastPing = Date.now();
-      return;
-    }
-
-    // Relay de mensagem (mirror → primary)
-    if (data.type === 'gw-mirror-relay') {
-      // Já tratado no listener da mirrorConn em _establishMirror
-      return;
-    }
-    // ── Fim V70 ────────────────────────────────────────────────────────
-
-    // Bootstrap explícito
-    if (data.type === 'group0-request') {
-      // FIX V61: If peer was already assigned (auto-assign on open worked but
-      // peer-list was lost because client DataChannel wasn't fully ready),
-      // re-send the peer-list instead of silently returning.
-      if (peerGroupMap.has(conn.peer)) {
-        _resendPeerList(conn);
-      } else {
-        _doAssignPeer(conn);
-      }
-      return;
-    }
-
-    // Handshake silencioso
-    if (data.type === 'handshake') {
-      try { conn.send({ type: 'handshake', peerId: claimedId }); } catch(e) {}
-      return;
-    }
-
-    // Novo gateway solicitando estado completo (sincronização inicial)
-    if (data.type === 'state-request') {
-      try {
-        conn.send({ type: 'state-response', groups: activeGroups, timestamp: Date.now() });
-      } catch(e) {}
-      return;
-    }
-
-    // Relay de mensagens dentro do grupo (broadcast e diretas) com TTL
-    if (data.type === 'message' || data.type === 'youtube-chat-start' ||
-        data.type === 'youtube-chat-stop' || data.type === 'radio-start' ||
-        data.type === 'radio-chunk') {
-      const rawTtl = typeof data.ttl === 'number' ? data.ttl : 8;
-      const ttl    = Math.min(Math.max(0, rawTtl), 15);
-      if (ttl <= 0) return;
-      const relay = Object.assign({}, data, { ttl: ttl - 1 });
-      if (data.direct && data.recipient) {
-        const target = gwConns.get(data.recipient);
-        if (target && target.open && data.recipient !== conn.peer) {
-          try { target.send(relay); } catch(e) {}
-        }
-        return;
-      }
-      // Broadcast apenas para membros do mesmo grupo
-      const gid = peerGroupMap.get(conn.peer);
-      if (gid && activeGroups[gid]) {
-        activeGroups[gid].positions.forEach(pid => {
-          if (pid === conn.peer) return;
-          const c = gwConns.get(pid);
-          if (c && c.open) try { c.send(relay); } catch(e) {}
-        });
-      }
-    }
-  }
-
-  // ── Limpeza ───────────────────────────────────────────────────────────
-  function _cleanup() {
-    // FIX V105: antes de fechar, envia emergency-peer-list para cada cliente
-    // para que se conectem P2P diretamente uns aos outros.
-    // Isso garante que os usuários NÃO caiam quando o gateway encerra.
-    try {
-      for (const gid in activeGroups) {
-        const group = activeGroups[gid];
-        if (!group || group.positions.length < 2) continue;
-        group.positions.forEach(pid => {
-          const c = gwConns.get(pid);
-          if (!c || !c.open) return;
-          const peers = group.positions.filter(p => p !== pid).slice(0, 20);
-          try {
-            c.send({
-              type: 'peer-list',
-              gid: gid,
-              peers: peers,
-              emergency: true,  // sinaliza que é reconexão de emergência
-              count: group.positions.length
-            });
-          } catch(e) {}
-        });
-      }
-    } catch(e) {}
-    // FIX V81-C: fecha conexao persistente ao monitor ao limpar o gateway
-    try { if (gwMonConn && gwMonConn.open) gwMonConn.close(); } catch(e) {}
-    gwMonConn = null;
-    if (gwPeer && !gwPeer.destroyed) { try { gwPeer.destroy(); } catch(e) {} }
-    gwPeer              = null;
-    isActive            = false;
-    claimInProgress     = false;  // FIX V57: libera flag ao limpar estado
-    claimedId           = null;
-    activeGroups        = {};
-    peerGroupMap.clear();
-    gwConns.clear();
-    // FIX V58: limpa estado cross-gateway
-    crossGatewayPeers.clear();
-    if (crossGwDiscovTimer) { clearTimeout(crossGwDiscovTimer); crossGwDiscovTimer = null; }
-    _discovCycle = 0;
-    // V70: limpa estado mirror
-    try { if (mirrorConn && mirrorConn.open) mirrorConn.close(); } catch(e) {}
-    mirrorGwId = null; mirrorConn = null; mirrorAlive = false;
-    mirroredGroups.clear();
-    mirrorPrimaries.forEach(info => { try { if (info.conn && info.conn.open) info.conn.close(); } catch(e) {} });
-    mirrorPrimaries.clear();
-    if (mirrorHealthTimer) { clearInterval(mirrorHealthTimer); mirrorHealthTimer = null; }
-    if (mirrorSyncTimer)   { clearInterval(mirrorSyncTimer);   mirrorSyncTimer = null; }
-  }
-
-  return {
-    init, tryClaim,
-    get isActive()  { return isActive; },
-    get claimedId() { return claimedId; },
-    // V70: expõe estado mirror para debugging/monitor
-    get mirrorGwId()        { return mirrorGwId; },
-    get mirrorAlive()       { return mirrorAlive; },
-    get mirroredGroups()    { return mirroredGroups; },
-    get mirrorPrimaries()   { return mirrorPrimaries; }
-  };
-})();
 
 
 
