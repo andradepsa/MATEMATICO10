@@ -2159,7 +2159,7 @@ const K10_POSITION_LIST = (() => {
 // ══════════════════════════════════════════════════════════════════════════════
 // Homeostase removida — grupos gerenciados pelo gateway (doAssignPeer + close).
 // GATEWAY_IDS: 5 gateways para bootstrap
-const GATEWAY_IDS = ['K10-GATE-0001','K10-GATE-0002','K10-GATE-0003','K10-GATE-0004','K10-GATE-0005'];
+const GATEWAY_IDS = []; /* PHASE1: gateway K10 desligado, transporte agora é Matrix DM */
 
 // Verifica se um peerId tem formato K10 válido
 
@@ -3482,9 +3482,15 @@ const handleVote = (pollId, optionIndex) => {
 
   // FIX N-4 V20: era connections (stale closure) → connectionsRef.current
   if (selectedContact && (!isCentralServer(selectedContact) || (serverE2EE && serverE2EE[selectedContact]?.active))) {
-    const conn = connectionsRef.current.find(c => c.peer === selectedContact);
-    if (conn && conn.open) conn.send({ ...voteData, direct: true });
+    const payload = { ...voteData, direct: true };
+    if (window.MxDM && window.MxDM.canSend && window.MxDM.canSend(selectedContact)) {
+      window.MxDM.send(selectedContact, payload).catch(e => console.warn('[MxDM] poll-vote send error:', e));
+    } else {
+      const conn = connectionsRef.current.find(c => c.peer === selectedContact);
+      if (conn && conn.open) conn.send(payload);
+    }
   } else {
+    if (window.MxDM && window.MxDM.broadcast) window.MxDM.broadcast({ ...voteData, direct: false }).catch(e => console.warn('[MxDM] poll-vote broadcast error:', e));
     connectionsRef.current.forEach(c => { if (c.open) try { c.send({ ...voteData, direct: false }); } catch(e){} });
   }
 };
@@ -3526,9 +3532,15 @@ const handleQuizAnswer = (quizId, optionIndex) => {
 
   // FIX N-5 V20: era connections (stale closure) → connectionsRef.current
   if (selectedContact && (!isCentralServer(selectedContact) || (serverE2EE && serverE2EE[selectedContact]?.active))) {
-    const conn = connectionsRef.current.find(c => c.peer === selectedContact);
-    if (conn && conn.open) conn.send({ ...answerData, direct: true });
+    const payload = { ...answerData, direct: true };
+    if (window.MxDM && window.MxDM.canSend && window.MxDM.canSend(selectedContact)) {
+      window.MxDM.send(selectedContact, payload).catch(e => console.warn('[MxDM] quiz-answer send error:', e));
+    } else {
+      const conn = connectionsRef.current.find(c => c.peer === selectedContact);
+      if (conn && conn.open) conn.send(payload);
+    }
   } else {
+    if (window.MxDM && window.MxDM.broadcast) window.MxDM.broadcast({ ...answerData, direct: false }).catch(e => console.warn('[MxDM] quiz-answer broadcast error:', e));
     connectionsRef.current.forEach(c => { if (c.open) try { c.send({ ...answerData, direct: false }); } catch(e){} });
   }
 };
@@ -3562,6 +3574,8 @@ const canSendPrivate = selectedContact && !!e2eeState[selectedContact]?.mySecret
 const hasAnyE2EE = selectedContact && (!!e2eeState[selectedContact]?.mySecret || !!e2eeState[selectedContact]?.contactSecret);
 const selectedIsServer = selectedContact && isCentralServer(selectedContact);
 const serverGroupActive = selectedIsServer && serverE2EE[selectedContact]?.active;
+const selectedMatrixReachable = !!(selectedContact && window.MxDM && window.MxDM.canSend && window.MxDM.canSend(selectedContact));
+const selectedPeerReachable = !!(selectedContact && (selectedMatrixReachable || connections.some(c => c.peer === selectedContact && c.open)));
 
 
 const filteredMessages = useMemo(() => {
@@ -3778,7 +3792,8 @@ if (selectedContact) {
   // Se o libp2p estiver online, permitimos tentar o envio mesmo sem conexão PeerJS direta imediata
   const conn = connectionsRef.current.find(c => c.peer === selectedContact);
   const libp2pAvailable = libp2pRef.current && libp2pStatus === 'online';
-  if ((!conn || !conn.open) && !libp2pAvailable) { 
+  const matrixAvailable = !!(window.MxDM && window.MxDM.canSend && window.MxDM.canSend(selectedContact));
+  if ((!conn || !conn.open) && !libp2pAvailable && !matrixAvailable) { 
     alert(t(lang, 'contactOffline', { name: getContactName(selectedContact) })); 
     return; 
   }
@@ -3821,20 +3836,28 @@ const sendConn = conn || fallbackConn;
 const msgPayload = { type: 'message', id: msgId, ttl: 15, text: textToSend, sender: peerId, senderName: userName, recipient: selectedContact, direct: true, time: formatTime(timestamp) };
 
 let directSent = false;
-// Prioridade Libp2p para DM (via tópico privado)
-if (libp2pRef.current && libp2pStatus === 'online') {
+// FASE 2/3: Matrix DM é o transporte primário user↔user.
+if (window.MxDM && window.MxDM.canSend && window.MxDM.canSend(selectedContact)) {
+  try {
+    await window.MxDM.send(selectedContact, msgPayload);
+    directSent = true;
+    addAudit(`[MxDM] DM Out: ${msgId.slice(0,8)} → ${selectedContact}`, 'success');
+  } catch(e) { console.warn('[MxDM] send error:', e); }
+}
+
+// Libp2p fica apenas como fallback legado, nunca como base do privado.
+if (!directSent && libp2pRef.current && libp2pStatus === 'online') {
   try {
     await libp2pRef.current.services.pubsub.publish(`k10-private-${selectedContact}`, new TextEncoder().encode(JSON.stringify(msgPayload)));
     directSent = true;
-    addAudit(`[libp2p] DM Out: ${msgId.slice(0,8)}`, 'success');
+    addAudit(`[libp2p] DM fallback Out: ${msgId.slice(0,8)}`, 'success');
   } catch(e) { console.warn('[libp2p] Private DM Publish error:', e); }
 }
-
-// Fallback PeerJS
+// Fallback PeerJS (mantido para WebRTC voz/vídeo/arquivos da Fase 3)
 if (!directSent && sendConn) {
   sendConn.send(msgPayload);
 } else if (!directSent && !sendConn) {
-  throw new Error('No connection available (PeerJS/libp2p) to send private message.');
+  throw new Error('No connection available (Matrix/PeerJS/libp2p) to send private message.');
 }
 
 const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
@@ -4246,9 +4269,9 @@ return (
 
 <div className="chat-input-container">
 <VoiceRecorder lang={lang} onRecordingComplete={handleAudioRecording}
-disabled={!selectedContact || isCentralServer(selectedContact) || !connections.some(c => c.peer === selectedContact)} selectedContact={selectedContact} />
+disabled={!selectedContact || isCentralServer(selectedContact) || !selectedPeerReachable} selectedContact={selectedContact} />
 <button className="icon-btn" onClick={() => fileInputRef.current.click()}
-disabled={!selectedContact || isCentralServer(selectedContact) || !connections.some(c => c.peer === selectedContact)} title={t(lang, 'attachFile')}>
+disabled={!selectedContact || isCentralServer(selectedContact) || !selectedPeerReachable} title={t(lang, 'attachFile')}>
 <i className="fas fa-paperclip"></i>
 </button>
 <button className={`private-mode-toggle${hasAnyE2EE && !selectedIsServer ? ' active' : ''}`}
@@ -4290,13 +4313,13 @@ placeholder={inputStatus.placeholder}
 maxLength={2000}
 onKeyPress={e => { if (e.key === 'Enter' && cooldownRemaining === 0) sendDirectMessage(); }}
 className="message-input"
-disabled={cooldownRemaining > 0 || (selectedContact ? !connections.some(c => c.peer === selectedContact) : false)}
+disabled={cooldownRemaining > 0 || (selectedContact ? !selectedPeerReachable : false)}
 style={inputStatus.style}
 />
 {showEmojiPanel && populateEmojiPanel()}
 </div>
 <button className="send-btn" onClick={sendDirectMessage}
-disabled={!newMessage.trim() || cooldownRemaining > 0 || isSending || (selectedContact ? !connections.some(c => c.peer === selectedContact) : false)}
+disabled={!newMessage.trim() || cooldownRemaining > 0 || isSending || (selectedContact ? !selectedPeerReachable : false)}
 title={t(lang, 'sendMessage')}>
 {isSending ? <i className="fas fa-spinner fa-spin"></i> : (cooldownRemaining > 0 ? `${cooldownRemaining}s` : <i className="fas fa-paper-plane"></i>)}
 </button>
@@ -6274,6 +6297,7 @@ const bootstrapDoneRef = useRef(false);
 // antiga de handleIncomingData (com isPeerInitialized=false), fazendo connectToPeer retornar
 // antes de conectar os peers do Modo Geral. Com o ref, sempre usamos a versão fresca.
 const handleIncomingDataRef = useRef(null);
+useEffect(() => { window.handleIncomingDataRef = handleIncomingDataRef; }, []);
 const [pendingTorrentRequests, setPendingTorrentRequests] = useState({});
 const [radioState, setRadioState] = useState({
 status: 'idle',
@@ -6475,10 +6499,16 @@ const handlePollCreated = (question, options) => {
 
   // FIX N-3 V20: era connections (stale closure) → connectionsRef.current
   if (selectedContact && (!isCentralServer(selectedContact) || (serverE2EE && serverE2EE[selectedContact]?.active))) {
-    const conn = connectionsRef.current.find(c => c.peer === selectedContact);
-    if (conn && conn.open) conn.send({ ...msgData, direct: true });
-    setMessages(prev => [...prev, { ...msgData, sender: 'you', recipient: selectedContact }].slice(-500));
+    const payload = { ...msgData, direct: true };
+    if (window.MxDM && window.MxDM.canSend && window.MxDM.canSend(selectedContact)) {
+      window.MxDM.send(selectedContact, payload).catch(e => console.warn('[MxDM] poll-create send error:', e));
+    } else {
+      const conn = connectionsRef.current.find(c => c.peer === selectedContact);
+      if (conn && conn.open) conn.send(payload);
+    }
+    setMessages(prev => [...prev, { ...msgData, sender: 'you', recipient: selectedContact, direct: true }].slice(-500));
   } else {
+    if (window.MxDM && window.MxDM.broadcast) window.MxDM.broadcast({ ...msgData, direct: false }).catch(e => console.warn('[MxDM] poll-create broadcast error:', e));
     connectionsRef.current.forEach(c => { if (c.open) try { c.send({ ...msgData, direct: false }); } catch(e){} });
     setMessages(prev => [...prev, { ...msgData, sender: 'you', recipient: 'general' }].slice(-500));
     // ── MODO GERAL NOVO: injeta notificação no overlay Matrix ──
@@ -6572,9 +6602,13 @@ const sendQuizQuestion = (quizData) => {
   };
 
   if (target) {
-    const conn = connectionsRef.current.find(c => c.peer === target && c.open);
-    if (conn) try { conn.send(wireMsg); } catch(e) { console.error('Quiz send error', e); }
-    setMessages(prev => [...prev, localMsg].slice(-500));
+    if (window.MxDM && window.MxDM.canSend && window.MxDM.canSend(target)) {
+      window.MxDM.send(target, { ...wireMsg, direct: true, recipient: target, sender: peerIdRef.current || peerId }).catch(e => console.warn('[MxDM] quiz send error:', e));
+    } else {
+      const conn = connectionsRef.current.find(c => c.peer === target && c.open);
+      if (conn) try { conn.send(wireMsg); } catch(e) { console.error('Quiz send error', e); }
+    }
+    setMessages(prev => [...prev, { ...localMsg, direct: true, recipient: target }].slice(-500));
   } else {
     connectionsRef.current.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
     setMessages(prev => [...prev, localMsg].slice(-500));
@@ -6622,8 +6656,12 @@ const sendQuizReveal = (quizId) => {
     };
 
     if (target) {
-      const conn = connectionsRef.current.find(c => c.peer === target && c.open);
-      if (conn) try { conn.send(wireMsg); } catch(e) {}
+      if (window.MxDM && window.MxDM.canSend && window.MxDM.canSend(target)) {
+        window.MxDM.send(target, { ...wireMsg, direct: true, recipient: target, sender: peerIdRef.current || peerId }).catch(e => console.warn('[MxDM] quiz reveal error:', e));
+      } else {
+        const conn = connectionsRef.current.find(c => c.peer === target && c.open);
+        if (conn) try { conn.send(wireMsg); } catch(e) {}
+      }
     } else {
       connectionsRef.current.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
     }
@@ -6962,6 +7000,7 @@ const audioRefs = useRef({});
 const videoRefs = useRef({});
 const localVideoRef = useRef(null);
 const localStreamsRef = useRef(new Map());
+const matrixRtcRef = useRef(new Map());
 const seenMessagesRef = useRef(new Set());
 // FIX V45-SEENPRUNE: seenMessagesRef principal não tinha limite — podia crescer
 // indefinidamente em sessões longas (8h+). Limite de 4000 entradas com limpeza
@@ -7106,10 +7145,12 @@ const handleAvatarChange = (e) => {
       setUserAvatar(base64);
       localStorage.setItem('p2pUserAvatar', base64);
       
-      // Notify all connected peers about the new avatar
+      // Notify all mapped Matrix DMs and connected peers about the new avatar
+      const avatarPayload = { type: 'avatar-update', peerId, avatar: base64 };
+      if (window.MxDM && window.MxDM.broadcast) window.MxDM.broadcast(avatarPayload).catch(err => console.warn('[MxDM] avatar broadcast error:', err));
       connectionsRef.current.forEach(conn => {
         if (conn.open) {
-          try { conn.send({ type: 'avatar-update', peerId, avatar: base64 }); } catch(err) {}
+          try { conn.send(avatarPayload); } catch(err) {}
         }
       });
     };
@@ -7203,12 +7244,103 @@ return sent;
 };
 
 const p2pBroadcast = (payload) => {
-  // Envio via PeerJS (conexões diretas P2P continuam funcionando)
+  // Matrix DM também participa dos broadcasts de ferramentas/sync, sem gateway/grupo K10.
+  if (window.MxDM && window.MxDM.broadcast) {
+    try { window.MxDM.broadcast(payload).catch(e => console.warn('[MxDM] broadcast error:', e)); } catch(e) {}
+  }
+  // Envio via PeerJS permanece só como fallback direto quando existir DataChannel aberto.
   connectionsRef.current.forEach(conn => {
     if (conn.open) {
       try { conn.send(payload); } catch(e) {}
     }
   });
+};
+
+const matrixRtcKey = (pId, callType) => `${pId}:${callType || 'video'}`;
+const matrixRtcConfig = () => ({
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+  ],
+  iceTransportPolicy: 'all', bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require'
+});
+
+const createMatrixRtcPeer = (remotePeerId, callType, localStream) => {
+  const pc = new RTCPeerConnection(matrixRtcConfig());
+  const key = matrixRtcKey(remotePeerId, callType);
+  matrixRtcRef.current.set(key, pc);
+  pc.onicecandidate = (ev) => {
+    if (ev.candidate) {
+      p2pSendDirect(remotePeerId, { type: 'matrix-rtc-ice', callType, candidate: ev.candidate.toJSON ? ev.candidate.toJSON() : ev.candidate });
+    }
+  };
+  pc.ontrack = (ev) => {
+    const stream = ev.streams && ev.streams[0] ? ev.streams[0] : new MediaStream([ev.track]);
+    setRemoteStreams(prev => [...prev.filter(s => !(s.peerId === remotePeerId && s.type === callType)), { peerId: remotePeerId, stream, type: callType }]);
+  };
+  pc.onconnectionstatechange = () => {
+    if (['failed','closed','disconnected'].includes(pc.connectionState)) {
+      matrixRtcRef.current.delete(key);
+      if (pc.connectionState !== 'disconnected') endCall(remotePeerId, callType);
+    }
+  };
+  if (localStream) localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+  const call = { peer: remotePeerId, metadata: { type: callType, via: 'matrix' }, __matrixRtc: true, close: () => { try { pc.close(); } catch(e) {} } };
+  return { pc, call };
+};
+
+const startMatrixRtcCall = async (remotePeerId, callType, localStream) => {
+  const { pc, call } = createMatrixRtcPeer(remotePeerId, callType, localStream);
+  setActiveCalls(prev => [...prev.filter(c => !(c.peerId === remotePeerId && c.type === callType)), { peerId: remotePeerId, call, localStream, type: callType, direction: 'outgoing', isTemporaryStream: false }]);
+  const offer = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+  await p2pSendDirect(remotePeerId, { type: 'matrix-rtc-offer', callType, sdp: offer, senderName: userNameRef.current || userName, time: formatTime(new Date()) });
+  return call;
+};
+
+const handleMatrixRtcSignal = async (data, pId) => {
+  const callType = data.callType || 'video';
+  const key = matrixRtcKey(pId, callType);
+  if (data.type === 'matrix-rtc-offer') {
+    if (!directPeersRef.current.has(pId)) {
+      directPeersRef.current.add(pId);
+      setDirectPeers(prev => { const s = new Set(prev); s.add(pId); return s; });
+    }
+    const constraints = callType === 'voice' ? { audio: true, video: false } : { audio: true, video: true };
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    localStreamsRef.current.set(pId + '_' + callType, stream);
+    if (callType === 'video') {
+      setIsLocalVideoVisible(true);
+      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+    }
+    const { pc, call } = createMatrixRtcPeer(pId, callType, stream);
+    setActiveCalls(prev => [...prev.filter(c => !(c.peerId === pId && c.type === callType)), { peerId: pId, call, localStream: stream, type: callType, direction: 'incoming', isTemporaryStream: false }]);
+    await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    await p2pSendDirect(pId, { type: 'matrix-rtc-answer', callType, sdp: answer, senderName: userNameRef.current || userName, time: formatTime(new Date()) });
+    return true;
+  }
+  if (data.type === 'matrix-rtc-answer') {
+    const pc = matrixRtcRef.current.get(key);
+    if (pc && data.sdp) await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+    return true;
+  }
+  if (data.type === 'matrix-rtc-ice') {
+    const pc = matrixRtcRef.current.get(key);
+    if (pc && data.candidate) await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+    return true;
+  }
+  if (data.type === 'matrix-rtc-hangup') {
+    const pc = matrixRtcRef.current.get(key);
+    if (pc) { try { pc.close(); } catch(e) {} matrixRtcRef.current.delete(key); }
+    endCall(pId, callType);
+    return true;
+  }
+  return false;
 };
 
 
@@ -7265,6 +7397,14 @@ if (data && typeof data === 'object') {
   }
 }
 // ────────────────────────────────────────────────────────────────────────────────
+
+if (data && (data.type === 'matrix-rtc-offer' || data.type === 'matrix-rtc-answer' || data.type === 'matrix-rtc-ice' || data.type === 'matrix-rtc-hangup')) {
+  handleMatrixRtcSignal(data, pId).catch(e => {
+    console.error('[MxDM RTC] signal error:', e);
+    setMessages(prev => [...prev, { text: '⚠️ Falha na sinalização Matrix da chamada: ' + (e && e.message ? e.message : e), sender: '__system__', recipient: 'you', senderName: 'System', time: new Date().toLocaleTimeString(), type: 'text', direct: true, timestamp: Date.now(), systemFor: pId }].slice(-500));
+  });
+  return;
+}
 
 // ── GRUPO VIA PEERJS (fallback quando libp2p offline) ───────────────────────
 // Recebe mensagem de grupo, entrega ao componente aberto via CustomEvent
@@ -8805,30 +8945,7 @@ addAudit(`[Rede] Peer inicializado com ID: ${id}`, 'success');
 reconnectAttempts = 0;
 startMonitorReporting();
 // ── K10-GATEWAY SHADOW: eleição de slot vago (V53) ──
-try {
-  K10GatewayShadow.init(
-    () => connectionsRef.current.filter(c => c.open).map(c => c.peer),
-    () => getK10StunPool ? getK10StunPool() : [],
-    () => id,
-    () => peerInstance.current,
-    // FIX V57: onClaimed — reconecta o bootstrap imediatamente ao gateway eleito.
-    // O bootstrap pode ter passado pelo slot antes do claim ser concluído (race
-    // async), então injetamos o claimedId na frente da fila e chamamos tryNext.
-    (claimedId) => {
-      if (bootstrapDoneRef.current) return;
-      addAudit(`[Bootstrap] 🏆 Gateway reivindicado: ${claimedId} — reconectando...`, 'success');
-      window.__k10BootGateways = [claimedId];
-      window.__k10BootIdx      = 0;
-      if (typeof window.__k10BootTryNext === 'function') {
-        setTimeout(window.__k10BootTryNext, 300);
-      }
-      // V60: gateway reivindicado.
-      setTimeout(() => {
-        // K10CentralShadow removed
-      }, 500); 
-    }
-  );
-} catch(e) {}
+try { /* PHASE1: K10GatewayShadow desativado (Matrix DM substitui eleição/relay) */ } catch(e) {}
 
 const urlParams = new URLSearchParams(window.location.search);
 const portasStr = urlParams.get('portas');
@@ -8912,9 +9029,9 @@ conn.on('error', (e) => {
 } else {
 // ── V31 BOOTSTRAP AUTOMÁTICO: sem ?portas= → conecta ao Group 0 padrão ──
 // Permite entrada direta sem URL params: abre o chat → entra no Grupo 0 →
-// V52: Bootstrap automático — sem ?portas= → tenta gateways em ordem aleatória
-// V59: Fast-path via K10-CENTRAL — obtém lista de gateways ativos antes de varrer
-if (!bootstrapDoneRef.current) {
+// FASE 2/3: Bootstrap K10/Gateway/Hydra desativado. Entrada user↔user agora é Matrix DM;
+// PeerJS fica apenas para fallback e/ou WebRTC direto quando já houver conexão manual.
+if (false && !bootstrapDoneRef.current) {
   myGroupIdRef.current = null;
   localStorage.removeItem('myGroupId');
   // Embaralha lista de 100 gateways (Fisher-Yates)
@@ -9507,7 +9624,7 @@ if (torrentClientRef.current) torrentClientRef.current.destroy();
 
 
 useEffect(() => {
-const sendHeartbeat = () => {
+const sendHeartbeat = () => { if (true) return; /* PHASE1: heartbeat K10 desligado */
 if (!peerInstance.current || !peerId) return;
 
 
@@ -9548,6 +9665,7 @@ clearTimeout(timeout);
 
 
 useEffect(() => {
+return; // FASE 2/3: PEX/topologia K10 desligada; Matrix DM substitui descoberta/relay user↔user.
 const iv = setInterval(() => {
 // FIX N-7 V20: era connections (stale closure dentro de setInterval) → connectionsRef.current; deps [] evita recriar o interval a cada nova conexão
 const conns = connectionsRef.current;
@@ -9642,6 +9760,7 @@ return () => { clearInterval(v7MsgCapId); clearInterval(v7GcId); };
 // SuperNodes: a cada 60s | Regulares: a cada 300s
 // ════════════════════════════════════════════════════════════════════
 useEffect(() => {
+  return; // FASE 2/3: update-peer/Hydra desligado; sem grupos/gateways para P2P privado.
   const intervalMs = isSuperNode ? 60000 : 300000;
   const updatePeerInterval = setInterval(() => {
     const myGroupId = myGroupIdRef.current;
@@ -9717,6 +9836,7 @@ useEffect(() => { peerIdRef.current = peerId; }, [peerId]);
 
 // V6: Heartbeat P2P para relay (V52: GC e contagem por heartbeat removidos)
 useEffect(() => {
+  return; // FASE 2/3: heartbeat/directory-announce K10 desligados.
   const HB_INTERVAL = 30000;
   const sendHB = setInterval(() => {
     const myGroupId = myGroupIdRef.current;
@@ -10084,18 +10204,8 @@ const handleStopWorldRadio = () => {
     // Registra a parada localmente
     seenMessagesRef.current.add(stopMsg.id);
 
-    // Transmite a ordem de parada para todos os amigos conectados
-    if (connectionsRef.current) {
-      connectionsRef.current.forEach(c => {
-        if (c && c.open) {
-          try {
-            c.send(stopMsg);
-          } catch (e) {
-            console.error("Falha ao enviar sinal de parada:", e);
-          }
-        }
-      });
-    }
+    // Transmite a ordem de parada via Matrix DM + fallback PeerJS
+    p2pBroadcast(stopMsg);
 
     // Remove o rádio do estado local
     setUserRadios(prev => { 
@@ -10135,7 +10245,7 @@ senderName: userName,
 ttl: 15
 };
 seenMessagesRef.current.add(stopMsg.id);
-/* FIX BUG-6 */ connectionsRef.current.forEach(c => { if (c.open) try { c.send(stopMsg); } catch(e){} });
+p2pBroadcast(stopMsg);
 setUserYoutubeStreams(prev => {
 const next = { ...prev };
 delete next[peerId];
@@ -10205,7 +10315,7 @@ ttl: 15
 
 
 seenMessagesRef.current.add(startMsg.id);
-/* FIX BUG-6 */ connectionsRef.current.forEach(c => { if (c.open) try { c.send(startMsg); } catch(e){} });
+p2pBroadcast(startMsg);
 setUserYoutubeStreams(prev => ({
 ...prev,
 [peerId]: finalYoutubeId
@@ -10220,7 +10330,7 @@ const startIptvBroadcast = (url, name, country, flag) => {
   const msgId = peerId + '_iptv_' + Date.now();
   const msg = { type:'iptv-start', id:msgId, url, name, country, flag, sender:peerId, senderName:userName, ttl:15 };
   seenMessagesRef.current.add(msgId);
-  connectionsRef.current.forEach(c => { if(c.open) try{c.send(msg);}catch(e){} });
+  p2pBroadcast(msg);
   setUserIptvStreams(prev => ({...prev, [peerId]: {url, name, country, flag}}));
   // janela permanece aberta — usuário fecha manualmente
 };
@@ -10228,7 +10338,7 @@ const stopIptvBroadcast = () => {
   const msgId = peerId + '_iptv_stop_' + Date.now();
   const msg = { type:'iptv-stop', id:msgId, sender:peerId, ttl:8 };
   seenMessagesRef.current.add(msgId);
-  connectionsRef.current.forEach(c => { if(c.open) try{c.send(msg);}catch(e){} });
+  p2pBroadcast(msg);
   setUserIptvStreams(prev => { const n={...prev}; delete n[peerId]; return n; });
 };
 
@@ -10333,7 +10443,8 @@ if (!selectedContact || isCentralServer(selectedContact)) { alert(t(lang, 'selec
 const file = e.target.files[0]; if (!file) return;
 const conn = connectionsRef.current.find(c => c.peer === selectedContact);
 const libp2pAvailable = libp2pRef.current && libp2pStatusRef.current === 'online';
-if ((!conn || !conn.open) && !libp2pAvailable) { alert(t(lang, 'contactOffline2')); return; }
+const matrixAvailable = !!(window.MxDM && window.MxDM.canSend && window.MxDM.canSend(selectedContact));
+if ((!conn || !conn.open) && !libp2pAvailable && !matrixAvailable) { alert(t(lang, 'contactOffline2')); return; }
 sendChunkedData(selectedContact, 'fileId', file, 'file', { fileName: file.name });
 fileInputRef.current.value = '';
 };
@@ -10341,7 +10452,16 @@ fileInputRef.current.value = '';
 
 const p2pSendDirect = async (targetId, payload) => {
   let sent = false;
-  if (libp2pRef.current && libp2pStatusRef.current === 'online') {
+  // FASE 2/3: Matrix DM é o transporte primário user↔user para mensagens, ferramentas,
+  // arquivos/áudios em chunks e pré-sinalização de chamadas — sem gateway/servidor/grupo K10.
+  if (window.MxDM && window.MxDM.canSend && window.MxDM.canSend(targetId)) {
+    try {
+      await window.MxDM.send(targetId, { ...payload, direct: payload.direct !== false, recipient: targetId, sender: payload.sender || peerIdRef.current || peerId });
+      sent = true;
+    } catch(e) { console.warn('[MxDM] Direct send error:', e); }
+  }
+
+  if (!sent && libp2pRef.current && libp2pStatusRef.current === 'online') {
     try {
       await libp2pRef.current.services.pubsub.publish(`k10-private-${targetId}`, new TextEncoder().encode(JSON.stringify(payload)));
       sent = true;
@@ -10412,11 +10532,16 @@ if (!directPeersRef.current.has(peerIdToCall)) {
 // BUG C-3 FIX: usa connectionsRef.current para evitar stale closure em event handlers
 const conn = connectionsRef.current.find(c => c.peer === peerIdToCall);
 const libp2pOnline = libp2pPeers && libp2pPeers.includes(peerIdToCall);
-if ((!conn || !conn.open) && !libp2pOnline) { alert(t(lang, 'contactOffline2')); return; }
+const matrixOnline = !!(window.MxDM && window.MxDM.canSend && window.MxDM.canSend(peerIdToCall));
+if ((!conn || !conn.open) && !libp2pOnline && !matrixOnline) { alert(t(lang, 'contactOffline2')); return; }
 try {
 const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
 localStreamsRef.current.set(peerIdToCall + '_voice', stream);
-// Envia sinal via libp2p para despertar o outro lado
+if (matrixOnline) {
+  await startMatrixRtcCall(peerIdToCall, 'voice', stream);
+  return;
+}
+// Fallback PeerJS quando o contato não está mapeado no Matrix DM
 p2pSendDirect(peerIdToCall, { type: 'call-pre-signal', callType: 'voice', senderName: userName, time: formatTime(new Date()) });
 const call = peerInstance.current.call(peerIdToCall, stream, { metadata: { type: 'voice' } });
 setActiveCalls(prev => [...prev, { peerId: peerIdToCall, call, localStream: stream, type: 'voice', direction: 'outgoing', isTemporaryStream: false }]);
@@ -10446,13 +10571,18 @@ if (localStreamsRef.current.size === 0) { setIsLocalVideoVisible(false); if (loc
 } else {
 const conn = connectionsRef.current.find(c => c.peer === peerIdToCall);
 const libp2pOnline = libp2pPeers && libp2pPeers.includes(peerIdToCall);
-if ((!conn || !conn.open) && !libp2pOnline) { alert(t(lang, 'contactOffline2')); return; }
+const matrixOnline = !!(window.MxDM && window.MxDM.canSend && window.MxDM.canSend(peerIdToCall));
+if ((!conn || !conn.open) && !libp2pOnline && !matrixOnline) { alert(t(lang, 'contactOffline2')); return; }
 try {
 const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
 localStreamsRef.current.set(peerIdToCall + '_video', stream);
 setIsLocalVideoVisible(true);
 if (localVideoRef.current) localVideoRef.current.srcObject = stream;
-// Envia sinal via libp2p para despertar o outro lado
+if (matrixOnline) {
+  await startMatrixRtcCall(peerIdToCall, 'video', stream);
+  return;
+}
+// Fallback PeerJS quando o contato não está mapeado no Matrix DM
 p2pSendDirect(peerIdToCall, { type: 'call-pre-signal', callType: 'video', senderName: userName, time: formatTime(new Date()) });
 const call = peerInstance.current.call(peerIdToCall, stream, { metadata: { type: 'video' } });
 setActiveCalls(prev => [...prev.filter(c => !(c.peerId === peerIdToCall && c.type === 'video')), { peerId: peerIdToCall, call, localStream: stream, type: 'video', direction: 'outgoing', isTemporaryStream: false }]);
@@ -10482,7 +10612,7 @@ if (!yId) { alert(t(lang, 'invalidYoutubeUrl') || 'Invalid YouTube URL'); return
 setYoutubeChatId(yId);
 const msgId = Date.now() + Math.random().toString(36).substring(2);
 const msgData = { type: 'youtube-chat-start', id: msgId, youtubeId: yId, ttl: 15 };
-connectionsRef.current.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} }); // FIX O-3 V21: era connections (stale closure)
+p2pBroadcast(msgData);
 };
 
 
@@ -10491,7 +10621,7 @@ setYoutubeChatId(null);
 // FIX BUG-L5b: sem este broadcast nenhum peer recebia o stop — rede ficava com chat preso
 const msgId = Date.now() + Math.random().toString(36).substring(2);
 const msgData = { type: 'youtube-chat-stop', id: msgId, ttl: 8 };
-connectionsRef.current.forEach(c => { if (c.open) try { c.send(msgData); } catch(e){} });
+p2pBroadcast(msgData);
 };
 
 
@@ -10506,6 +10636,10 @@ const endCall = (peerIdToEnd, callType) => {
 // FIX C-10: usa activeCallsRef.current (sempre fresco) — activeCalls é closure stale em callbacks PeerJS
 const callData = activeCallsRef.current.find(c => c.peerId === peerIdToEnd && c.type === callType);
 if (callData) {
+if (callData.call && callData.call.__matrixRtc) {
+  try { p2pSendDirect(peerIdToEnd, { type: 'matrix-rtc-hangup', callType }); } catch(e) {}
+  try { matrixRtcRef.current.delete(matrixRtcKey(peerIdToEnd, callType)); } catch(e) {}
+}
 if (callData.call) callData.call.close();
 if (callData.localStream) { callData.localStream.getTracks().forEach(tr => tr.stop()); stopAndRemoveLocalStream(peerIdToEnd + '_' + callType); }
 }
@@ -15304,5 +15438,238 @@ body.dark-mode .conversation-item:hover { background: #293548 !important; }
 body.dark-mode .icon-btn:hover  { background: #334155 !important; }
 
 </style>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- PHASE2/3 · Matrix DM transport adapter (user↔user sem gateway K10) -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<script>
+(function(){
+  'use strict';
+  const HS = (localStorage.getItem('mxdmHomeserver') || 'https://matrix.org').replace(/\/+$/,'');
+  const TOKEN_KEY = 'mxdmToken';
+  const MAP_KEY   = 'mxdmPeerToMxid';   // { peerId: mxid }
+  const ROOM_KEY  = 'mxdmPeerToRoom';   // { peerId: room_id }
+  const SINCE_KEY = 'mxdmSyncSince';
+  const CUSTOM_MSGTYPE = 'm.k10.payload';
+
+  let TOKEN = localStorage.getItem(TOKEN_KEY) || '';
+  let MY_MXID = localStorage.getItem('mxdmMxid') || '';
+  let SINCE   = localStorage.getItem(SINCE_KEY) || '';
+  let peerMap = {};
+  let roomMap = {};
+  try { peerMap = JSON.parse(localStorage.getItem(MAP_KEY)  || '{}'); } catch(e){}
+  try { roomMap = JSON.parse(localStorage.getItem(ROOM_KEY) || '{}'); } catch(e){}
+
+  const saveMaps = () => {
+    localStorage.setItem(MAP_KEY,  JSON.stringify(peerMap));
+    localStorage.setItem(ROOM_KEY, JSON.stringify(roomMap));
+  };
+
+  const abToB64 = (ab) => {
+    const bytes = ab instanceof Uint8Array ? ab : new Uint8Array(ab);
+    let bin = '';
+    const step = 0x8000;
+    for (let i = 0; i < bytes.length; i += step) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
+    return btoa(bin);
+  };
+  const b64ToAb = (b64) => {
+    const bin = atob(b64 || '');
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes.buffer;
+  };
+  const encodePayload = (value) => {
+    if (value instanceof ArrayBuffer) return { __mxdmBinary: 'arraybuffer', data: abToB64(value) };
+    if (ArrayBuffer.isView(value)) return { __mxdmBinary: value.constructor && value.constructor.name || 'typedarray', data: abToB64(value) };
+    if (Array.isArray(value)) return value.map(encodePayload);
+    if (value && typeof value === 'object') {
+      const out = {};
+      for (const [k,v] of Object.entries(value)) out[k] = encodePayload(v);
+      return out;
+    }
+    return value;
+  };
+  const decodePayload = (value) => {
+    if (value && typeof value === 'object' && value.__mxdmBinary) return b64ToAb(value.data);
+    if (Array.isArray(value)) return value.map(decodePayload);
+    if (value && typeof value === 'object') {
+      const out = {};
+      for (const [k,v] of Object.entries(value)) out[k] = decodePayload(v);
+      return out;
+    }
+    return value;
+  };
+
+  async function api(method, path, body, params) {
+    const url = new URL(HS + path);
+    if (params) Object.entries(params).forEach(([k,v]) => url.searchParams.set(k, v));
+    const headers = { 'Content-Type': 'application/json' };
+    if (TOKEN) headers['Authorization'] = 'Bearer ' + TOKEN;
+    const res = await fetch(url.toString(), {
+      method, headers, body: body ? JSON.stringify(body) : undefined
+    });
+    let data = {};
+    try { data = await res.json(); } catch(e){}
+    if (!res.ok && data.errcode) data._httpStatus = res.status;
+    return data;
+  }
+
+  async function login(user, pass) {
+    const r = await api('POST', '/_matrix/client/v3/login', {
+      type: 'm.login.password',
+      identifier: { type: 'm.id.user', user },
+      password: pass,
+      initial_device_display_name: 'Chat K10 MxDM'
+    });
+    if (r.access_token) {
+      TOKEN = r.access_token;
+      MY_MXID = r.user_id;
+      localStorage.setItem(TOKEN_KEY, TOKEN);
+      localStorage.setItem('mxdmMxid', MY_MXID);
+      console.log('[MxDM] login ok →', MY_MXID);
+      startSync();
+      return true;
+    }
+    console.error('[MxDM] login failed:', r);
+    return false;
+  }
+
+  async function ensureRoom(peerId) {
+    if (roomMap[peerId]) return roomMap[peerId];
+    const mxid = peerMap[peerId];
+    if (!mxid) throw new Error('No mxid mapped for peer ' + peerId);
+    const r = await api('POST', '/_matrix/client/v3/createRoom', {
+      preset: 'trusted_private_chat',
+      invite: [mxid],
+      is_direct: true,
+      visibility: 'private'
+    });
+    if (!r.room_id) throw new Error('createRoom failed: ' + JSON.stringify(r));
+    roomMap[peerId] = r.room_id;
+    saveMaps();
+    return r.room_id;
+  }
+
+  async function send(peerId, payload) {
+    if (!TOKEN) throw new Error('MxDM not logged in');
+    const roomId = await ensureRoom(peerId);
+    const txnId  = 'mxdm_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
+    const body = {
+      msgtype: CUSTOM_MSGTYPE,
+      body: '[K10 payload]',
+      'm.k10': encodePayload(payload)
+    };
+    const r = await api('PUT',
+      `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/send/m.room.message/${txnId}`,
+      body
+    );
+    if (!r.event_id) throw new Error('send failed: ' + JSON.stringify(r));
+    return r.event_id;
+  }
+
+  async function broadcast(payload, options) {
+    const ids = Object.keys(peerMap).filter(Boolean);
+    const results = [];
+    for (const pid of ids) {
+      try { results.push(await send(pid, payload)); }
+      catch(e) { console.warn('[MxDM] broadcast fail →', pid, e); }
+    }
+    return results;
+  }
+
+  function canSend(peerId) {
+    return !!(TOKEN && peerMap[peerId]);
+  }
+
+  function mapPeer(peerId, mxid) {
+    if (!peerId || !mxid) return;
+    peerMap[peerId] = mxid;
+    saveMaps();
+    console.log('[MxDM] mapped', peerId, '↔', mxid);
+  }
+
+  function unmapPeer(peerId) {
+    if (!peerId) return;
+    delete peerMap[peerId];
+    delete roomMap[peerId];
+    saveMaps();
+  }
+
+  // ── Sync paralelo: entrega payloads K10 recebidos para handleIncomingDataRef ──
+  let syncRunning = false;
+  async function startSync() {
+    if (syncRunning || !TOKEN) return;
+    syncRunning = true;
+    while (TOKEN) {
+      try {
+        const filter = JSON.stringify({
+          room: { timeline: { limit: 50, types: ['m.room.message'] }, state: { types: [] }, ephemeral:{types:[]} },
+          presence:{types:[]}, account_data:{types:[]}
+        });
+        const params = { timeout: 25000, filter };
+        if (SINCE) params.since = SINCE;
+        const data = await api('GET', '/_matrix/client/v3/sync', null, params);
+        if (data.errcode === 'M_UNKNOWN_TOKEN') { TOKEN=''; localStorage.removeItem(TOKEN_KEY); break; }
+        if (data.next_batch) { SINCE = data.next_batch; localStorage.setItem(SINCE_KEY, SINCE); }
+
+        const invited = (data.rooms && data.rooms.invite) || {};
+        for (const roomId of Object.keys(invited)) {
+          await api('POST', `/_matrix/client/v3/rooms/${encodeURIComponent(roomId)}/join`, {});
+        }
+
+        const joined = (data.rooms && data.rooms.join) || {};
+        for (const [roomId, rd] of Object.entries(joined)) {
+          for (const ev of (rd.timeline && rd.timeline.events || [])) {
+            if (ev.type !== 'm.room.message') continue;
+            if (ev.sender === MY_MXID) continue;
+            const raw = ev.content && ev.content['m.k10'];
+            if (!raw) continue;
+            const k10 = decodePayload(raw);
+            let fromPeer = Object.keys(peerMap).find(pid => peerMap[pid] === ev.sender);
+            if (!fromPeer && k10.sender) {
+              fromPeer = k10.sender;
+              mapPeer(fromPeer, ev.sender);
+              roomMap[fromPeer] = roomId; saveMaps();
+            }
+            if (!fromPeer) continue;
+            try {
+              const fn = (window.handleIncomingDataRef && window.handleIncomingDataRef.current)
+                       || window._k10HandleIncomingData;
+              if (fn) fn(k10, fromPeer);
+              else console.warn('[MxDM] handleIncomingData not exposed yet, dropping payload');
+            } catch(e) { console.error('[MxDM] dispatch error', e); }
+          }
+        }
+      } catch(e) {
+        console.warn('[MxDM] sync error', e);
+        await new Promise(r => setTimeout(r, 4000));
+      }
+    }
+    syncRunning = false;
+  }
+
+  function promptLogin() {
+    const u = prompt('MxDM · usuário Matrix (ex: alice em matrix.org):');
+    if (!u) return;
+    const p = prompt('MxDM · senha:');
+    if (!p) return;
+    login(u, p).then(ok => alert(ok ? '✅ Logado em '+HS : '❌ Falha de login'));
+  }
+
+  window.MxDM = {
+    HS, get token(){return TOKEN;}, get mxid(){return MY_MXID;},
+    login, send, broadcast, canSend, mapPeer, unmapPeer, ensureRoom, promptLogin,
+    map: peerMap, rooms: roomMap,
+    encodePayload, decodePayload,
+    setHomeserver(url){ localStorage.setItem('mxdmHomeserver', url); location.reload(); }
+  };
+
+  if (TOKEN) startSync();
+  console.log('[MxDM] phase2/3 ready · token?', !!TOKEN, '· mxid:', MY_MXID || '(none)');
+  console.log('[MxDM] use MxDM.promptLogin() · MxDM.mapPeer(peerId,"@user:matrix.org")');
+})();
+</script>
+
 </body>
 </html>
