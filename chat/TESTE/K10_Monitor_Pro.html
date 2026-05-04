@@ -914,13 +914,17 @@ function clearPeers(){
   scheduleRender();
 }
 
-// ── MATRIX SSO ───────────────────────────────────────────────
+// ── MATRIX SSO + SALA DE TELEMETRIA ─────────────────────────
 const SSO_RELAY='https://cold-puma-46.andradepsa.deno.net';
+const SALA_TELEMETRIA='#k10-telemetria:matrix.org';
+
 let MATRIX_TOKEN=localStorage.getItem('mxdmToken')||'';
 let MY_MXID=localStorage.getItem('mxdmMxid')||'';
 let SINCE=localStorage.getItem('mxdmSyncSince')||'';
 let HS=(localStorage.getItem('mxdmHomeserver')||'https://matrix.org').replace(/\/+$/,'');
 let matrixRooms=new Map(), syncRunning=false;
+let telemetriaRoomId=null;
+let telMsgsSeen=new Set();
 
 async function matrixApi(method,path,body,params){
   const url=new URL(HS+path);
@@ -932,30 +936,58 @@ async function matrixApi(method,path,body,params){
   return data;
 }
 
+async function garantirSalaTelemetria(){
+  if(telemetriaRoomId)return;
+  try{
+    const r=await matrixApi('GET','/_matrix/client/v3/directory/room/'+encodeURIComponent(SALA_TELEMETRIA));
+    if(r.room_id){
+      telemetriaRoomId=r.room_id;
+      await matrixApi('POST','/_matrix/client/v3/join/'+encodeURIComponent(telemetriaRoomId),{});
+      log('📡 Sala de telemetria pronta: '+telemetriaRoomId,'ok');
+      return;
+    }
+  }catch(_){}
+  try{
+    const c=await matrixApi('POST','/_matrix/client/v3/createRoom',{
+      room_alias_name:'k10-telemetria',
+      name:'K10 Telemetria',
+      topic:'Sala oculta de telemetria K10',
+      preset:'public_chat',
+      visibility:'public'
+    });
+    if(c.room_id){telemetriaRoomId=c.room_id;log('✅ Sala telemetria criada: '+telemetriaRoomId,'ok');}
+  }catch(e){log('Não criou sala telemetria: '+e.message,'warn');}
+}
+
+function processarEventoTelemetria(ev){
+  if(!ev?.content?.peerId)return;
+  if(telMsgsSeen.has(ev.event_id))return;
+  telMsgsSeen.add(ev.event_id);
+  if(telMsgsSeen.size>2000)telMsgsSeen.clear();
+  const d={...ev.content, type:'k10-telemetry'};
+  handleMsg(d,d.peerId);
+}
+
 async function matrixLogin(user,pass){
   const r=await matrixApi('POST','/_matrix/client/v3/login',{type:'m.login.password',identifier:{type:'m.id.user',user},password:pass,initial_device_display_name:'K10 Monitor PRO'});
-  if(r.access_token){
-    aplicarToken(r.access_token,r.user_id);
-    return true;
-  }
-  log(`❌ Matrix login falhou: ${r.error||r.errcode}`,'err');
+  if(r.access_token){aplicarToken(r.access_token,r.user_id);return true;}
+  log('❌ Matrix login falhou: '+(r.error||r.errcode),'err');
   return false;
 }
 
 function aplicarToken(token,userId){
-  MATRIX_TOKEN=token; MY_MXID=userId;
-  localStorage.setItem('mxdmToken',token);
-  localStorage.setItem('mxdmMxid',userId);
-  log(`✅ Matrix login: ${MY_MXID}`,'ok');
-  document.getElementById('mx-status').innerHTML=`🟢 ${esc(MY_MXID)}`;
+  MATRIX_TOKEN=token;MY_MXID=userId;
+  localStorage.setItem('mxdmToken',token);localStorage.setItem('mxdmMxid',userId);
+  log('✅ Matrix login: '+MY_MXID,'ok');
+  document.getElementById('mx-status').innerHTML='🟢 '+esc(MY_MXID);
   document.getElementById('mx-mxid-label').textContent=MY_MXID;
-  startMatrixSync();
+  garantirSalaTelemetria().then(()=>startMatrixSync());
 }
 
 function logoutMatrix(){
-  MATRIX_TOKEN=''; MY_MXID=''; SINCE='';
-  localStorage.removeItem('mxdmToken'); localStorage.removeItem('mxdmMxid'); localStorage.removeItem('mxdmSyncSince');
-  matrixRooms.clear(); syncRunning=false;
+  MATRIX_TOKEN='';MY_MXID='';SINCE='';telemetriaRoomId=null;
+  localStorage.removeItem('mxdmToken');localStorage.removeItem('mxdmMxid');localStorage.removeItem('mxdmSyncSince');
+  matrixRooms.clear();syncRunning=false;
   document.getElementById('mx-status').textContent='⚪ Desconectado';
   document.getElementById('mx-mxid-label').textContent='';
   document.getElementById('s-rooms').textContent='—';
@@ -965,46 +997,32 @@ function logoutMatrix(){
 
 function abrirModalLoginMatrix(){
   if(document.getElementById('mx-login-modal'))return;
-  const div=document.createElement('div');
-  div.id='mx-login-modal';
-  div.className='matrix-modal-overlay';
-  div.innerHTML=`
-    <div class="matrix-modal">
-      <h3>🔑 Login Matrix</h3>
-      <div class="sub">Acesse com Google, GitHub ou usuário/senha</div>
-      <button id="mx-sso-google" class="btn-sso"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> Google</button>
-      <button id="mx-sso-github" class="btn-sso"><svg width="18" height="18" viewBox="0 0 24 24" fill="#e2e8f0"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg> GitHub</button>
-      <div class="sep"><hr><span>ou senha</span><hr></div>
-      <input id="mx-user" type="text" placeholder="@usuario:matrix.org">
-      <input id="mx-pass" type="password" placeholder="Senha">
-      <div id="mx-err" style="color:#fc8181;font-size:12px;min-height:16px;margin-bottom:8px;font-family:sans-serif"></div>
-      <button id="mx-submit" class="btn-primary">Entrar</button>
-    </div>`;
+  const div=document.createElement('div');div.id='mx-login-modal';div.className='matrix-modal-overlay';
+  div.innerHTML=`<div class="matrix-modal"><h3>🔑 Login Matrix</h3><div class="sub">Google, GitHub ou usuário/senha</div>
+    <button id="mx-sso-google" class="btn-sso"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg> Google</button>
+    <button id="mx-sso-github" class="btn-sso"><svg width="18" height="18" viewBox="0 0 24 24" fill="#e2e8f0"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg> GitHub</button>
+    <div class="sep"><hr><span>ou senha</span><hr></div>
+    <input id="mx-user" type="text" placeholder="@usuario:matrix.org">
+    <input id="mx-pass" type="password" placeholder="Senha">
+    <div id="mx-err" style="color:#fc8181;font-size:12px;min-height:16px;margin-bottom:8px;font-family:sans-serif"></div>
+    <button id="mx-submit" class="btn-primary">Entrar</button></div>`;
   document.body.appendChild(div);
   div.addEventListener('click',e=>{if(e.target===div)div.remove()});
-  const openSSO=provider=>{
-    const err=div.querySelector('#mx-err');
-    err.style.color='#68d391'; err.textContent='⏳ Abrindo...';
-    const popup=window.open(`${SSO_RELAY}/sso?provider=${provider}`,'matrix_sso','width=520,height=640');
+  const openSSO=p=>{
+    const err=div.querySelector('#mx-err');err.style.color='#68d391';err.textContent='⏳ Abrindo...';
+    const popup=window.open(`${SSO_RELAY}/sso?provider=${p}`,'matrix_sso','width=520,height=640');
     if(!popup){err.style.color='#fc8181';err.textContent='❌ Popup bloqueado';return}
-    const onMsg=ev=>{
-      if(!ev.data||ev.data.type!=='matrix_sso_token')return;
-      window.removeEventListener('message',onMsg);
-      if(ev.data.access_token){aplicarToken(ev.data.access_token,ev.data.user_id);div.remove()}
-      else{err.style.color='#fc8181';err.textContent='❌ Token não recebido'}
-    };
+    const onMsg=ev=>{if(!ev.data||ev.data.type!=='matrix_sso_token')return;window.removeEventListener('message',onMsg);if(ev.data.access_token){aplicarToken(ev.data.access_token,ev.data.user_id);div.remove()}else{err.style.color='#fc8181';err.textContent='❌ Token não recebido'}};
     window.addEventListener('message',onMsg);
   };
   div.querySelector('#mx-sso-google').onclick=()=>openSSO('google');
   div.querySelector('#mx-sso-github').onclick=()=>openSSO('github');
   const doLogin=async()=>{
-    const user=div.querySelector('#mx-user').value.trim();
-    const pass=div.querySelector('#mx-pass').value;
-    const err=div.querySelector('#mx-err');
+    const user=div.querySelector('#mx-user').value.trim(),pass=div.querySelector('#mx-pass').value,err=div.querySelector('#mx-err');
     if(!user||!pass){err.textContent='Preencha usuário e senha';return}
     err.style.color='#68d391';err.textContent='⏳ Entrando...';
     const ok=await matrixLogin(user,pass);
-    if(ok)div.remove(); else{err.style.color='#fc8181';err.textContent='Usuário/senha inválidos'}
+    if(ok)div.remove();else{err.style.color='#fc8181';err.textContent='Usuário/senha inválidos'}
   };
   div.querySelector('#mx-submit').onclick=doLogin;
   div.querySelector('#mx-pass').addEventListener('keypress',e=>{if(e.key==='Enter')doLogin()});
@@ -1013,10 +1031,10 @@ function abrirModalLoginMatrix(){
 async function startMatrixSync(){
   if(syncRunning||!MATRIX_TOKEN)return;
   syncRunning=true;
-  log('🔄 Matrix sync iniciado','hi');
+  log('🔄 Matrix sync + escuta de telemetria ativo','hi');
   while(MATRIX_TOKEN){
     try{
-      const filter=JSON.stringify({room:{timeline:{limit:2},state:{types:['m.room.member','m.room.name']},ephemeral:{types:[]}},presence:{types:[]},account_data:{types:[]}});
+      const filter=JSON.stringify({room:{timeline:{limit:50},state:{types:['m.room.member','m.room.name']},ephemeral:{types:[]}},presence:{types:[]},account_data:{types:[]}});
       const params={timeout:25000,filter};
       if(SINCE)params.since=SINCE;
       const data=await matrixApi('GET','/_matrix/client/v3/sync',null,params);
@@ -1033,18 +1051,27 @@ async function startMatrixSync(){
         }}
         const old=matrixRooms.get(roomId)||{};
         matrixRooms.set(roomId,{name:roomName,alias:roomId,memberCount:mc||old.memberCount||0});
+        // ── PROCESSA EVENTOS DE TELEMETRIA ──
+        if(rd.timeline?.events){
+          for(const ev of rd.timeline.events){
+            if(ev.type==='m.k10.telemetry'&&ev.content?.peerId){
+              processarEventoTelemetria(ev);
+            }
+          }
+        }
       }
       renderMatrixRooms();
-    }catch(e){log(`Matrix sync error: ${e.message}`,'warn');await new Promise(r=>setTimeout(r,5000))}
+    }catch(e){log('Matrix sync error: '+e.message,'warn');await new Promise(r=>setTimeout(r,5000))}
   }
   syncRunning=false;
 }
 
 function renderMatrixRooms(){
   const container=document.getElementById('mx-rooms-list');
-  document.getElementById('s-rooms').textContent=matrixRooms.size||'—';
-  if(matrixRooms.size===0){container.innerHTML='<div style="color:var(--dim);font-size:10px;padding:12px;text-align:center">Nenhuma sala ativa.</div>';return}
-  container.innerHTML=[...matrixRooms.values()].sort((a,b)=>b.memberCount-a.memberCount).map(r=>`
+  const visiveis=[...matrixRooms.entries()].filter(([id])=>id!==telemetriaRoomId);
+  document.getElementById('s-rooms').textContent=visiveis.length||'—';
+  if(visiveis.length===0){container.innerHTML='<div style="color:var(--dim);font-size:10px;padding:12px;text-align:center">Nenhuma sala ativa.</div>';return}
+  container.innerHTML=visiveis.sort((a,b)=>b[1].memberCount-a[1].memberCount).map(([,r])=>`
     <div class="mx-sala-item">
       <div><div class="mx-sala-nome">${esc(r.name)}</div><div class="mx-sala-alias">${esc(r.alias)}</div></div>
       <div class="mx-membros">👥 ${fmt(r.memberCount)}</div>
@@ -1052,9 +1079,9 @@ function renderMatrixRooms(){
 }
 
 if(MATRIX_TOKEN&&MY_MXID){
-  document.getElementById('mx-status').innerHTML=`🟢 ${esc(MY_MXID)}`;
+  document.getElementById('mx-status').innerHTML='🟢 '+esc(MY_MXID);
   document.getElementById('mx-mxid-label').textContent=MY_MXID;
-  startMatrixSync();
+  garantirSalaTelemetria().then(()=>startMatrixSync());
 }
 
 // ── INIT ──────────────────────────────────────────────────────
