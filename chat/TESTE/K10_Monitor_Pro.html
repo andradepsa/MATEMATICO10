@@ -1025,7 +1025,7 @@ function clearPeers(){
 
 // ── MATRIX SSO + SALA DE TELEMETRIA ─────────────────────────
 const SSO_RELAY='https://cold-puma-46.andradepsa.deno.net';
-const SALA_TEL_ALIAS='#telemetria:matrix.org'; // sala fixa
+const SALA_TEL_ROOM_ID='!envs-RSauuX1LrriNcVmdwmAGcyVpM0_w8OnC0EZgrQ'; // ID FIXO — não alterar
 
 let MATRIX_TOKEN=localStorage.getItem('mxdmToken')||'';
 let MY_MXID=localStorage.getItem('mxdmMxid')||'';
@@ -1046,23 +1046,16 @@ async function matrixApi(method,path,body,params){
 }
 
 async function garantirSalaTelemetria(){
-  if(telemetriaRoomId){ setCh('room','ok','⬡ SALA: #telemetria:matrix.org'); return; }
+  if(telemetriaRoomId){ setCh('room','ok','⬡ SALA: TELEMETRIA ✓'); return; }
   setCh('room','warn','⬡ SALA: conectando...');
   try{
-    // Resolve alias fixo → room_id
-    const r=await matrixApi('GET','/_matrix/client/v3/directory/room/'+encodeURIComponent(SALA_TEL_ALIAS));
-    if(r?.room_id){
-      telemetriaRoomId=r.room_id;
-      await matrixApi('POST','/_matrix/client/v3/join/'+encodeURIComponent(telemetriaRoomId),{});
-      log('📡 Sala de telemetria: '+SALA_TEL_ALIAS+' ('+telemetriaRoomId+')','ok');
-      setCh('room','ok','⬡ SALA: #telemetria:matrix.org ✓');
-      carregarHistoricoTelemetria();
-    } else {
-      log('❌ Sala '+SALA_TEL_ALIAS+' não encontrada. Verifique se existe no Matrix.','err');
-      setCh('room','err','⬡ SALA: NÃO ENCONTRADA');
-    }
+    telemetriaRoomId = SALA_TEL_ROOM_ID;
+    await matrixApi('POST','/_matrix/client/v3/join/'+encodeURIComponent(telemetriaRoomId),{});
+    log('📡 Sala de telemetria ativa: '+telemetriaRoomId,'ok');
+    setCh('room','ok','⬡ SALA: TELEMETRIA ✓');
+    carregarHistoricoTelemetria();
   }catch(e){
-    log('❌ Erro ao acessar sala: '+e.message,'err');
+    log('❌ Erro ao entrar na sala: '+e.message,'err');
     setCh('room','err','⬡ SALA: ERRO');
   }
 }
@@ -1202,7 +1195,7 @@ async function startMatrixSync(){
 
 function renderMatrixRooms(){
   const container=document.getElementById('mx-rooms-list');
-  const visiveis=[...matrixRooms.entries()].filter(([id])=>id!==telemetriaRoomId);
+  const visiveis=[...matrixRooms.entries()].filter(([id])=>id!==telemetriaRoomId&&id!=='!envs-RSauuX1LrriNcVmdwmAGcyVpM0_w8OnC0EZgrQ');
   document.getElementById('s-rooms').textContent=visiveis.length||'—';
   if(visiveis.length===0){container.innerHTML='<div style="color:var(--dim);font-size:10px;padding:12px;text-align:center">Nenhuma sala ativa.</div>';return}
   container.innerHTML=visiveis.sort((a,b)=>b[1].memberCount-a[1].memberCount).map(([,r])=>`
