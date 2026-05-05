@@ -416,6 +416,9 @@ function setStatus(txt,cls){const s=document.getElementById('status');if(s){s.te
 
 // ── ESTADO PRINCIPAL ──────────────────────────────────────────
 let peer=null, conns=new Map(), isRunning=false;
+let isMaster=false;          // true = sou o K10-MON (mestre)
+let relayConns=new Map();    // monitores inscritos para relay
+let masterConn=null;         // conexão com K10-MON (quando sou subscriber)
 let reconnectTimer=null, reconnectAttempts=0, totalReconns=0;
 let peakPeers=0, msgCount=0, renderTimer=null;
 let uptimeStart=null, uptimeTimer=null;
@@ -707,6 +710,16 @@ function showDetail(id){
 function detail(key,val,cls=''){return `<div class="detail-item"><div class="detail-key">${esc(key)}</div><div class="detail-val ${cls}">${esc(String(val||'—'))}</div></div>`}
 
 // ── PEERJS ────────────────────────────────────────────────────
+/* Repassa telemetria para todos os monitores inscritos */
+function relayToSubscribers(data){
+  for(const[sid,sc] of relayConns.entries()){
+    try{
+      if(sc.open) sc.send({...data, _relayed:true});
+      else relayConns.delete(sid);
+    }catch(_){ relayConns.delete(sid); }
+  }
+}
+
 function handleMsg(data,pId){
   msgCount++;
   if(!data||data.type!=='k10-telemetry')return scheduleRender();
@@ -749,11 +762,42 @@ function handleMsg(data,pId){
 
   if(data.lat&&data.lon)atualizarMapa(data.peerId,data.lat,data.lon,data);
 
+  // Se sou master, repasso para todos os monitores inscritos
+  if(isMaster && !data._relayed) relayToSubscribers(data);
+
   const geoStr=data.city?`${data.city}, ${data.country}`:(data.country||'Sem geo');
   const devStr=data.browser?` | ${data.browser}/${data.os}`:'';
   log(`📡 ${data.peerId.slice(0,12)} — ${data.userName||'anon'} — ${geoStr}${devStr} | Net:${data.netSize||'?'} Conns:${data.activeConns??'?'}`, 'ok');
 
   scheduleRender();
+}
+
+// ── SUBSCRIBER: conecta ao master e se inscreve para relay ──
+function conectarAoMaster(myId){
+  if(!peer||!peer.open)return;
+  try{
+    const mc=peer.connect('K10-MON',{reliable:true,serialization:'json'});
+    masterConn=mc;
+    mc.on('open',()=>{
+      mc.send({type:'k10-subscribe',monitorId:myId});
+      log('✅ Inscrito no master K10-MON — recebendo relay','ok');
+      setCh('peerjs','ok','⬡ PEERJS: RELAY ATIVO (via K10-MON)');
+    });
+    mc.on('data',data=>handleMsg(data,data?.peerId||'relay'));
+    mc.on('close',()=>{
+      log('⚠️ Relay desconectado. Reconectando em 5s...','warn');
+      setCh('peerjs','warn','⬡ PEERJS: RELAY DESCONECTADO');
+      setTimeout(()=>conectarAoMaster(myId),5000);
+    });
+    mc.on('error',e=>{
+      log('❌ Erro relay: '+e.type,'err');
+      setCh('peerjs','err','⬡ PEERJS: ERRO RELAY');
+      setTimeout(()=>conectarAoMaster(myId),8000);
+    });
+  }catch(e){
+    log('Erro ao conectar ao master: '+e.message,'warn');
+    setTimeout(()=>conectarAoMaster(myId),8000);
+  }
 }
 
 // ── STATUS DOS CANAIS ────────────────────────────────────────
@@ -786,23 +830,51 @@ function startMon(){
     document.getElementById('my-id').innerHTML='MY-ID: '+pid;
     document.getElementById('btn-start').disabled=true;
     document.getElementById('btn-stop').disabled=false;
-    log(`✅ PeerJS online: ${pid}`,'ok');
     isRunning=true; reconnectAttempts=0;
     if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null}
     sessionStart=Date.now();
     startUptime();
-    // Atualiza painel de canais
-    setCh('peerjs','ok','⬡ PEERJS: ONLINE ('+pid.slice(0,8)+')');
+    if(pid==='K10-MON'){
+      isMaster=true;
+      log(`✅ MASTER online: ${pid} — recebe telemetria e faz relay`,'ok');
+      setCh('peerjs','ok','⬡ PEERJS: MASTER (K10-MON)');
+      setCh('hint','ok','');
+    } else {
+      isMaster=false;
+      log(`✅ SUBSCRIBER online: ${pid} — conectando ao master K10-MON...`,'ok');
+      setCh('peerjs','warn','⬡ PEERJS: SUBSCRIBER · conectando...');
+      // Conecta ao master e pede inscrição
+      setTimeout(()=>conectarAoMaster(pid), 1000);
+    }
     scheduleRender();
   });
 
   peer.on('connection',conn=>{
     const pid=conn.peer;
     if(!pid)return;
-    conns.set(pid,conn);
     log(`🔗 Conexão entrante: ${pid}`,'hi');
-    conn.on('data',data=>handleMsg(data,pid));
-    conn.on('close',()=>{if(conns.get(pid)===conn)conns.delete(pid);scheduleRender()});
+    conn.on('data',data=>{
+      // Pedido de inscrição de outro monitor
+      if(data?.type==='k10-subscribe'){
+        relayConns.set(pid, conn);
+        log(`📡 Monitor inscrito para relay: ${pid}`,'ok');
+        setCh('peerjs','ok',`⬡ PEERJS: MASTER · ${relayConns.size} relay(s)`);
+        // Envia snapshot dos peers conhecidos para o novo monitor
+        for(const p of uniquePeersMap.values()){
+          try{ conn.send({...p, type:'k10-telemetry', _relayed:true}); }catch(_){}
+        }
+        return;
+      }
+      // Telemetria normal do chat
+      conns.set(pid,conn);
+      handleMsg(data,pid);
+    });
+    conn.on('close',()=>{
+      conns.delete(pid);
+      relayConns.delete(pid);
+      setCh('peerjs','ok',`⬡ PEERJS: MASTER · ${relayConns.size} relay(s)`);
+      scheduleRender();
+    });
     conn.on('error',()=>{});
     scheduleRender();
   });
@@ -810,14 +882,15 @@ function startMon(){
   peer.on('error',e=>{
     clearTimeout(timeout);
     if(e.type==='unavailable-id'){
-      // ID em uso (raro com ID aleatório) — gera outro
-      const novo=Math.random().toString(36).slice(2,11).toUpperCase();
-      log(`⚠️ ID em uso, gerando novo: ${novo}`,'warn');
+      // K10-MON em uso por outro monitor → vira subscriber com ID único
+      const novo=Math.random().toString(36).slice(2,9).toUpperCase();
+      log(`⚠️ K10-MON em uso. Modo SUBSCRIBER com ID: ${novo}`,'warn');
       document.getElementById('mon-id').value=novo;
+      document.getElementById('mon-id-info').textContent='(SUBSCRIBER — relay via K10-MON)';
       localStorage.setItem('k10MonitorId',novo);
       if(peer&&!peer.destroyed){try{peer.destroy()}catch(_){}}
       peer=null; isRunning=false;
-      setTimeout(()=>startMon(),300);
+      setTimeout(()=>startMon(),500);
       return;
     }
     log(`❌ Erro peer: ${e.type}`,'err');
@@ -836,7 +909,9 @@ function stopMon(){
   isRunning=false;
   if(reconnectTimer)clearTimeout(reconnectTimer);
   if(peer&&!peer.destroyed)peer.destroy();
-  peer=null; conns.clear();
+  peer=null; conns.clear(); relayConns.clear();
+  isMaster=false;
+  if(masterConn){try{masterConn.close()}catch(_){} masterConn=null;}
   setStatus('PARADO','');
   setCh('peerjs','off','⬡ PEERJS: PARADO');
   document.getElementById('btn-start').disabled=false;
