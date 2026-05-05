@@ -4087,7 +4087,12 @@ style={msg.sender === '__system__' ? { background: '#eff6ff', border: '1px solid
 {msg.type === 'poll-create' ? (
   <Poll msg={msg} peerId={peerId} onVote={handleVote} />
 ) : msg.type === 'quiz-question' ? (
-  <QuizQuestion msg={msg} peerId={peerId} onAnswer={handleQuizAnswer} />
+  msg.sender === 'you'
+    ? <div style={{ fontSize:'12px', color:'#6ee7b7', background:'rgba(16,185,129,0.12)', border:'1px solid rgba(16,185,129,0.3)', borderRadius:'8px', padding:'7px 12px', display:'flex', alignItems:'center', gap:'7px' }}>
+        <span>🤖</span>
+        <span><b>Quiz enviado:</b> {msg.quizQuestion || 'Pergunta do Quiz'}</span>
+      </div>
+    : <QuizQuestion msg={msg} peerId={peerId} onAnswer={handleQuizAnswer} />
 ) : msg.type === 'text' ? (
 msg.text && msg.text.includes('🧲 TORRENT:') ? (
 <div className="torrent-card">
@@ -6504,12 +6509,16 @@ const sendQuizQuestion = (quizData) => {
   } else {
     connectionsRef.current.forEach(c => { if (c.open) try { c.send(wireMsg); } catch(e) {} });
     setMessages(prev => [...prev, localMsg].slice(-500));
-    // ── MODO GERAL NOVO: injeta quiz interativo no overlay Matrix ──
+    // ── MODO GERAL: injeta quiz localmente E envia para sala Matrix ──
+    const _quizPayloadGeral = { ...quizData, quizQuestion: localMsg.quizQuestion || quizData.quizQuestion };
     if (typeof window._matrixGeralInjetarQuiz === 'function')
-      window._matrixGeralInjetarQuiz(
-        { ...quizData, quizQuestion: localMsg.quizQuestion || quizData.quizQuestion },
-        '🤖 Quiz Bot', timeStr
-      );
+      window._matrixGeralInjetarQuiz(_quizPayloadGeral, '🤖 Quiz Bot', timeStr);
+    // Envia para a sala Matrix Geral para que usuários sem P2P recebam
+    if (typeof window.enviarParaMatrix === 'function') {
+      const _nomeK10 = localStorage.getItem('p2pUserName') || '';
+      const _prefixo = _nomeK10 ? `[K10·${_nomeK10}] ` : '';
+      window.enviarParaMatrix('__K10QUIZ__:' + _prefixo + JSON.stringify(_quizPayloadGeral));
+    }
   }
   
   // Envia para os inscritos do World Quiz, independentemente de estar em um servidor ou não
@@ -9593,8 +9602,14 @@ Chat K10
 <span className="general-mode-text" style={{ color: '#4ade80' }}>
   🌐 MATRIX
 </span>
-<span style={{ fontSize: '10px', color: '#94a3b8', marginTop: '2px', fontWeight: '600' }}>
-  {localStorage.getItem('matrixUser') ? localStorage.getItem('matrixUser').split(':')[0] : 'Sem login'}
+<span style={{ fontSize: '10px', marginTop: '2px', fontWeight: '600' }}>
+  {localStorage.getItem('matrixUser')
+    ? <span style={{ color: '#4ade80' }}>{localStorage.getItem('matrixUser').split(':')[0]}</span>
+    : <span style={{ color: '#fbbf24', cursor: 'pointer', textDecoration: 'underline' }}
+        onClick={e => { e.stopPropagation(); window._matrixSolicitarLogin && window._matrixSolicitarLogin('Faça login para enviar mensagens'); }}>
+        🔑 Fazer login
+      </span>
+  }
 </span>
 </div>
 <div className="network-size-badge" title={t(lang, 'usersOnlineGeneral')}>
@@ -10972,17 +10987,21 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     async function matrixGet(path, params = {}) {
         const qs = Object.entries(params).map(([k,v]) => k+'='+encodeURIComponent(v)).join('&');
         const sep = path.includes('?') ? '&' : '?';
-        const url = MATRIX_HS + path + sep + 'access_token=' + encodeURIComponent(MATRIX_TOKEN) + (qs ? '&'+qs : '');
+        const tokenPart = MATRIX_TOKEN ? 'access_token=' + encodeURIComponent(MATRIX_TOKEN) : '';
+        const qsFull = [tokenPart, qs].filter(Boolean).join('&');
+        const url = MATRIX_HS + path + (qsFull ? sep + qsFull : '');
         const resp = await fetch(url, { signal: AbortSignal.timeout(35000) });
         return resp.json();
     }
     async function matrixPost(path, body = {}) {
-        const url = MATRIX_HS + path + '?access_token=' + encodeURIComponent(MATRIX_TOKEN);
+        const tokenPart = MATRIX_TOKEN ? '?access_token=' + encodeURIComponent(MATRIX_TOKEN) : '';
+        const url = MATRIX_HS + path + tokenPart;
         const resp = await fetch(url, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body), signal: AbortSignal.timeout(35000) });
         return resp.json();
     }
     async function matrixPut(path, body = {}) {
-        const url = MATRIX_HS + path + '?access_token=' + encodeURIComponent(MATRIX_TOKEN);
+        const tokenPart = MATRIX_TOKEN ? '?access_token=' + encodeURIComponent(MATRIX_TOKEN) : '';
+        const url = MATRIX_HS + path + tokenPart;
         const resp = await fetch(url, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body), signal: AbortSignal.timeout(35000) });
         return resp.json();
     }
@@ -11008,6 +11027,19 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         const hora = new Date(mensagem.timestamp).toLocaleTimeString();
         const remetente = mensagem.sender.split(':')[0];
         const body = mensagem.body;
+
+        // ── Detecta quiz enviado pela sala Matrix ──
+        if (typeof body === 'string' && body.startsWith('__K10QUIZ__:')) {
+            if (sala.alias === SALA_GERAL_ALIAS && typeof window._matrixGeralInjetarQuiz === 'function') {
+                try {
+                    // Remove prefixo __K10QUIZ__: e opcional [K10·nome]
+                    const raw = body.slice('__K10QUIZ__:'.length).replace(/^\[K10·[^\]]*\]\s*/, '');
+                    const quizData = JSON.parse(raw);
+                    window._matrixGeralInjetarQuiz(quizData, remetente || '🤖 Quiz Bot', hora);
+                } catch(e) {}
+            }
+            return; // não adiciona à lista de texto
+        }
 
         // Remove msg local com mesmo texto se existir (evita duplicata)
         const localIdx = sala._mensagens.findIndex(m => m._local && m._texto === body);
