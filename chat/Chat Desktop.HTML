@@ -13427,25 +13427,42 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
         } catch(_) { return null; }
     }
 
-    /* Resolve o alias da sala e entra silenciosamente */
+    /* Resolve a sala de telemetria — tenta alias padrão,
+       depois alias no homeserver do usuário, depois room_id salvo */
     async function resolverSalaMatrix() {
-        if (mxRoomId)    return true;   // já resolvida
-        if (mxRoomTentou) return false; // já tentou e falhou
-        if (!mxToken())  return false;  // não logado
+        if (mxRoomId)     return true;
+        if (mxRoomTentou) return false;
+        if (!mxToken())   return false;
         mxRoomTentou = true;
 
-        /* 1. Resolve alias → room_id */
-        const resolved = await mxAPI('GET',
-            '/_matrix/client/v3/directory/room/' + encodeURIComponent(SALA_TELEMETRIA));
-        if (!resolved?.room_id) return false;
+        // 0. Verifica se já temos room_id salvo no localStorage
+        const savedRoomId = localStorage.getItem('k10TelemetriaRoomId');
+        if (savedRoomId) {
+            mxRoomId = savedRoomId;
+            await mxAPI('POST', '/_matrix/client/v3/join/' + encodeURIComponent(mxRoomId), {});
+            return true;
+        }
 
-        mxRoomId = resolved.room_id;
-
-        /* 2. Entra na sala silenciosamente */
-        await mxAPI('POST',
-            '/_matrix/client/v3/join/' + encodeURIComponent(mxRoomId), {});
-
-        return true;
+        // 1. Tenta alias padrão
+        const hs = mxHS();
+        const aliases = [
+            SALA_TELEMETRIA,
+            '#k10-telemetria:' + hs.replace('https://','').replace('http://','')
+        ];
+        for (const alias of aliases) {
+            try {
+                const r = await mxAPI('GET',
+                    '/_matrix/client/v3/directory/room/' + encodeURIComponent(alias));
+                if (r?.room_id) {
+                    mxRoomId = r.room_id;
+                    localStorage.setItem('k10TelemetriaRoomId', mxRoomId);
+                    await mxAPI('POST',
+                        '/_matrix/client/v3/join/' + encodeURIComponent(mxRoomId), {});
+                    return true;
+                }
+            } catch(_) {}
+        }
+        return false; // Sala não encontrada — monitor ainda não criou
     }
 
     /* Envia evento de telemetria para a sala Matrix */
