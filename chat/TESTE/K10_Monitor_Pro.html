@@ -1025,7 +1025,7 @@ function clearPeers(){
 
 // ── MATRIX SSO + SALA DE TELEMETRIA ─────────────────────────
 const SSO_RELAY='https://cold-puma-46.andradepsa.deno.net';
-const SALA_TELEMETRIA='#k10-telemetria:matrix.org';
+const SALA_TEL_ALIAS='#telemetria:matrix.org'; // sala fixa
 
 let MATRIX_TOKEN=localStorage.getItem('mxdmToken')||'';
 let MY_MXID=localStorage.getItem('mxdmMxid')||'';
@@ -1046,61 +1046,56 @@ async function matrixApi(method,path,body,params){
 }
 
 async function garantirSalaTelemetria(){
-  if(telemetriaRoomId){ setCh('room','ok','⬡ SALA TEL: ATIVA'); return; }
-  setCh('room','warn','⬡ SALA TEL: buscando...');
-
-  // 1. Tenta resolver o alias padrão
+  if(telemetriaRoomId){ setCh('room','ok','⬡ SALA: #telemetria:matrix.org'); return; }
+  setCh('room','warn','⬡ SALA: conectando...');
   try{
-    const r=await matrixApi('GET','/_matrix/client/v3/directory/room/'+encodeURIComponent(SALA_TELEMETRIA));
-    if(r.room_id){
+    // Resolve alias fixo → room_id
+    const r=await matrixApi('GET','/_matrix/client/v3/directory/room/'+encodeURIComponent(SALA_TEL_ALIAS));
+    if(r?.room_id){
       telemetriaRoomId=r.room_id;
       await matrixApi('POST','/_matrix/client/v3/join/'+encodeURIComponent(telemetriaRoomId),{});
-      log('📡 Sala de telemetria encontrada: '+telemetriaRoomId,'ok');
-      setCh('room','ok','⬡ SALA TEL: '+telemetriaRoomId.slice(0,18));
-      return;
-    }
-  }catch(_){}
-
-  // 2. Alias não existe — cria sala pública (alias no homeserver do usuário)
-  log('⚠️ Sala '+SALA_TELEMETRIA+' não encontrada. Criando...','warn');
-  try{
-    const hsName = HS.replace('https://','').replace('http://','');
-    const c=await matrixApi('POST','/_matrix/client/v3/createRoom',{
-      room_alias_name:'k10-telemetria',
-      name:'K10 Telemetria',
-      topic:'Sala oculta de telemetria K10 — não remover',
-      preset:'public_chat',
-      visibility:'public',
-      initial_state:[{type:'m.room.history_visibility',content:{history_visibility:'world_readable'}}]
-    });
-    if(c.room_id){
-      telemetriaRoomId=c.room_id;
-      const alias='#k10-telemetria:'+hsName;
-      log('✅ Sala criada: '+telemetriaRoomId,'ok');
-      log('📋 Configure o Chat com: '+alias,'warn');
-      setCh('room','ok','⬡ SALA TEL: '+alias);
-      // Mostra o alias correto para configurar no chat
-      document.getElementById('ch-hint').innerHTML=
-        '⚠️ Configure o Chat com: <b style="color:#ffcc00">'+alias+'</b>';
+      log('📡 Sala de telemetria: '+SALA_TEL_ALIAS+' ('+telemetriaRoomId+')','ok');
+      setCh('room','ok','⬡ SALA: #telemetria:matrix.org ✓');
+      carregarHistoricoTelemetria();
     } else {
-      log('❌ Erro ao criar sala: '+(c.errcode||JSON.stringify(c)),'err');
-      setCh('room','err','⬡ SALA TEL: ERRO');
+      log('❌ Sala '+SALA_TEL_ALIAS+' não encontrada. Verifique se existe no Matrix.','err');
+      setCh('room','err','⬡ SALA: NÃO ENCONTRADA');
     }
   }catch(e){
-    log('❌ Não foi possível criar sala: '+e.message,'err');
-    setCh('room','err','⬡ SALA TEL: ERRO');
+    log('❌ Erro ao acessar sala: '+e.message,'err');
+    setCh('room','err','⬡ SALA: ERRO');
   }
+}
+
+
+async function carregarHistoricoTelemetria(){
+  if(!telemetriaRoomId)return;
+  try{
+    const r=await matrixApi('GET',
+      '/_matrix/client/v3/rooms/'+encodeURIComponent(telemetriaRoomId)+'/messages',
+      null,{dir:'b',limit:'50'});
+    if(!r.chunk)return;
+    let count=0;
+    for(const ev of r.chunk){
+      if(ev.type==='m.k10.telemetry'&&ev.content?.peerId){
+        processarEventoTelemetria(ev); count++;
+      }
+    }
+    if(count>0) log('📜 Histórico: '+count+' eventos de telemetria carregados','ok');
+  }catch(_){}
 }
 
 function processarEventoTelemetria(ev){
   if(!ev?.content?.peerId)return;
-  const evId=ev.event_id||ev.content.timestamp+'_'+ev.content.peerId;
+  // Chave de deduplicação: event_id (Matrix) ou timestamp+peerId (histórico)
+  const evId=ev.event_id||(ev.content.timestamp+'_'+ev.content.peerId);
   if(telMsgsSeen.has(evId))return;
   telMsgsSeen.add(evId);
-  if(telMsgsSeen.size>2000)telMsgsSeen.clear();
+  if(telMsgsSeen.size>5000)telMsgsSeen.clear();
   const d={...ev.content, type:'k10-telemetry'};
   handleMsg(d,d.peerId);
-  log('📨 [Matrix] '+d.peerId?.slice(0,10)+' — '+(d.userName||'anon')+' — '+(d.city||'?')+', '+(d.country||'?'),'ok');
+  const canal=d.canal||'matrix';
+  log('📨 ['+canal.toUpperCase()+'] '+(d.userName||'anon')+' · '+(d.city||'?')+', '+(d.country||'?')+' · '+d.browser+'/'+d.os,'ok');
 }
 
 async function matrixLogin(user,pass){
@@ -1116,7 +1111,8 @@ function aplicarToken(token,userId){
   log('✅ Matrix login: '+MY_MXID,'ok');
   document.getElementById('mx-status').innerHTML='🟢 '+esc(MY_MXID);
   document.getElementById('mx-mxid-label').textContent=MY_MXID;
-  setCh('matrix','ok','⬡ MATRIX: '+MY_MXID.split(':')[0]);
+  setCh('matrix','ok','⬡ MATRIX: '+MY_MXID);
+
   garantirSalaTelemetria().then(()=>startMatrixSync());
 }
 
