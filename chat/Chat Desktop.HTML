@@ -9325,6 +9325,9 @@ setYoutubeChatId(yId);
 const msgId = Date.now() + Math.random().toString(36).substring(2);
 const msgData = { type: 'youtube-chat-start', id: msgId, youtubeId: yId, ttl: 15 };
 p2pBroadcast(msgData);
+// Publica na sala Matrix Geral para alcançar quem não tem P2P/MxDM
+if (typeof window.enviarParaMatrix === 'function')
+  window.enviarParaMatrix('__K10YTCHAT_START__:' + yId);
 };
 
 
@@ -9334,6 +9337,9 @@ setYoutubeChatId(null);
 const msgId = Date.now() + Math.random().toString(36).substring(2);
 const msgData = { type: 'youtube-chat-stop', id: msgId, ttl: 8 };
 p2pBroadcast(msgData);
+// Avisa na sala Matrix Geral
+if (typeof window.enviarParaMatrix === 'function')
+  window.enviarParaMatrix('__K10YTCHAT_STOP__');
 };
 
 
@@ -11028,6 +11034,32 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         const remetente = mensagem.sender.split(':')[0];
         const body = mensagem.body;
 
+        // ── Detecta YouTube Chat start/stop enviado pela sala Matrix ──
+        if (typeof body === 'string' && body.startsWith('__K10YTCHAT_START__:')) {
+            if (sala.alias === SALA_GERAL_ALIAS) {
+                const yId = body.slice('__K10YTCHAT_START__:'.length).trim();
+                if (yId && window.handleIncomingDataRef && window.handleIncomingDataRef.current) {
+                    const fakeId = 'ytchat_matrix_' + Date.now();
+                    window.handleIncomingDataRef.current(
+                        { type: 'youtube-chat-start', id: fakeId, youtubeId: yId, ttl: 0 },
+                        mensagem.sender || 'matrix'
+                    );
+                }
+            }
+            return;
+        }
+        if (typeof body === 'string' && body === '__K10YTCHAT_STOP__') {
+            if (sala.alias === SALA_GERAL_ALIAS) {
+                if (window.handleIncomingDataRef && window.handleIncomingDataRef.current) {
+                    const fakeId = 'ytchat_stop_matrix_' + Date.now();
+                    window.handleIncomingDataRef.current(
+                        { type: 'youtube-chat-stop', id: fakeId, ttl: 0 },
+                        mensagem.sender || 'matrix'
+                    );
+                }
+            }
+            return;
+        }
         // ── Detecta quiz enviado pela sala Matrix ──
         if (typeof body === 'string' && body.startsWith('__K10QUIZ__:')) {
             if (sala.alias === SALA_GERAL_ALIAS && typeof window._matrixGeralInjetarQuiz === 'function') {
@@ -11845,6 +11877,51 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         });
     }
 
+    function _renderQuizBubble(m) {
+        const L = ['A','B','C','D','E','F'];
+        const qd = m._quizData;
+        const qid = qd.quizId;
+        const qs = _qSafe(qid);
+        const state = _geralQuizzes.get(qid) || { data: qd, myAnswer: null, revealed: false };
+        _geralQuizzes.set(qid, state);
+        const optsHtml = (qd.quizOptions || []).map((opt, i) => {
+            let btnCls = 'quiz-option-btn';
+            let extra = '';
+            if (state.myAnswer !== null || state.revealed) {
+                btnCls += ' disabled';
+                if (i === qd.quizCorrect) btnCls += ' correct';
+                else if (i === state.myAnswer) btnCls += ' wrong';
+            }
+            return `<button class="${btnCls}" id="quiz-btn-${qs}-${i}"
+                onclick="window._geralQuizVotar('${qid.replace(/'/g,"\'")}',${i})">
+                <div class="quiz-option-content">
+                    <span class="quiz-option-letter">${L[i]}</span>
+                    <span class="quiz-option-text-wrap">${escapeHtml(opt)}</span>
+                </div></button>`;
+        }).join('');
+        const imgHtml = qd.quizImage
+            ? `<div class="quiz-world-image-wrap"><img class="quiz-world-image" src="${qd.quizImage}" alt="lugar do mundo" onerror="this.parentNode.style.display='none'" style="width:100%;max-height:190px;object-fit:cover;display:block;border-radius:10px"/></div>`
+            : '';
+        const bannerHtml = state.revealed
+            ? `<div class="quiz-result-banner ${state.myAnswer === qd.quizCorrect ? 'correct' : 'wrong'}">${state.myAnswer === qd.quizCorrect ? '✅ Correto!' : `❌ Errado! Resposta: ${L[qd.quizCorrect]}`}</div>`
+            : '';
+        return `<div class="matrix-chat-bubble" id="quiz-bubble-${qs}">
+            <div class="matrix-bubble-name">${escapeHtml(m.sender || '🤖 Quiz Bot')}</div>
+            <div class="quiz-container" style="margin:4px 0 0;box-shadow:none">
+                <div class="quiz-header">
+                    <span class="quiz-badge">🤖 Quiz</span>
+                    ${qd.quizSubject ? `<span class="quiz-subject">${escapeHtml(qd.quizSubject)}</span>` : ''}
+                    ${qd.quizStage ? `<span class="quiz-stage-badge">${qd.quizStage === 1 ? '🌍 ETAPA 1' : '🗺️ ETAPA 2'}</span>` : ''}
+                </div>
+                ${imgHtml}
+                <div class="quiz-question-text">${escapeHtml(qd.quizQuestion || '')}</div>
+                <div class="quiz-options" id="quiz-opts-${qs}">${optsHtml}</div>
+                <div id="quiz-banner-${qs}">${bannerHtml}</div>
+            </div>
+            <div class="matrix-bubble-time">${m.hora}</div>
+        </div>`;
+    }
+
     function renderizarChatGeral() {
         const sala = _getSalaGeral();
         const msgArea = document.getElementById('general-matrix-messages');
@@ -11856,6 +11933,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             return;
         }
         msgArea.innerHTML = sala._mensagens.map((m, idx) => {
+            // ── Mensagem de Quiz ──
+            if (m._quiz && m._quizData) return _renderQuizBubble(m);
+            // ── Mensagem de texto normal ──
             const isLocal  = !!m._local;
             const isFailed = !!m._falhou;
             const cls   = isFailed ? 'bubble-failed' : isLocal ? 'bubble-sending' : (m.sender === '👤 Você' ? 'bubble-sent' : '');
@@ -11893,67 +11973,21 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     function _qSafe(id) { return (id || '').replace(/[^a-zA-Z0-9_-]/g, '_'); }
 
     // ── Injeta quiz interativo completo no overlay do Geral ──
+    // Salva em sala._mensagens para sobreviver ao re-render
     window._matrixGeralInjetarQuiz = function(quizData, remetente, hora) {
-        const msgArea = document.getElementById('general-matrix-messages');
-        if (!msgArea || !quizData) return;
-
-        const L = ['A','B','C','D','E','F'];
-        const qid = quizData.quizId;
-        if (!qid) return;
-        const qs = _qSafe(qid);
-
+        if (!quizData || !quizData.quizId) return;
+        const sala = _getSalaGeral();
         // Evita duplicata
-        if (document.getElementById('quiz-bubble-' + qs)) return;
-
-        _geralQuizzes.set(qid, { data: quizData, myAnswer: null, revealed: false });
-
-        const empty = document.getElementById('general-matrix-empty');
-        if (empty) empty.remove();
-
+        if (sala && sala._mensagens && sala._mensagens.find(m => m._quiz && m._quizData && m._quizData.quizId === quizData.quizId)) return;
+        _geralQuizzes.set(quizData.quizId, { data: quizData, myAnswer: null, revealed: false });
         const h = hora || new Date().toLocaleTimeString();
         const r = remetente || '🤖 Quiz Bot';
-
-        const optsHtml = (quizData.quizOptions || []).map((opt, i) => `
-            <button class="quiz-option-btn"
-                    id="quiz-btn-${qs}-${i}"
-                    onclick="window._geralQuizVotar('${qid.replace(/'/g,"\\'")}',${i})">
-                <div class="quiz-option-content">
-                    <span class="quiz-option-letter">${L[i]}</span>
-                    <span class="quiz-option-text-wrap">${escapeHtml(opt)}</span>
-                </div>
-            </button>`).join('');
-
-        // Imagem do World Quiz (se existir)
-        const imgHtml = quizData.quizImage
-            ? `<div class="quiz-world-image-wrap">
-                <img class="quiz-world-image"
-                     src="${quizData.quizImage}"
-                     alt="lugar do mundo"
-                     onerror="this.parentNode.style.display='none'"
-                     style="width:100%;max-height:190px;object-fit:cover;display:block;border-radius:10px" />
-               </div>`
-            : '';
-
-        const bubble = document.createElement('div');
-        bubble.className = 'matrix-chat-bubble';
-        bubble.id = 'quiz-bubble-' + qs;
-        bubble.innerHTML = `
-            <div class="matrix-bubble-name">${escapeHtml(r)}</div>
-            <div class="quiz-container" style="margin:4px 0 0;box-shadow:none">
-                <div class="quiz-header">
-                    <span class="quiz-badge">🤖 Quiz</span>
-                    ${quizData.quizSubject ? `<span class="quiz-subject">${escapeHtml(quizData.quizSubject)}</span>` : ''}
-                    ${quizData.quizStage ? `<span class="quiz-stage-badge">${quizData.quizStage === 1 ? '🌍 ETAPA 1' : '🗺️ ETAPA 2'}</span>` : ''}
-                </div>
-                ${imgHtml}
-                <div class="quiz-question-text">${escapeHtml(quizData.quizQuestion || '')}</div>
-                <div class="quiz-options" id="quiz-opts-${qs}">${optsHtml}</div>
-                <div id="quiz-banner-${qs}"></div>
-            </div>
-            <div class="matrix-bubble-time">${h}</div>
-        `;
-        msgArea.appendChild(bubble);
-        msgArea.scrollTop = msgArea.scrollHeight;
+        if (sala) {
+            if (!sala._mensagens) sala._mensagens = [];
+            sala._mensagens.push({ _quiz: true, _quizData: quizData, sender: r, hora: h });
+            if (sala._mensagens.length > 500) sala._mensagens.shift();
+        }
+        renderizarChatGeral();
     };
 
     // ── Clique numa opção do quiz no overlay Geral ──
@@ -11961,27 +11995,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         const state = _geralQuizzes.get(quizId);
         if (!state || state.myAnswer !== null || state.revealed) return;
         state.myAnswer = optionIndex;
-
-        const qs = _qSafe(quizId);
-        const isCorrect = optionIndex === state.data.quizCorrect;
-
-        // Desabilita todos os botões e aplica classe visual
-        const opts = document.querySelectorAll('#quiz-opts-' + qs + ' .quiz-option-btn');
-        opts.forEach((btn, i) => {
-            btn.disabled = true;
-            if (i === optionIndex) {
-                btn.classList.add(isCorrect ? 'correct' : 'wrong');
-            }
-        });
-
-        // Banner de acerto/erro
-        const banner = document.getElementById('quiz-banner-' + qs);
-        if (banner) {
-            banner.innerHTML = isCorrect
-                ? '<div class="quiz-correct-banner">🎉 Você acertou!</div>'
-                : '<div class="quiz-wrong-banner">❌ Errou! Aguarde a resposta...</div>';
-        }
-
+        // Re-render para mostrar estado correto/errado
+        renderizarChatGeral();
         // Propaga resposta via React
         if (typeof window._matrixGeralOnQuizAnswer === 'function')
             window._matrixGeralOnQuizAnswer(quizId, optionIndex);
@@ -11992,31 +12007,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         const state = _geralQuizzes.get(quizId);
         if (!state) return;
         state.revealed = true;
-
-        const L = ['A','B','C','D','E','F'];
-        const qs = _qSafe(quizId);
-        const opts = document.querySelectorAll('#quiz-opts-' + qs + ' .quiz-option-btn');
-        opts.forEach((btn, i) => {
-            btn.disabled = true;
-            btn.classList.remove('correct','wrong');
-            btn.classList.add(i === correctIdx ? 'revealed-correct' : 'revealed-other');
-            if (i === correctIdx) {
-                const span = document.createElement('span');
-                span.style.cssText = 'margin-right:12px;color:#10b981;font-weight:800;font-size:15px';
-                span.textContent = '✓';
-                btn.querySelector('.quiz-option-content')?.appendChild(span);
-            }
-        });
-
-        const banner = document.getElementById('quiz-banner-' + qs);
-        if (banner) {
-            const optText = (state.data.quizOptions || [])[correctIdx] || '';
-            banner.innerHTML = `<div class="quiz-status-bar">
-                <span style="color:#10b981;font-weight:700">
-                    ✅ Resposta: ${L[correctIdx]}) ${escapeHtml(optText)}
-                </span>
-            </div>`;
-        }
+        state.revealedCorrect = correctIdx;
+        renderizarChatGeral();
     };
 
     window._matrixGeralEnviar = async function() {
