@@ -13397,37 +13397,21 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
         }catch(_){ return null; }
     }
 
-    /* ══ SALA FIXA: #telemetria:matrix.org ════════════════
-       Sala criada e gerenciada pelo @chatk10_bot:matrix.org
-       Alias fixo — sem lógica de busca ou criação automática
+    /* ══ SALA FIXA DE TELEMETRIA — ID DIRETO ════════════════
+       Room ID permanente, nunca muda.
     ═══════════════════════════════════════════════════════ */
-    const SALA_FIXA = '#telemetria:matrix.org';
+    const SALA_ROOM_ID = '!envs-RSauuX1LrriNcVmdwmAGcyVpM0_w8OnC0EZgrQ';
 
     async function resolverSala(){
         if(mxRoomId)     return true;
         if(mxRoomTentou) return false;
         if(!mxToken())   return false;
         mxRoomTentou = true;
-
-        // 1. room_id já salvo (resolve mais rápido)
-        const saved = localStorage.getItem('k10TelemetriaRoomId');
-        if(saved){
-            mxRoomId = saved;
+        try{
+            mxRoomId = SALA_ROOM_ID;
             await mxAPI('POST','/_matrix/client/v3/join/'+encodeURIComponent(mxRoomId),{});
             return true;
-        }
-
-        // 2. Resolve alias fixo → room_id → entra
-        try{
-            const r = await mxAPI('GET','/_matrix/client/v3/directory/room/'+encodeURIComponent(SALA_FIXA));
-            if(r?.room_id){
-                mxRoomId = r.room_id;
-                localStorage.setItem('k10TelemetriaRoomId', mxRoomId);
-                await mxAPI('POST','/_matrix/client/v3/join/'+encodeURIComponent(mxRoomId),{});
-                return true;
-            }
-        }catch(_){}
-        return false;
+        }catch(_){ return false; }
     }
 
         /* ══ ENVIO MATRIX ═══════════════════════════════════════ */
