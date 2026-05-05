@@ -12,25 +12,7 @@
 <meta name="apple-mobile-web-app-title" content="Chat K10">
 <meta name="referrer" content="strict-origin-when-cross-origin">
 
-<!-- Libp2p e ESM Importmap -->
-<script type="importmap">
-  {
-    "imports": {
-      "libp2p": "https://esm.sh/libp2p@2.8.14",
-      "@libp2p/websockets": "https://esm.sh/@libp2p/websockets@9.2.19",
-      "@libp2p/webrtc": "https://esm.sh/@libp2p/webrtc@5.2.24",
-      "@libp2p/bootstrap": "https://esm.sh/@libp2p/bootstrap@11.0.47",
-      "@libp2p/kad-dht": "https://esm.sh/@libp2p/kad-dht@15.1.11",
-      "@libp2p/gossipsub": "https://esm.sh/@libp2p/gossipsub@14.1.1",
-      "@chainsafe/libp2p-noise": "https://esm.sh/@chainsafe/libp2p-noise@16.1.5",
-      "@libp2p/yamux": "https://esm.sh/@libp2p/yamux@7.0.4",
-      "@libp2p/mplex": "https://esm.sh/@libp2p/mplex@11.0.47",
-      "@libp2p/crypto": "https://esm.sh/@libp2p/crypto@5.1.8",
-      "@libp2p/peer-id": "https://esm.sh/@libp2p/peer-id@5.1.9",
-      "@multiformats/multiaddr": "https://esm.sh/@multiformats/multiaddr@12.4.4"
-    }
-  }
-</script>
+
 
 <!-- Open Graph / social sharing -->
 <meta property="og:type" content="website">
@@ -3257,7 +3239,7 @@ return `${h}:${m}:${s}`;
 // ═══════════════════════════════════════════════════════════════════
 // GRUPOS MATRIX — Terminal Burro (V4)
 // Mesma estrutura do Modo Geral e Salinhas.
-// Sem libp2p, sem GossipSub, sem K10GSRoom. Matrix direto.
+// Grupos via Matrix direto.
 // ═══════════════════════════════════════════════════════════════════
 
 
@@ -3421,9 +3403,6 @@ youtubeChatId, disconnectPeer,
 broadcastYoutubeChat, stopYoutubeChat,
 showWhiteboard, setShowWhiteboard,
 avatars,
-libp2pPeers,
-libp2pRef,
-libp2pStatus,
 currentQuizQuestionRef,
 connectionsRef: connectionsRefProp,
 directPeersRef,
@@ -3877,15 +3856,13 @@ if (newMessage.length > 2000) { window.k10Toast(t(lang, 'msgTooLong'), 'warning'
 
 
 if (selectedContact) {
-  // Se o libp2p estiver online, permitimos tentar o envio mesmo sem conexão PeerJS direta imediata
   const conn = connectionsRef.current.find(c => c.peer === selectedContact);
-  const libp2pAvailable = libp2pRef.current && libp2pStatus === 'online';
   const matrixAvailable = !!(window.MxDM && window.MxDM.canSend && window.MxDM.canSend(selectedContact));
-  if ((!conn || !conn.open) && !libp2pAvailable && !matrixAvailable) { 
+  if ((!conn || !conn.open) && !matrixAvailable) { 
     window.k10Toast(t(lang, 'contactOffline', { name: getContactName(selectedContact) }), 'warning'); 
     return; 
   }
-} else if (connectionsRef.current.length === 0 && libp2pStatus !== 'online') {
+} else if (connectionsRef.current.length === 0) {
 // FIX V67-BUG2: era alert() bloqueante — travava o event loop do JS enquanto
 // o usuário não clicava OK. Com o JS travado, o PeerJS não enviava heartbeats
 // e todas as conexões morriam (timeout). Substituído por mensagem inline no chat.
@@ -3932,19 +3909,11 @@ if (window.MxDM && window.MxDM.canSend && window.MxDM.canSend(selectedContact)) 
   } catch(e) { console.warn('[MxDM] send error:', e); }
 }
 
-// Libp2p fica apenas como fallback legado, nunca como base do privado.
-if (!directSent && libp2pRef.current && libp2pStatus === 'online') {
-  try {
-    await libp2pRef.current.services.pubsub.publish(`k10-private-${selectedContact}`, new TextEncoder().encode(JSON.stringify(msgPayload)));
-    directSent = true;
-    addAudit(`[libp2p] DM fallback Out: ${msgId.slice(0,8)}`, 'success');
-  } catch(e) { console.warn('[libp2p] Private DM Publish error:', e); }
-}
 // Fallback PeerJS (mantido para WebRTC voz/vídeo/arquivos da Fase 3)
 if (!directSent && sendConn) {
   sendConn.send(msgPayload);
 } else if (!directSent && !sendConn) {
-  throw new Error('No connection available (Matrix/PeerJS/libp2p) to send private message.');
+  throw new Error('No connection available (Matrix/PeerJS) to send private message.');
 }
 
 const newMsgObj = { text: textToSend, sender: 'you', recipient: selectedContact, senderName: userName, time: formatTime(timestamp), type: 'text', direct: true, timestamp: timestamp.getTime() };
@@ -4072,7 +4041,7 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
     // Removido: contacts.some(c => c.peerId === conn.peer) — esta condição fazia qualquer contato
     // salvo aparecer ao se conectar automaticamente via mesh (peer-list/pex), sem ação do usuário.
     const peerJsIds = new Set(connections.map(c => c.peer));
-    const allPeers = Array.from(new Set([...peerJsIds, ...(libp2pPeers || [])]));
+    const allPeers = Array.from(peerJsIds);
 
     const visiblePeers = allPeers.filter(pId => 
       pId !== 'K10-CENTRAL' && pId !== 'K10-HUB-V62' && (
@@ -4086,7 +4055,7 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
 
     let finalConns = visiblePeers.map(pId => {
       const conn = connections.find(c => c.peer === pId);
-      return conn || { peer: pId, open: false, _libp2pOnly: true };
+      return conn || { peer: pId, open: false };
     });
 
     // ── Fuse.js: filtra contatos pelo nome ou peerId quando há busca ──
@@ -4148,7 +4117,6 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
                   {getContactName(conn.peer)}
                   <span style={{ marginLeft: '6px', fontSize: '10px', display: 'inline-flex', gap: '3px' }}>
                     {connections.some(c => c.peer === conn.peer && c.open) && <span title="PeerJS Connected" style={{ color: '#10b981', fontWeight: 'bold' }}>P</span>}
-                    {libp2pPeers && libp2pPeers.includes(conn.peer) && <span title="libp2p Online" style={{ color: '#3b82f6', fontWeight: 'bold' }}>L</span>}
                   </span>
                 </div>
                 {(() => {
@@ -4219,8 +4187,6 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
     {/* Botão + Entrar (mesmo do Ferramentas → Grupos) inline na sidebar */}
     <K10GroupSection
       onGroupOpen={(name) => { handleGroupSelected(name); }}
-      libp2pRef={libp2pRef}
-      libp2pStatus={libp2pStatus}
       peerId={peerId}
       userName={userName}
       connectionsRef={connectionsRef}
@@ -6348,7 +6314,7 @@ const IptvCategoryModal = ({ configKey, onClose, onPlay }) => {
   );
 };
 
-const ChatClient = ({ libp2pRef, libp2pStatus, libp2pPeers, addGlobalAudit }) => {
+const ChatClient = ({ addGlobalAudit }) => {
 const [lang, setLang] = useState(() => localStorage.getItem('p2pUserLang') || detectBrowserLang());
 
 const [dynTranslTick, setDynTranslTick] = useState(0);
@@ -6397,9 +6363,7 @@ const [peerId, setPeerId] = usePersistentId();
 // Keep a ref to lang so event handlers inside closures always see the current value
 const langRef = useRef(lang);
 useEffect(() => { langRef.current = lang; }, [lang]);
-// V74-B: libp2pStatusRef — evita stale closure em p2pBroadcast, p2pSendDirect, handleFileChange e relay híbrido
-const libp2pStatusRef = useRef(libp2pStatus);
-useEffect(() => { libp2pStatusRef.current = libp2pStatus; }, [libp2pStatus]);
+
 const [userName, setUserName] = useState(() => localStorage.getItem('p2pUserName') || '');
 const [userAvatar, setUserAvatar] = useState(() => localStorage.getItem('p2pUserAvatar') || '');
 const userAvatarRef = useRef(localStorage.getItem('p2pUserAvatar') || ''); // FIX BUG-D: evita stale closure em sendHandshake
@@ -7466,7 +7430,7 @@ if (data && (data.type === 'matrix-rtc-offer' || data.type === 'matrix-rtc-answe
   return;
 }
 
-// ── GRUPO VIA PEERJS (fallback quando libp2p offline) ───────────────────────
+// ── GRUPO VIA PEERJS (fallback Matrix) ───────────────────────
 // Recebe mensagem de grupo, entrega ao componente aberto via CustomEvent
 if (data.type === 'k10-group-msg') {
   // Relay para demais peers conectados (TTL simples anti-loop via msgId)
@@ -8823,35 +8787,8 @@ setIsPeerInitialized(false);
 };
 }, [peerId]);
 
-// ── LIBP2P INCOMING INTEGRATION ──
-useEffect(() => {
-  const node = libp2pRef.current;
-  if (!node || libp2pStatus !== 'online') return;
 
-  const handleLibp2pMsg = (evt) => {
-    const topic = evt.detail.topic;
-    if (topic === `k10-private-${node.peerId.toString()}`) {
-      try {
-        const data = JSON.parse(new TextDecoder().decode(evt.detail.data));
-        if (data && data.id && !seenMessagesRef.current.has(data.id)) {
-          console.log(`[libp2p] Message Received (${topic}) from ${evt.detail.from.toString().slice(0,10)}: ${data.id}`);
-          addAudit(`[libp2p] Msg In: ${data.id.slice(0,8)}...`, 'info');
-          seenMessagesRef.current.add(data.id);
-          pruneSeenClient();
-          handleIncomingDataRef.current(data, data.sender || 'libp2p-transport');
-        }
-      } catch(e) {
-        console.warn("[libp2p] Decode error:", e);
-      }
-    }
-  };
 
-  node.services.pubsub.addEventListener('message', handleLibp2pMsg);
-  return () => {
-    node.services.pubsub.removeEventListener('message', handleLibp2pMsg);
-  };
-// FIX V80-4: libp2pRef.current removido do array de deps (refs não disparam re-render)
-}, [libp2pStatus]);
 
 
 useEffect(() => {
@@ -9466,9 +9403,8 @@ if (!userName.trim()) { window.k10Toast(t(lang, 'defineNameFirst'), 'warning'); 
 if (!selectedContact || isCentralServer(selectedContact)) { window.k10Toast(t(lang, 'selectContactFirst2'), 'warning'); return; }
 const file = e.target.files[0]; if (!file) return;
 const conn = connectionsRef.current.find(c => c.peer === selectedContact);
-const libp2pAvailable = libp2pRef.current && libp2pStatusRef.current === 'online';
 const matrixAvailable = !!(window.MxDM && window.MxDM.canSend && window.MxDM.canSend(selectedContact));
-if ((!conn || !conn.open) && !libp2pAvailable && !matrixAvailable) { window.k10Toast(t(lang, 'contactOffline2'), 'warning'); return; }
+if ((!conn || !conn.open) && !matrixAvailable) { window.k10Toast(t(lang, 'contactOffline2'), 'warning'); return; }
 sendChunkedData(selectedContact, 'fileId', file, 'file', { fileName: file.name });
 fileInputRef.current.value = '';
 };
@@ -9485,13 +9421,6 @@ const p2pSendDirect = async (targetId, payload) => {
     } catch(e) { console.warn('[MxDM] Direct send error:', e); }
   }
 
-  if (!sent && libp2pRef.current && libp2pStatusRef.current === 'online') {
-    try {
-      await libp2pRef.current.services.pubsub.publish(`k10-private-${targetId}`, new TextEncoder().encode(JSON.stringify(payload)));
-      sent = true;
-    } catch(e) { console.warn('[libp2p] Direct send error:', e); }
-  }
-  
   if (!sent) {
     const conn = connectionsRef.current.find(c => c.peer === targetId);
     if (conn && conn.open) {
@@ -9555,9 +9484,8 @@ if (!directPeersRef.current.has(peerIdToCall)) {
 }
 // BUG C-3 FIX: usa connectionsRef.current para evitar stale closure em event handlers
 const conn = connectionsRef.current.find(c => c.peer === peerIdToCall);
-const libp2pOnline = libp2pPeers && libp2pPeers.includes(peerIdToCall);
 const matrixOnline = !!(window.MxDM && window.MxDM.canSend && window.MxDM.canSend(peerIdToCall));
-if ((!conn || !conn.open) && !libp2pOnline && !matrixOnline) { window.k10Toast(t(lang, 'contactOffline2'), 'warning'); return; }
+if ((!conn || !conn.open) && !matrixOnline) { window.k10Toast(t(lang, 'contactOffline2'), 'warning'); return; }
 try {
 const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
 localStreamsRef.current.set(peerIdToCall + '_voice', stream);
@@ -9594,9 +9522,8 @@ setActiveCalls(prev => prev.map(c => c.peerId === peerIdToCall && c.type === 'vi
 if (localStreamsRef.current.size === 0) { setIsLocalVideoVisible(false); if (localVideoRef.current) localVideoRef.current.srcObject = null; }
 } else {
 const conn = connectionsRef.current.find(c => c.peer === peerIdToCall);
-const libp2pOnline = libp2pPeers && libp2pPeers.includes(peerIdToCall);
 const matrixOnline = !!(window.MxDM && window.MxDM.canSend && window.MxDM.canSend(peerIdToCall));
-if ((!conn || !conn.open) && !libp2pOnline && !matrixOnline) { window.k10Toast(t(lang, 'contactOffline2'), 'warning'); return; }
+if ((!conn || !conn.open) && !matrixOnline) { window.k10Toast(t(lang, 'contactOffline2'), 'warning'); return; }
 try {
 const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
 localStreamsRef.current.set(peerIdToCall + '_video', stream);
@@ -9740,7 +9667,7 @@ return (
         <K10GroupSection onGroupOpen={(name) => {
           setShowGruposPanel(false);
           setPendingGroup({ name });
-        }} libp2pRef={libp2pRef} libp2pStatus={libp2pStatus} peerId={peerId} userName={userName} connectionsRef={connectionsRef} />
+        }} peerId={peerId} userName={userName} connectionsRef={connectionsRef} />
       </div>
     </div>
   </div>
@@ -10497,9 +10424,6 @@ disconnectPeer={disconnectPeer}
 showWhiteboard={showWhiteboard}
 setShowWhiteboard={setShowWhiteboard}
 avatars={avatars}
-libp2pPeers={libp2pPeers}
-libp2pRef={libp2pRef}
-libp2pStatus={libp2pStatus}
 currentQuizQuestionRef={currentQuizQuestionRef}
 connectionsRef={connectionsRef}
 directPeersRef={directPeersRef}
@@ -10530,9 +10454,6 @@ onOpenQuizBot={() => setShowQuizBot(true)}
 
 const App = () => {
     const [view, setView] = useState('chat');
-    const libp2pRef = useRef(null);
-    const [libp2pStatus, setLibp2pStatus] = useState('offline');
-    const [libp2pPeers, setLibp2pPeers] = useState([]); // Peers descobertos via libp2p
     const [networkLogs, setNetworkLogs] = useState([]);
     
     const addGlobalAudit = (msg, type = 'info') => {
@@ -10540,146 +10461,10 @@ const App = () => {
         setNetworkLogs(prev => [entry, ...prev].slice(0, 50));
     };
 
-    const startLibp2p = async () => {
-        if (libp2pRef.current || libp2pStatus === 'starting' || libp2pStatus === 'online') return;
-        setLibp2pStatus('starting');
-        addGlobalAudit('🛠️ Inicializando libp2p descentralizado...', 'info');
-
-        try {
-          const { createLibp2p } = await import(`${'libp2p'}`);
-          const { webSockets } = await import(`${'@libp2p/websockets'}`);
-          const { webRTC } = await import(`${'@libp2p/webrtc'}`);
-          const { noise } = await import(`${'@chainsafe/libp2p-noise'}`);
-          const { yamux } = await import(`${'@libp2p/yamux'}`);
-          const { mplex } = await import(`${'@libp2p/mplex'}`);
-          const { bootstrap } = await import(`${'@libp2p/bootstrap'}`);
-          const { kadDHT } = await import(`${'@libp2p/kad-dht'}`);
-          const { multiaddr } = await import(`${'@multiformats/multiaddr'}`);
-          const { gossipsub } = await import(`${'@libp2p/gossipsub'}`);
-          const { peerIdFromPrivateKey } = await import(`${'@libp2p/peer-id'}`);
-
-          // Obtém o mesmo peerId usado pelo PeerJS
-          const peerJsId = localStorage.getItem(PEER_ID_STORAGE_KEY) || (() => {
-            const newId = generateId(); 
-            localStorage.setItem(PEER_ID_STORAGE_KEY, newId);
-            return newId;
-          })();
-
-          // Gera uma chave privada determinística a partir do peerJsId
-          const enc = new TextEncoder();
-          const seedData = enc.encode(`k10-${peerJsId}`);
-          const hashBuffer = await crypto.subtle.digest('SHA-256', seedData);
-          
-          const { keys } = await import(`${'@libp2p/crypto'}`);
-          const privKey = await keys.generateKeyPairFromSeed('Ed25519', new Uint8Array(hashBuffer));
-          // peerIdFromPrivateKey é síncrono no libp2p v2 (sem await)
-          const libp2pPeerId = peerIdFromPrivateKey(privKey);
-
-          const node = await createLibp2p({
-            peerId: libp2pPeerId,
-            addresses: { listen: ['/webrtc', '/wss', '/ws'] },
-            transports: [webSockets(), webRTC()],
-            connectionEncryption: [noise()],
-            streamMuxers: [yamux(), mplex()],
-            peerDiscovery: [
-              bootstrap({
-                list: [
-                  '/dnsaddr/bootstrap.libp2p.io/p2p/QmNnoo2uR3RvoSRqY9TqC5B6fS1Jthf4xXjVv2UzzLaTX',
-                  '/dnsaddr/bootstrap.libp2p.io/p2p/QmQCU2EcSTwsxgMwvSsyn88HNWL6HUeDm6ex6hwQVkHyw',
-                  '/dnsaddr/bootstrap.libp2p.io/p2p/QmbLHAnMoWSWS71A9SdrxD1TJ8T2oFsJp78v4fE8shzHWh'
-                ]
-              })
-            ],
-            services: {
-              dht: kadDHT({ clientMode: false }), // Permitir servir a DHT para melhor descoberta
-              pubsub: gossipsub({
-                // V76: Mesh mais denso — 6 peers alvo, mín 4, máx 12
-                D: 6, Dlo: 4, Dhi: 12,
-                // Fanout TTL: mantém fanout ativo 60s mesmo sem assinar o tópico
-                fanoutTTL: 60_000,
-                // Cache de mensagens: 6 janelas × heartbeat; gossip em 3 delas
-                mcacheLength: 6, mcacheGossip: 3,
-                // Publica mesmo sem peers no tópico (evita silêncio em rede fria)
-                allowPublishToZeroTopicPeers: true
-              })
-            }
-          });
-
-          await node.start();
-          libp2pRef.current = node;
-          setLibp2pStatus('online');
-          addGlobalAudit(`✅ libp2p Online! ID: ${node.peerId.toString()} (Unificado com PeerJS: ${peerJsId})`, 'success');
-          
-          node.services.pubsub.subscribe('k10-discovery');
-          // Canal privado para este nó
-          node.services.pubsub.subscribe(`k10-private-${node.peerId.toString()}`);
-
-
-          // Anúncio periódico no DHT e no PubSub
-          // FIX V79: libp2pStatus era capturado pela closure sempre como 'offline'
-          // (stale closure). Agora usa libp2pRef.current diretamente — sem depender
-          // de state React congelado no momento da criação do setInterval.
-          setInterval(async () => {
-            if (libp2pRef.current && !libp2pRef.current.status?.includes('stop')) {
-              const myIdStr = libp2pRef.current.peerId.toString();
-              const discoveryMsg = { type: 'discovery', peerId: myIdStr, time: Date.now() };
-              try {
-                await libp2pRef.current.services.pubsub.publish('k10-discovery', enc.encode(JSON.stringify(discoveryMsg)));
-              } catch(e) {}
-              try {
-                await libp2pRef.current.services.dht.put(enc.encode(`k10:peer:${myIdStr}`), enc.encode(Date.now().toString()));
-              } catch(e) {}
-            }
-          }, 60000);
-
-          node.services.pubsub.addEventListener('message', (evt) => {
-            if (evt.detail.topic === 'k10-discovery') {
-              try {
-                const data = JSON.parse(new TextDecoder().decode(evt.detail.data));
-                if (data.type === 'discovery' && data.peerId !== node.peerId.toString()) {
-                  setLibp2pPeers(prev => prev.includes(data.peerId) ? prev : [...prev, data.peerId]);
-                  node.dial(data.peerId).catch(() => {});
-                }
-              } catch(e) {}
-            }
-          });
-
-          // Escuta por novos peers
-          node.addEventListener('peer:discovery', (evt) => {
-             const discoveredId = evt.detail.id.toString();
-             setLibp2pPeers(prev => prev.includes(discoveredId) ? prev : [...prev, discoveredId]);
-             addGlobalAudit(`📡 Peer descoberto via libp2p: ${discoveredId.slice(0,12)}...`, 'info');
-             if (evt.detail.multiaddrs && evt.detail.multiaddrs.length > 0) {
-               node.dial(evt.detail.id).catch(() => {});
-             }
-          });
-
-        } catch (e) {
-          console.error("[K10] Libp2p Start Failed:", e);
-          setLibp2pStatus('offline');
-          addGlobalAudit(`❌ Falha Libp2p: ${e.message}`, 'error');
-        }
-    };
-
-    const stopLibp2p = async () => {
-        if (libp2pRef.current) {
-            await libp2pRef.current.stop();
-            libp2pRef.current = null;
-            setLibp2pStatus('offline');
-            addGlobalAudit('🛑 Nó libp2p parado.', 'warning');
-        }
-    };
-
-    useEffect(() => {
-        if (view === 'chat' || view === 'central' || view === 'monitor') {
-            startLibp2p();
-        }
-    }, [view]);
-
     return (
         <div className="super-app">
             <div className="app-viewport">
-                <ChatClient libp2pRef={libp2pRef} libp2pStatus={libp2pStatus} libp2pPeers={libp2pPeers} addGlobalAudit={addGlobalAudit} />
+                <ChatClient addGlobalAudit={addGlobalAudit} />
             </div>
         </div>
     );
@@ -10694,7 +10479,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
       const script = document.getElementById('esbuild-main').textContent;
       const { code } = await esbuild.transform(script, {
         loader: 'tsx',
-        format: 'esm', // Suporte nativo para módulos ES do importmap/Libp2p
+        format: 'esm',
         target: 'esnext'
       });
       const s = document.createElement('script');
