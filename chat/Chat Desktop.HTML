@@ -51,6 +51,10 @@
 <title>Chat K10 — V3 (Modo Geral e Salinhas: terminal Matrix puro · GATWA/GRUPOS/SERVIDORES/USER removidos do Geral)</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<!-- Fuse.js v7 — fuzzy search para contatos (testado em milhões de apps) -->
+<script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.min.js"></script>
+<!-- RecordRTC — gravação cross-browser incl. Safari (MediaRecorder não suporta Safari) -->
+<script src="https://cdn.jsdelivr.net/npm/recordrtc@5.6.2/RecordRTC.min.js"></script>
 <style>
 :root {
 /* ── Cores base ── */
@@ -1176,6 +1180,83 @@ body.dark-mode {
 
 /* ── SUPER-APP UNIFIED NAV ── */
 
+/* ══════════════════════════════════════════════════════════
+   K10 TOAST NOTIFICATION SYSTEM v1.0
+   Substitui todos os alert() bloqueantes.
+   Uso: window.k10Toast('mensagem', 'tipo')
+   Tipos: 'info' | 'success' | 'warning' | 'error'
+   ══════════════════════════════════════════════════════════ */
+#k10-toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 99998;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  pointer-events: none;
+  max-width: 360px;
+}
+.k10-toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.45;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+  pointer-events: all;
+  cursor: pointer;
+  animation: k10ToastIn 0.28s cubic-bezier(0.16,1,0.3,1) forwards;
+  border: 1px solid transparent;
+  max-width: 100%;
+  word-break: break-word;
+}
+.k10-toast.hiding {
+  animation: k10ToastOut 0.22s ease-in forwards;
+}
+.k10-toast-icon {
+  font-size: 15px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.k10-toast-msg { flex: 1; }
+.k10-toast-close {
+  font-size: 16px;
+  opacity: 0.5;
+  flex-shrink: 0;
+  line-height: 1;
+  margin-left: 4px;
+}
+.k10-toast-close:hover { opacity: 1; }
+/* Variantes */
+.k10-toast.info    { background: #eff6ff; color: #1e40af; border-color: #bfdbfe; }
+.k10-toast.success { background: #f0fdf4; color: #065f46; border-color: #a7f3d0; }
+.k10-toast.warning { background: #fffbeb; color: #92400e; border-color: #fcd34d; }
+.k10-toast.error   { background: #fef2f2; color: #991b1b; border-color: #fca5a5; }
+/* Dark mode */
+.dark-mode .k10-toast.info    { background: #1e3a5f; color: #93c5fd; border-color: #1e40af; }
+.dark-mode .k10-toast.success { background: #052e16; color: #4ade80; border-color: #166534; }
+.dark-mode .k10-toast.warning { background: #451a03; color: #fbbf24; border-color: #92400e; }
+.dark-mode .k10-toast.error   { background: #450a0a; color: #fca5a5; border-color: #991b1b; }
+@keyframes k10ToastIn {
+  from { opacity: 0; transform: translateX(40px) scale(0.96); }
+  to   { opacity: 1; transform: translateX(0)    scale(1);    }
+}
+@keyframes k10ToastOut {
+  from { opacity: 1; transform: translateX(0)    scale(1);    }
+  to   { opacity: 0; transform: translateX(40px) scale(0.96); }
+}
+@media (max-width: 480px) {
+  #k10-toast-container {
+    bottom: 16px;
+    right: 12px;
+    left: 12px;
+    max-width: none;
+  }
+}
 
 
 </style>
@@ -1189,6 +1270,70 @@ body.dark-mode {
 
 
      
+<!-- ═══════════════════════════════════════════════════════
+     K10 TOAST ENGINE — inicializa antes do React
+     window.k10Toast(msg, tipo, duracao_ms)
+     Substitui todos os alert() bloqueantes do app.
+═══════════════════════════════════════════════════════ -->
+<div id="k10-toast-container"></div>
+<script>
+(function() {
+  var ICONS = { info:'ℹ️', success:'✅', warning:'⚠️', error:'❌' };
+  var DEFAULT_DURATION = { info:4000, success:3500, warning:5000, error:6000 };
+
+  window.k10Toast = function(msg, tipo, duracao) {
+    if (!msg) return;
+    tipo = tipo || 'info';
+    var container = document.getElementById('k10-toast-container');
+    if (!container) return;
+
+    var toast = document.createElement('div');
+    toast.className = 'k10-toast ' + tipo;
+
+    var icon = document.createElement('span');
+    icon.className = 'k10-toast-icon';
+    icon.textContent = ICONS[tipo] || ICONS.info;
+
+    var msgEl = document.createElement('span');
+    msgEl.className = 'k10-toast-msg';
+    msgEl.textContent = msg;
+
+    var close = document.createElement('span');
+    close.className = 'k10-toast-close';
+    close.textContent = '×';
+
+    toast.appendChild(icon);
+    toast.appendChild(msgEl);
+    toast.appendChild(close);
+    container.appendChild(toast);
+
+    var dismissed = false;
+    function dismiss() {
+      if (dismissed) return;
+      dismissed = true;
+      toast.classList.add('hiding');
+      setTimeout(function() {
+        if (toast.parentNode) toast.parentNode.removeChild(toast);
+      }, 230);
+    }
+
+    toast.addEventListener('click', dismiss);
+    var ms = duracao || DEFAULT_DURATION[tipo] || 4000;
+    setTimeout(dismiss, ms);
+
+    // Limita a 5 toasts visíveis ao mesmo tempo
+    var all = container.querySelectorAll('.k10-toast:not(.hiding)');
+    if (all.length > 5) all[0].click();
+  };
+
+  // Mapeia tipos semânticos para uso interno
+  window.k10Toast.info    = function(msg, ms) { window.k10Toast(msg, 'info',    ms); };
+  window.k10Toast.success = function(msg, ms) { window.k10Toast(msg, 'success', ms); };
+  window.k10Toast.warn    = function(msg, ms) { window.k10Toast(msg, 'warning', ms); };
+  window.k10Toast.error   = function(msg, ms) { window.k10Toast(msg, 'error',   ms); };
+})();
+</script>
+
 <noscript>
   <div style="padding:40px;font-family:system-ui,-apple-system,sans-serif;text-align:center;max-width:560px;margin:60px auto;background:#fff;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.1);">
     <h1 style="color:#1e40af;margin-top:0;">Chat K10 V47</h1>
@@ -2240,7 +2385,7 @@ torrents.map(tnt => (
 </button>
 <button className="torrent-item-btn" style={{ background: '#3b82f6', color: 'white' }} onClick={() => {
 navigator.clipboard.writeText(tnt.magnetURI);
-alert(t(lang, 'magnetCopied'));
+window.k10Toast(t(lang, 'magnetCopied'), 'success');
 }}>
 <i className="fas fa-copy"></i> {t(lang, 'copyMagnet')}
 </button>
@@ -2885,61 +3030,73 @@ return (
 
 
 // ================================================================
-// VoiceRecorder
+// VoiceRecorder — usa RecordRTC para suporte cross-browser (incl. Safari)
+// RecordRTC detecta automaticamente o formato suportado pelo browser:
+//   Chrome/Firefox → audio/webm;codecs=opus
+//   Safari/iOS     → audio/mp4 (MediaRecorder nativo não suporta webm no Safari)
 // ================================================================
 const VoiceRecorder = ({ lang, onRecordingComplete, disabled, selectedContact }) => {
 const [isRecording, setIsRecording] = useState(false);
-const mediaRecorderRef = useRef(null);
-const audioChunksRef = useRef([]);
+const recorderRef = useRef(null);
+const streamRef = useRef(null);
 const recordingTimeoutRef = useRef(null);
 
 const startRecording = async () => {
 try {
-const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-mediaRecorderRef.current = new MediaRecorder(stream);
-mediaRecorderRef.current.ondataavailable = (event) => { if (event.data.size > 0) audioChunksRef.current.push(event.data); };
-mediaRecorderRef.current.onstop = () => {
-if (audioChunksRef.current.length === 0) return;
-const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-onRecordingComplete(audioBlob, selectedContact);
-audioChunksRef.current = [];
-stream.getTracks().forEach(tr => tr.stop());
-if (recordingTimeoutRef.current) {
-clearTimeout(recordingTimeoutRef.current);
-recordingTimeoutRef.current = null;
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  streamRef.current = stream;
+
+  // RecordRTC detecta o tipo suportado automaticamente
+  const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+  const recorderOptions = {
+    type: 'audio',
+    mimeType: isSafari ? 'audio/mp4' : 'audio/webm',
+    recorderType: isSafari ? window.StereoAudioRecorder : window.MediaStreamRecorder,
+    timeSlice: 200,
+    numberOfAudioChannels: 1,
+    desiredSampRate: 16000,
+  };
+
+  recorderRef.current = new window.RecordRTC(stream, recorderOptions);
+  recorderRef.current.startRecording();
+  setIsRecording(true);
+
+  // Limita a gravação a 1 minuto
+  recordingTimeoutRef.current = setTimeout(() => stopRecording(), 60000);
+} catch (err) {
+  window.k10Toast(t(lang, 'micError') + err.message, 'error');
 }
-};
-audioChunksRef.current = [];
-mediaRecorderRef.current.start(200);
-setIsRecording(true);
-
-// Limit recording to 1 minute (60000 ms)
-recordingTimeoutRef.current = setTimeout(() => {
-stopRecording();
-}, 60000);
-
-} catch (err) { alert(t(lang, 'micError') + err.message); }
 };
 
 const stopRecording = () => {
-if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-try { mediaRecorderRef.current.stop(); } catch (e) {}
-setIsRecording(false);
+if (!recorderRef.current) return;
 if (recordingTimeoutRef.current) {
-clearTimeout(recordingTimeoutRef.current);
-recordingTimeoutRef.current = null;
+  clearTimeout(recordingTimeoutRef.current);
+  recordingTimeoutRef.current = null;
 }
-}
+recorderRef.current.stopRecording(() => {
+  const audioBlob = recorderRef.current.getBlob();
+  if (audioBlob && audioBlob.size > 0) {
+    onRecordingComplete(audioBlob, selectedContact);
+  }
+  if (streamRef.current) {
+    streamRef.current.getTracks().forEach(tr => tr.stop());
+    streamRef.current = null;
+  }
+  recorderRef.current = null;
+});
+setIsRecording(false);
 };
 
 useEffect(() => {
 return () => {
-if (recordingTimeoutRef.current) {
-clearTimeout(recordingTimeoutRef.current);
-}
-if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-mediaRecorderRef.current.stop();
-}
+  if (recordingTimeoutRef.current) clearTimeout(recordingTimeoutRef.current);
+  if (recorderRef.current) {
+    try { recorderRef.current.stopRecording(); } catch(e) {}
+  }
+  if (streamRef.current) {
+    streamRef.current.getTracks().forEach(tr => tr.stop());
+  }
 };
 }, []);
 
@@ -3038,13 +3195,40 @@ return (
             onClick={() => onSelectGroup && onSelectGroup(name)}
             style={{ cursor: 'pointer', background: isOfficial ? 'linear-gradient(135deg,#eff6ff,#dbeafe)' : 'var(--surface)', border: isOfficial ? '1.5px solid #2563eb' : '1px solid var(--border)', borderRadius: '8px', marginBottom: '4px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: 1 }}>
-              <span style={{ fontSize: '20px' }}>{isOfficial ? '⭐' : '🔒'}</span>
+              <div style={{ width:'32px', height:'32px', borderRadius:'50%', background: isOfficial ? 'linear-gradient(135deg,#f59e0b,#d97706)' : 'linear-gradient(135deg,#2563eb,#1d4ed8)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:'14px', color:'white', boxShadow:'0 1px 4px rgba(0,0,0,0.15)' }}>
+                {isOfficial ? '⭐' : '🔒'}
+              </div>
               <div>
                 <div style={{ fontSize: '14px', fontWeight: 700, color: isOfficial ? '#1d4ed8' : 'var(--text)' }}>{name}</div>
-                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '1px' }}>📡 {isOfficial ? 'Grupo oficial' : 'Grupo P2P'}</div>
+                <div style={{ fontSize: '11px', color: '#64748b', marginTop: '1px' }}>📡 {isOfficial ? 'Grupo oficial' : 'Grupo Matrix'}</div>
               </div>
             </div>
-            <i className="fas fa-chevron-right" style={{ fontSize: '11px', color: 'var(--text-muted)' }}></i>
+            {/* Botão excluir grupo (não aparece para o grupo oficial) */}
+            {!isOfficial && (
+              <button
+                title="Excluir grupo"
+                onClick={e => {
+                  e.stopPropagation();
+                  if (typeof window._matrixFecharGrupo === 'function') {
+                    // Busca o alias do grupo pelo nome
+                    const grupos = typeof window._matrixGetGrupos === 'function' ? window._matrixGetGrupos() : [];
+                    const g = grupos.find(gr => gr.nome === name || gr.alias === name);
+                    if (g) window._matrixFecharGrupo(g.alias);
+                  }
+                  // Remove do histórico local
+                  try {
+                    const hist = JSON.parse(localStorage.getItem('_k10GroupHist') || '[]');
+                    localStorage.setItem('_k10GroupHist', JSON.stringify(hist.filter(h => h !== name)));
+                  } catch(err) {}
+                }}
+                style={{ background:'transparent', border:'none', cursor:'pointer', fontSize:'14px', color:'#94a3b8',
+                          padding:'4px 6px', borderRadius:'4px', flexShrink:0 }}
+                onMouseEnter={e => { e.currentTarget.style.background='#fee2e2'; e.currentTarget.style.color='#ef4444'; }}
+                onMouseLeave={e => { e.currentTarget.style.background='transparent'; e.currentTarget.style.color='#94a3b8'; }}>
+                🗑️
+              </button>
+            )}
+            <i className="fas fa-chevron-right" style={{ fontSize: '11px', color: 'var(--text-muted)', marginLeft: isOfficial ? 'auto' : '0' }}></i>
           </div>
         );
       })}
@@ -3138,16 +3322,17 @@ const K10GroupSection = ({ onGroupOpen } = {}) => {
               Digite um nome (ex: <b>meu-grupo</b>) ou alias Matrix (ex: <b>#sala:matrix.org</b>).<br/>
               Quem entrar no mesmo alias entra na mesma sala.
             </div>
-            <div style={{ display:'flex', gap:'6px' }}>
+            <div style={{ display:'flex', gap:'6px', overflow:'hidden' }}>
               <input value={draft} onChange={e => setDraft(e.target.value)}
                 onKeyDown={e => e.key==='Enter' && join()}
                 placeholder="#alias:matrix.org ou nome-do-grupo" autoFocus
-                style={{ flex:1, padding:'8px 10px', borderRadius:'8px', fontSize:'13px',
+                style={{ flex:1, minWidth:0, padding:'8px 10px', borderRadius:'8px', fontSize:'13px',
                           border:'1.5px solid var(--primary,#2563eb)', background:'var(--surface)', outline:'none',
                           color:'var(--text)', fontFamily:'inherit' }} />
               <button onClick={() => join()}
                 style={{ background:'#2563eb', color:'#fff', border:'none', borderRadius:'8px',
-                          padding:'8px 14px', cursor:'pointer', fontSize:'13px', fontWeight:700 }}>
+                          padding:'8px 14px', cursor:'pointer', fontSize:'13px', fontWeight:700,
+                          flexShrink:0, whiteSpace:'nowrap' }}>
                 Entrar
               </button>
             </div>
@@ -3159,19 +3344,33 @@ const K10GroupSection = ({ onGroupOpen } = {}) => {
             style={{ display:'flex', alignItems:'center', gap:'8px', padding:'8px 10px', borderRadius:'8px',
                       fontSize:'13px', color:'var(--text)', marginBottom:'4px',
                       border:'1px solid var(--border)', background:'var(--surface)', cursor:'pointer',
-                      transition:'opacity 0.15s' }}
-            onMouseEnter={e => { e.currentTarget.style.opacity='0.85'; }}
-            onMouseLeave={e => { e.currentTarget.style.opacity='1'; }}
+                      transition:'all 0.15s', position:'relative' }}
+            onMouseEnter={e => { e.currentTarget.style.background='#eff6ff'; e.currentTarget.style.borderColor='#bfdbfe'; }}
+            onMouseLeave={e => { e.currentTarget.style.background='var(--surface)'; e.currentTarget.style.borderColor='var(--border)'; }}
             onClick={() => {
               if (typeof window._matrixSelecionarGrupo === 'function') window._matrixSelecionarGrupo(g.alias);
               if (onGroupOpen) onGroupOpen(g.alias);
             }}>
-            <span style={{ fontSize:'15px', flexShrink:0 }}>🔒</span>
+            {/* Ícone do grupo */}
+            <div style={{ width:'32px', height:'32px', borderRadius:'50%', background:'linear-gradient(135deg,#2563eb,#1d4ed8)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:'14px', color:'white', fontWeight:700, boxShadow:'0 1px 4px rgba(37,99,235,0.3)' }}>🔒</div>
             <div style={{ flex:1, minWidth:0 }}>
               <div style={{ fontWeight:700, fontSize:'13px', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{g.nome}</div>
-              <div style={{ fontSize:'10px', color:'#10b981', marginTop:'1px' }}>● Matrix · {g.alias}</div>
+              <div style={{ fontSize:'10px', color:'#10b981', marginTop:'1px' }}>● Matrix · {g.alias.split(':')[0]}</div>
             </div>
-            <i className="fas fa-chevron-right" style={{ fontSize:'10px', color:'var(--text-muted)', flexShrink:0 }}></i>
+            {/* Botão fechar/excluir grupo */}
+            <button
+              title="Fechar grupo"
+              onClick={e => {
+                e.stopPropagation();
+                if (typeof window._matrixFecharGrupo === 'function') window._matrixFecharGrupo(g.alias);
+              }}
+              style={{ background:'transparent', border:'none', cursor:'pointer', fontSize:'13px', color:'#94a3b8',
+                        padding:'4px 6px', borderRadius:'4px', flexShrink:0, lineHeight:1,
+                        display:'flex', alignItems:'center', justifyContent:'center' }}
+              onMouseEnter={e => { e.currentTarget.style.background='#fee2e2'; e.currentTarget.style.color='#ef4444'; }}
+              onMouseLeave={e => { e.currentTarget.style.background='transparent'; e.currentTarget.style.color='#94a3b8'; }}>
+              ✕
+            </button>
           </div>
         ))}
 
@@ -3249,15 +3448,34 @@ const [showSendSecretModal, setShowSendSecretModal] = useState(false);
 const [showServerE2EEModal, setShowServerE2EEModal] = useState(false);
 const [hiddenMessages, setHiddenMessages] = useState(new Set());
 const [activeChatTab, setActiveChatTab] = useState('general');
+const activeChatTabRef = useRef('general');
+useEffect(() => { activeChatTabRef.current = activeChatTab; }, [activeChatTab]);
 const [activeGroupName, setActiveGroupName] = useState(null);
+// ── tabUnread: contador de msgs não lidas por aba ──
+const [tabUnread, setTabUnread] = useState({p2p:0, general:0, salinhas:0, group:0, youtube:0});
+// Fuse.js — busca fuzzy de contatos na aba P2P
+const [contactSearch, setContactSearch] = useState('');
 const handleGroupSelected = (nameOrAlias) => {
   // Para grupos Matrix, apenas muda para a aba group (o overlay é gerenciado pelo Matrix)
   setActiveGroupName(nameOrAlias);
   changeTab('group');
 };
+
+// FIX P2P: quando selectedContact muda de fora (ContactsScreen → App → prop),
+// garante que a aba P2P fique ativa e o contato apareça na lista de conversas.
+// CORREÇÃO Bug 4: inicializar com null (não com selectedContact) para que ao
+// montar com contato já definido (vindo de ContactsScreen) a aba P2P seja ativada.
+const prevSelectedContactRef = useRef(null);
+useEffect(() => {
+  if (selectedContact && selectedContact !== prevSelectedContactRef.current) {
+    changeTab('p2p');
+  }
+  prevSelectedContactRef.current = selectedContact;
+}, [selectedContact]);
 // changeTab: troca aba e sincroniza salinhas Matrix + Geral
 const changeTab = (tab) => {
   setActiveChatTab(tab);
+  setTabUnread(prev => ({...prev, [tab]: 0}));
   if (tab === 'salinhas') {
     setTimeout(() => window._matrixOnSalinhasActive && window._matrixOnSalinhasActive(), 80);
   } else if (tab === 'general') {
@@ -3389,9 +3607,25 @@ if (!activeGroupName && activeChatTab === 'group' && matGrupos.length === 0) cha
 }, [activeGroupName]);
 
 // Abre grupo solicitado via ContactsScreen ou Ferramentas (pendingGroup vem do App)
+// CORREÇÃO Bug 3: além de trocar de aba, chamar _matrixSelecionarGrupo / _matrixEntrarGrupo
+// para que o grupo realmente abra (só mudar aba não era suficiente).
 useEffect(() => {
   if (pendingGroup) {
-    handleGroupSelected(pendingGroup.name);
+    const groupName = pendingGroup.name;
+    handleGroupSelected(groupName);
+    setTimeout(() => {
+      if (typeof window._matrixGetGrupos === 'function') {
+        const grupos = window._matrixGetGrupos();
+        const g = grupos.find(gr => gr.nome === groupName || gr.alias === groupName);
+        if (g && typeof window._matrixSelecionarGrupo === 'function') {
+          window._matrixSelecionarGrupo(g.alias);
+        } else if (typeof window._matrixEntrarGrupo === 'function') {
+          const alias = groupName.startsWith('#') ? groupName
+            : '#' + groupName.replace(/\s+/g, '-').toLowerCase() + ':matrix.org';
+          window._matrixEntrarGrupo(alias, groupName);
+        }
+      }
+    }, 150);
     if (setPendingGroup) setPendingGroup(null);
   }
 }, [pendingGroup]);
@@ -3426,6 +3660,26 @@ return messages.filter(msg =>
 );
 }, [messages, selectedContact]);
 
+// ── Prévia da última mensagem por contato (padrão WhatsApp/Signal) ──
+const lastMsgByPeer = useMemo(() => {
+  const map = {};
+  messages.forEach(m => {
+    if (!m.timestamp || m.type === 'poll-create' || m.type === 'quiz-question') return;
+    const peer = m.sender === 'you' ? m.recipient : m.sender;
+    if (!peer || peer === 'general' || peer === 'you') return;
+    if (!map[peer] || m.timestamp > map[peer].timestamp) map[peer] = m;
+  });
+  return map;
+}, [messages]);
+
+const relTime = (ts) => {
+  if (!ts) return '';
+  const d = Math.floor((Date.now() - ts) / 1000);
+  if (d < 60) return 'agora';
+  if (d < 3600) return Math.floor(d/60) + 'm';
+  if (d < 86400) return Math.floor(d/3600) + 'h';
+  return Math.floor(d/86400) + 'd';
+};
 
 const MessageText = ({ msg, onContentChange, onHide }) => {
   const contactPeer = msg.sender === 'you' ? msg.recipient : msg.sender;
@@ -3617,9 +3871,9 @@ const MessageText = ({ msg, onContentChange, onHide }) => {
 
 
 const sendDirectMessage = async () => {
-if (!userName.trim()) { alert(t(lang, 'pleaseSetName')); return; }
+if (!userName.trim()) { window.k10Toast(t(lang, 'pleaseSetName'), 'warning'); return; }
 if (!newMessage.trim() || cooldownRemaining > 0 || isSending) return;
-if (newMessage.length > 2000) { alert(t(lang, 'msgTooLong')); return; }
+if (newMessage.length > 2000) { window.k10Toast(t(lang, 'msgTooLong'), 'warning'); return; }
 
 
 if (selectedContact) {
@@ -3628,7 +3882,7 @@ if (selectedContact) {
   const libp2pAvailable = libp2pRef.current && libp2pStatus === 'online';
   const matrixAvailable = !!(window.MxDM && window.MxDM.canSend && window.MxDM.canSend(selectedContact));
   if ((!conn || !conn.open) && !libp2pAvailable && !matrixAvailable) { 
-    alert(t(lang, 'contactOffline', { name: getContactName(selectedContact) })); 
+    window.k10Toast(t(lang, 'contactOffline', { name: getContactName(selectedContact) }), 'warning'); 
     return; 
   }
 } else if (connectionsRef.current.length === 0 && libp2pStatus !== 'online') {
@@ -3703,7 +3957,7 @@ return updated;
 if (typeof window._matrixGeralActive === 'function') window._matrixGeralActive();
 }
 setNewMessage('');
-} catch (err) { alert(t(lang, 'sendError') + err.message); }
+} catch (err) { window.k10Toast(t(lang, 'sendError') + err.message, 'error'); }
 finally { setIsSending(false); }
 };
 
@@ -3809,8 +4063,8 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
       <i className="fas fa-magnet"></i>
     </button>
   </div>
-  {/* Lista de contatos — visível apenas na aba P2P */}
-  {activeChatTab === 'p2p' && (() => {
+  {/* Lista de contatos P2P — keep-alive */}
+  <div className="k10-sidebar-panel" hidden={activeChatTab !== 'p2p'}>{(() => {
     // V46: só aparece na lista: (1) contatos salvos, (2) quem mandou msg direta
     // APENAS K10-CENTRAL fica oculto — todos os outros contatos/servidores aparecem normalmente
     // FIX-CONTACTS-LIST: aparece na lista SOMENTE se o usuário selecionou explicitamente
@@ -3830,16 +4084,48 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
       )
     );
 
-    const finalConns = visiblePeers.map(pId => {
+    let finalConns = visiblePeers.map(pId => {
       const conn = connections.find(c => c.peer === pId);
       return conn || { peer: pId, open: false, _libp2pOnly: true };
     });
-    if (finalConns.length === 0) return (
-      <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center' }}>
-        {t(lang, 'waitingConnections')}
-      </div>
-    );
-    return finalConns.map((conn, i) => {
+
+    // ── Fuse.js: filtra contatos pelo nome ou peerId quando há busca ──
+    if (contactSearch.trim() && finalConns.length > 0 && window.Fuse) {
+      const searchItems = finalConns.map(conn => ({
+        ...conn,
+        _displayName: getContactName(conn.peer),
+      }));
+      const fuse = new window.Fuse(searchItems, {
+        keys: ['_displayName', 'peer'],
+        threshold: 0.4,
+        distance: 100,
+      });
+      finalConns = fuse.search(contactSearch.trim()).map(r => r.item);
+    }
+
+    const hasAnyPeers = visiblePeers.length > 0;
+    return (
+      <>
+        {/* Fuse.js: campo de busca — aparece apenas com 2+ contatos */}
+        {hasAnyPeers && (
+          <div style={{ padding: '0 0 8px 0', position: 'relative' }}>
+            <i className="fas fa-search" style={{ position:'absolute', left:'10px', top:'50%', transform:'translateY(-50%)', color:'var(--text-muted)', fontSize:'12px', pointerEvents:'none' }}></i>
+            <input
+              type="text"
+              value={contactSearch}
+              onChange={e => setContactSearch(e.target.value)}
+              placeholder="Buscar contato..."
+              style={{ width:'100%', padding:'6px 10px 6px 28px', border:'1.5px solid var(--border)', borderRadius:'7px', fontSize:'12px', outline:'none', background:'var(--surface)', color:'var(--text)', boxSizing:'border-box' }}
+              onFocus={e => e.target.style.borderColor='var(--primary)'}
+              onBlur={e => e.target.style.borderColor='var(--border)'}
+            />
+          </div>
+        )}
+        {finalConns.length === 0 ? (
+          <div style={{ padding: '16px', color: 'var(--text-muted)', fontSize: '13px', textAlign: 'center' }}>
+            {contactSearch.trim() ? '🔍 Nenhum contato encontrado' : t(lang, 'waitingConnections')}
+          </div>
+        ) : finalConns.map((conn, i) => {
       const isSelected = selectedContact === conn.peer;
       const hasVoice = activeCalls.some(c => c.peerId === conn.peer && c.type === 'voice');
       const hasVideo = activeCalls.some(c => c.peerId === conn.peer && c.type === 'video' && c.localStream);
@@ -3865,7 +4151,19 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
                     {libp2pPeers && libp2pPeers.includes(conn.peer) && <span title="libp2p Online" style={{ color: '#3b82f6', fontWeight: 'bold' }}>L</span>}
                   </span>
                 </div>
-                <div className="conversation-peer-id">{conn.peer}</div>
+                {(() => {
+                  const lm = lastMsgByPeer[conn.peer];
+                  if (!lm) return <div className="conversation-peer-id">{conn.peer}</div>;
+                  const preview = lm.type === 'audio' ? '🎙️ Áudio' : lm.type === 'file' ? ('📎 ' + (lm.fileName || 'Arquivo')) : (typeof lm.text === 'string' ? lm.text.replace(/^[🔒🛡️📤📥]+\s*/,'').slice(0,42) : '');
+                  return (
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:'4px'}}>
+                      <div className="conversation-peer-id" style={{flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                        {lm.sender==='you' && <span style={{color:'#10b981',fontWeight:600}}>Você: </span>}{preview}
+                      </div>
+                      <span style={{fontSize:'10px',color:'var(--text-subtle)',flexShrink:0}}>{relTime(lm.timestamp)}</span>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
             <div style={{ display: 'flex', gap: '8px', position: 'relative' }}>
@@ -3910,11 +4208,13 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
           )}
         </div>
       );
-    });
-  })()} 
+        })}
+      </>
+    );
+  })()}</div>
 
-{/* ── Grupos abertos — visíveis na aba Grupos ── */}
-{activeChatTab === 'group' && (
+{/* ── Grupos — keep-alive ── */}
+<div className="k10-sidebar-panel" hidden={activeChatTab !== 'group'}>{
   <div style={{ borderTop:'1px solid var(--border)', marginTop:'4px', paddingTop:'4px', flex:1, overflow:'hidden', display:'flex', flexDirection:'column' }}>
     {/* Botão + Entrar (mesmo do Ferramentas → Grupos) inline na sidebar */}
     <K10GroupSection
@@ -3926,7 +4226,7 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
       connectionsRef={connectionsRef}
     />
   </div>
-)}
+}</div>
 {/* ── Salinhas Matrix — sidebar dedicada ── */}
 <div id="matrix-salinhas-sidebar" className={activeChatTab === 'salinhas' ? 'ativo' : ''}>
   <div style={{ padding:'10px 14px 6px', display:'flex', alignItems:'center', justifyContent:'space-between', borderTop:'1px solid var(--border)' }}>
@@ -3956,41 +4256,75 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
     cursor: 'pointer', color: activeChatTab === id ? color : 'var(--text-muted)',
     fontSize: '11px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', position: 'relative'
   });
+  // ── Navegação por teclado (WCAG 2.1 pattern para tabs) ──
+  const TAB_ORDER = ['p2p', 'general', 'youtube', 'group', 'salinhas'];
+  const handleTabKeyDown = (e) => {
+    const idx = TAB_ORDER.indexOf(activeChatTab);
+    if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      const next = TAB_ORDER[(idx + 1) % TAB_ORDER.length];
+      changeTab(next);
+      setTimeout(() => document.querySelector(`[data-tab="${next}"]`)?.focus(), 10);
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const prev = TAB_ORDER[(idx - 1 + TAB_ORDER.length) % TAB_ORDER.length];
+      changeTab(prev);
+      setTimeout(() => document.querySelector(`[data-tab="${prev}"]`)?.focus(), 10);
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      changeTab(TAB_ORDER[0]);
+      setTimeout(() => document.querySelector(`[data-tab="${TAB_ORDER[0]}"]`)?.focus(), 10);
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      changeTab(TAB_ORDER[TAB_ORDER.length - 1]);
+      setTimeout(() => document.querySelector(`[data-tab="${TAB_ORDER[TAB_ORDER.length - 1]}"]`)?.focus(), 10);
+    }
+  };
+  const UnreadBadge = ({count}) => count > 0 ? (
+    <span style={{position:'absolute',top:'3px',right:'3px',background:'#ef4444',color:'white',fontSize:'9px',fontWeight:700,borderRadius:'10px',padding:'1px 4px',minWidth:'14px',textAlign:'center',lineHeight:'14px'}}>{count > 99 ? '99+' : count}</span>
+  ) : null;
   return (
-    <div style={{ display: 'flex', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+    <div role="tablist" aria-label="Chat K10 Abas" style={{ display: 'flex', background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
       {/* P2P */}
-      <button onClick={() => changeTab('p2p')} style={tabStyle('p2p', '#3b82f6')} title="Conversa Privada (User-User)">
+      <button role="tab" data-tab="p2p" aria-selected={activeChatTab === 'p2p'} tabIndex={activeChatTab === 'p2p' ? 0 : -1}
+        onClick={() => changeTab('p2p')} onKeyDown={handleTabKeyDown} style={tabStyle('p2p', '#3b82f6')} title="Conversa Privada (User-User)">
         <span style={{ fontSize: '15px' }}>👤</span>
         <span>P2P</span>
-        {selectedContact && activeChatTab !== 'p2p' && <span style={{ position:'absolute', top:'4px', right:'6px', background:'#3b82f6', borderRadius:'50%', width:'7px', height:'7px' }}></span>}
+        <UnreadBadge count={tabUnread.p2p} />
       </button>
       {/* Geral */}
-      <button onClick={() => { setSelectedContact(null); changeTab('general'); }} style={tabStyle('general', '#10b981')} title="Modo Geral — broadcast P2P">
+      <button role="tab" data-tab="general" aria-selected={activeChatTab === 'general'} tabIndex={activeChatTab === 'general' ? 0 : -1}
+        onClick={() => { setSelectedContact(null); changeTab('general'); }} onKeyDown={handleTabKeyDown} style={tabStyle('general', '#10b981')} title="Modo Geral — broadcast P2P">
         <span style={{ fontSize: '15px' }}>🌐</span>
         <span>Geral</span>
+        <UnreadBadge count={tabUnread.general} />
       </button>
       {/* YouTube */}
-      <button onClick={() => changeTab('youtube')} style={tabStyle('youtube', '#ef4444')} title="YouTube Chat">
+      <button role="tab" data-tab="youtube" aria-selected={activeChatTab === 'youtube'} tabIndex={activeChatTab === 'youtube' ? 0 : -1}
+        onClick={() => changeTab('youtube')} onKeyDown={handleTabKeyDown} style={tabStyle('youtube', '#ef4444')} title="YouTube Chat">
         <span style={{ fontSize: '15px' }}><i className="fab fa-youtube"></i></span>
         <span>YouTube</span>
         {youtubeChatId && <span style={{ position:'absolute', top:'4px', right:'6px', background:'#ef4444', borderRadius:'50%', width:'7px', height:'7px' }}></span>}
       </button>
       {/* Grupos */}
-      <button onClick={() => changeTab('group')} style={tabStyle('group', '#2563eb')} title="Grupos (Ferramentas)">
+      <button role="tab" data-tab="group" aria-selected={activeChatTab === 'group'} tabIndex={activeChatTab === 'group' ? 0 : -1}
+        onClick={() => changeTab('group')} onKeyDown={handleTabKeyDown} style={tabStyle('group', '#2563eb')} title="Grupos (Ferramentas)">
         <span style={{ fontSize: '15px' }}>🔒</span>
         <span>Grupos</span>
+        <UnreadBadge count={tabUnread.group} />
       </button>
       {/* Salinhas */}
-      <button onClick={() => changeTab('salinhas')} style={tabStyle('salinhas', '#10b981')} title="Salinhas Matrix">
+      <button role="tab" data-tab="salinhas" aria-selected={activeChatTab === 'salinhas'} tabIndex={activeChatTab === 'salinhas' ? 0 : -1}
+        onClick={() => changeTab('salinhas')} onKeyDown={handleTabKeyDown} style={tabStyle('salinhas', '#10b981')} title="Salinhas Matrix">
         <span style={{ fontSize: '15px' }}>💬</span>
         <span>Salinhas</span>
       </button>
     </div>
   );
 })()}
-{activeChatTab === 'p2p' ? (
-/* ── ABA P2P: conversa User-User ── */
-!selectedContact ? (
+{/* ── Keep-alive: todos os painéis montados, CSS hidden alterna visibilidade ── */}
+<div className="k10-tab-panel" hidden={activeChatTab !== 'p2p'}>
+{!selectedContact ? (
   <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', gap:'12px' }}>
     <div style={{ fontSize:'48px' }}>👤</div>
     <div style={{ fontWeight:600, fontSize:'15px' }}>Chat Privado (P2P)</div>
@@ -4144,12 +4478,16 @@ title={selectedIsServer ? t(lang, 'serverSecret') : t(lang, 'sendSecret')}>
 onChange={e => setNewMessage(e.target.value)}
 placeholder={inputStatus.placeholder}
 maxLength={2000}
-onKeyPress={e => { if (e.key === 'Enter' && cooldownRemaining === 0) sendDirectMessage(); }}
+onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && cooldownRemaining === 0) { e.preventDefault(); sendDirectMessage(); } }}
 className="message-input"
 disabled={cooldownRemaining > 0 || (selectedContact ? !selectedPeerReachable : false)}
 style={inputStatus.style}
 />
-{showEmojiPanel && populateEmojiPanel()}
+{showEmojiPanel && (
+  <div onClick={e => e.stopPropagation()} onMouseDown={e => e.stopPropagation()}>
+    {populateEmojiPanel()}
+  </div>
+)}
 </div>
 <button className="send-btn" onClick={sendDirectMessage}
 disabled={!newMessage.trim() || cooldownRemaining > 0 || isSending || (selectedContact ? !selectedPeerReachable : false)}
@@ -4158,11 +4496,12 @@ title={t(lang, 'sendMessage')}>
 </button>
 </div>
 </>
-)
-) : activeChatTab === 'general' ? (
-/* ── ABA GERAL: Salinha Geral Matrix (container — overlay injetado via _matrixGeralActive) ── */
+)}
+</div>
+<div className="k10-tab-panel" hidden={activeChatTab !== 'general'}>
 <K10GeneralRoomChat />
-) : activeChatTab === 'youtube' ? (
+</div>
+<div className="k10-tab-panel" hidden={activeChatTab !== 'youtube'}>
 <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
 {youtubeChatId ? (
 <iframe width="100%" height="100%" src={`https://www.youtube.com/live_chat?v=${youtubeChatId}&embed_domain=${window.location.hostname}`} frameBorder="0" style={{ flex: 1 }}></iframe>
@@ -4174,8 +4513,8 @@ title={t(lang, 'sendMessage')}>
   </div>
 )}
 </div>
-) : activeChatTab === 'salinhas' ? (
-/* ── ABA SALINHAS: Matrix ── */
+</div>
+<div className="k10-tab-panel" hidden={activeChatTab !== 'salinhas'}>
 <div id="matrix-salinhas-content" style={{ flex:1, display:'flex', flexDirection:'column', position:'relative', overflow:'hidden' }}>
   <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', gap:'12px' }}>
     <div style={{ fontSize:'48px' }}>💬</div>
@@ -4183,9 +4522,8 @@ title={t(lang, 'sendMessage')}>
     <div style={{ fontSize:'13px', textAlign:'center', maxWidth:'260px' }}>Selecione uma salinha no painel esquerdo ou use <strong>Explorar Salinhas</strong> para adicionar mais</div>
   </div>
 </div>
-) : null}
-{/* ── Grupos Matrix: container para o overlay Matrix (terminal burro igual às Salinhas) ── */}
-{activeChatTab === 'group' && (
+</div>
+<div className="k10-tab-panel" hidden={activeChatTab !== 'group'}>
   <div id="matrix-grupos-content" style={{ flex:1, display:'flex', flexDirection:'column', minHeight:0, overflow:'hidden', position:'relative' }}>
     {/* O overlay #matrix-chat-overlay é injetado aqui pelo _matrixOnGruposActive */}
     {/* Placeholder quando nenhum grupo está selecionado */}
@@ -4197,7 +4535,7 @@ title={t(lang, 'sendMessage')}>
       </div>
     </div>
   </div>
-)}
+</div>
 </div>
 </div>
 </div>
@@ -4531,7 +4869,7 @@ const WorldRadiosModal = ({ lang, onClose, onBroadcast }) => {
       setResults(data);
     } catch (e) {
       console.error(e);
-      alert('Error searching radios');
+      window.k10Toast('Error searching radios', 'error');
     }
     setLoading(false);
   };
@@ -6102,6 +6440,13 @@ useEffect(() => { youtubeChatIdRef.current = youtubeChatId; }, [youtubeChatId]);
 const [error, setError] = useState(null);
 const [isLocalVideoVisible, setIsLocalVideoVisible] = useState(false);
 const [showEmojiPanel, setShowEmojiPanel] = useState(false);
+// Fecha o emoji panel ao clicar fora dele
+useEffect(() => {
+  if (!showEmojiPanel) return;
+  const handler = () => setShowEmojiPanel(false);
+  document.addEventListener('mousedown', handler);
+  return () => document.removeEventListener('mousedown', handler);
+}, [showEmojiPanel]);
 const [selectedContact, setSelectedContact] = useState(null);
 const [isPeerInitialized, setIsPeerInitialized] = useState(false);
 const [centralServerId, setCentralServerId] = useState(null);
@@ -6114,7 +6459,7 @@ const [isSuperNode, _setIsSuperNodeRaw] = useState(false);
 const setIsSuperNode = (v) => {
   if (v === true && canBeReservadoRef && canBeReservadoRef.current === false) {
     console.warn('[V7-B15] Bloqueado: dispositivo mobile/low-mem não pode ser SuperNode');
-    alert('Seu dispositivo (mobile/baixa memória) não pode ser SuperNode.');
+    window.k10Toast('Seu dispositivo (mobile/baixa memória) não pode ser SuperNode.', 'warning');
     return;
   }
   _setIsSuperNodeRaw(v);
@@ -7224,7 +7569,7 @@ if (data.type === 'quiz-bot-status') {
   if (data.active && data.owner !== peerId && quizBotActiveRef.current) {
     // Se outro ligou o bot e eu também estou com ele ligado, eu desligo o meu
     setQuizBotActive(false);
-    alert(t(langRef.current, 'botAlreadyActiveServer')); // FIX BUG-NEW-4: era t(lang,...) stale closure
+    window.k10Toast(t(langRef.current, 'botAlreadyActiveServer'), 'warning'); // FIX BUG-NEW-4: era t(lang,...) stale closure
   }
   return;
 }
@@ -7956,6 +8301,11 @@ setMessages(prev => {
 const updated = [...prev, messageToAdd].slice(-500);
 return updated;
 });
+// ── badge: incrementa aba que NÃO está em foco ──
+const _tgtTab = messageToAdd.direct ? 'p2p' : 'general';
+if (activeChatTabRef.current !== _tgtTab) {
+  setTabUnread(prev => ({...prev, [_tgtTab]: prev[_tgtTab] + 1}));
+}
 // ── MODO GERAL NOVO: injeta mensagem de texto no overlay Matrix ──
 if (!messageToAdd.direct && messageToAdd.type === 'text' && messageToAdd.text &&
     typeof window._matrixGeralInjetarMsg === 'function')
@@ -8124,7 +8474,7 @@ conn.on('close', () => {
   // LEGACY-REMOVED: comentário V48-NOBACKUP e bloco V105-P2P-Recovery (gateway/diretório K10).
 });
 conn.on('data', data => handleIncomingDataRef.current(data, peerIdToConnect));
-} catch (err) { alert(t(langRef.current, 'connectError') + err.message); } // FIX C-14: langRef.current evita stale closure no catch
+} catch (err) { window.k10Toast(t(langRef.current, 'connectError') + err.message, 'error'); } // FIX C-14: langRef.current evita stale closure no catch
 };
 
 
@@ -8281,7 +8631,7 @@ conn.on('error', (e) => {
 peer.on('error', err => {
 console.error("PeerJS Error:", err.type, err);
 if (err.type === 'unavailable-id') {
-alert('⚠️ ID já está em uso\n\nEste ID já está sendo usado por outro dispositivo ou aba.\n\nUm novo ID será gerado automaticamente. A página será recarregada — você precisará recompartilhar seu novo ID com seus contatos.');
+window.k10Toast('⚠️ ID duplicado — um novo ID será gerado e a página recarregará.', 'warning', 7000);
 const newId = generateId();
 localStorage.setItem(PEER_ID_STORAGE_KEY, newId);
 window.location.reload();
@@ -8402,7 +8752,7 @@ setActiveCalls(prev => [...prev.filter(c => !(c.peerId === call.peer && c.type =
 call.on('stream', remoteStream => setRemoteStreams(prev => [...prev.filter(s => !(s.peerId === call.peer && s.type === callType)), { peerId: call.peer, stream: remoteStream, type: callType }]));
 call.on('close', () => endCall(call.peer, callType));
 call.on('error', () => endCall(call.peer, callType));
-} catch (err) { call.close(); alert(t(lang, 'cameraError') + err.message); }
+} catch (err) { call.close(); window.k10Toast(t(lang, 'cameraError') + err.message, 'error'); }
 });
 
 
@@ -8777,9 +9127,9 @@ setRadioState({ status: 'idle', type: 'file', startTime: 0, duration: 0, audioUr
 
 
 const handleRadioUpload = (e) => {
-if (radioStateRef.current.status !== 'idle') { alert(t(lang, 'radioAlreadyPlaying')); e.target.value = ''; return; }
+if (radioStateRef.current.status !== 'idle') { window.k10Toast(t(lang, 'radioAlreadyPlaying'), 'warning'); e.target.value = ''; return; }
 const file = e.target.files[0]; if (!file) return;
-if (file.size > 5 * 1024 * 1024) { alert(t(lang, 'maxFileSizeErr')); e.target.value = ''; return; }
+if (file.size > 5 * 1024 * 1024) { window.k10Toast(t(lang, 'maxFileSizeErr'), 'warning'); e.target.value = ''; return; }
 const url = URL.createObjectURL(file);
 const audio = new Audio(url);
 audio.onloadedmetadata = () => {
@@ -8971,7 +9321,7 @@ finalYoutubeId = match[2];
 
 
 if (!finalYoutubeId) {
-alert(t(lang, 'invalidYoutubeUrl'));
+window.k10Toast(t(lang, 'invalidYoutubeUrl'), 'warning');
 return;
 }
 
@@ -9028,7 +9378,7 @@ const announceList = [
 const handleTorrentSeed = (e) => {
 const file = e.target.files[0];
 if (!file) return;
-if (file.size > 500 * 1024 * 1024) { alert(t(lang, 'torrentLimit')); return; }
+if (file.size > 500 * 1024 * 1024) { window.k10Toast(t(lang, 'torrentLimit'), 'warning'); return; }
 
 
 if (torrentClientRef.current) {
@@ -9050,7 +9400,7 @@ setMessages(prev => [...prev, { text: t(lang, 'torrentStarted', { name: file.nam
 
 const handleTorrentDirectSeed = (file, targetPeer) => {
 if (!file || !targetPeer) return;
-if (file.size > 500 * 1024 * 1024) { alert(t(lang, 'torrentLimit')); return; }
+if (file.size > 500 * 1024 * 1024) { window.k10Toast(t(lang, 'torrentLimit'), 'warning'); return; }
 
 
 if (torrentClientRef.current) {
@@ -9112,13 +9462,13 @@ if (torrent) torrent.destroy();
 
 
 const handleFileChange = (e) => {
-if (!userName.trim()) { alert(t(lang, 'defineNameFirst')); setEditingName(true); return; }
-if (!selectedContact || isCentralServer(selectedContact)) { alert(t(lang, 'selectContactFirst2')); return; }
+if (!userName.trim()) { window.k10Toast(t(lang, 'defineNameFirst'), 'warning'); setEditingName(true); return; }
+if (!selectedContact || isCentralServer(selectedContact)) { window.k10Toast(t(lang, 'selectContactFirst2'), 'warning'); return; }
 const file = e.target.files[0]; if (!file) return;
 const conn = connectionsRef.current.find(c => c.peer === selectedContact);
 const libp2pAvailable = libp2pRef.current && libp2pStatusRef.current === 'online';
 const matrixAvailable = !!(window.MxDM && window.MxDM.canSend && window.MxDM.canSend(selectedContact));
-if ((!conn || !conn.open) && !libp2pAvailable && !matrixAvailable) { alert(t(lang, 'contactOffline2')); return; }
+if ((!conn || !conn.open) && !libp2pAvailable && !matrixAvailable) { window.k10Toast(t(lang, 'contactOffline2'), 'warning'); return; }
 sendChunkedData(selectedContact, 'fileId', file, 'file', { fileName: file.name });
 fileInputRef.current.value = '';
 };
@@ -9165,7 +9515,7 @@ setMessages(prev => { const msg = { ...metaData, [idKey]: id, sender: 'you', rec
 const sendStart = async () => {
   const startSent = await p2pSendDirect(targetId, { type: `${typePrefix}-start`, [idKey]: id, [isFile ? 'fileSize' : 'audioSize']: dataBlob.size, senderName: userName, time: formattedTime, direct: true, timestamp: timestamp.getTime(), ...(isFile && { fileName: metaData.fileName, fileType: dataBlob.type }) });
   if (!startSent) {
-    alert(t(langRef.current, 'sendError')); // V74-D: langRef evita stale closure
+    window.k10Toast(t(langRef.current, 'sendError'), 'error'); // V74-D: langRef evita stale closure
     setMessages(prev => prev.filter(m => m[idKey] !== id));
     return;
   }
@@ -9175,21 +9525,21 @@ const sendStart = async () => {
 const readChunk = () => { const chunk = dataBlob.slice(offset, offset + CHUNK_SIZE); reader.readAsArrayBuffer(chunk); };
 reader.onload = async ev => {
 const chunkSent = await p2pSendDirect(targetId, { type: `${typePrefix}-chunk`, [idKey]: id, chunk: ev.target.result, offset, direct: true });
-if (!chunkSent) { alert(t(langRef.current, 'connectionLost')); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); return; }
+if (!chunkSent) { window.k10Toast(t(langRef.current, 'connectionLost'), 'error'); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); return; }
 offset += ev.target.result.byteLength;
 const progress = Math.min(100, Math.floor((offset / dataBlob.size) * 100));
 setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, progress } : m));
 if (offset < dataBlob.size) requestAnimationFrame(readChunk);
 else setMessages(prev => { const updated = prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: 100 } : m); return updated; });
 };
-reader.onerror = () => { alert(t(langRef.current, 'fileReadError')); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); };
+reader.onerror = () => { window.k10Toast(t(langRef.current, 'fileReadError'), 'error'); setMessages(prev => prev.map(m => m[idKey] === id ? { ...m, sending: false, progress: -1 } : m)); };
 sendStart();
 };
 
 
 const handleAudioRecording = (audioBlob, targetContact) => {
-if (!userName.trim()) { alert(t(lang, 'defineNameFirst')); setEditingName(true); return; }
-if (!targetContact) { alert(t(lang, 'selectContactFirst2')); return; }
+if (!userName.trim()) { window.k10Toast(t(lang, 'defineNameFirst'), 'warning'); setEditingName(true); return; }
+if (!targetContact) { window.k10Toast(t(lang, 'selectContactFirst2'), 'warning'); return; }
 sendChunkedData(targetContact, 'audioId', audioBlob, 'audio', {});
 };
 
@@ -9207,7 +9557,7 @@ if (!directPeersRef.current.has(peerIdToCall)) {
 const conn = connectionsRef.current.find(c => c.peer === peerIdToCall);
 const libp2pOnline = libp2pPeers && libp2pPeers.includes(peerIdToCall);
 const matrixOnline = !!(window.MxDM && window.MxDM.canSend && window.MxDM.canSend(peerIdToCall));
-if ((!conn || !conn.open) && !libp2pOnline && !matrixOnline) { alert(t(lang, 'contactOffline2')); return; }
+if ((!conn || !conn.open) && !libp2pOnline && !matrixOnline) { window.k10Toast(t(lang, 'contactOffline2'), 'warning'); return; }
 try {
 const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
 localStreamsRef.current.set(peerIdToCall + '_voice', stream);
@@ -9221,8 +9571,8 @@ const call = peerInstance.current.call(peerIdToCall, stream, { metadata: { type:
 setActiveCalls(prev => [...prev, { peerId: peerIdToCall, call, localStream: stream, type: 'voice', direction: 'outgoing', isTemporaryStream: false }]);
 call.on('stream', rs => setRemoteStreams(prev => [...prev.filter(s => !(s.peerId === peerIdToCall && s.type === 'voice')), { peerId: peerIdToCall, stream: rs, type: 'voice' }]));
 call.on('close', () => endCall(peerIdToCall, 'voice'));
-call.on('error', err => { alert(t(lang, 'callError') + err.message); endCall(peerIdToCall, 'voice'); });
-} catch (err) { alert(t(lang, 'micError') + err.message); }
+call.on('error', err => { window.k10Toast(t(lang, 'callError') + err.message, 'error'); endCall(peerIdToCall, 'voice'); });
+} catch (err) { window.k10Toast(t(lang, 'micError') + err.message, 'error'); }
 };
 
 
@@ -9246,7 +9596,7 @@ if (localStreamsRef.current.size === 0) { setIsLocalVideoVisible(false); if (loc
 const conn = connectionsRef.current.find(c => c.peer === peerIdToCall);
 const libp2pOnline = libp2pPeers && libp2pPeers.includes(peerIdToCall);
 const matrixOnline = !!(window.MxDM && window.MxDM.canSend && window.MxDM.canSend(peerIdToCall));
-if ((!conn || !conn.open) && !libp2pOnline && !matrixOnline) { alert(t(lang, 'contactOffline2')); return; }
+if ((!conn || !conn.open) && !libp2pOnline && !matrixOnline) { window.k10Toast(t(lang, 'contactOffline2'), 'warning'); return; }
 try {
 const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
 localStreamsRef.current.set(peerIdToCall + '_video', stream);
@@ -9262,14 +9612,14 @@ const call = peerInstance.current.call(peerIdToCall, stream, { metadata: { type:
 setActiveCalls(prev => [...prev.filter(c => !(c.peerId === peerIdToCall && c.type === 'video')), { peerId: peerIdToCall, call, localStream: stream, type: 'video', direction: 'outgoing', isTemporaryStream: false }]);
 call.on('stream', rs => setRemoteStreams(prev => [...prev.filter(s => !(s.peerId === peerIdToCall && s.type === 'video')), { peerId: peerIdToCall, stream: rs, type: 'video' }]));
 call.on('close', () => endCall(peerIdToCall, 'video'));
-call.on('error', err => { alert(t(lang, 'videoError') + err.message); endCall(peerIdToCall, 'video'); });
-} catch (err) { alert(t(lang, 'cameraError') + err.message); }
+call.on('error', err => { window.k10Toast(t(lang, 'videoError') + err.message, 'error'); endCall(peerIdToCall, 'video'); });
+} catch (err) { window.k10Toast(t(lang, 'cameraError') + err.message, 'error'); }
 }
 };
 
 
 const broadcastYoutubeChat = () => {
-if (youtubeChatId) { alert(t(lang, 'chatAlreadyActive') || 'A chat is already active. Stop it first.'); return; }
+if (youtubeChatId) { window.k10Toast(t(lang, 'chatAlreadyActive') || 'A chat is already active. Stop it first.', 'warning'); return; }
 const url = prompt(t(lang, 'enterYoutubeUrl') || 'Enter YouTube Live URL for Chat:');
 if (!url) return;
 let yId = null;
@@ -9280,7 +9630,7 @@ if (parsedUrl.includes('youtu.be/')) yId = parsedUrl.split('youtu.be/')[1].split
 else if (parsedUrl.includes('youtube.com/watch')) yId = new URL(parsedUrl).searchParams.get('v');
 else if (parsedUrl.includes('youtube.com/live/')) yId = parsedUrl.split('youtube.com/live/')[1].split('?')[0];
 } catch (e) {}
-if (!yId) { alert(t(lang, 'invalidYoutubeUrl') || 'Invalid YouTube URL'); return; }
+if (!yId) { window.k10Toast(t(lang, 'invalidYoutubeUrl') || 'Invalid YouTube URL', 'warning'); return; }
 
 
 setYoutubeChatId(yId);
@@ -9750,7 +10100,7 @@ overflow: 'hidden'
 </button>
 </div>
 <div style={{ display: 'flex', gap: '8px' }}>
-<button onClick={() => { navigator.clipboard.writeText(peerId); alert(t(lang, 'copied')); }}>{t(lang, 'copy')}</button>
+<button onClick={() => { navigator.clipboard.writeText(peerId); window.k10Toast(t(lang, 'copied'), 'success'); }}>{t(lang, 'copy')}</button>
 
 </div>
 </div>
@@ -10418,17 +10768,24 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 .matrix-conv-name { font-weight: 600; font-size: 13px; color: #1e293b; flex: 1; }
 .matrix-conv-sub  { font-size: 10px; color: #64748b; margin-top: 1px; }
 .matrix-conv-close {
-  opacity: 0;
-  font-size: 12px;
+  opacity: 0.4;
+  font-size: 13px;
   color: #94a3b8;
   cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
+  padding: 3px 7px;
+  border-radius: 5px;
   transition: all 0.15s;
   flex-shrink: 0;
+  pointer-events: auto;
+  line-height: 1;
+  background: transparent;
+  border: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 .matrix-conv-item:hover .matrix-conv-close { opacity: 1; }
-.matrix-conv-close:hover { background: #fee2e2; color: #ef4444; }
+.matrix-conv-close:hover { background: #fee2e2 !important; color: #ef4444 !important; opacity: 1; }
 
 /* Dark mode */
 .dark-mode .matrix-conv-item { border-bottom-color: #1e293b; }
@@ -11370,7 +11727,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             container.appendChild(bloco);
         }
 
-        const extras = salasInfo;
+        // FIX: exclui a sala geral (geral:true) da lista das Salinhas
+        const extras = salasInfo.filter(s => !s.geral);
         bloco.innerHTML = `
             ${extras.length > 0 ? `
                 ${extras.map(s => `
@@ -11378,7 +11736,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
                          data-alias="${s.alias.replace(/"/g,'&quot;')}"
                          onclick="window._matrixSelecionarSala('${s.alias.replace(/'/g,"\\'")}')">
                         <div style="flex:1"><div class="matrix-conv-name">${escapeHtml(s.nome)}</div><div class="matrix-conv-sub">${escapeHtml(s.alias)}</div></div>
-                        <span class="matrix-conv-close" onclick="event.stopPropagation();window._matrixFecharSala('${s.alias.replace(/'/g,"\\'")}')">✕</span>
+                        <button class="matrix-conv-close" title="Fechar salinha" onclick="event.stopPropagation();window._matrixFecharSala('${s.alias.replace(/'/g,"\\'")}')">✕</button>
                     </div>`).join('')}
             ` : `<div style="padding:12px 14px;color:#64748b;font-size:12px;text-align:center;">Nenhuma salinha adicionada.<br>Use <strong>Explorar Salinhas</strong>.</div>`}
         `;
@@ -11468,15 +11826,19 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         window._matrixSalaAtual = alias || 'geral';
         renderizarSidebarMatrix();
 
-        // V102: garante que a aba Salinhas/Grupos esteja ativa antes de abrir o overlay
-        // (evita que o overlay cubra outras abas como P2P, Geral, YouTube)
-        if (alias && !document.getElementById('matrix-salinhas-content') && !document.getElementById('matrix-grupos-content')) {
+        // V102/CORREÇÃO Bug 1: verifica se o painel está VISÍVEL (não só se o elemento existe no DOM).
+        // O elemento sempre existe (React usa hidden attr), então precisamos checar closest('[hidden]').
+        const _salinhasEl = document.getElementById('matrix-salinhas-content');
+        const _gruposEl   = document.getElementById('matrix-grupos-content');
+        const _salinhasActive = _salinhasEl && !_salinhasEl.closest('[hidden]');
+        const _gruposActive   = _gruposEl   && !_gruposEl.closest('[hidden]');
+        if (alias && !_salinhasActive && !_gruposActive) {
             // Ativa a aba Salinhas clicando no botão correspondente
             const salinhasBtn = document.querySelector('[title="Salinhas Matrix"]');
             if (salinhasBtn) {
                 salinhasBtn.click();
-                // Aguarda o React renderizar o #matrix-salinhas-content
-                setTimeout(function() { _abrirOverlaySala(alias); }, 150);
+                // Aguarda o React renderizar o #matrix-salinhas-content e reinjecta o bloco
+                setTimeout(function() { renderizarSidebarMatrix(); _abrirOverlaySala(alias); }, 150);
             } else {
                 _abrirOverlaySala(alias);
             }
@@ -12392,7 +12754,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     }
 
     window._matrixGetGrupos = function() {
-        return gruposAbertos;
+        return [...gruposAbertos]; // FIX: cópia para forçar re-render React
     };
 
     window._matrixEntrarGrupo = async function(alias, nome) {
@@ -12422,6 +12784,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         }
         gruposAbertos.push({ alias, nome, room_id: roomId });
         localStorage.setItem('k10_grupos_matrix', JSON.stringify(gruposAbertos));
+        // CORREÇÃO Bug 2: sincroniza _k10GroupHist para que ContactsScreen exiba o grupo novo
+        try {
+            const hist = JSON.parse(localStorage.getItem('_k10GroupHist') || '[]');
+            if (!hist.includes(nome)) { hist.push(nome); localStorage.setItem('_k10GroupHist', JSON.stringify(hist)); }
+        } catch(_) {}
         atualizarSidebarGrupos();
         window._matrixSelecionarGrupo(alias);
         if (typeof mostrarToast === 'function') mostrarToast(`✅ Grupo "${nome}" aberto`);
@@ -12444,8 +12811,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             });
         }
         // Garante que a aba Grupos esteja ativa
-        const gruposBtn = document.querySelector('[title="Grupos (Ferramentas)"]');
-        if (gruposBtn && !document.getElementById('matrix-grupos-content')) {
+        // CORREÇÃO Bug 1+3: verifica visibilidade real (não só existência do elemento no DOM)
+        const gruposBtn   = document.querySelector('[title="Grupos (Ferramentas)"]');
+        const _gruposEl2  = document.getElementById('matrix-grupos-content');
+        const _gruposActive2 = _gruposEl2 && !_gruposEl2.closest('[hidden]');
+        if (gruposBtn && !_gruposActive2) {
             gruposBtn.click();
             setTimeout(() => window._matrixSelecionarSala(alias), 150);
         } else {
@@ -12461,8 +12831,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             _salaAtiva = null;
             const overlay = document.getElementById('matrix-chat-overlay');
             if (overlay) overlay.classList.remove('ativo');
+            // Esconde o placeholder apenas — o overlay some
+            const ph = document.getElementById('matrix-grupos-placeholder');
+            if (ph) ph.style.display = 'flex';
         }
-        atualizarSidebarGrupos();
+        atualizarSidebarGrupos(); // dispara 'matrix-grupos-updated' → K10GroupSection re-renderiza
     };
 
     function carregarGruposSalvos() {
@@ -13046,6 +13419,21 @@ body.dark-mode {
 body.dark-mode .conversation-item:hover { background: #293548 !important; }
 body.dark-mode .icon-btn:hover  { background: #334155 !important; }
 
+
+/* == K10 TAB KEEP-ALIVE ==
+   Todos os paineis ficam montados. CSS hidden oculta.
+   scroll position, foco e estado React sao preservados. */
+.k10-tab-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  position: relative;
+}
+.k10-tab-panel[hidden] { display: none !important; }
+.k10-sidebar-panel { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.k10-sidebar-panel[hidden] { display: none !important; }
 </style>
 
 <!-- ════════════════════════════════════════════════════════════════════════ -->
@@ -13263,7 +13651,7 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
     if (!u) return;
     const p = prompt('MxDM · senha:');
     if (!p) return;
-    login(u, p).then(ok => alert(ok ? '✅ Logado em '+HS : '❌ Falha de login'));
+    login(u, p).then(ok => window.k10Toast(ok ? '✅ Logado em '+HS : '❌ Falha de login', ok ? 'success' : 'error'));
   }
 
   window.MxDM = {
