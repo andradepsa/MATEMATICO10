@@ -203,7 +203,7 @@ canvas{display:block;width:100%!important}
 <!-- ══ CONTROL BAR ═════════════════════════════════════════════════════ -->
 <div class="bar">
   <span class="lbl">ID ▶</span>
-  <input type="text" id="mon-id" value="" maxlength="20" placeholder="Gerando ID..." spellcheck="false">
+  <input type="text" id="mon-id" value="K10-MON" maxlength="20" spellcheck="false">
   <span id="mon-id-info" style="font-size:9px;color:var(--dim);letter-spacing:1px"></span>
   <button class="btn btn-c" id="btn-start" onclick="startMon()">▶ START</button>
   <button class="btn btn-r" id="btn-stop"  onclick="stopMon()" disabled>■ STOP</button>
@@ -212,6 +212,15 @@ canvas{display:block;width:100%!important}
   <button class="btn btn-a" onclick="clearPeers()" style="font-size:10px">✕ LIMPAR</button>
   <span id="status">OFFLINE</span>
   <span id="my-id"></span>
+</div>
+
+<!-- ══ CHANNEL STATUS ══════════════════════════════════════════════════════ -->
+<div id="channel-status-bar" style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;padding:8px 14px;background:#060e1a;border:1px solid #0a3050;font-size:10px;align-items:center">
+  <span style="color:#2a4a60;letter-spacing:2px">CANAIS ▶</span>
+  <span id="ch-peerjs" style="padding:2px 10px;border:1px solid #2a4a60;color:#2a4a60">⬡ PEERJS: —</span>
+  <span id="ch-matrix" style="padding:2px 10px;border:1px solid #2a4a60;color:#2a4a60">⬡ MATRIX: —</span>
+  <span id="ch-room"   style="padding:2px 10px;border:1px solid #2a4a60;color:#2a4a60;font-size:9px">⬡ SALA TEL: —</span>
+  <span style="margin-left:auto;font-size:9px;color:#2a4a60" id="ch-hint">Faça login no Matrix e clique START para começar</span>
 </div>
 
 <!-- ══ PERF ROW ═════════════════════════════════════════════════════════ -->
@@ -747,6 +756,16 @@ function handleMsg(data,pId){
   scheduleRender();
 }
 
+// ── STATUS DOS CANAIS ────────────────────────────────────────
+function setCh(id, state, label){
+  const el=document.getElementById('ch-'+id);
+  if(!el)return;
+  const colors={ok:'#00ff88',warn:'#ffcc00',err:'#ff3366',off:'#2a4a60'};
+  el.style.color=colors[state]||colors.off;
+  el.style.borderColor=colors[state]||colors.off;
+  el.textContent=label;
+}
+
 function startMon(){
   if(isRunning){log('Monitor já rodando','warn');return}
   const id=document.getElementById('mon-id').value.trim().toUpperCase()||'K10-MON';
@@ -767,11 +786,13 @@ function startMon(){
     document.getElementById('my-id').innerHTML='MY-ID: '+pid;
     document.getElementById('btn-start').disabled=true;
     document.getElementById('btn-stop').disabled=false;
-    log(`✅ Monitor online: ${pid}`,'ok');
+    log(`✅ PeerJS online: ${pid}`,'ok');
     isRunning=true; reconnectAttempts=0;
     if(reconnectTimer){clearTimeout(reconnectTimer);reconnectTimer=null}
     sessionStart=Date.now();
     startUptime();
+    // Atualiza painel de canais
+    setCh('peerjs','ok','⬡ PEERJS: ONLINE ('+pid.slice(0,8)+')');
     scheduleRender();
   });
 
@@ -817,6 +838,7 @@ function stopMon(){
   if(peer&&!peer.destroyed)peer.destroy();
   peer=null; conns.clear();
   setStatus('PARADO','');
+  setCh('peerjs','off','⬡ PEERJS: PARADO');
   document.getElementById('btn-start').disabled=false;
   document.getElementById('btn-stop').disabled=true;
   stopUptime();
@@ -949,35 +971,61 @@ async function matrixApi(method,path,body,params){
 }
 
 async function garantirSalaTelemetria(){
-  if(telemetriaRoomId)return;
+  if(telemetriaRoomId){ setCh('room','ok','⬡ SALA TEL: ATIVA'); return; }
+  setCh('room','warn','⬡ SALA TEL: buscando...');
+
+  // 1. Tenta resolver o alias padrão
   try{
     const r=await matrixApi('GET','/_matrix/client/v3/directory/room/'+encodeURIComponent(SALA_TELEMETRIA));
     if(r.room_id){
       telemetriaRoomId=r.room_id;
       await matrixApi('POST','/_matrix/client/v3/join/'+encodeURIComponent(telemetriaRoomId),{});
-      log('📡 Sala de telemetria pronta: '+telemetriaRoomId,'ok');
+      log('📡 Sala de telemetria encontrada: '+telemetriaRoomId,'ok');
+      setCh('room','ok','⬡ SALA TEL: '+telemetriaRoomId.slice(0,18));
       return;
     }
   }catch(_){}
+
+  // 2. Alias não existe — cria sala pública (alias no homeserver do usuário)
+  log('⚠️ Sala '+SALA_TELEMETRIA+' não encontrada. Criando...','warn');
   try{
+    const hsName = HS.replace('https://','').replace('http://','');
     const c=await matrixApi('POST','/_matrix/client/v3/createRoom',{
       room_alias_name:'k10-telemetria',
       name:'K10 Telemetria',
-      topic:'Sala oculta de telemetria K10',
+      topic:'Sala oculta de telemetria K10 — não remover',
       preset:'public_chat',
-      visibility:'public'
+      visibility:'public',
+      initial_state:[{type:'m.room.history_visibility',content:{history_visibility:'world_readable'}}]
     });
-    if(c.room_id){telemetriaRoomId=c.room_id;log('✅ Sala telemetria criada: '+telemetriaRoomId,'ok');}
-  }catch(e){log('Não criou sala telemetria: '+e.message,'warn');}
+    if(c.room_id){
+      telemetriaRoomId=c.room_id;
+      const alias='#k10-telemetria:'+hsName;
+      log('✅ Sala criada: '+telemetriaRoomId,'ok');
+      log('📋 Configure o Chat com: '+alias,'warn');
+      setCh('room','ok','⬡ SALA TEL: '+alias);
+      // Mostra o alias correto para configurar no chat
+      document.getElementById('ch-hint').innerHTML=
+        '⚠️ Configure o Chat com: <b style="color:#ffcc00">'+alias+'</b>';
+    } else {
+      log('❌ Erro ao criar sala: '+(c.errcode||JSON.stringify(c)),'err');
+      setCh('room','err','⬡ SALA TEL: ERRO');
+    }
+  }catch(e){
+    log('❌ Não foi possível criar sala: '+e.message,'err');
+    setCh('room','err','⬡ SALA TEL: ERRO');
+  }
 }
 
 function processarEventoTelemetria(ev){
   if(!ev?.content?.peerId)return;
-  if(telMsgsSeen.has(ev.event_id))return;
-  telMsgsSeen.add(ev.event_id);
+  const evId=ev.event_id||ev.content.timestamp+'_'+ev.content.peerId;
+  if(telMsgsSeen.has(evId))return;
+  telMsgsSeen.add(evId);
   if(telMsgsSeen.size>2000)telMsgsSeen.clear();
   const d={...ev.content, type:'k10-telemetry'};
   handleMsg(d,d.peerId);
+  log('📨 [Matrix] '+d.peerId?.slice(0,10)+' — '+(d.userName||'anon')+' — '+(d.city||'?')+', '+(d.country||'?'),'ok');
 }
 
 async function matrixLogin(user,pass){
@@ -993,11 +1041,14 @@ function aplicarToken(token,userId){
   log('✅ Matrix login: '+MY_MXID,'ok');
   document.getElementById('mx-status').innerHTML='🟢 '+esc(MY_MXID);
   document.getElementById('mx-mxid-label').textContent=MY_MXID;
+  setCh('matrix','ok','⬡ MATRIX: '+MY_MXID.split(':')[0]);
   garantirSalaTelemetria().then(()=>startMatrixSync());
 }
 
 function logoutMatrix(){
   MATRIX_TOKEN='';MY_MXID='';SINCE='';telemetriaRoomId=null;
+  setCh('matrix','off','⬡ MATRIX: —');
+  setCh('room','off','⬡ SALA TEL: —');
   localStorage.removeItem('mxdmToken');localStorage.removeItem('mxdmMxid');localStorage.removeItem('mxdmSyncSince');
   matrixRooms.clear();syncRunning=false;
   document.getElementById('mx-status').textContent='⚪ Desconectado';
@@ -1106,37 +1157,20 @@ window.clearLog=clearLog; window.toggleLogPause=toggleLogPause;
 
 initMap();
 render();
-// ── ID ÚNICO PERSISTENTE (mesmo formato do Chat Desktop) ──
+// ── ID MONITOR: K10-MON padrão, único por instância via localStorage ──
 (function(){
-  function gerarId(){
-    // 9 caracteres alfanuméricos maiúsculos — idêntico ao padrão PeerJS do chat
-    return Math.random().toString(36).slice(2,11).toUpperCase();
-  }
-  let id = localStorage.getItem('k10MonitorId');
-  if(!id){ id = gerarId(); localStorage.setItem('k10MonitorId', id); }
-  document.getElementById('mon-id').value = id;
-  document.getElementById('mon-id-info').textContent = '(ID único persistente)';
-  // Salva novo ID se o usuário alterar manualmente
+  // Se outro monitor já usa K10-MON na mesma máquina (outra aba),
+  // o erro 'unavailable-id' no PeerJS vai gerar um ID único automático.
+  // Para múltiplos monitores: o 1º fica K10-MON (recebe PeerJS),
+  // os demais ficam com ID aleatório (recebem via Matrix).
   document.getElementById('mon-id').addEventListener('change', function(){
-    const novo = this.value.trim().toUpperCase() || gerarId();
-    this.value = novo;
-    localStorage.setItem('k10MonitorId', novo);
+    localStorage.setItem('k10MonitorId', this.value.trim().toUpperCase());
   });
-  // Botão regenerar ID (aparece ao lado do input)
-  const btn = document.createElement('button');
-  btn.className='btn btn-a'; btn.style.fontSize='10px'; btn.style.padding='6px 10px';
-  btn.title='Gerar novo ID aleatório';
-  btn.textContent='↺ NOVO ID';
-  btn.onclick = function(){
-    const novo = gerarId();
-    document.getElementById('mon-id').value = novo;
-    localStorage.setItem('k10MonitorId', novo);
-    document.getElementById('mon-id-info').textContent='(novo ID gerado)';
-  };
-  document.getElementById('mon-id').insertAdjacentElement('afterend', btn);
 })();
-log('K10 Monitor PRO v4 pronto. Matrix=telemetria principal · PeerJS=fallback','hi');
-log('💡 Cada monitor precisa de um ID único. Se K10-MON estiver em uso, o ID será gerado automaticamente.','hi');
+log('K10 Monitor PRO v4 pronto.','hi');
+log('▶ PASSO 1: Faça login no Matrix (botão acima)','warn');
+log('▶ PASSO 2: Clique START para ativar PeerJS','warn');
+log('▶ Ambos os canais precisam estar verdes para receber telemetria.','warn');
 </script>
 </body>
 </html>
