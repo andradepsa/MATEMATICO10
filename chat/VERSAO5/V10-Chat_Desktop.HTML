@@ -4635,6 +4635,184 @@ const fetchIptvData = async () => {
   throw lastErr || new Error('All IPTV API servers failed');
 };
 
+// ══════════════════════════════════════════════════════════════
+// ── CORS PROXIES + M3U FETCHER ────────────────────────────────
+// Usado para listas M3U externas (Free-TV, Brasil, etc.)
+// ══════════════════════════════════════════════════════════════
+const CORS_PROXIES = [
+  url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+  url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+  url => `https://thingproxy.freeboard.io/fetch/${url}`,
+  url => `https://cors-anywhere.herokuapp.com/${url}`,
+];
+
+const fetchM3u = async (url) => {
+  let lastErr = null;
+  // Tenta via proxies CORS primeiro
+  for (const makeProxy of CORS_PROXIES) {
+    try {
+      const proxyUrl = makeProxy(url);
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 18000);
+      const res = await fetch(proxyUrl, { signal: ctrl.signal });
+      clearTimeout(timeout);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      if (text.includes('#EXTM3U') || text.includes('#EXTINF')) return text;
+      throw new Error('Resposta inválida (não é M3U)');
+    } catch (e) {
+      lastErr = e;
+      console.warn(`[M3U Proxy] falhou:`, e.message);
+    }
+  }
+  // Tentativa direta como último recurso
+  try {
+    const ctrl = new AbortController();
+    const timeout = setTimeout(() => ctrl.abort(), 12000);
+    const res = await fetch(url, { signal: ctrl.signal });
+    clearTimeout(timeout);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.text();
+  } catch (e) {
+    throw lastErr || e;
+  }
+};
+
+const parseM3u = (text) => {
+  const lines = text.split(/\r?\n/);
+  const channels = [];
+  let current = null;
+  for (const line of lines) {
+    const l = line.trim();
+    if (l.startsWith('#EXTINF:')) {
+      const nameMatch = l.match(/,(.+)$/);
+      const logoMatch = l.match(/tvg-logo="([^"]+)"/);
+      const countryMatch = l.match(/tvg-country="([^"]+)"/);
+      const langMatch = l.match(/tvg-language="([^"]+)"/);
+      const catMatch = l.match(/group-title="([^"]+)"/);
+      const idMatch = l.match(/tvg-id="([^"]+)"/);
+      const flagMap = { BR:'🇧🇷', US:'🇺🇸', GB:'🇬🇧', FR:'🇫🇷', DE:'🇩🇪', ES:'🇪🇸', IT:'🇮🇹', PT:'🇵🇹', AR:'🇦🇷', MX:'🇲🇽', JP:'🇯🇵', KR:'🇰🇷', RU:'🇷🇺', IN:'🇮🇳', CN:'🇨🇳', AU:'🇦🇺', CA:'🇨🇦', NL:'🇳🇱', BE:'🇧🇪', CH:'🇨🇭', AT:'🇦🇹', PL:'🇵🇱', CZ:'🇨🇿', TR:'🇹🇷', SA:'🇸🇦', AE:'🇦🇪', ZA:'🇿🇦', NG:'🇳🇬', EG:'🇪🇬' };
+      const country = (countryMatch ? countryMatch[1].split(';')[0].toUpperCase() : '');
+      current = {
+        name: nameMatch ? nameMatch[1].trim() : 'Canal',
+        logo: logoMatch ? logoMatch[1] : '',
+        country,
+        flag: flagMap[country] || '🌐',
+        language: langMatch ? langMatch[1] : '',
+        category: catMatch ? catMatch[1] : '',
+        id: idMatch ? idMatch[1] : '',
+      };
+    } else if (l && !l.startsWith('#') && current) {
+      channels.push({ ...current, url: l });
+      current = null;
+    }
+  }
+  return channels;
+};
+
+// Modal genérico para listas M3U (Free-TV, Brasil, etc.)
+const IptvM3uModal = ({ title, emoji, accent, bg, sources, onClose, onPlay }) => {
+  const [channels, setChannels] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [query, setQuery] = useState('');
+  const [activeSource, setActiveSource] = useState(0);
+
+  const loadSource = async (idx) => {
+    setLoading(true); setError(null); setChannels([]);
+    const src = sources[idx];
+    try {
+      const text = await fetchM3u(src.url);
+      const parsed = parseM3u(text);
+      if (parsed.length === 0) throw new Error('Nenhum canal encontrado na lista');
+      setChannels(parsed);
+    } catch (e) {
+      setError(`Falha ao carregar "${src.name}": ${e.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => { loadSource(0); }, []);
+
+  const filtered = channels.filter(ch =>
+    ch.name.toLowerCase().includes(query.toLowerCase()) ||
+    ch.category.toLowerCase().includes(query.toLowerCase()) ||
+    ch.country.toLowerCase().includes(query.toLowerCase())
+  );
+
+  const overlayStyle = { position:'fixed', inset:0, background:'rgba(0,0,0,0.82)', zIndex:3000, display:'flex', alignItems:'center', justifyContent:'center', padding:'16px' };
+  const modalStyle = { background: bg || '#0c1520', border:`1px solid ${accent}44`, borderRadius:'16px', width:'100%', maxWidth:'640px', maxHeight:'88vh', display:'flex', flexDirection:'column', boxShadow:`0 0 40px ${accent}33`, overflow:'hidden' };
+
+  return (
+    <div style={overlayStyle} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={modalStyle}>
+        {/* Header */}
+        <div style={{ padding:'16px 20px', borderBottom:`1px solid ${accent}33`, display:'flex', alignItems:'center', justifyContent:'space-between', background:`${accent}11` }}>
+          <div>
+            <div style={{ fontWeight:700, fontSize:'17px', color:'#f1f5f9' }}>{emoji} {title}</div>
+            {!loading && !error && <div style={{ fontSize:'11px', color:'#64748b', marginTop:'2px' }}>{channels.length} canais carregados</div>}
+          </div>
+          <button onClick={onClose} style={{ background:'none', border:'none', color:'#94a3b8', fontSize:'22px', cursor:'pointer', lineHeight:1 }}>×</button>
+        </div>
+
+        {/* Source selector */}
+        {sources.length > 1 && (
+          <div style={{ padding:'8px 16px', display:'flex', gap:'6px', borderBottom:`1px solid ${accent}22`, flexWrap:'wrap' }}>
+            {sources.map((s, i) => (
+              <button key={i} onClick={() => { setActiveSource(i); loadSource(i); }} style={{ padding:'4px 10px', borderRadius:'20px', fontSize:'11px', fontWeight:600, cursor:'pointer', border:`1px solid ${i===activeSource ? accent : '#334155'}`, background: i===activeSource ? `${accent}22` : 'transparent', color: i===activeSource ? accent : '#94a3b8' }}>{s.name}</button>
+            ))}
+          </div>
+        )}
+
+        {/* Search */}
+        <div style={{ padding:'10px 16px', borderBottom:`1px solid ${accent}22` }}>
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="🔍 Buscar canal, categoria, país..." style={{ width:'100%', padding:'8px 12px', borderRadius:'8px', border:`1px solid ${accent}44`, background:'#0f172a', color:'#f1f5f9', fontSize:'13px', boxSizing:'border-box' }} />
+        </div>
+
+        {/* Content */}
+        <div style={{ flex:1, overflowY:'auto', padding:'8px' }}>
+          {loading && (
+            <div style={{ textAlign:'center', padding:'40px', color:'#64748b' }}>
+              <div style={{ fontSize:'32px', marginBottom:'12px' }}>📡</div>
+              <div>Carregando lista M3U via proxy CORS...</div>
+              <div style={{ fontSize:'11px', marginTop:'6px', color:'#475569' }}>Pode levar alguns segundos</div>
+            </div>
+          )}
+          {error && (
+            <div style={{ textAlign:'center', padding:'30px', color:'#f87171' }}>
+              <div style={{ fontSize:'28px', marginBottom:'10px' }}>⚠️</div>
+              <div style={{ fontSize:'13px' }}>{error}</div>
+              <button onClick={() => loadSource(activeSource)} style={{ marginTop:'14px', padding:'8px 18px', borderRadius:'8px', background:accent, color:'#fff', border:'none', cursor:'pointer', fontWeight:600 }}>Tentar novamente</button>
+            </div>
+          )}
+          {!loading && !error && filtered.map((ch, i) => (
+            <button key={i} onClick={() => onPlay(ch.url, ch.name, ch.country, ch.flag)} style={{ display:'flex', alignItems:'center', gap:'10px', width:'100%', padding:'9px 12px', marginBottom:'3px', borderRadius:'8px', background:'transparent', border:'none', cursor:'pointer', textAlign:'left', transition:'background 0.15s' }}
+              onMouseEnter={e => e.currentTarget.style.background=`${accent}18`}
+              onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+              {ch.logo ? <img src={ch.logo} alt="" style={{ width:'32px', height:'22px', objectFit:'contain', borderRadius:'3px', background:'#1e293b', flexShrink:0 }} onError={e => { e.target.style.display='none'; }} /> : <span style={{ fontSize:'20px', flexShrink:0, width:'32px', textAlign:'center' }}>{ch.flag}</span>}
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:'13px', fontWeight:600, color:'#e2e8f0', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{ch.name}</div>
+                {ch.category && <div style={{ fontSize:'10px', color:'#64748b', marginTop:'1px' }}>{ch.flag} {ch.category}</div>}
+              </div>
+              <i className="fas fa-play" style={{ color:accent, fontSize:'11px', flexShrink:0 }}></i>
+            </button>
+          ))}
+          {!loading && !error && filtered.length === 0 && query && (
+            <div style={{ textAlign:'center', padding:'30px', color:'#64748b' }}>Nenhum canal encontrado para "{query}"</div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding:'8px 16px', borderTop:`1px solid ${accent}22`, fontSize:'10px', color:'#475569', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+          <span>{emoji} {filtered.length} de {channels.length} canais</span>
+          <span>via CORS proxy · M3U</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const WorldRadiosModal = ({ lang, onClose, onBroadcast }) => {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
@@ -6242,15 +6420,17 @@ const IptvFilmesModal = ({ onClose, onPlay }) => {
 // IptvCategoryModal — componente genérico reutilizável para todas as cats
 // ══════════════════════════════════════════════════════════════════════════
 const IPTV_CAT_DEFS = {
-  noticias:  { title:'📰 IPTV Notícias',          emoji:'📰', accent:'#0ea5e9', accentDark:'#0369a1', bg:'#0c1a2e', shadow:'rgba(14,165,233,0.25)',  cats:['news'],                                   labels:{news:'📰 Notícias'},                                                        desc:'notícias e jornalismo',         btnIcon:'fa-broadcast-tower' },
-  negocios:  { title:'💼 IPTV Negócios & Clima',   emoji:'💼', accent:'#6366f1', accentDark:'#4338ca', bg:'#0d0f2e', shadow:'rgba(99,102,241,0.25)',   cats:['business','weather'],                     labels:{business:'💼 Negócios',weather:'🌤️ Clima'},                                 desc:'negócios, economia e clima',    btnIcon:'fa-chart-line'       },
-  esportes:  { title:'⚽ IPTV Esportes',           emoji:'⚽', accent:'#22c55e', accentDark:'#15803d', bg:'#052e16', shadow:'rgba(34,197,94,0.25)',    cats:['sports'],                                 labels:{sports:'⚽ Esportes'},                                                      desc:'esportes ao vivo',              btnIcon:'fa-futbol'            },
-  musica:    { title:'🎵 IPTV Música',             emoji:'🎵', accent:'#f43f5e', accentDark:'#be123c', bg:'#1a0010', shadow:'rgba(244,63,94,0.25)',    cats:['music'],                                  labels:{music:'🎵 Música'},                                                         desc:'música ao vivo',                btnIcon:'fa-music'             },
-  kids:      { title:'🧸 IPTV Kids & Família',     emoji:'🧸', accent:'#f59e0b', accentDark:'#b45309', bg:'#1c0a00', shadow:'rgba(245,158,11,0.25)',   cats:['kids','family','animation'],              labels:{kids:'🧸 Kids',family:'👨‍👩‍👧 Família',animation:'🎠 Animação'},                desc:'kids, família e animação',      btnIcon:'fa-child'             },
-  educacao:  { title:'🎓 IPTV Educação & Cultura', emoji:'🎓', accent:'#10b981', accentDark:'#065f46', bg:'#022c22', shadow:'rgba(16,185,129,0.25)',   cats:['education','culture'],                    labels:{education:'🎓 Educação',culture:'🏛️ Cultura'},                              desc:'educação e cultura',            btnIcon:'fa-graduation-cap'    },
-  lifestyle: { title:'🌿 IPTV Lifestyle',          emoji:'🌿', accent:'#84cc16', accentDark:'#3f6212', bg:'#0a1400', shadow:'rgba(132,204,22,0.25)',   cats:['cooking','travel','lifestyle','outdoor'], labels:{cooking:'👨‍🍳 Culinária',travel:'✈️ Viagem',lifestyle:'💅 Lifestyle',outdoor:'🏕️ Outdoor'}, desc:'culinária, viagem e lifestyle', btnIcon:'fa-leaf'              },
-  religioso: { title:'⛪ IPTV Religioso',          emoji:'⛪', accent:'#e879f9', accentDark:'#86198f', bg:'#1a0020', shadow:'rgba(232,121,249,0.25)',   cats:['religious'],                              labels:{religious:'⛪ Religioso'},                                                  desc:'canais religiosos do mundo',    btnIcon:'fa-church'            },
-  auto:      { title:'🚗 IPTV Auto & Variedades',  emoji:'🚗', accent:'#fb923c', accentDark:'#c2410c', bg:'#1c0800', shadow:'rgba(251,146,60,0.25)',   cats:['auto','shop','legislative'],              labels:{auto:'🚗 Auto',shop:'🛒 Shop',legislative:'🏛️ Legislativo'},                 desc:'auto, compras e variedades',    btnIcon:'fa-car'               },
+  noticias:      { title:'📰 IPTV Notícias',          emoji:'📰', accent:'#0ea5e9', accentDark:'#0369a1', bg:'#0c1a2e', shadow:'rgba(14,165,233,0.25)',  cats:['news'],                                       labels:{news:'📰 Notícias'},                                                                    desc:'notícias e jornalismo',              btnIcon:'fa-broadcast-tower' },
+  negocios:      { title:'💼 IPTV Negócios & Clima',   emoji:'💼', accent:'#6366f1', accentDark:'#4338ca', bg:'#0d0f2e', shadow:'rgba(99,102,241,0.25)',   cats:['business','weather'],                         labels:{business:'💼 Negócios',weather:'🌤️ Clima'},                                               desc:'negócios, economia e clima',         btnIcon:'fa-chart-line'       },
+  documentarios: { title:'🎥 IPTV Documentários',      emoji:'🎥', accent:'#f97316', accentDark:'#c2410c', bg:'#1c0800', shadow:'rgba(249,115,22,0.25)',   cats:['documentary'],                                labels:{documentary:'🎥 Documentários'},                                                        desc:'documentários do mundo todo',        btnIcon:'fa-video'             },
+  entretenimento:{ title:'🎭 IPTV Entretenimento',     emoji:'🎭', accent:'#a855f7', accentDark:'#7e22ce', bg:'#120020', shadow:'rgba(168,85,247,0.25)',   cats:['entertainment','comedy','general'],            labels:{entertainment:'🎭 Entretenimento',comedy:'😂 Comédia',general:'📺 Geral'},               desc:'entretenimento, comédia e geral',    btnIcon:'fa-masks-theater'     },
+  esportes:      { title:'⚽ IPTV Esportes',           emoji:'⚽', accent:'#22c55e', accentDark:'#15803d', bg:'#052e16', shadow:'rgba(34,197,94,0.25)',    cats:['sports'],                                     labels:{sports:'⚽ Esportes'},                                                                  desc:'esportes ao vivo',                   btnIcon:'fa-futbol'            },
+  musica:        { title:'🎵 IPTV Música',             emoji:'🎵', accent:'#f43f5e', accentDark:'#be123c', bg:'#1a0010', shadow:'rgba(244,63,94,0.25)',    cats:['music'],                                      labels:{music:'🎵 Música'},                                                                     desc:'música ao vivo',                     btnIcon:'fa-music'             },
+  kids:          { title:'🧸 IPTV Kids & Família',     emoji:'🧸', accent:'#f59e0b', accentDark:'#b45309', bg:'#1c0a00', shadow:'rgba(245,158,11,0.25)',   cats:['kids','family','animation'],                  labels:{kids:'🧸 Kids',family:'👨‍👩‍👧 Família',animation:'🎠 Animação'},                            desc:'kids, família e animação',           btnIcon:'fa-child'             },
+  educacao:      { title:'🎓 IPTV Educação & Cultura', emoji:'🎓', accent:'#10b981', accentDark:'#065f46', bg:'#022c22', shadow:'rgba(16,185,129,0.25)',   cats:['education','culture','science'],               labels:{education:'🎓 Educação',culture:'🏛️ Cultura',science:'🔬 Ciência'},                      desc:'educação, cultura e ciência',        btnIcon:'fa-graduation-cap'    },
+  lifestyle:     { title:'🌿 IPTV Lifestyle',          emoji:'🌿', accent:'#84cc16', accentDark:'#3f6212', bg:'#0a1400', shadow:'rgba(132,204,22,0.25)',   cats:['cooking','travel','lifestyle','outdoor'],      labels:{cooking:'👨‍🍳 Culinária',travel:'✈️ Viagem',lifestyle:'💅 Lifestyle',outdoor:'🏕️ Outdoor'}, desc:'culinária, viagem e lifestyle',      btnIcon:'fa-leaf'              },
+  religioso:     { title:'⛪ IPTV Religioso',          emoji:'⛪', accent:'#e879f9', accentDark:'#86198f', bg:'#1a0020', shadow:'rgba(232,121,249,0.25)',   cats:['religious'],                                  labels:{religious:'⛪ Religioso'},                                                              desc:'canais religiosos do mundo',         btnIcon:'fa-church'            },
+  auto:          { title:'🚗 IPTV Auto & Variedades',  emoji:'🚗', accent:'#fb923c', accentDark:'#c2410c', bg:'#1c0800', shadow:'rgba(251,146,60,0.25)',   cats:['auto','shop','legislative'],                  labels:{auto:'🚗 Auto',shop:'🛒 Shop',legislative:'🏛️ Legislativo'},                             desc:'auto, compras e variedades',         btnIcon:'fa-car'               },
 };
 
 const IptvCategoryModal = ({ configKey, onClose, onPlay }) => {
@@ -7231,9 +7411,14 @@ useEffect(() => {
 const [showWhiteboard, setShowWhiteboard] = useState(false);
 const [showWorldRadios, setShowWorldRadios] = useState(false);
 const [showIptv, setShowIptv] = useState(false);
+const [showIptvFreeTv, setShowIptvFreeTv] = useState(false);
+const [showIptvFluxus, setShowIptvFluxus] = useState(false);
+const [showIptvBrasil, setShowIptvBrasil] = useState(false);
 const [showIptvFilmes, setShowIptvFilmes] = useState(false);
 const [showIptvNoticias, setShowIptvNoticias] = useState(false);
 const [showIptvNegocios, setShowIptvNegocios] = useState(false);
+const [showIptvDocs, setShowIptvDocs] = useState(false);
+const [showIptvEntret, setShowIptvEntret] = useState(false);
 const [showIptvEsportes, setShowIptvEsportes] = useState(false);
 const [showIptvMusica, setShowIptvMusica] = useState(false);
 const [showIptvKids, setShowIptvKids] = useState(false);
@@ -9780,7 +9965,46 @@ return (
 {showIptvEducacao  && <IptvCategoryModal configKey="educacao"  onClose={() => setShowIptvEducacao(false)}  onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
 {showIptvLifestyle && <IptvCategoryModal configKey="lifestyle" onClose={() => setShowIptvLifestyle(false)} onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
 {showIptvReligioso && <IptvCategoryModal configKey="religioso" onClose={() => setShowIptvReligioso(false)} onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
-{showIptvAuto      && <IptvCategoryModal configKey="auto"      onClose={() => setShowIptvAuto(false)}      onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
+{showIptvFreeTv && <IptvM3uModal
+  title="Free-TV · Verificados & Estáveis"
+  emoji="📡"
+  accent="#38bdf8"
+  bg="#0c1a2e"
+  sources={[
+    { name:'M3U8 (recomendado)', url:'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8' },
+    { name:'M3U (alternativo)', url:'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u' },
+  ]}
+  onClose={() => setShowIptvFreeTv(false)}
+  onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)}
+/>}
+{showIptvFluxus && <IptvM3uModal
+  title="Fluxustv · Atualizada Diariamente"
+  emoji="🔄"
+  accent="#818cf8"
+  bg="#0d0f2e"
+  sources={[
+    { name:'iptv-org index.m3u', url:'https://iptv-org.github.io/iptv/index.m3u' },
+    { name:'gh-pages index.m3u', url:'https://raw.githubusercontent.com/iptv-org/iptv/gh-pages/index.m3u' },
+  ]}
+  onClose={() => setShowIptvFluxus(false)}
+  onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)}
+/>}
+{showIptvBrasil && <IptvM3uModal
+  title="IPTV Brasil · Canais Abertos"
+  emoji="🇧🇷"
+  accent="#22c55e"
+  bg="#052e16"
+  sources={[
+    { name:'iptv-org BR', url:'https://iptv-org.github.io/iptv/countries/br.m3u' },
+    { name:'FTA-Brasil', url:'https://raw.githubusercontent.com/rjpontes/iptv-brasil/main/lista.m3u' },
+    { name:'TudoTV BR', url:'https://raw.githubusercontent.com/Greasy-Canteen/iptv-brasil/main/brasil.m3u' },
+  ]}
+  onClose={() => setShowIptvBrasil(false)}
+  onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)}
+/>}
+{showIptvAuto      && <IptvCategoryModal configKey="auto"           onClose={() => setShowIptvAuto(false)}      onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
+{showIptvDocs      && <IptvCategoryModal configKey="documentarios"  onClose={() => setShowIptvDocs(false)}      onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
+{showIptvEntret    && <IptvCategoryModal configKey="entretenimento" onClose={() => setShowIptvEntret(false)}    onPlay={(url, name, iso, flag) => startIptvBroadcast(url, name, iso, flag)} />}
 
 {showMediaControls && (
   <div className="media-controls-overlay" onClick={e => { if (e.target === e.currentTarget) setShowMediaControls(false); }}>
@@ -9867,15 +10091,51 @@ return (
 
         {/* ─── 5: IPTV — TV AO VIVO ────────────────────────────── */}
         <div style={{ fontSize: '9px', letterSpacing: '2px', color: '#a78bfa', fontWeight: '700', paddingBottom: '4px', borderBottom: '1px solid #334155', marginBottom: '4px', marginTop: '6px' }}>
-          ▶ IPTV — TV AO VIVO
+          ▶ IPTV — TV AO VIVO · iptv-org.github.io
         </div>
+
+        {/* 🌍 ACESSO GERAL */}
+        <div style={{ fontSize: '9px', letterSpacing: '1px', color: '#64748b', fontWeight: '700', padding: '2px 0 3px 2px' }}>🌍 ACESSO GERAL</div>
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptv(true); }}>
           <i className="fas fa-tv" style={{color:'#38bdf8'}}></i>
-          <div><div>IPTV Mundial</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>TV ao vivo de todos os países · por continente</div></div>
+          <div><div>IPTV Mundial</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>+10k canais · todos os países · por continente</div></div>
         </button>
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvFilmes(true); }}>
-          <i className="fas fa-film" style={{color:'#a78bfa'}}></i>
-          <div><div>IPTV Filmes</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Filmes · Séries · Animação · Clássicos</div></div>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvFreeTv(true); }}>
+          <i className="fas fa-satellite-dish" style={{color:'#38bdf8'}}></i>
+          <div><div>Free-TV</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Canais verificados & estáveis · Free-TV/IPTV</div></div>
+        </button>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvFluxus(true); }}>
+          <i className="fas fa-rss" style={{color:'#818cf8'}}></i>
+          <div><div>Fluxustv</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Lista M3U atualizada diariamente · iptv-org</div></div>
+        </button>
+
+        {/* 🇧🇷 BRASIL */}
+        <div style={{ fontSize: '9px', letterSpacing: '1px', color: '#64748b', fontWeight: '700', padding: '4px 0 3px 2px', marginTop:'2px' }}>🇧🇷 BRASIL — CANAIS ABERTOS</div>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvBrasil(true); }}>
+          <i className="fas fa-broadcast-tower" style={{color:'#22c55e'}}></i>
+          <div><div>IPTV Brasil</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>iptv-org BR · FTA-Brasil · TudoTV · emissoras abertas</div></div>
+        </button>
+
+        {/* 📰 INFORMAÇÃO */}
+        <div style={{ fontSize: '9px', letterSpacing: '1px', color: '#64748b', fontWeight: '700', padding: '4px 0 3px 2px', marginTop:'2px' }}>📰 INFORMAÇÃO</div>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvNoticias(true); }}>
+          <i className="fas fa-broadcast-tower" style={{color:'#0ea5e9'}}></i>
+          <div><div>IPTV Notícias</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Jornalismo ao vivo · todos os países</div></div>
+        </button>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvNegocios(true); }}>
+          <i className="fas fa-chart-line" style={{color:'#6366f1'}}></i>
+          <div><div>IPTV Negócios & Clima</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Business · economia · finanças · previsão</div></div>
+        </button>
+
+        {/* 🎭 ENTRETENIMENTO */}
+        <div style={{ fontSize: '9px', letterSpacing: '1px', color: '#64748b', fontWeight: '700', padding: '4px 0 3px 2px', marginTop:'2px' }}>🎭 ENTRETENIMENTO</div>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvEntret(true); }}>
+          <i className="fas fa-masks-theater" style={{color:'#a855f7'}}></i>
+          <div><div>IPTV Entretenimento</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Entretenimento · comédia · variedades gerais</div></div>
+        </button>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvDocs(true); }}>
+          <i className="fas fa-video" style={{color:'#f97316'}}></i>
+          <div><div>IPTV Documentários</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Documentários de todo o mundo</div></div>
         </button>
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvEsportes(true); }}>
           <i className="fas fa-futbol" style={{color:'#22c55e'}}></i>
@@ -9885,21 +10145,20 @@ return (
           <i className="fas fa-music" style={{color:'#f43f5e'}}></i>
           <div><div>IPTV Música</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Canais de música ao vivo do mundo todo</div></div>
         </button>
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvNoticias(true); }}>
-          <i className="fas fa-broadcast-tower" style={{color:'#0ea5e9'}}></i>
-          <div><div>IPTV Notícias</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Jornalismo ao vivo · todos os países</div></div>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvFilmes(true); }}>
+          <i className="fas fa-film" style={{color:'#a78bfa'}}></i>
+          <div><div>IPTV Filmes & Séries</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Filmes · séries · animação · clássicos</div></div>
         </button>
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvNegocios(true); }}>
-          <i className="fas fa-chart-line" style={{color:'#6366f1'}}></i>
-          <div><div>IPTV Negócios & Clima</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Business · economia · finanças · previsão</div></div>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvKids(true); }}>
+          <i className="fas fa-child" style={{color:'#fbbf24'}}></i>
+          <div><div>IPTV Kids & Família</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Animação · infantil · família</div></div>
         </button>
+
+        {/* 🌿 ESTILO DE VIDA */}
+        <div style={{ fontSize: '9px', letterSpacing: '1px', color: '#64748b', fontWeight: '700', padding: '4px 0 3px 2px', marginTop:'2px' }}>🌿 ESTILO DE VIDA</div>
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvEducacao(true); }}>
           <i className="fas fa-graduation-cap" style={{color:'#10b981'}}></i>
           <div><div>IPTV Educação & Cultura</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Ciência · cultura · documentários</div></div>
-        </button>
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvKids(true); }}>
-          <i className="fas fa-child" style={{color:'#f59e0b'}}></i>
-          <div><div>IPTV Kids & Família</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Animação · infantil · família</div></div>
         </button>
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowIptvLifestyle(true); }}>
           <i className="fas fa-leaf" style={{color:'#84cc16'}}></i>
@@ -11212,8 +11471,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     // ── SALA FIXA DO MODO GERAL ──────────────────────────────────
     // Sala única de papo livre para a aba Geral.
     // Separada das Salinhas — sem lista, entra direto.
-    const SALA_GERAL_ALIAS = '#conversa:matrix.org';
-    const SALA_GERAL_NOME  = '🗣️ Conversa Geral';
+    const SALA_GERAL_ALIAS  = '!jKDBXnpcIDcjFlVWFz:matrix.org';
+    const SALA_GERAL_NOME   = '🗣️ Conversa Geral';
 
     // ==================================================
     // 🏷️ CATEGORIAS para o menu de salas
@@ -11339,6 +11598,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     let _salaAtiva      = null;
     let _syncToken      = null;   // Long poll: token global do /sync
     let _longPollAtivo  = false;  // Evita dois loops simultâneos
+    const _programStartTime = Date.now(); // Ignora broadcasts anteriores ao início do programa
 
     // --------------------------------------------------
     // API fetch helper — fetch() com CORS (substitui JSONP)
@@ -11373,6 +11633,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     }
 
     async function resolverRoomId(alias) {
+        if (alias && alias.startsWith('!')) return alias; // já é room ID
         try {
             const dados = await matrixGet('/_matrix/client/v3/directory/room/' + encodeURIComponent(alias));
             return dados.room_id || null;
@@ -11391,6 +11652,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         // ── Detecta YouTube Chat start/stop enviado pela sala Matrix ──
         if (typeof body === 'string' && body.startsWith('__K10YTCHAT_START__:')) {
             if (sala.alias === SALA_GERAL_ALIAS) {
+                // Ignora mensagens antigas (anteriores ao início do programa)
+                if (mensagem.timestamp < _programStartTime) return;
                 const yId = body.slice('__K10YTCHAT_START__:'.length).trim();
                 if (yId && window.handleIncomingDataRef && window.handleIncomingDataRef.current) {
                     const fakeId = 'ytchat_matrix_' + Date.now();
@@ -11404,6 +11667,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         }
         if (typeof body === 'string' && body === '__K10YTCHAT_STOP__') {
             if (sala.alias === SALA_GERAL_ALIAS) {
+                // Ignora mensagens antigas (anteriores ao início do programa)
+                if (mensagem.timestamp < _programStartTime) return;
                 if (window.handleIncomingDataRef && window.handleIncomingDataRef.current) {
                     const fakeId = 'ytchat_stop_matrix_' + Date.now();
                     window.handleIncomingDataRef.current(
@@ -11417,6 +11682,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         // ── Detecta BROADCAST (radio/youtube/iptv) enviado pela sala Matrix ──
         if (typeof body === 'string' && body.startsWith('__K10BROADCAST__:')) {
             if (sala.alias === SALA_GERAL_ALIAS) {
+                // Ignora mensagens antigas (anteriores ao início do programa)
+                if (mensagem.timestamp < _programStartTime) return;
                 try {
                     const raw = body.slice('__K10BROADCAST__:'.length).trim();
                     const broadcastData = JSON.parse(raw);
@@ -12184,9 +12451,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
     // Aliases das salas que devem ter geral:true (usadas pelo _matrixEnviarHook)
     const ALIASES_GERAL = new Set([
-        "#brasil:matrix.org",
-        "#envs_lounge:matrix.org",
-        "#conversa:matrix.org"
+        '#chatk10-geral:matrix.org',
+        '!jKDBXnpcIDcjFlVWFz:matrix.org'
     ]);
 
     // ════════════════════════════════════════════════════════════
@@ -12202,7 +12468,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     async function _initSalaGeral() {
         let sala = _getSalaGeral();
         if (sala) return sala;
-        // Resolve room_id (funciona sem login — leitura é pública)
+        // Resolve room_id a partir do alias
         const roomId = await resolverRoomId(SALA_GERAL_ALIAS);
         if (!roomId) { console.warn('[Geral] ❌ Sala não encontrada:', SALA_GERAL_ALIAS); return null; }
         // Entra na sala se estiver logado
