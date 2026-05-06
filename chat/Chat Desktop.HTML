@@ -11305,7 +11305,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
     function _sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
-    window.enviarParaMatrix = async (texto, indiceSala = 0) => { if (salasInfo[indiceSala]) await enviarParaSala(salasInfo[indiceSala], texto); };
+    window.enviarParaMatrix = async (texto, indiceSala = 0) => {
+        // Prioridade: busca sala Geral pelo flag geral:true (independe da posição no array)
+        // Se indiceSala != 0 foi passado explicitamente, usa o índice como antes
+        const sala = (indiceSala === 0)
+            ? (salasInfo.find(s => s.geral) || salasInfo[0])
+            : salasInfo[indiceSala];
+        if (sala) await enviarParaSala(sala, texto);
+        else console.warn('[Matrix] enviarParaMatrix: Sala Geral ainda não inicializada — mensagem descartada');
+    };
     window.getMatrixSalas = () => salasInfo.map((s, i) => ({ indice: i, nome: s.nome, room_id: s.room_id, geral: !!s.geral }));
 
     function mostrarToast(msg) {
@@ -12110,11 +12118,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         garantirOverlayGeral();
         const sala = _getSalaGeral();
         if (sala) {
-            // Sala já inicializada — só re-renderiza
+            // Sala já inicializada (pelo startup ou por chamada anterior) — só re-renderiza
+            if (!sala._historicoCarregado) {
+                sala._historicoCarregado = true;
+                await carregarHistorico(sala, 30);
+            }
             renderizarChatGeral();
             return;
         }
-        // Primeira abertura — inicializa e carrega histórico
+        // Sala ainda não inicializada (startup ainda não terminou ou falhou) — tenta agora
         const s = await _initSalaGeral();
         if (!s) {
             const msgArea = document.getElementById('general-matrix-messages');
@@ -12280,6 +12292,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     async function iniciarMatrix() {
         console.log('[Matrix] 🟢 Iniciando integração v5.0 — Login direto...');
         if (pollingInterval) clearInterval(pollingInterval);
+
+        // Inicializa Sala Geral proativamente (não aguarda o usuário abrir a aba)
+        // Isso garante que enviarParaMatrix e o longPoll já incluem a sala desde o início
+        _initSalaGeral().then(s => {
+            if (s) console.log('[Matrix] ✅ Sala Geral pré-inicializada no startup');
+        }).catch(e => console.warn('[Matrix] ⚠️ Sala Geral startup init falhou:', e.message));
 
         // Salas carregadas apenas quando o usuário selecionar no Explorar Salinhas
         iniciarLongPoll();
