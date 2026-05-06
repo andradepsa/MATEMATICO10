@@ -4747,6 +4747,205 @@ const QUIZ_SUBJECTS = [
 ];
 
 // ═══════════════════════════════════════════════
+// API QUIZ ENGINE — Motor unificado para todas as APIs sem chave
+// Cada config: { url()|string, normalize(data) → {pergunta,opcoes[],correta} }
+// ═══════════════════════════════════════════════
+const _qsh  = a => [...a].sort(() => Math.random() - 0.5);
+const _qdec = s => { try { const e = document.createElement('textarea'); e.innerHTML = s; return e.value; } catch(_) { return s; } };
+const _qpick = (arr, n) => _qsh(arr).slice(0, n);
+const _qrand = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+const API_QUIZ_CONFIGS = {
+  // ── Trivia ──────────────────────────────────────────────────
+  opentdb: {
+    url: () => 'https://opentdb.com/api.php?amount=1&type=multiple',
+    normalize: d => {
+      const q = d.results?.[0]; if (!q) return null;
+      const correct = _qdec(q.correct_answer);
+      const opts = _qsh([...(q.incorrect_answers.map(_qdec)), correct]);
+      return { pergunta: `[${_qdec(q.category)}]\n${_qdec(q.question)}`, opcoes: opts, correta: opts.indexOf(correct) };
+    }
+  },
+  triviaapi: {
+    url: () => 'https://the-trivia-api.com/v2/questions?limit=1',
+    normalize: d => {
+      const q = d?.[0]; if (!q) return null;
+      const opts = _qsh([...q.incorrectAnswers, q.correctAnswer]);
+      return { pergunta: q.question.text, opcoes: opts, correta: opts.indexOf(q.correctAnswer) };
+    }
+  },
+  jservice: {
+    url: () => `https://jservice.io/api/random?count=4`,
+    normalize: d => {
+      if (!Array.isArray(d) || d.length < 4) return null;
+      const strip = s => s?.replace(/<[^>]+>/g,'').replace(/\\/g,'').trim() || '';
+      const main = d[0];
+      const question = strip(main.question); const correct = strip(main.answer);
+      if (!question || !correct || correct.length > 60) return null;
+      const wrongs = d.slice(1).map(c => strip(c.answer)).filter(a => a && a !== correct && a.length < 60).slice(0,3);
+      if (wrongs.length < 3) return null;
+      const opts = _qsh([...wrongs, correct]);
+      return { pergunta: `📺 ${main.category?.title || 'Jeopardy!'}\n${question}`, opcoes: opts, correta: opts.indexOf(correct) };
+    }
+  },
+  numbers: {
+    url: () => { const n = Math.floor(Math.random()*999)+1; return `https://numbersapi.com/${n}/trivia?json`; },
+    normalize: d => {
+      if (!d.found || !d.text) return null;
+      const num = d.number;
+      const wrong = _qsh([num+1,num+3,num-2,num*2,num+7,num-5].filter(n=>n>0&&n!==num)).slice(0,3).map(String);
+      const opts = _qsh([...wrong, String(num)]);
+      return { pergunta: `🔢 Qual número está oculto?\n"${d.text.replace(String(num),'???')}"`, opcoes: opts, correta: opts.indexOf(String(num)) };
+    }
+  },
+  // ── Universos / Personagens ──────────────────────────────────
+  pokemon: {
+    url: () => `https://pokeapi.co/api/v2/pokemon/${Math.floor(Math.random()*151)+1}`,
+    normalize: async d => {
+      if (!d.name) return null;
+      const type = d.types[0].type.name;
+      const ptTypes = {fire:'Fogo',water:'Água',grass:'Planta',electric:'Elétrico',psychic:'Psíquico',normal:'Normal',poison:'Veneno',ground:'Terra',rock:'Pedra',fighting:'Lutador',bug:'Inseto',ghost:'Fantasma',dragon:'Dragão',ice:'Gelo',flying:'Voador',dark:'Sombrio',steel:'Aço',fairy:'Fada'};
+      const ptType = ptTypes[type] || type;
+      const allTypes = Object.values(ptTypes);
+      const wrongs = _qpick(allTypes.filter(t=>t!==ptType),3);
+      const opts = _qsh([...wrongs, ptType]);
+      return { pergunta: `⚡ Qual é o tipo principal do Pokémon ${d.name.toUpperCase()}?`, opcoes: opts, correta: opts.indexOf(ptType) };
+    }
+  },
+  rickmorty: {
+    url: () => `https://rickandmortyapi.com/api/character/${Math.floor(Math.random()*826)+1}`,
+    normalize: d => {
+      if (!d.name || !d.species) return null;
+      const qTypes = ['species','status'];
+      const qt = _qrand(qTypes);
+      if (qt === 'species') {
+        const species = ['Human','Alien','Robot','Cronenberg','Mythological Creature','Animal','Humanoid','Poopybutthole'];
+        const correct = d.species; if (!species.includes(correct)) return null;
+        const opts = _qsh([..._qpick(species.filter(s=>s!==correct),3), correct]);
+        return { pergunta: `🛸 Qual é a espécie de ${d.name}?`, opcoes: opts, correta: opts.indexOf(correct) };
+      } else {
+        const statuses = ['Alive','Dead','unknown'];
+        const correct = d.status; if (!statuses.includes(correct)) return null;
+        const opts = _qsh(statuses);
+        return { pergunta: `🛸 Qual é o status de ${d.name} em Rick & Morty?`, opcoes: opts, correta: opts.indexOf(correct) };
+      }
+    }
+  },
+  harrypotter: {
+    url: () => 'https://hp-api.onrender.com/api/characters',
+    normalize: d => {
+      const houses = ['Gryffindor','Slytherin','Ravenclaw','Hufflepuff'];
+      const chars = d.filter(c => c.name && houses.includes(c.house));
+      if (!chars.length) return null;
+      const char = _qrand(chars);
+      const opts = _qsh(houses);
+      return { pergunta: `🧙 Em qual casa de Hogwarts está ${char.name}?`, opcoes: opts, correta: opts.indexOf(char.house) };
+    }
+  },
+  starwars: {
+    url: () => `https://swapi.dev/api/people/?page=${Math.floor(Math.random()*9)+1}`,
+    normalize: async d => {
+      const char = _qrand(d.results); if (!char) return null;
+      const hw = await fetch(char.homeworld).then(r=>r.json()).catch(()=>null);
+      if (!hw?.name) return null;
+      const planets = ['Tatooine','Alderaan','Naboo','Coruscant','Kamino','Geonosis','Mustafar','Hoth','Dagobah','Bespin','Endor','Jakku'];
+      const correct = hw.name;
+      const wrongs = planets.includes(correct) ? _qpick(planets.filter(p=>p!==correct),3) : _qpick(planets,3);
+      const opts = _qsh([...wrongs, correct]);
+      return { pergunta: `⚔️ Qual é o planeta natal de ${char.name}?`, opcoes: opts, correta: opts.indexOf(correct) };
+    }
+  },
+  chucknorris: {
+    url: () => 'https://api.chucknorris.io/jokes/categories',
+    normalize: async d => {
+      const cat = _qrand(d);
+      const joke = await fetch(`https://api.chucknorris.io/jokes/random?category=${cat}`).then(r=>r.json()).catch(()=>null);
+      if (!joke?.value) return null;
+      const wrongs = _qpick(d.filter(c=>c!==cat),3);
+      const opts = _qsh([...wrongs, cat]);
+      return { pergunta: `💪 De qual categoria é esta piada do Chuck Norris?\n"${joke.value}"`, opcoes: opts, correta: opts.indexOf(cat) };
+    }
+  },
+  magictg: {
+    url: () => `https://api.magicthegathering.io/v1/cards?page=${Math.floor(Math.random()*100)+1}&pageSize=10`,
+    normalize: d => {
+      const types = ['Creature','Instant','Sorcery','Enchantment','Artifact','Land','Planeswalker'];
+      const cards = (d.cards||[]).filter(c => c.name && c.type && types.some(t=>c.type.includes(t)));
+      if (!cards.length) return null;
+      const card = _qrand(cards);
+      const correct = types.find(t=>card.type.includes(t));
+      const opts = _qsh([..._qpick(types.filter(t=>t!==correct),3), correct]);
+      return { pergunta: `🃏 Qual é o tipo da carta Magic:\n"${card.name}"?`, opcoes: opts, correta: opts.indexOf(correct) };
+    }
+  },
+  digimon: {
+    url: () => `https://digi-api.com/api/v1/digimon/${Math.floor(Math.random()*1460)+1}`,
+    normalize: d => {
+      if (!d.name || !d.levels?.[0]) return null;
+      const allLevels = ['Fresh','In Training','Rookie','Champion','Ultimate','Mega','Armor'];
+      const correct = d.levels[0].level; if (!allLevels.includes(correct)) return null;
+      const opts = _qsh(allLevels).slice(0,4);
+      if (!opts.includes(correct)) { opts[3] = correct; }
+      const optsF = _qsh(opts);
+      return { pergunta: `🦕 Qual é o nível do Digimon ${d.name}?`, opcoes: optsF, correta: optsF.indexOf(correct) };
+    }
+  },
+  dictionary: {
+    url: () => {
+      const words = ['serendipity','ephemeral','melancholy','ubiquitous','eloquent','resilient','tenacious','enigmatic','pragmatic','nostalgic','benevolent','clandestine','perseverance','ambiguous','luminous','cryptic','whimsical','eloquence','stoic','ethereal'];
+      return `https://api.dictionaryapi.dev/api/v2/entries/en/${_qrand(words)}`;
+    },
+    normalize: d => {
+      const entry = d[0]; if (!entry) return null;
+      const word = entry.word;
+      const def = entry.meanings?.[0]?.definitions?.[0]?.definition;
+      if (!def) return null;
+      const fakes = [
+        'The process of converting light into sound waves','A type of geological formation found near volcanic areas',
+        'An ancient navigational instrument used by sailors','The study of microscopic organisms in soil',
+        'A ceremonial ritual performed during harvest season','A unit of measurement for electrical resistance'
+      ];
+      const wrongs = _qpick(fakes,3);
+      const opts = _qsh([...wrongs, def]);
+      return { pergunta: `📖 Qual palavra em inglês corresponde à definição?\n"${def}"`, opcoes: [..._qpick(['abstract','illuminate','profound','deduce'],3), word].sort(()=>Math.random()-0.5), correta: 0 };
+    }
+  },
+};
+
+// Fetcher genérico — normaliza qualquer API para {pergunta, opcoes, correta}
+async function fetchApiQuizQuestion(apiId) {
+  const cfg = API_QUIZ_CONFIGS[apiId];
+  if (!cfg) return null;
+  try {
+    const urlStr = typeof cfg.url === 'function' ? cfg.url() : cfg.url;
+    const data = await fetch(urlStr).then(r => r.json());
+    const result = cfg.normalize(data);
+    // normalize pode ser async (ex: starwars busca homeworld)
+    return result instanceof Promise ? await result : result;
+  } catch(e) {
+    console.warn(`[QuizAPI:${apiId}]`, e.message);
+    return null;
+  }
+}
+
+// Injeta as novas disciplinas na lista de subjects
+const API_QUIZ_SUBJECTS = [
+  { id:'opentdb',     name:'Trivia Mundial',      emoji:'🌐', apiId:'opentdb'     },
+  { id:'triviaapi',   name:'The Trivia API',       emoji:'❓', apiId:'triviaapi'   },
+  { id:'jservice',    name:'Jeopardy! Facts',      emoji:'📺', apiId:'jservice'    },
+  { id:'numbers',     name:'Fatos Numéricos',      emoji:'🔢', apiId:'numbers'     },
+  { id:'pokemon',     name:'Pokémon',              emoji:'⚡', apiId:'pokemon'     },
+  { id:'rickmorty',   name:'Rick & Morty',         emoji:'🛸', apiId:'rickmorty'   },
+  { id:'harrypotter', name:'Harry Potter',         emoji:'🧙', apiId:'harrypotter' },
+  { id:'starwars',    name:'Star Wars',            emoji:'⚔️', apiId:'starwars'    },
+  { id:'chucknorris', name:'Chuck Norris',         emoji:'💪', apiId:'chucknorris' },
+  { id:'magictg',     name:'Magic: TG',            emoji:'🃏', apiId:'magictg'     },
+  { id:'digimon',     name:'Digimon',              emoji:'🦕', apiId:'digimon'     },
+  { id:'dictionary',  name:'Vocabulário EN',       emoji:'📖', apiId:'dictionary'  },
+];
+API_QUIZ_SUBJECTS.forEach(s => QUIZ_SUBJECTS.push(s));
+
+// ═══════════════════════════════════════════════
 // WORLD QUIZ — Pixabay keys (rotação automática)
 // ═══════════════════════════════════════════════
 const PIXABAY_KEYS = [
@@ -5156,6 +5355,86 @@ function buildAlternatives(pool, correct) {
 const MIN_QUIZ_INTERVAL = 60;  // TRAVA de vigilância: mínimo de 1 minuto entre perguntas (anti-spam)
 const DEFAULT_QUIZ_INTERVAL = 120; // Tempo padrão de exibição da pergunta: 2 minutos
 
+/* ── Dropdown customizado com barra de rolagem ── */
+const ScrollableDropdown = ({ value, onChange, disabled, options }) => {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+
+  React.useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const selected = options.find(o => o.value === value) || options[0];
+
+  return (
+    <div ref={ref} style={{ position: 'relative', width: '100%', marginTop: '4px' }}>
+      <div
+        onClick={() => { if (!disabled) setOpen(o => !o); }}
+        style={{
+          width: '100%', padding: '9px 36px 9px 12px', borderRadius: '8px',
+          background: disabled ? 'var(--bg)' : 'var(--surface)',
+          border: `2px solid ${open ? 'var(--k10-purple)' : 'var(--k10-purple-bdr)'}`,
+          color: disabled ? 'var(--text-muted)' : 'var(--text)',
+          fontSize: '13px', fontWeight: '500', cursor: disabled ? 'not-allowed' : 'pointer',
+          display: 'flex', alignItems: 'center', gap: '6px', userSelect: 'none',
+          boxShadow: open ? '0 0 0 3px var(--k10-purple-lt2)' : 'none',
+          transition: 'border-color 0.15s, box-shadow 0.15s', boxSizing: 'border-box',
+          opacity: disabled ? 0.6 : 1,
+        }}
+      >
+        <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {selected ? `${selected.emoji ? selected.emoji + ' ' : ''}${selected.label}` : '—'}
+        </span>
+        <span style={{
+          position: 'absolute', right: '12px', fontSize: '10px', color: 'var(--k10-purple)',
+          transform: open ? 'rotate(180deg)' : 'rotate(0deg)', transition: 'transform 0.2s'
+        }}>▼</span>
+      </div>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 9999,
+          background: 'var(--surface)', border: '2px solid var(--k10-purple-bdr)',
+          borderRadius: '10px', boxShadow: '0 8px 24px rgba(99,102,241,0.18)',
+          maxHeight: '220px', overflowY: 'auto', overflowX: 'hidden',
+        }}>
+          {options.map((opt, i) => {
+            if (opt.isGroup) return (
+              <div key={i} style={{
+                padding: '5px 12px 3px', fontSize: '10px', fontWeight: '700',
+                color: 'var(--k10-purple-txt)', textTransform: 'uppercase',
+                letterSpacing: '0.6px', background: 'var(--k10-purple-lt)',
+                borderTop: i > 0 ? '1px solid var(--k10-purple-bdr)' : 'none',
+              }}>{opt.label}</div>
+            );
+            const isSelected = opt.value === value;
+            return (
+              <div key={i} onClick={() => { onChange(opt.value); setOpen(false); }}
+                style={{
+                  padding: '9px 14px', fontSize: '13px', cursor: 'pointer',
+                  background: isSelected ? 'var(--k10-purple-lt2)' : 'transparent',
+                  color: isSelected ? 'var(--k10-purple-txt)' : 'var(--text)',
+                  fontWeight: isSelected ? '700' : '400',
+                  borderLeft: isSelected ? '3px solid var(--k10-purple)' : '3px solid transparent',
+                  transition: 'background 0.12s',
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                }}
+                onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--k10-purple-lt)'; }}
+                onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = 'transparent'; }}
+              >
+                {opt.emoji && <span>{opt.emoji}</span>}
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{opt.label}</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNextQuestion, quizInterval, setQuizInterval, quizIntervalInput, setQuizIntervalInput, quizDiscipline, setQuizDiscipline, serverQuizBotActive, notifyServer, quizJitterTimerRef, broadcastToggle, sendQuizHandoff, quizServerOwnerId, globalQuizOwner, setGlobalQuizOwner, quizMasterIdRef, peerId, quizStopCooldown, startQuizStopCooldown }) => {
   const langName = getLangName(lang);
   return (
@@ -5163,9 +5442,24 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
       title={t(lang, 'quizBotTitle')}
       onClose={onClose}
       initialPosition={{ x: Math.max(20, window.innerWidth / 2 - 175), y: Math.max(20, window.innerHeight / 2 - 260) }}
-      initialSize={{ width: 350, height: 520 }}
+      initialSize={{ width: 360, height: 580 }}
     >
       <div style={{ padding: '20px', textAlign: 'center', height: '100%', overflowY: 'auto', display: 'flex', flexDirection: 'column', justifyContent: 'flex-start' }}>
+        <div style={{ marginBottom: '14px', textAlign: 'left' }}>
+          <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{t(lang, 'quizDiscipline')}</label>
+          <ScrollableDropdown
+            value={quizDiscipline}
+            onChange={setQuizDiscipline}
+            disabled={quizBotActive}
+            options={[
+              { value: 'all',  label: t(lang, 'quizAllDisciplines'), emoji: '🎲' },
+              { value: 'apis', label: 'APIs Externas (rotação)',     emoji: '🌐' },
+              ...QUIZ_SUBJECTS.filter(s => !s.apiId).map(sub => ({ value: sub.id, label: t(lang, sub.nameKey) || sub.name, emoji: sub.emoji })),
+              { isGroup: true, label: '── APIs Externas ──' },
+              ...API_QUIZ_SUBJECTS.map(sub => ({ value: sub.id, label: sub.name, emoji: sub.emoji })),
+            ]}
+          />
+        </div>
         <p style={{ marginBottom: '8px', color: 'var(--text-muted)', fontSize: '13px' }}>
           {t(lang, 'quizBotDesc')}
         </p>
@@ -5184,16 +5478,6 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
           <div style={{ marginTop: '4px', color: '#64748b', fontSize: '11px' }}>
             {t(lang, 'quizLangTip')}
           </div>
-        </div>
-        
-        <div style={{ marginBottom: '10px', textAlign: 'left' }}>
-          <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{t(lang, 'quizDiscipline')}</label>
-          <select value={quizDiscipline} onChange={e => setQuizDiscipline(e.target.value)} style={{ width: '100%', padding: '8px', borderRadius: '4px', background: 'var(--bg)', border: '1px solid var(--border)', color: 'var(--text)', marginTop: '4px' }} disabled={quizBotActive}>
-            <option value="all">{t(lang, 'quizAllDisciplines')}</option>
-            {QUIZ_SUBJECTS.map(sub => (
-              <option key={sub.id} value={sub.id}>{sub.emoji} {t(lang, sub.nameKey)}</option>
-            ))}
-          </select>
         </div>
         <div style={{ marginBottom: '20px', textAlign: 'left' }}>
           <label style={{ fontSize: '12px', color: 'var(--text-muted)' }}>{t(lang, 'quizTimePerQuestion')}</label>
@@ -6839,7 +7123,7 @@ const askNextQuestion = async () => {
       return askWorldQuestion();
   }
 
-  const ALL_POOL_NO_WORLD = QUIZ_SUBJECTS.filter(s => s.id !== 'world');
+  const ALL_POOL_NO_WORLD = QUIZ_SUBJECTS.filter(s => s.id !== 'world' && !s.apiId);
 
   let questions = [];
   let selectedSubject;
@@ -6847,8 +7131,29 @@ const askNextQuestion = async () => {
   if (_disc === 'all') {
     selectedSubject = ALL_POOL_NO_WORLD[quizAllIndexRef.current % ALL_POOL_NO_WORLD.length];
     quizAllIndexRef.current = (quizAllIndexRef.current + 1) % ALL_POOL_NO_WORLD.length;
+  } else if (_disc === 'apis') {
+    // Rotaciona entre todas as fontes de API
+    selectedSubject = API_QUIZ_SUBJECTS[quizAllIndexRef.current % API_QUIZ_SUBJECTS.length];
+    quizAllIndexRef.current = (quizAllIndexRef.current + 1) % API_QUIZ_SUBJECTS.length;
   } else {
     selectedSubject = QUIZ_SUBJECTS.find(s => s.id === _disc);
+  }
+
+  // ── API Quiz Engine: subject com apiId usa motor unificado ──
+  if (selectedSubject?.apiId) {
+    const q = await fetchApiQuizQuestion(selectedSubject.apiId);
+    if (q && q.pergunta && Array.isArray(q.opcoes) && typeof q.correta === 'number') {
+      const quizId = 'quiz-' + Date.now() + '-' + Math.random().toString(36).substring(2);
+      currentQuizQuestionRef.current = { ...q, quizId, p: q.pergunta, corretaIndex: q.correta, cleanOpts: q.opcoes, votes: {} };
+      sendQuizQuestion({ quizId, quizQuestion: q.pergunta, quizOptions: q.opcoes, quizCorrect: q.correta, quizSubject: `${selectedSubject.emoji} ${selectedSubject.name}`, quizStage: 0, nonce: Math.random().toString(36).substring(2, 10) });
+      quizTimerRef.current = setTimeout(() => {
+        if (quizBotActiveRef.current) { sendQuizReveal(quizId); currentQuizQuestionRef.current = null; setTimeout(askNextQuestion, 3000); }
+      }, safeQuizInterval() * 1000);
+      return;
+    }
+    // Fallback se API falhou: usa matéria estática
+    console.warn(`[QuizAPI:${selectedSubject.apiId}] retornou null — usando fallback`);
+    selectedSubject = ALL_POOL_NO_WORLD[0];
   }
 
   // Guarda contra subject inválido ou sem url
