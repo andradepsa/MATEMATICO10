@@ -11339,6 +11339,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     let _salaAtiva      = null;
     let _syncToken      = null;   // Long poll: token global do /sync
     let _longPollAtivo  = false;  // Evita dois loops simultâneos
+    const _programStartTime = Date.now(); // Ignora broadcasts anteriores ao início do programa
 
     // --------------------------------------------------
     // API fetch helper — fetch() com CORS (substitui JSONP)
@@ -11391,6 +11392,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         // ── Detecta YouTube Chat start/stop enviado pela sala Matrix ──
         if (typeof body === 'string' && body.startsWith('__K10YTCHAT_START__:')) {
             if (sala.alias === SALA_GERAL_ALIAS) {
+                // Ignora mensagens antigas (anteriores ao início do programa)
+                if (mensagem.timestamp < _programStartTime) return;
                 const yId = body.slice('__K10YTCHAT_START__:'.length).trim();
                 if (yId && window.handleIncomingDataRef && window.handleIncomingDataRef.current) {
                     const fakeId = 'ytchat_matrix_' + Date.now();
@@ -11404,6 +11407,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         }
         if (typeof body === 'string' && body === '__K10YTCHAT_STOP__') {
             if (sala.alias === SALA_GERAL_ALIAS) {
+                // Ignora mensagens antigas (anteriores ao início do programa)
+                if (mensagem.timestamp < _programStartTime) return;
                 if (window.handleIncomingDataRef && window.handleIncomingDataRef.current) {
                     const fakeId = 'ytchat_stop_matrix_' + Date.now();
                     window.handleIncomingDataRef.current(
@@ -11417,6 +11422,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         // ── Detecta BROADCAST (radio/youtube/iptv) enviado pela sala Matrix ──
         if (typeof body === 'string' && body.startsWith('__K10BROADCAST__:')) {
             if (sala.alias === SALA_GERAL_ALIAS) {
+                // Ignora mensagens antigas (anteriores ao início do programa)
+                if (mensagem.timestamp < _programStartTime) return;
                 try {
                     const raw = body.slice('__K10BROADCAST__:'.length).trim();
                     const broadcastData = JSON.parse(raw);
