@@ -4578,6 +4578,63 @@ return <video className="video-player" ref={el => videoRefs.current[targetId] = 
 };
 
 
+// ══════════════════════════════════════════════════════════════
+// ── UNIFIED API FALLBACK SYSTEM ─────────────────────────────
+// 3 mirrors para cada API — se uma falha, tenta a próxima
+// ══════════════════════════════════════════════════════════════
+const RADIO_API_SERVERS = [
+  'https://de1.api.radio-browser.info',
+  'https://nl1.api.radio-browser.info',
+  'https://de2.api.radio-browser.info'
+];
+
+const IPTV_API_SERVERS = [
+  'https://iptv-org.github.io/api',
+  'https://cdn.jsdelivr.net/gh/iptv-org/api@gh-pages',
+  'https://raw.githubusercontent.com/iptv-org/api/gh-pages'
+];
+
+// Tenta cada servidor em sequência — retorna a primeira resposta válida
+const fetchWithFallback = async (servers, pathBuilder, options = {}) => {
+  let lastErr = null;
+  for (const server of servers) {
+    try {
+      const url = typeof pathBuilder === 'function' ? pathBuilder(server) : `${server}${pathBuilder}`;
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), options.timeout || 8000);
+      const res = await fetch(url, { ...options, signal: ctrl.signal });
+      clearTimeout(timeout);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (e) {
+      lastErr = e;
+      console.warn(`[API Fallback] ${server} falhou:`, e.message);
+    }
+  }
+  throw lastErr || new Error('All API servers failed');
+};
+
+// Helper IPTV: busca channels + streams com fallback
+const fetchIptvData = async () => {
+  let lastErr = null;
+  for (const server of IPTV_API_SERVERS) {
+    try {
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl.abort(), 12000);
+      const [chs, streams] = await Promise.all([
+        fetch(`${server}/channels.json`, { signal: ctrl.signal }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); }),
+        fetch(`${server}/streams.json`, { signal: ctrl.signal }).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+      ]);
+      clearTimeout(timeout);
+      return { chs, streams };
+    } catch (e) {
+      lastErr = e;
+      console.warn(`[IPTV Fallback] ${server} falhou:`, e.message);
+    }
+  }
+  throw lastErr || new Error('All IPTV API servers failed');
+};
+
 const WorldRadiosModal = ({ lang, onClose, onBroadcast }) => {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
@@ -4589,12 +4646,14 @@ const WorldRadiosModal = ({ lang, onClose, onBroadcast }) => {
     if (!query.trim()) return;
     setLoading(true);
     try {
-      const res = await fetch(`https://de1.api.radio-browser.info/json/stations/search?name=${encodeURIComponent(query)}&limit=20`);
-      const data = await res.json();
+      const data = await fetchWithFallback(
+        RADIO_API_SERVERS,
+        (server) => `${server}/json/stations/search?name=${encodeURIComponent(query)}&limit=20&order=clickcount&reverse=true`
+      );
       setResults(data);
     } catch (e) {
       console.error(e);
-      window.k10Toast('Error searching radios', 'error');
+      window.k10Toast('Error searching radios — all servers failed', 'error');
     }
     setLoading(false);
   };
@@ -5494,10 +5553,7 @@ const IptvModal = ({ onClose, onPlay }) => {
   const [countryFilter, setCountryFilter] = useState('todos');
 
   useEffect(() => {
-    Promise.all([
-      fetch('https://iptv-org.github.io/api/channels.json').then(r=>r.json()),
-      fetch('https://iptv-org.github.io/api/streams.json').then(r=>r.json()),
-    ]).then(([chs, streams]) => {
+    fetchIptvData().then(({ chs, streams }) => {
       const chMap = {};
       chs.forEach(c => { chMap[c.id] = c; });
       const list = streams
@@ -5671,10 +5727,7 @@ const IptvFilmesModal = ({ onClose, onPlay }) => {
   const [countryFilter, setCountryFilter] = useState('todos');
 
   useEffect(() => {
-    Promise.all([
-      fetch('https://iptv-org.github.io/api/channels.json').then(r => r.json()),
-      fetch('https://iptv-org.github.io/api/streams.json').then(r => r.json()),
-    ]).then(([chs, streams]) => {
+    fetchIptvData().then(({ chs, streams }) => {
       const chMap = {};
       chs.forEach(c => { chMap[c.id] = c; });
 
@@ -5926,10 +5979,7 @@ const IptvCategoryModal = ({ configKey, onClose, onPlay }) => {
   const [countryFilter, setCountryFilter] = useState('todos');
 
   useEffect(() => {
-    Promise.all([
-      fetch('https://iptv-org.github.io/api/channels.json').then(r => r.json()),
-      fetch('https://iptv-org.github.io/api/streams.json').then(r => r.json()),
-    ]).then(([chs, streams]) => {
+    fetchIptvData().then(({ chs, streams }) => {
       const chMap = {};
       chs.forEach(c => { chMap[c.id] = c; });
       const list = streams
@@ -6887,6 +6937,8 @@ const [showIptvLifestyle, setShowIptvLifestyle] = useState(false);
 const [showIptvReligioso, setShowIptvReligioso] = useState(false);
 const [showIptvAuto, setShowIptvAuto] = useState(false);
 const [userIptvStreams, setUserIptvStreams] = useState({}); // {peerId: {url,name,country,flag}}
+const userIptvStreamsRef = useRef({});
+useEffect(() => { userIptvStreamsRef.current = userIptvStreams; }, [userIptvStreams]);
 const [youtubeLinks, setYoutubeLinks] = useState(YOUTUBE_LINKS_LIST);
 const [gridInput, setGridInput] = useState('');
 
@@ -8084,6 +8136,19 @@ ttl: 1
 };
 try { conn.send(worldMsg); } catch(e) {}
 });
+// FIX: Sync IPTV streams para novos peers (antes faltava)
+Object.keys(userIptvStreamsRef.current).forEach(senderPId => {
+const stream = userIptvStreamsRef.current[senderPId];
+const iptvMsg = {
+type: 'iptv-start',
+id: senderPId + '_iptv_sync_' + Date.now(),
+url: stream.url, name: stream.name, country: stream.country, flag: stream.flag,
+sender: senderPId, senderName: stream.senderName || senderPId,
+ttl: 1
+};
+const sendIptv = () => { try { conn.send(iptvMsg); } catch(e) {} };
+sendIptv(); setTimeout(sendIptv, 1000);
+});
 };
 
 const disconnectPeer = (pId) => {
@@ -8872,76 +8937,111 @@ reader.readAsArrayBuffer(file.slice(0, 64 * 1024));
 
 
 
-const startWorldRadioBroadcast = (station) => {
-  const radioId = peerId + '_radio_' + Date.now();
+// ══════════════════════════════════════════════════════════════
+// ── UNIFIED BROADCAST SYSTEM ────────────────────────────────
+// Código ÚNICO para todas as transmissões (Radio, YouTube, IPTV)
+// Todas usam p2pBroadcast() = Matrix DM + PeerJS fallback
+// ══════════════════════════════════════════════════════════════
 
-  const startMsg = { 
-    type: 'radio-world-start', 
-    id: radioId + '_start', 
-    radioId, 
-    fileName: station.name, 
-    streamUrl: station.url_resolved, 
-    sender: peerId, 
-    senderName: userName, 
-    ttl: 15 
-  };
+const unifiedBroadcastStart = (broadcastType, data) => {
+  const ts = Date.now();
+  const radioId = peerId + '_' + broadcastType + '_' + ts;
+  let payload, updateState;
 
-  // 1. Registra no próprio set de mensagens vistas para evitar processar o próprio sinal
-  seenMessagesRef.current.add(startMsg.id);
-
-  // 2. Transmissão P2P Segura (Broadcast)
-  if (connectionsRef.current) {
-    connectionsRef.current.forEach(c => {
-      // Verifica se o canal está aberto antes de tentar enviar
-      if (c && c.open) {
-        try {
-          c.send(startMsg);
-        } catch (e) {
-          console.error("Falha ao enviar transmissão de rádio:", e);
-        }
-      }
-    });
+  switch (broadcastType) {
+    case 'radio':
+      payload = {
+        type: 'radio-world-start', id: radioId + '_start', radioId,
+        fileName: data.name, streamUrl: data.url,
+        sender: peerId, senderName: userName, ttl: 15
+      };
+      updateState = () => {
+        setUserRadios(prev => ({ ...prev, [peerId]: { url: data.url, name: data.name, radioId, senderName: userName } }));
+      };
+      break;
+    case 'youtube':
+      payload = {
+        type: 'radio-youtube-start', id: radioId + '_start', radioId,
+        youtubeId: data.youtubeId,
+        sender: peerId, senderName: userName, ttl: 15
+      };
+      updateState = () => {
+        setUserYoutubeStreams(prev => ({ ...prev, [peerId]: data.youtubeId }));
+      };
+      break;
+    case 'iptv':
+      payload = {
+        type: 'iptv-start', id: radioId,
+        url: data.url, name: data.name, country: data.country, flag: data.flag,
+        sender: peerId, senderName: userName, ttl: 15
+      };
+      updateState = () => {
+        setUserIptvStreams(prev => ({ ...prev, [peerId]: { url: data.url, name: data.name, country: data.country, flag: data.flag, senderName: userName } }));
+      };
+      break;
+    default: return;
   }
-  
-  // 3. Atualiza o estado local para exibir o rádio tocando
-  setUserRadios(prev => ({ 
-    ...prev, 
-    [peerId]: { url: station.url_resolved, name: station.name, radioId, senderName: userName } 
-  }));
-  
-  // 4. Fecha o modal de seleção
+
+  seenMessagesRef.current.add(payload.id);
+  p2pBroadcast(payload); // Matrix DM + PeerJS — SEMPRE ambos
+  // FIX CRÍTICO: envia também pela Sala Matrix Geral (igual quiz/ytchat)
+  // Sem isso, se não houver PeerJS direto nem MxDM mapeado, a msg morre
+  if (typeof window.enviarParaMatrix === 'function') {
+    try { window.enviarParaMatrix('__K10BROADCAST__:' + JSON.stringify(payload)); } catch(e) {}
+  }
+  updateState();
+};
+
+const unifiedBroadcastStop = (broadcastType) => {
+  const ts = Date.now();
+  let payload, updateState, condition;
+
+  switch (broadcastType) {
+    case 'radio':
+      if (!userRadios[peerId]) return;
+      payload = { type: 'radio-world-stop', id: peerId + '_wr_stop_' + ts, sender: peerId, senderName: userName, ttl: 15 };
+      updateState = () => setUserRadios(prev => { const n = { ...prev }; delete n[peerId]; return n; });
+      break;
+    case 'youtube':
+      if (!userYoutubeStreams[peerId]) return;
+      payload = { type: 'radio-youtube-stop', id: peerId + '_yt_stop_' + ts, sender: peerId, senderName: userName, ttl: 15 };
+      updateState = () => setUserYoutubeStreams(prev => { const n = { ...prev }; delete n[peerId]; return n; });
+      break;
+    case 'iptv':
+      if (!userIptvStreams[peerId]) return;
+      payload = { type: 'iptv-stop', id: peerId + '_iptv_stop_' + ts, sender: peerId, senderName: userName, ttl: 8 };
+      updateState = () => setUserIptvStreams(prev => { const n = { ...prev }; delete n[peerId]; return n; });
+      break;
+    default: return;
+  }
+
+  seenMessagesRef.current.add(payload.id);
+  p2pBroadcast(payload); // Matrix DM + PeerJS — SEMPRE ambos
+  // FIX CRÍTICO: stop também vai pela Sala Matrix Geral
+  if (typeof window.enviarParaMatrix === 'function') {
+    try { window.enviarParaMatrix('__K10BROADCAST__:' + JSON.stringify(payload)); } catch(e) {}
+  }
+  updateState();
+};
+
+// ── Wrappers que mantêm a interface existente ───────────────
+
+const startWorldRadioBroadcast = (station) => {
+  unifiedBroadcastStart('radio', { url: station.url_resolved, name: station.name });
   setShowWorldRadios(false);
 };
 
 const handleStopWorldRadio = () => {
-  if (userRadios[peerId]) {
-    const stopMsg = {
-      type: 'radio-world-stop',
-      id: peerId + '_wr_stop_' + Date.now(),
-      sender: peerId,
-      senderName: userName,
-      ttl: 15
-    };
-
-    // Registra a parada localmente
-    seenMessagesRef.current.add(stopMsg.id);
-
-    // Transmite a ordem de parada via Matrix DM + fallback PeerJS
-    p2pBroadcast(stopMsg);
-
-    // Remove o rádio do estado local
-    setUserRadios(prev => { 
-      const next = { ...prev }; 
-      delete next[peerId]; 
-      return next; 
-    });
-  }
+  unifiedBroadcastStop('radio');
 };
 
+const startIptvBroadcast = (url, name, country, flag) => {
+  unifiedBroadcastStart('iptv', { url, name, country, flag });
+};
 
-
-
-
+const stopIptvBroadcast = () => {
+  unifiedBroadcastStop('iptv');
+};
 
 const loadVideoAulas = async () => {
   if (videoAulasData) return;
@@ -8959,20 +9059,7 @@ const loadVideoAulas = async () => {
 
 const handleYoutubeRadio = () => {
 if (userYoutubeStreams[peerId]) {
-const stopMsg = {
-type: 'radio-youtube-stop',
-id: peerId + '_yt_stop_' + Date.now(),
-sender: peerId,
-senderName: userName,
-ttl: 15
-};
-seenMessagesRef.current.add(stopMsg.id);
-p2pBroadcast(stopMsg);
-setUserYoutubeStreams(prev => {
-const next = { ...prev };
-delete next[peerId];
-return next;
-});
+unifiedBroadcastStop('youtube');
 return;
 }
 
@@ -9024,45 +9111,11 @@ return;
 }
 
 
-const radioId = peerId + '_yt_' + Date.now();
-const startMsg = {
-type: 'radio-youtube-start',
-id: radioId + '_start',
-radioId,
-youtubeId: finalYoutubeId,
-sender: peerId,
-senderName: userName,
-ttl: 15
-};
-
-
-seenMessagesRef.current.add(startMsg.id);
-p2pBroadcast(startMsg);
-setUserYoutubeStreams(prev => ({
-...prev,
-[peerId]: finalYoutubeId
-}));
-// setIsLocalVideoVisible(true);
+unifiedBroadcastStart('youtube', { youtubeId: finalYoutubeId });
 setShowYoutubeGrid(false);
 };
 
 
-// ── IPTV Broadcast ──────────────────────────────────────────────
-const startIptvBroadcast = (url, name, country, flag) => {
-  const msgId = peerId + '_iptv_' + Date.now();
-  const msg = { type:'iptv-start', id:msgId, url, name, country, flag, sender:peerId, senderName:userName, ttl:15 };
-  seenMessagesRef.current.add(msgId);
-  p2pBroadcast(msg);
-  setUserIptvStreams(prev => ({...prev, [peerId]: {url, name, country, flag}}));
-  // janela permanece aberta — usuário fecha manualmente
-};
-const stopIptvBroadcast = () => {
-  const msgId = peerId + '_iptv_stop_' + Date.now();
-  const msg = { type:'iptv-stop', id:msgId, sender:peerId, ttl:8 };
-  seenMessagesRef.current.add(msgId);
-  p2pBroadcast(msg);
-  setUserIptvStreams(prev => { const n={...prev}; delete n[peerId]; return n; });
-};
 
 const announceList = [
 'wss://tracker.btorrent.xyz',
@@ -9868,11 +9921,7 @@ overflow: 'hidden'
   const transmitir = (item) => {
     const youtubeKey = filmesTab === 'youtube' ? item.videoId : 'archive:' + item.identifier;
     if (!youtubeKey) return;
-    const radioId = peerId + '_yt_' + Date.now();
-    const msg = { type:'radio-youtube-start', id:radioId+'_start', radioId, youtubeId:youtubeKey, sender:peerId, senderName:userName, ttl:15 };
-    seenMessagesRef.current.add(msg.id);
-    connectionsRef.current.forEach(c => { if (c.open) try { c.send(msg); } catch(e){} });
-    setUserYoutubeStreams(prev => ({ ...prev, [peerId]: youtubeKey }));
+    unifiedBroadcastStart('youtube', { youtubeId: youtubeKey });
     setShowFilmes(false);
   };
   return (
@@ -11057,6 +11106,23 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
                         mensagem.sender || 'matrix'
                     );
                 }
+            }
+            return;
+        }
+        // ── Detecta BROADCAST (radio/youtube/iptv) enviado pela sala Matrix ──
+        if (typeof body === 'string' && body.startsWith('__K10BROADCAST__:')) {
+            if (sala.alias === SALA_GERAL_ALIAS) {
+                try {
+                    const raw = body.slice('__K10BROADCAST__:'.length).trim();
+                    const broadcastData = JSON.parse(raw);
+                    if (broadcastData && broadcastData.type && window.handleIncomingDataRef && window.handleIncomingDataRef.current) {
+                        // Evita processar nosso próprio broadcast (já processado localmente)
+                        const myPeerId = localStorage.getItem('p2pChatClientId') || '';
+                        if (broadcastData.sender !== myPeerId) {
+                            window.handleIncomingDataRef.current(broadcastData, broadcastData.sender || mensagem.sender || 'matrix');
+                        }
+                    }
+                } catch(e) { console.warn('[Matrix Geral] broadcast parse error:', e); }
             }
             return;
         }
