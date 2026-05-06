@@ -11212,8 +11212,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     // ── SALA FIXA DO MODO GERAL ──────────────────────────────────
     // Sala única de papo livre para a aba Geral.
     // Separada das Salinhas — sem lista, entra direto.
-    const SALA_GERAL_ALIAS = '#conversa:matrix.org';
-    const SALA_GERAL_NOME  = '🗣️ Conversa Geral';
+    const SALA_GERAL_ALIAS  = '!jKDBXnpcIDcjFlVWFz:matrix.org';
+    const SALA_GERAL_NOME   = '🗣️ Conversa Geral';
 
     // ==================================================
     // 🏷️ CATEGORIAS para o menu de salas
@@ -11374,6 +11374,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     }
 
     async function resolverRoomId(alias) {
+        if (alias && alias.startsWith('!')) return alias; // já é room ID
         try {
             const dados = await matrixGet('/_matrix/client/v3/directory/room/' + encodeURIComponent(alias));
             return dados.room_id || null;
@@ -12191,9 +12192,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
     // Aliases das salas que devem ter geral:true (usadas pelo _matrixEnviarHook)
     const ALIASES_GERAL = new Set([
-        "#brasil:matrix.org",
-        "#envs_lounge:matrix.org",
-        "#conversa:matrix.org"
+        '#chatk10-geral:matrix.org',
+        '!jKDBXnpcIDcjFlVWFz:matrix.org'
     ]);
 
     // ════════════════════════════════════════════════════════════
@@ -12209,7 +12209,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     async function _initSalaGeral() {
         let sala = _getSalaGeral();
         if (sala) return sala;
-        // Resolve room_id (funciona sem login — leitura é pública)
+        // Resolve room_id a partir do alias
         const roomId = await resolverRoomId(SALA_GERAL_ALIAS);
         if (!roomId) { console.warn('[Geral] ❌ Sala não encontrada:', SALA_GERAL_ALIAS); return null; }
         // Entra na sala se estiver logado
