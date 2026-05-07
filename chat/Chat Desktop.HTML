@@ -11340,8 +11340,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         // ── Detecta YouTube Chat start/stop enviado pela sala Matrix ──
         if (typeof body === 'string' && body.startsWith('__K10YTCHAT_START__:')) {
             if (sala.alias === SALA_GERAL_ALIAS) {
-                // Ignora mensagens antigas (anteriores ao início do programa)
-                if (mensagem.timestamp < _programStartTime) return;
+                // Lookback de 2h — alinhado com IPTV/Rádio para late-joiners recuperarem o chat
+                if (mensagem.timestamp < Date.now() - 2 * 60 * 60 * 1000) return;
                 const yId = body.slice('__K10YTCHAT_START__:'.length).trim();
                 if (yId && window.handleIncomingDataRef && window.handleIncomingDataRef.current) {
                     const fakeId = 'ytchat_matrix_' + Date.now();
@@ -11355,8 +11355,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         }
         if (typeof body === 'string' && body === '__K10YTCHAT_STOP__') {
             if (sala.alias === SALA_GERAL_ALIAS) {
-                // Ignora mensagens antigas (anteriores ao início do programa)
-                if (mensagem.timestamp < _programStartTime) return;
+                // Lookback de 2h — alinhado com IPTV/Rádio
+                if (mensagem.timestamp < Date.now() - 2 * 60 * 60 * 1000) return;
                 if (window.handleIncomingDataRef && window.handleIncomingDataRef.current) {
                     const fakeId = 'ytchat_stop_matrix_' + Date.now();
                     window.handleIncomingDataRef.current(
