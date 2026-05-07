@@ -11279,6 +11279,25 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     let   MATRIX_TOKEN = localStorage.getItem('matrixToken') || '';
     let   MATRIX_USER  = localStorage.getItem('matrixUser')  || '';
 
+    // ── MODO VISITANTE — acesso sem cadastro ──────────────────────────
+    // Token de uma conta compartilhada. Todos que abrem sem login usam
+    // esta conta automaticamente. Para usar conta própria: clicar em 🔑 Entrar.
+    const _GUEST_TOKEN = 'mat_TCawSvPBYBI4FcOIOinctYU0vc3v2l_0HHPQG';
+    const _GUEST_USER  = '@chatk10:matrix.org';
+
+    (function _autoGuestLogin() {
+        if (MATRIX_TOKEN) return; // já tem login real, não faz nada
+        MATRIX_TOKEN = _GUEST_TOKEN;
+        MATRIX_USER  = _GUEST_USER;
+        localStorage.setItem('matrixToken',     MATRIX_TOKEN);
+        localStorage.setItem('matrixUser',      MATRIX_USER);
+        localStorage.setItem('mxdmToken',       MATRIX_TOKEN);
+        localStorage.setItem('mxdmHomeserver',  MATRIX_HS);
+        localStorage.setItem('mxdmMxid',        MATRIX_USER);
+        localStorage.setItem('matrixGuestMode', 'true');
+        console.log('[K10] 👁️ Modo visitante ativo — sem cadastro');
+    })();
+
     // ── SALA FIXA DO MODO GERAL ──────────────────────────────────
     // Sala única de papo livre para a aba Geral.
 
@@ -11808,7 +11827,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
                     <small>Papo livre · Matrix</small>
                 </div>
                 <span id="general-matrix-ping" class="mx-ping ping-idle" title="Latência">●</span>
-                <span class="mx-e2ee-badge">🔒 Matrix</span>
+                ${localStorage.getItem('matrixGuestMode') === 'true'
+                    ? `<span id="k10-guest-badge" onclick="window._matrixSolicitarLogin && window._matrixSolicitarLogin('Faça login para usar sua conta')"
+                        title="Você está como visitante — clique para fazer login"
+                        style="background:#f59e0b;color:#000;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;cursor:pointer;display:flex;align-items:center;gap:5px;">
+                        👁️ Visitante &nbsp;<span style="text-decoration:underline">Entrar</span>
+                      </span>`
+                    : `<span class="mx-e2ee-badge">🔒 Matrix</span>`
+                }
             </div>
             <div id="general-matrix-messages">
                 <div id="general-matrix-empty">⏳ Carregando mensagens...</div>
@@ -12000,13 +12026,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     // --------------------------------------------------
     // LOGIN MATRIX — modal com SSO (Google/GitHub/email) + senha
     // --------------------------------------------------
-    function _matrixSolicitarLogin(motivo = '') {
+    window._matrixSolicitarLogin = function _matrixSolicitarLogin(motivo = '') {
         document.getElementById('matrix-login-overlay')?.remove();
+
         const ov = document.createElement('div');
         ov.id = 'matrix-login-overlay';
         ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:99999;display:flex;align-items:center;justify-content:center;';
         ov.innerHTML = `
-        <div style="background:#1e2030;border:1px solid #4a5568;border-radius:14px;padding:32px;width:360px;max-width:95vw;box-shadow:0 8px 40px rgba(0,0,0,.6)">
+        <div style="background:#1e2030;border:1px solid #4a5568;border-radius:14px;padding:32px;width:360px;max-width:95vw;box-shadow:0 8px 40px rgba(0,0,0,.6);position:relative;">
+            <button id="mx-login-close" title="Voltar ao chat" style="position:absolute;top:12px;right:12px;background:rgba(255,255,255,0.08);border:1px solid #4a5568;color:#a0aec0;font-size:18px;width:32px;height:32px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
             <div style="font-size:22px;font-weight:700;color:#e2e8f0;margin-bottom:6px;">🔑 Login Matrix</div>
             ${motivo ? `<div style="color:#fc8181;font-size:13px;margin-bottom:10px;">${motivo}</div>` : ''}
             <div style="color:#a0aec0;font-size:13px;margin-bottom:20px;">Faça login para enviar mensagens</div>
@@ -12041,6 +12069,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             </div>
         </div>`;
         document.body.appendChild(ov);
+
+        // ── Fechar modal (visitante volta ao chat) ──
+        function _fecharModal() { ov.remove(); document.removeEventListener('keydown', _escHandler); }
+        function _escHandler(e) { if (e.key === 'Escape') _fecharModal(); }
+        ov.querySelector('#mx-login-close').onclick = _fecharModal;
+        document.addEventListener('keydown', _escHandler);
 
         const btn  = ov.querySelector('#mx-login-btn');
         const err  = ov.querySelector('#mx-login-err');
@@ -12097,6 +12131,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             MATRIX_TOKEN = token;
             localStorage.setItem('matrixToken', token);
             localStorage.setItem('mxdmToken', token); // Sync MxDM token
+            localStorage.removeItem('matrixGuestMode'); // sai do modo visitante
             // FIX: garante que o homeserver da telemetria seja o mesmo do Matrix principal
             localStorage.setItem('mxdmHomeserver', MATRIX_HS);
             // Verifica quem é
