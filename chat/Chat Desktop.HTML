@@ -6637,6 +6637,8 @@ const [remoteStreams, setRemoteStreams] = useState([]);
 const [youtubeChatId, setYoutubeChatId] = useState(null);
 const youtubeChatIdRef = useRef(null);
 useEffect(() => { youtubeChatIdRef.current = youtubeChatId; }, [youtubeChatId]);
+// Rastreia qual peer iniciou o YouTube Chat (para limpar quando esse peer desconectar)
+const youtubeChatOwnerRef = useRef(null);
 const [error, setError] = useState(null);
 const [isLocalVideoVisible, setIsLocalVideoVisible] = useState(false);
 const [showEmojiPanel, setShowEmojiPanel] = useState(false);
@@ -6673,7 +6675,10 @@ useEffect(() => { isSuperNodeRef.current = isSuperNode; }, [isSuperNode]);
 // antiga de handleIncomingData (com isPeerInitialized=false), fazendo connectToPeer retornar
 // antes de conectar os peers do Modo Geral. Com o ref, sempre usamos a versão fresca.
 const handleIncomingDataRef = useRef(null);
-useEffect(() => { window.handleIncomingDataRef = handleIncomingDataRef; }, []);
+    useEffect(() => {
+        window.handleIncomingDataRef = handleIncomingDataRef;
+        window.youtubeChatIdRef = youtubeChatIdRef;
+    }, []);
 
 // ── Escuta anúncios de sessão Whiteboard e Markdown de outros peers ──
 useEffect(() => {
@@ -8204,6 +8209,7 @@ pruneSeenMessages();
 if (youtubeChatIdRef.current) return;
 let ttl = capTtl(data.ttl !== undefined ? data.ttl : 8); // FIX-AUDIT-CLI3f
 if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via ref — no side-effects inside state updater */ connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e){} }); }
+youtubeChatOwnerRef.current = pId; // rastreia dono para limpar ao desconectar
 setYoutubeChatId(data.youtubeId);
 return;
 }
@@ -9971,6 +9977,8 @@ try {
     youtubeId: yId,
     peerId,
     senderName: userName
+  }).then(ok => {
+    if (ok) window.k10Toast?.('📡 Registrado na Telemetria', 'success', 3000);
   });
 } catch(e) {}
 };
@@ -11339,10 +11347,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
         // ── Detecta YouTube Chat start/stop enviado pela sala Matrix ──
         if (typeof body === 'string' && body.startsWith('__K10YTCHAT_START__:')) {
-            if (sala.alias === SALA_GERAL_ALIAS) {
+            if (sala.geral || sala.alias === SALA_GERAL_ALIAS) {
+                console.log('[Matrix Geral] 🔍 Detectado START YouTube Chat no histórico:', body);
                 // Lookback de 2h — alinhado com IPTV/Rádio para late-joiners recuperarem o chat
                 if (mensagem.timestamp < Date.now() - 2 * 60 * 60 * 1000) return;
                 const yId = body.slice('__K10YTCHAT_START__:'.length).trim();
+                // Evita processar nosso próprio comando se já estamos com ele ativo
+                if (yId === window.youtubeChatIdRef?.current) return;
+
                 if (yId && window.handleIncomingDataRef && window.handleIncomingDataRef.current) {
                     const fakeId = 'ytchat_matrix_' + Date.now();
                     window.handleIncomingDataRef.current(
@@ -11354,7 +11366,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             return;
         }
         if (typeof body === 'string' && body === '__K10YTCHAT_STOP__') {
-            if (sala.alias === SALA_GERAL_ALIAS) {
+            if (sala.geral || sala.alias === SALA_GERAL_ALIAS) {
+                console.log('[Matrix Geral] 🔍 Detectado STOP YouTube Chat no histórico');
                 // Lookback de 2h — alinhado com IPTV/Rádio
                 if (mensagem.timestamp < Date.now() - 2 * 60 * 60 * 1000) return;
                 if (window.handleIncomingDataRef && window.handleIncomingDataRef.current) {
@@ -11391,6 +11404,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         // ── Detecta quiz enviado pela sala Matrix ──
         if (typeof body === 'string' && body.startsWith('__K10QUIZ__:')) {
             if (sala.alias === SALA_GERAL_ALIAS && typeof window._matrixGeralInjetarQuiz === 'function') {
+                // Ignora quizzes antigos — só processa perguntas enviadas APÓS o programa iniciar
+                if (mensagem.timestamp < _programStartTime) return;
                 try {
                     // Remove prefixo __K10QUIZ__: e opcional [K10·nome]
                     const raw = body.slice('__K10QUIZ__:'.length).replace(/^\[K10·[^\]]*\]\s*/, '');
@@ -11717,7 +11732,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     // --------------------------------------------------
     async function carregarHistorico(sala, limite = 30) {
         try {
-            const dados = await matrixGet(`/_matrix/client/v3/rooms/${encodeURIComponent(sala.room_id)}/messages`, { dir: 'b', limit: Math.min(limite, 50) });
+            const limiteReal = (sala.geral || sala.alias === SALA_GERAL_ALIAS) ? 50 : limite;
+            const dados = await matrixGet(`/_matrix/client/v3/rooms/${encodeURIComponent(sala.room_id)}/messages`, { dir: 'b', limit: Math.min(limiteReal, 100) });
             // Normaliza para o formato esperado
             if (dados.chunk) { dados.mensagens = dados.chunk.filter(ev => ev.type==='m.room.message' && ev.content?.msgtype==='m.text').map(ev => ({ event_id: ev.event_id, sender: ev.sender, body: ev.content.body, timestamp: ev.origin_server_ts })).reverse(); dados.since = dados.start || ''; }
             if (!sala._mensagens) sala._mensagens = [];
@@ -11727,9 +11743,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
                 for (const msg of dados.mensagens) {
                     if (!sala.ultimasMensagens.has(msg.event_id)) {
                         sala.ultimasMensagens.add(msg.event_id);
-                        const hora = new Date(msg.timestamp).toLocaleTimeString();
-                        const remetente = msg.sender.split(':')[0];
-                        sala._mensagens.push({ body: msg.body, sender: remetente, hora });
+                        // Chama injetarMensagemNoChat para processar eventos funcionais (broadcasting)
+                        injetarMensagemNoChat(sala, msg);
                     }
                 }
                 console.log(`[Matrix] 📜 Histórico: ${dados.mensagens.length} msgs de "${sala.nome}"`);
@@ -12081,11 +12096,19 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         async function _aplicarToken(token, userHint) {
             MATRIX_TOKEN = token;
             localStorage.setItem('matrixToken', token);
+            localStorage.setItem('mxdmToken', token); // Sync MxDM token
+            // FIX: garante que o homeserver da telemetria seja o mesmo do Matrix principal
+            localStorage.setItem('mxdmHomeserver', MATRIX_HS);
             // Verifica quem é
             try {
                 const me = await matrixGet('/_matrix/client/v3/account/whoami');
                 MATRIX_USER = me.user_id || userHint;
                 localStorage.setItem('matrixUser', MATRIX_USER);
+                localStorage.setItem('mxdmMxid', MATRIX_USER); // Sync MxDM mxid
+                // Notifica o módulo MxDM para carregar o novo token e iniciar sync
+                if (window.MxDM && window.MxDM.updateLocalToken) {
+                    window.MxDM.updateLocalToken(token, MATRIX_USER);
+                }
             } catch(e) {}
             ov.remove();
             mostrarToast('✅ Login Matrix: ' + MATRIX_USER);
@@ -12903,6 +12926,7 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
 
   window.MxDM = {
     HS, get token(){return TOKEN;}, get mxid(){return MY_MXID;},
+    updateLocalToken: (t, m) => { TOKEN = t || localStorage.getItem(TOKEN_KEY) || ''; if(m) MY_MXID = m; if(TOKEN) startSync(); },
     login, send, broadcast, canSend, mapPeer, unmapPeer, ensureRoom, promptLogin,
     map: peerMap, rooms: roomMap,
     encodePayload, decodePayload,
@@ -13190,7 +13214,11 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
         const res = await mxAPI('PUT',
             '/_matrix/client/v3/rooms/'+encodeURIComponent(SALA_ROOM_ID)+'/send/'+EV_START+'/'+txnId,
             payload);
-        if(res?.event_id) console.log('[K10Registry] broadcast registrado:', broadcastData.broadcastType, broadcastData.streamId);
+        if(res?.event_id) {
+            console.log(`[K10Registry] ✅ TRANSMISSÃO REGISTRADA NA TELEMETRIA: type=${broadcastData.broadcastType} sid=${broadcastData.streamId}`);
+        } else {
+            console.warn(`[K10Registry] ❌ FALHA AO REGISTRAR NA TELEMETRIA: type=${broadcastData.broadcastType}`, res);
+        }
         return !!res?.event_id;
     }
 
@@ -13206,27 +13234,56 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
         return !!res?.event_id;
     }
 
-    /* Busca transmissões dos últimos 5 minutos */
+    /* Busca transmissoes dos ultimos 5 minutos e valida broadcaster via
+       telemetria do monitor (m.k10.telemetry, mesmo peerId, evento recente).
+       Monitor envia a cada 90 s → janela de 3 min e segura.
+       Se o broadcaster nao tem telemetria recente = saiu sem parar = transmissao morreu. */
     async function fetchRecent(){
         if(!mxToken()) return [];
         await ensureRoom();
-        const cutoff = Date.now() - JANELA_MS;
+        const cutoff    = Date.now() - JANELA_MS;
+        const telCutoff = Date.now() - (3 * 60 * 1000); // 3 min = 2x intervalo monitor
+
         const res = await mxAPI('GET',
-            '/_matrix/client/v3/rooms/'+encodeURIComponent(SALA_ROOM_ID)+'/messages?dir=b&limit=300');
+            '/_matrix/client/v3/rooms/'+encodeURIComponent(SALA_ROOM_ID)+'/messages?dir=b&limit=500');
         if(!res?.chunk) return [];
 
-        const starts = new Map();
-        const stops  = new Set();
+        const starts     = new Map();
+        const stops      = new Set();
+        const peerOnline = new Set();
+
         for(const ev of res.chunk){
+            // Telemetria do monitor: verifica presenca do peer
+            if(ev.type === 'm.k10.telemetry'){
+                const c = ev.content;
+                const ts = c && (c.timestamp || ev.origin_server_ts || 0);
+                if(c && c.peerId && ts >= telCutoff) peerOnline.add(c.peerId);
+                continue;
+            }
+            // Eventos de broadcast
             const c = ev.content;
             if(!c || !c._k10bc) continue;
             if((c.timestamp||0) < cutoff) continue;
-            if(ev.type === EV_STOP){ if(c.streamId) stops.add(c.streamId); }
-            else if(ev.type === EV_START){ const sid=c.streamId; if(sid && !starts.has(sid)) starts.set(sid,c); }
+            if(ev.type === EV_STOP){
+                if(c.streamId) stops.add(c.streamId);
+            } else if(ev.type === EV_START){
+                const sid = c.streamId;
+                if(sid && !starts.has(sid)) starts.set(sid, c);
+            }
         }
+
         const ativos = [];
-        for(const [sid,data] of starts){ if(!stops.has(sid)) ativos.push(data); }
-        console.log('[K10Registry] transmissoes ativas (5min):', ativos.length);
+        for(const [sid, data] of starts){
+            if(stops.has(sid)) continue;
+            if(!peerOnline.has(data.peerId)){
+                console.log('[K10Registry] broadcaster offline (sem telemetria recente), descartando:',
+                    data.broadcastType, data.peerId);
+                continue;
+            }
+            ativos.push(data);
+        }
+        console.log('[K10Registry] transmissoes ativas (broadcaster online):', ativos.length,
+            '| peers detectados:', [...peerOnline]);
         return ativos;
     }
 
