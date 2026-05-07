@@ -2364,7 +2364,7 @@ window.k10Toast(t(lang, 'magnetCopied'), 'success');
 // ================================================================
 // SendSecretModal
 // ================================================================
-const Whiteboard = ({ lang, connectionsRef, selectedContact, onClose }) => { // FIX O-1 V21: era connections (prop stale em onMouseMove) → connectionsRef
+const Whiteboard = ({ lang, connectionsRef, selectedContact, sessionId, onClose }) => { // FIX O-1 V21: era connections (prop stale em onMouseMove) → connectionsRef
   const canvasRef = useRef(null);
   const contextRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -2426,6 +2426,7 @@ const Whiteboard = ({ lang, connectionsRef, selectedContact, onClose }) => { // 
     if (emit) {
       const payload = {
         type: 'whiteboard',
+        sessionId: sessionId || 'wb-legacy',
         action: 'draw',
         x: x2,
         y: y2,
@@ -2453,7 +2454,7 @@ const Whiteboard = ({ lang, connectionsRef, selectedContact, onClose }) => { // 
     
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (emit) {
-      const payload = { type: 'whiteboard', action: 'clear' };
+      const payload = { type: 'whiteboard', sessionId: sessionId || 'wb-legacy', action: 'clear' };
       if (selectedContact) {
         const conn = connectionsRef.current.find(c => c.peer === selectedContact);
         if (conn && conn.open) {
@@ -2517,7 +2518,7 @@ const Whiteboard = ({ lang, connectionsRef, selectedContact, onClose }) => { // 
     <div className="whiteboard-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="whiteboard-container">
         <div className="whiteboard-header">
-          <h3 style={{ margin: 0, fontSize: '16px' }}><i className="fas fa-chalkboard"></i> Whiteboard</h3>
+          <h3 style={{ margin: 0, fontSize: '16px' }}><i className="fas fa-chalkboard"></i> Whiteboard {sessionId && <span style={{fontSize:'10px',fontWeight:400,opacity:0.7,marginLeft:'8px',fontFamily:'monospace'}}>🔑 {sessionId}</span>}</h3>
           <button className="tutorial-close" onClick={onClose}><i className="fas fa-times"></i></button>
         </div>
         <div className="whiteboard-body" 
@@ -2774,7 +2775,7 @@ const QuizQuestion = ({ msg, peerId, onAnswer }) => {
 };
 
 
-const MarkdownEditor = ({ lang, connectionsRef, selectedContact, onClose }) => { // FIX O-2 V21: era connections (prop stale em onChange) → connectionsRef
+const MarkdownEditor = ({ lang, connectionsRef, selectedContact, sessionId, onContentChange, onClose }) => { // FIX O-2 V21: era connections (prop stale em onChange) → connectionsRef
   const [content, setContent] = useState('');
   const [html, setHtml] = useState('');
 
@@ -2799,8 +2800,9 @@ const MarkdownEditor = ({ lang, connectionsRef, selectedContact, onClose }) => {
   const handleChange = (e) => {
     const newContent = e.target.value;
     setContent(newContent);
+    if (onContentChange) onContentChange(newContent);
     
-    const payload = { type: 'md-editor', content: newContent };
+    const payload = { type: 'md-editor', sessionId: sessionId || 'md-legacy', content: newContent };
     if (selectedContact) {
       const conn = connectionsRef.current.find(c => c.peer === selectedContact);
       if (conn && conn.open) conn.send(payload);
@@ -2813,7 +2815,7 @@ const MarkdownEditor = ({ lang, connectionsRef, selectedContact, onClose }) => {
     <div className="whiteboard-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="md-editor-container">
         <div className="whiteboard-header">
-          <h3 style={{ margin: 0, fontSize: '16px' }}><i className="fas fa-file-code"></i> {t(lang, 'collaborativeMarkdownEditor')}</h3>
+          <h3 style={{ margin: 0, fontSize: '16px' }}><i className="fas fa-file-code"></i> {t(lang, 'collaborativeMarkdownEditor')} {sessionId && <span style={{fontSize:'10px',fontWeight:400,opacity:0.7,marginLeft:'8px',fontFamily:'monospace'}}>🔑 {sessionId}</span>}</h3>
           <button className="tutorial-close" onClick={onClose}><i className="fas fa-times"></i></button>
         </div>
         <div className="md-editor-body">
@@ -5720,6 +5722,7 @@ const IptvPlayer = ({ url, name, flag }) => {
   const [muted,    setMuted]    = useState(false);
   const [volume,   setVolume]   = useState(1);
   const [fullscr,  setFullscr]  = useState(false);
+  const [paused,   setPaused]   = useState(false);  // ▶/⏸ controle
   const wrapRef = useRef(null);
 
   useEffect(() => {
@@ -5779,6 +5782,17 @@ const IptvPlayer = ({ url, name, flag }) => {
     if (!videoRef.current) return;
     videoRef.current.muted = !muted;
     setMuted(!muted);
+  };
+
+  const togglePlayPause = () => {
+    if (!videoRef.current) return;
+    if (videoRef.current.paused) {
+      videoRef.current.play().catch(()=>{});
+      setPaused(false);
+    } else {
+      videoRef.current.pause();
+      setPaused(true);
+    }
   };
 
   const changeVolume = (v) => {
@@ -5843,6 +5857,16 @@ const IptvPlayer = ({ url, name, flag }) => {
       {status === 'playing' && (
         <div style={{ flexShrink:0, background:'rgba(0,0,0,0.85)', padding:'6px 10px',
                       display:'flex', alignItems:'center', gap:'8px', borderTop:'1px solid #1e293b' }}>
+
+          {/* ── Play / Pause ── */}
+          <button onClick={togglePlayPause}
+            title={paused ? 'Retomar' : 'Pausar'}
+            style={{ background:'rgba(255,255,255,0.12)', border:'1px solid rgba(255,255,255,0.2)',
+                     color:'white', cursor:'pointer', fontSize:'13px', padding:'3px 8px',
+                     borderRadius:'6px', display:'flex', alignItems:'center', justifyContent:'center',
+                     minWidth:'28px', transition:'background 0.15s' }}>
+            <i className={`fas fa-${paused ? 'play' : 'pause'}`}></i>
+          </button>
 
           {/* Mute / Volume */}
           <button onClick={toggleMute}
@@ -6650,6 +6674,32 @@ useEffect(() => { isSuperNodeRef.current = isSuperNode; }, [isSuperNode]);
 // antes de conectar os peers do Modo Geral. Com o ref, sempre usamos a versão fresca.
 const handleIncomingDataRef = useRef(null);
 useEffect(() => { window.handleIncomingDataRef = handleIncomingDataRef; }, []);
+
+// ── Escuta anúncios de sessão Whiteboard e Markdown de outros peers ──
+useEffect(() => {
+  const onWbAnnounce = (e) => {
+    const { sessionId, ownerName } = e.detail || {};
+    if (sessionId) window.k10Toast(`🖊️ Lousa ativa · ${ownerName || 'peer'} · 🔑 ${sessionId}`, 'info', 5000);
+  };
+  const onMdAnnounce = (e) => {
+    const { sessionId, ownerName, content } = e.detail || {};
+    if (sessionId) {
+      window.k10Toast(`📝 Markdown ativo · ${ownerName || 'peer'} · 🔑 ${sessionId}`, 'info', 5000);
+      // Sincroniza conteúdo recebido no markdown editor via evento
+      if (content !== undefined) window.dispatchEvent(new CustomEvent('md-editor-event', { detail: { type: 'md-editor', content } }));
+    }
+  };
+  window.addEventListener('whiteboard-session-announce', onWbAnnounce);
+  window.addEventListener('md-editor-session-announce', onMdAnnounce);
+  return () => {
+    window.removeEventListener('whiteboard-session-announce', onWbAnnounce);
+    window.removeEventListener('md-editor-session-announce', onMdAnnounce);
+  };
+}, []);
+// ── connMapRef: mapa síncrono peerId→conn (atualizado sem useEffect para evitar stale ref) ──
+const connMapRef = useRef(new Map());
+// ── Limite global de transmissões simultâneas (exceto quiz) ──
+const MAX_TOTAL_STREAMS = 10;
 const [pendingTorrentRequests, setPendingTorrentRequests] = useState({});
 const [radioState, setRadioState] = useState({
 status: 'idle',
@@ -7351,6 +7401,11 @@ useEffect(() => {
   }
 }, [quizBotActive]); // FIX: mantém o ref sincronizado e limpa timers
 const [showWhiteboard, setShowWhiteboard] = useState(false);
+const [whiteboardSessionId, setWhiteboardSessionId] = useState(null);
+const whiteboardSessionIdRef = useRef(null);
+const [markdownSessionId, setMarkdownSessionId] = useState(null);
+const markdownSessionIdRef = useRef(null);
+const markdownContentRef = useRef('');
 const [showWorldRadios, setShowWorldRadios] = useState(false);
 const [showIptv, setShowIptv] = useState(false);
 const [showIptvFreeTv, setShowIptvFreeTv] = useState(false);
@@ -7529,6 +7584,26 @@ if (youtubeChatIdRef.current) {
 // Sem isso, late-joiners nunca recebem o toggle e veem o botão desbloqueado
 if (quizBotActiveRef.current && globalQuizOwnerRef.current) {
   try { conn.send({ type: 'quiz-bot-global-toggle', active: true, owner: globalQuizOwnerRef.current, discipline: quizDisciplineRef.current }); } catch(e) {}
+}
+// ── Sync: envia sessão de Whiteboard ativa para quem entra depois ──
+if (whiteboardSessionIdRef.current) {
+  try { conn.send({ type: 'whiteboard-session-announce', sessionId: whiteboardSessionIdRef.current, owner: peerId, ownerName: userNameRef.current || peerId, ttl: 0 }); } catch(e) {}
+}
+// ── Sync: envia sessão de Markdown ativa para quem entra depois ──
+if (markdownSessionIdRef.current) {
+  try { conn.send({ type: 'md-editor-session-announce', sessionId: markdownSessionIdRef.current, owner: peerId, ownerName: userNameRef.current || peerId, content: markdownContentRef.current || '', ttl: 0 }); } catch(e) {}
+}
+if (currentQuizQuestionRef.current && currentQuizQuestionRef.current.quizId) {
+  const cq = currentQuizQuestionRef.current;
+  const quizSync = {
+    type: 'message', id: 'qsync_' + Date.now(), text: '__QUIZ__', ttl: 0, direct: false,
+    senderName: '🤖 Quiz Bot', sender: peerIdRef.current || peerId,
+    time: new Date().toLocaleTimeString(), timestamp: Date.now(),
+    quizPayload: { quizId: cq.quizId, quizQuestion: cq.quizQuestion, quizOptions: cq.quizOptions,
+      quizCorrect: cq.quizCorrect, quizSubject: cq.quizSubject || '',
+      quizImage: cq.quizImage || null, quizStage: cq.quizStage || null }
+  };
+  setTimeout(() => { try { conn.send(quizSync); } catch(e) {} }, 500);
 }
 };
 
@@ -7913,9 +7988,9 @@ try {
 
 
 if (data.type === 'radio-request-sync') {
-// FIX: side-effect fora do state updater — usa ref
-const c = connectionsRef.current.find(x => x.peer === pId);
-if (c) sendRadioSync(c);
+// FIX-LATE-JOINER: usa connMapRef (síncrono) em vez de connectionsRef (pode estar stale antes do useEffect)
+const c = connMapRef.current.get(pId) || connectionsRef.current.find(x => x.peer === pId && x.open);
+if (c && c.open) sendRadioSync(c);
 return;
 }
 
@@ -7964,11 +8039,11 @@ if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via 
 
 setUserYoutubeStreams(prev => {
 const next = { ...prev, [data.sender]: data.youtubeId };
-// Limit to 10 streams
+// Limite global: YT + Radio + IPTV ≤ MAX_TOTAL_STREAMS
+const totalOther = Object.keys(userRadiosRef.current).length + Object.keys(userIptvStreamsRef.current).length;
+const maxYt = Math.max(1, MAX_TOTAL_STREAMS - totalOther);
 const keys = Object.keys(next);
-if (keys.length > 10) {
-delete next[keys[0]];
-}
+while (keys.length > maxYt) { delete next[keys.shift()]; }
 return next;
 });
 return;
@@ -7977,6 +8052,18 @@ return;
 
 if (data.type === 'whiteboard') {
   window.dispatchEvent(new CustomEvent('whiteboard-event', { detail: data }));
+  return;
+}
+
+if (data.type === 'whiteboard-session-announce') {
+  // Notifica o usuário que há uma sessão de Whiteboard ativa
+  window.dispatchEvent(new CustomEvent('whiteboard-session-announce', { detail: data }));
+  return;
+}
+
+if (data.type === 'md-editor-session-announce') {
+  // Notifica o usuário que há uma sessão de Markdown ativa e sincroniza o conteúdo
+  window.dispatchEvent(new CustomEvent('md-editor-session-announce', { detail: data }));
   return;
 }
 
@@ -8014,7 +8101,11 @@ if (ttl > 0) { const relay = { ...data, ttl: ttl - 1 }; /* FIX BUG-6: relay via 
 
 setUserRadios(prev => {
 const next = { ...prev, [data.sender]: { url: data.streamUrl, name: data.fileName, radioId: data.radioId, senderName: data.senderName } };
-if (Object.keys(next).length > 10) delete next[Object.keys(next)[0]];
+// Limite global: YT + Radio + IPTV ≤ MAX_TOTAL_STREAMS
+const totalOther = Object.keys(userYoutubeStreamsRef.current).length + Object.keys(userIptvStreamsRef.current).length;
+const maxRadio = Math.max(1, MAX_TOTAL_STREAMS - totalOther);
+const keys = Object.keys(next);
+while (keys.length > maxRadio) { delete next[keys.shift()]; }
 return next;
 });
 return;
@@ -8043,8 +8134,12 @@ pruneSeenClient(); pruneSeenMessages();
 let ttl = capTtl(data.ttl !== undefined ? data.ttl : 8);
 if (ttl > 0) { const relay = {...data, ttl: ttl-1}; connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try{c.send(relay);}catch(e){} }); }
 setUserIptvStreams(prev => {
-  const next = {...prev, [data.sender]: {url:data.url, name:data.name, country:data.country, flag:data.flag, senderName:data.senderName}};
-  if (Object.keys(next).length > 10) delete next[Object.keys(next)[0]];
+  const next = {...prev, [data.sender]: {url:data.url, name:data.name, country:data.country, flag:data.flag, senderName:data.senderName, streamId:data.id}};
+  // Limite global: YT + Radio + IPTV ≤ MAX_TOTAL_STREAMS
+  const totalOther = Object.keys(userYoutubeStreamsRef.current).length + Object.keys(userRadiosRef.current).length;
+  const maxIptv = Math.max(1, MAX_TOTAL_STREAMS - totalOther);
+  const keys = Object.keys(next);
+  while (keys.length > maxIptv) { delete next[keys.shift()]; }
   return next;
 });
 return;
@@ -8532,6 +8627,7 @@ handleIncomingDataRef.current = handleIncomingData;
 
 
 const sendRadioSync = (conn) => {
+// ── Radio global ──
 if (radioStateRef.current.status !== 'idle') {
 const syncMsg = { 
   type: 'radio-sync', 
@@ -8546,23 +8642,26 @@ const syncMsg = {
 const send = () => { try { conn.send(syncMsg); } catch(e) {} };
 send(); setTimeout(send, 1000); setTimeout(send, 2000);
 }
-if (userYoutubeStreamsRef.current[peerId]) {
+// ── YouTube streams — envia TODAS as transmissões ativas (não só a local) ──
+Object.entries(userYoutubeStreamsRef.current).forEach(([senderId, ytId]) => {
+if (!ytId) return;
 const ytSyncMsg = {
 type: 'radio-youtube-start',
-id: peerId + '_yt_sync_' + Date.now(),
-youtubeId: userYoutubeStreamsRef.current[peerId],
-sender: peerId,
-senderName: userNameRef.current, // FIX BUG-3: ref evita stale closure
+id: senderId + '_yt_sync_' + Date.now() + '_' + Math.random().toString(36).slice(2,5),
+youtubeId: ytId,
+sender: senderId,
+senderName: senderId === peerId ? (userNameRef.current || peerId) : (senderId),
 ttl: 1
 };
 const sendYt = () => { try { conn.send(ytSyncMsg); } catch(e) {} };
-sendYt(); setTimeout(sendYt, 1000);
-}
-Object.keys(userRadiosRef.current).forEach(senderPId => {
-const station = userRadiosRef.current[senderPId];
+sendYt(); setTimeout(sendYt, 1200);
+});
+// ── World Radio — envia TODAS as estações ativas ──
+Object.entries(userRadiosRef.current).forEach(([senderPId, station]) => {
+if (!station) return;
 const worldMsg = {
 type: 'radio-world-start',
-id: senderPId + '_sync_' + Date.now(),
+id: senderPId + '_sync_' + Date.now() + '_' + Math.random().toString(36).slice(2,5),
 radioId: station.radioId,
 fileName: station.name,
 streamUrl: station.url,
@@ -8570,20 +8669,21 @@ sender: senderPId,
 senderName: station.senderName || senderPId,
 ttl: 1
 };
-try { conn.send(worldMsg); } catch(e) {}
+const sendW = () => { try { conn.send(worldMsg); } catch(e) {} };
+sendW(); setTimeout(sendW, 1200);
 });
-// FIX: Sync IPTV streams para novos peers (antes faltava)
-Object.keys(userIptvStreamsRef.current).forEach(senderPId => {
-const stream = userIptvStreamsRef.current[senderPId];
+// ── IPTV — envia TODAS as transmissões ativas ──
+Object.entries(userIptvStreamsRef.current).forEach(([senderPId, stream]) => {
+if (!stream) return;
 const iptvMsg = {
 type: 'iptv-start',
-id: senderPId + '_iptv_sync_' + Date.now(),
+id: senderPId + '_iptv_sync_' + Date.now() + '_' + Math.random().toString(36).slice(2,5),
 url: stream.url, name: stream.name, country: stream.country, flag: stream.flag,
 sender: senderPId, senderName: stream.senderName || senderPId,
 ttl: 1
 };
-const sendIptv = () => { try { conn.send(iptvMsg); } catch(e) {} };
-sendIptv(); setTimeout(sendIptv, 1000);
+const sendI = () => { try { conn.send(iptvMsg); } catch(e) {} };
+sendI(); setTimeout(sendI, 1200);
 });
 };
 
@@ -8632,9 +8732,13 @@ addAudit(`[P2P] Conexão estabelecida com ${peerIdToConnect}`, 'success');
 // o código fazia early return sem chamar setConnections/sendHandshake para o servidor do grupo.
 // LEGACY-REMOVED: failover K10-CENTRAL/setCentralServerId no open (gateway K10 desligado).
 setConnections(prev => [...prev.filter(c => c.peer !== peerIdToConnect), conn]);
+connMapRef.current.set(peerIdToConnect, conn); // FIX-LATE-JOINER: registro síncrono
 sendHandshake(conn);
 sendRadioSync(conn);
 try { conn.send({ type: 'radio-request-sync' }); } catch(e){}
+// FIX-LATE-JOINER: retentativas com delay para garantir sync mesmo com refs lentas
+setTimeout(() => { if (conn.open) sendRadioSync(conn); }, 2000);
+setTimeout(() => { if (conn.open) sendRadioSync(conn); }, 5000);
 if (!knownUsersRef.current.has(peerIdToConnect)) {
 if (knownUsersRef.current.size > 10000) { const arr = Array.from(knownUsersRef.current); knownUsersRef.current = new Set(arr.slice(-5000)); }
 knownUsersRef.current.add(peerIdToConnect);
@@ -8645,6 +8749,7 @@ conn.on('error', err => {
   clearTimeout(timeoutId);
   addAudit(`[P2P] Falha na conexão com ${peerIdToConnect}: ${err?.type || 'unknown'}`, 'error');
   setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect));
+  connMapRef.current.delete(peerIdToConnect); // FIX-LATE-JOINER: limpa mapa síncrono
   // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact em erros de conexão.
   // Limpar causava setSidebarTab('general') via useEffect, jogando o usuário para fora do chat privado.
   // A aba Privado já trata peers desconectados com pendingEntry e bloqueia envio quando conn.open=false.
@@ -8667,6 +8772,7 @@ conn.on('close', () => {
   addAudit(`[P2P] Conexão encerrada: ${peerIdToConnect}`, 'warn');
   worldQuizSubscribersRef.current.delete(peerIdToConnect);
   setConnections(prev => prev.filter(c => c.peer !== peerIdToConnect));
+  connMapRef.current.delete(peerIdToConnect); // FIX-LATE-JOINER: limpa mapa síncrono
 
   // LEGACY-REMOVED: comentário V106 sobre gateway/bootstrap (K10-GATE descontinuado).
   setTimeout(checkAndAssumeQuizMaster, 1000);
@@ -8785,6 +8891,10 @@ setIsPeerInitialized(true);
 addAudit(`[Rede] Peer inicializado com ID: ${id}`, 'success');
 reconnectAttempts = 0;
 if (typeof startMonitorReporting === 'function') startMonitorReporting();
+// ── Recupera transmissões dos últimos 5 min do servidor Matrix ──
+setTimeout(() => {
+  try { window.K10BroadcastRegistry?.syncLateJoiner(); } catch(e) {}
+}, 3000);
 
 const urlParams = new URLSearchParams(window.location.search);
 const portasStr = urlParams.get('portas');
@@ -8801,15 +8911,20 @@ conn.on('open', () => {
   addAudit(`[P2P] Conexão estabelecida com: ${porta}`, 'success');
   // LEGACY-REMOVED: early-return para K10-GATE no bootstrap.
   setConnections(prev => [...prev.filter(c => c.peer !== porta), conn]);
+  connMapRef.current.set(porta, conn); // FIX-LATE-JOINER
   sendHandshake(conn); // FIX BUG-B: peer remoto precisa saber nossa identidade
   sendRadioSync(conn); 
-  try { conn.send({ type: 'radio-request-sync' }); } catch(e){} 
+  try { conn.send({ type: 'radio-request-sync' }); } catch(e){}
+  // FIX-LATE-JOINER: retentativas com delay
+  setTimeout(() => { if (conn.open) sendRadioSync(conn); }, 2000);
+  setTimeout(() => { if (conn.open) sendRadioSync(conn); }, 5000);
 });
 conn.on('data', data => handleIncomingDataRef.current(data, porta));
 conn.on('close', () => { 
   addAudit(`[P2P] Conexão encerrada com: ${porta}`, 'warn');
   worldQuizSubscribersRef.current.delete(porta); 
-  setConnections(prev => prev.filter(c => c.peer !== porta)); 
+  setConnections(prev => prev.filter(c => c.peer !== porta));
+  connMapRef.current.delete(porta); // FIX-LATE-JOINER
   // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact — desconexão não deve jogar para aba Geral.
   setTimeout(checkAndAssumeQuizMaster, 1000);
 
@@ -8842,7 +8957,8 @@ conn.on('close', () => {
 conn.on('error', (e) => { 
   addAudit(`[P2P] Erro na conexão com ${porta}: ${e?.message || '?' }`, 'error');
   worldQuizSubscribersRef.current.delete(porta); 
-  setConnections(prev => prev.filter(c => c.peer !== porta)); 
+  setConnections(prev => prev.filter(c => c.peer !== porta));
+  connMapRef.current.delete(porta); // FIX-LATE-JOINER
   // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact — erro não deve jogar para aba Geral.
 });
 }
@@ -8903,11 +9019,15 @@ if (connectionsRef.current.length >= maxConns) { setTimeout(() => conn.close(), 
 conn.on('open', () => {
 addAudit(`[P2P] Conexão de entrada aberta: ${conn.peer}`, 'success');
 setConnections(prev => [...prev.filter(c => c.peer !== conn.peer), conn]);
+connMapRef.current.set(conn.peer, conn); // FIX-LATE-JOINER: registro síncrono
 // V39-FIX: NÃO marca como peer direto aqui — conexões do mesh geral NÃO devem aparecer na aba Privado
 // directPeers só é marcado quando: (a) peer faz ligação de voz/vídeo, (b) peer envia msg privada direta
 sendHandshake(conn);
 sendRadioSync(conn);
 try { conn.send({ type: 'radio-request-sync' }); } catch(e){}
+// FIX-LATE-JOINER: retentativas com delay para garantir sync mesmo com refs lentas
+setTimeout(() => { if (conn.open) sendRadioSync(conn); }, 2000);
+setTimeout(() => { if (conn.open) sendRadioSync(conn); }, 5000);
 if (!knownUsersRef.current.has(conn.peer)) {
 if (knownUsersRef.current.size > 10000) { const arr = Array.from(knownUsersRef.current); knownUsersRef.current = new Set(arr.slice(-5000)); }
 knownUsersRef.current.add(conn.peer);
@@ -8918,7 +9038,8 @@ conn.on('data', data => handleIncomingDataRef.current(data, conn.peer));
 conn.on('close', () => { 
   addAudit(`[P2P] Conexão encerrada: ${conn.peer}`, 'warn');
   worldQuizSubscribersRef.current.delete(conn.peer); 
-  setConnections(prev => prev.filter(c => c.peer !== conn.peer)); 
+  setConnections(prev => prev.filter(c => c.peer !== conn.peer));
+  connMapRef.current.delete(conn.peer); // FIX-LATE-JOINER
   // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact — desconexão temporária não deve
   // jogar o usuário para a aba Geral. pendingEntry mantém o contato visível na lista.
   endCall(conn.peer, 'video'); 
@@ -8956,7 +9077,8 @@ conn.on('close', () => {
 conn.on('error', (e) => { 
   addAudit(`[P2P] Erro na conexão com ${conn.peer}: ${e?.message || '?' }`, 'error');
   worldQuizSubscribersRef.current.delete(conn.peer); 
-  setConnections(prev => prev.filter(c => c.peer !== conn.peer)); 
+  setConnections(prev => prev.filter(c => c.peer !== conn.peer));
+  connMapRef.current.delete(conn.peer); // FIX-LATE-JOINER
   // FIX-PRIVATE-DESELECT: NÃO limpar selectedContact — erro/reconexão não deve tirar o usuário do chat privado.
   endCall(conn.peer, 'video'); 
   endCall(conn.peer, 'voice'); 
@@ -9392,7 +9514,7 @@ const unifiedBroadcastStart = (broadcastType, data) => {
         sender: peerId, senderName: userName, ttl: 15
       };
       updateState = () => {
-        setUserRadios(prev => ({ ...prev, [peerId]: { url: data.url, name: data.name, radioId, senderName: userName } }));
+        setUserRadios(prev => ({ ...prev, [peerId]: { url: data.url, name: data.name, radioId, senderName: userName, streamId: radioId } }));
       };
       break;
     case 'youtube':
@@ -9402,6 +9524,9 @@ const unifiedBroadcastStart = (broadcastType, data) => {
         sender: peerId, senderName: userName, ttl: 15
       };
       updateState = () => {
+        // FIX BUG-YT-STREAMID: guarda o radioId real para uso no publishStop
+        window.__k10YtStreamIds = window.__k10YtStreamIds || {};
+        window.__k10YtStreamIds[peerId] = radioId;
         setUserYoutubeStreams(prev => ({ ...prev, [peerId]: data.youtubeId }));
       };
       break;
@@ -9412,7 +9537,7 @@ const unifiedBroadcastStart = (broadcastType, data) => {
         sender: peerId, senderName: userName, ttl: 15
       };
       updateState = () => {
-        setUserIptvStreams(prev => ({ ...prev, [peerId]: { url: data.url, name: data.name, country: data.country, flag: data.flag, senderName: userName } }));
+        setUserIptvStreams(prev => ({ ...prev, [peerId]: { url: data.url, name: data.name, country: data.country, flag: data.flag, senderName: userName, streamId: radioId } }));
       };
       break;
     default: return;
@@ -9421,11 +9546,21 @@ const unifiedBroadcastStart = (broadcastType, data) => {
   seenMessagesRef.current.add(payload.id);
   p2pBroadcast(payload); // Matrix DM + PeerJS — SEMPRE ambos
   // FIX CRÍTICO: envia também pela Sala Matrix Geral (igual quiz/ytchat)
-  // Sem isso, se não houver PeerJS direto nem MxDM mapeado, a msg morre
   if (typeof window.enviarParaMatrix === 'function') {
     try { window.enviarParaMatrix('__K10BROADCAST__:' + JSON.stringify(payload)); } catch(e) {}
   }
   updateState();
+  // ── Registra no servidor de telemetria para late-joiners ──
+  try {
+    window.K10BroadcastRegistry?.publish({
+      broadcastType,
+      streamId: radioId,
+      peerId,
+      senderName: userName,
+      ...data,           // url, name, flag, country, youtubeId, etc.
+      id: undefined      // remove id duplicado do payload
+    });
+  } catch(e) {}
 };
 
 const unifiedBroadcastStop = (broadcastType) => {
@@ -9458,6 +9593,16 @@ const unifiedBroadcastStop = (broadcastType) => {
     try { window.enviarParaMatrix('__K10BROADCAST__:' + JSON.stringify(payload)); } catch(e) {}
   }
   updateState();
+  // ── Remove do servidor de telemetria ──
+  try {
+    // FIX BUG-YT-STREAMID: youtube usava userYoutubeStreams[peerId] (= youtubeId string),
+    // não o radioId real. Agora lemos de window.__k10YtStreamIds que guarda o radioId correto.
+    const sid = broadcastType==='iptv'    ? userIptvStreams[peerId]?.streamId
+              : broadcastType==='radio'   ? userRadios[peerId]?.streamId
+              : broadcastType==='youtube' ? (window.__k10YtStreamIds?.[peerId] || null)
+              : null;
+    if(sid) window.K10BroadcastRegistry?.publishStop(sid, broadcastType, peerId);
+  } catch(e) {}
 };
 
 // ── Wrappers que mantêm a interface existente ───────────────
@@ -9817,6 +9962,17 @@ p2pBroadcast(msgData);
 // Publica na sala Matrix Geral para alcançar quem não tem P2P/MxDM
 if (typeof window.enviarParaMatrix === 'function')
   window.enviarParaMatrix('__K10YTCHAT_START__:' + yId);
+// ── Registra no servidor de telemetria para late-joiners ──
+try {
+  window.__k10YtChatStreamId = msgId; // guarda para o stop
+  window.K10BroadcastRegistry?.publish({
+    broadcastType: 'youtube-chat',
+    streamId: msgId,
+    youtubeId: yId,
+    peerId,
+    senderName: userName
+  });
+} catch(e) {}
 };
 
 
@@ -9829,6 +9985,12 @@ p2pBroadcast(msgData);
 // Avisa na sala Matrix Geral
 if (typeof window.enviarParaMatrix === 'function')
   window.enviarParaMatrix('__K10YTCHAT_STOP__');
+// ── Remove do servidor de telemetria ──
+try {
+  const sid = window.__k10YtChatStreamId || null;
+  if (sid) { window.K10BroadcastRegistry?.publishStop(sid, 'youtube-chat', peerId); }
+  window.__k10YtChatStreamId = null;
+} catch(e) {}
 };
 
 
@@ -9966,17 +10128,17 @@ return (
         <div style={{ fontSize: '9px', letterSpacing: '2px', color: '#60a5fa', fontWeight: '700', paddingBottom: '4px', borderBottom: '1px solid #334155', marginBottom: '4px', marginTop: '6px' }}>
           ◈ COLABORAÇÃO
         </div>
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowWhiteboard(true); }}>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); if (!whiteboardSessionIdRef.current) { const sid = 'wb-' + Date.now() + '-' + Math.random().toString(36).slice(2,6); whiteboardSessionIdRef.current = sid; setWhiteboardSessionId(sid); try { window.K10BroadcastRegistry?.publish({ broadcastType:'whiteboard', streamId:sid, sessionId:sid, peerId, senderName:userName }); } catch(e){} } setShowWhiteboard(true); }}>
           <i className="fas fa-chalkboard" style={{color:'#60a5fa'}}></i>
-          <div><div>{t(lang, 'collaborativeWhiteboard')}</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Lousa compartilhada em tempo real</div></div>
+          <div><div>{t(lang, 'collaborativeWhiteboard')}{whiteboardSessionId ? <span style={{marginLeft:'6px',background:'#10b981',color:'white',fontSize:'9px',borderRadius:'4px',padding:'1px 5px',fontWeight:700}}>ATIVO · 🔑{whiteboardSessionId.slice(-6)}</span> : null}</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Lousa compartilhada em tempo real</div></div>
         </button>
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowPollCreator(true); }}>
           <i className="fas fa-poll" style={{color:'#34d399'}}></i>
           <div><div>{t(lang, 'createPoll')}</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Votação ao vivo para o grupo</div></div>
         </button>
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowMarkdownEditor(true); }}>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); if (!markdownSessionIdRef.current) { const mid = 'md-' + Date.now() + '-' + Math.random().toString(36).slice(2,6); markdownSessionIdRef.current = mid; setMarkdownSessionId(mid); try { window.K10BroadcastRegistry?.publish({ broadcastType:'markdown', streamId:mid, sessionId:mid, peerId, senderName:userName, content:'' }); } catch(e){} } setShowMarkdownEditor(true); }}>
           <i className="fas fa-file-code" style={{color:'#a78bfa'}}></i>
-          <div><div>{t(lang, 'markdownEditor')}</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Editor colaborativo em tempo real</div></div>
+          <div><div>{t(lang, 'markdownEditor')}{markdownSessionId ? <span style={{marginLeft:'6px',background:'#10b981',color:'white',fontSize:'9px',borderRadius:'4px',padding:'1px 5px',fontWeight:700}}>ATIVO · 🔑{markdownSessionId.slice(-6)}</span> : null}</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Editor colaborativo em tempo real</div></div>
         </button>
         <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowQuizBot(true); }}>
           <i className="fas fa-robot" style={{color:'#f472b6'}}></i>
@@ -10129,7 +10291,7 @@ return (
   </div>
 )}
 {showPollCreator && <PollCreator onClose={() => setShowPollCreator(false)} onCreated={handlePollCreated} />}
-{showMarkdownEditor && <MarkdownEditor lang={lang} connectionsRef={connectionsRef} selectedContact={selectedContact} onClose={() => setShowMarkdownEditor(false)} />}
+{showMarkdownEditor && <MarkdownEditor lang={lang} connectionsRef={connectionsRef} selectedContact={selectedContact} sessionId={markdownSessionId} onContentChange={c => { markdownContentRef.current = c; }} onClose={() => { try { window.K10BroadcastRegistry?.publishStop(markdownSessionId,'markdown',peerId); } catch(e){} setShowMarkdownEditor(false); markdownSessionIdRef.current = null; setMarkdownSessionId(null); markdownContentRef.current = ''; }} />}
 
         {showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => {
   connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId, discipline: quizDisciplineRef.current});}catch(e){} });
@@ -10621,7 +10783,7 @@ onClose={handleYoutubeRadio}
 {/* 📡 IPTV Local Window — minha transmissão */}
 {userIptvStreams[peerId] && (
 <FloatingWindow
-  title={`📡 ${userIptvStreams[peerId].flag||''} ${userIptvStreams[peerId].name}`}
+  title={`📡 ${userIptvStreams[peerId].flag||''} ${userIptvStreams[peerId].name}${userIptvStreams[peerId].streamId ? ' · 🔑 '+userIptvStreams[peerId].streamId.slice(-8) : ''}`}
   initialPosition={{ x: 50, y: 50 }}
   onClose={stopIptvBroadcast}
 >
@@ -10633,7 +10795,7 @@ onClose={handleYoutubeRadio}
 {Object.entries(userIptvStreams).filter(([id]) => id !== peerId).map(([id, stream]) => (
 <FloatingWindow
   key={id}
-  title={`📡 ${stream.flag||''} ${stream.name} · ${stream.senderName || getContactName(id)}`}
+  title={`📡 ${stream.flag||''} ${stream.name} · ${stream.senderName || getContactName(id)}${stream.streamId ? ' · 🔑 '+stream.streamId.slice(-8) : ''}`}
   initialPosition={{ x: 60, y: 60 }}
   onClose={() => setUserIptvStreams(prev => { const n={...prev}; delete n[id]; return n; })}
 >
@@ -10763,7 +10925,8 @@ onOpenQuizBot={() => setShowQuizBot(true)}
     lang={lang} 
     connectionsRef={connectionsRef}
     selectedContact={selectedContact} 
-    onClose={() => setShowWhiteboard(false)} 
+    sessionId={whiteboardSessionId}
+    onClose={() => { try { window.K10BroadcastRegistry?.publishStop(whiteboardSessionId,'whiteboard',peerId); } catch(e){} setShowWhiteboard(false); whiteboardSessionIdRef.current = null; setWhiteboardSessionId(null); }} 
   />
 )}
 {showAuditPanel && <AuditPanel lang={lang} logs={auditLogs} onClose={() => setShowAuditPanel(false)} />}
@@ -11207,8 +11370,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         // ── Detecta BROADCAST (radio/youtube/iptv) enviado pela sala Matrix ──
         if (typeof body === 'string' && body.startsWith('__K10BROADCAST__:')) {
             if (sala.alias === SALA_GERAL_ALIAS) {
-                // Ignora mensagens antigas (anteriores ao início do programa)
-                if (mensagem.timestamp < _programStartTime) return;
+                // FIX-LATE-JOINER: permite histórico das últimas 2h (em vez de bloquear tudo anterior ao programStartTime)
+                // Isso garante que quem entra depois receba transmissões IPTV/Rádio/YouTube ainda ativas
+                const BROADCAST_LOOKBACK_MS = 2 * 60 * 60 * 1000; // 2 horas
+                if (mensagem.timestamp < Date.now() - BROADCAST_LOOKBACK_MS) return;
                 try {
                     const raw = body.slice('__K10BROADCAST__:'.length).trim();
                     const broadcastData = JSON.parse(raw);
@@ -12975,3 +13140,222 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
 
 </body>
 </html>
+
+<!-- ================================================================
+     K10 BROADCAST REGISTRY v1
+     Usa a mesma sala Matrix de telemetria para registrar TODAS
+     as transmissões ativas. Novo usuário consulta os últimos
+     5 minutos e recebe automaticamente tudo que está ativo.
+     ================================================================ -->
+<script>
+(function(){
+    'use strict';
+    const SALA_ROOM_ID = '!envs-RSauuX1LrriNcVmdwmAGcyVpM0_w8OnC0EZgrQ';
+    const JANELA_MS    = 5 * 60 * 1000;
+    const EV_START     = 'm.k10.broadcast';
+    const EV_STOP      = 'm.k10.broadcast.stop';
+
+    function mxToken(){ return localStorage.getItem('mxdmToken')||''; }
+    function mxHS(){ return (localStorage.getItem('mxdmHomeserver')||'https://matrix.org').replace(/\/+$/,''); }
+
+    async function mxAPI(method, path, body){
+        const token = mxToken();
+        if(!token) return null;
+        try{
+            const res = await fetch(mxHS()+path,{
+                method,
+                headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+                body: body!==undefined ? JSON.stringify(body) : undefined
+            });
+            return await res.json();
+        }catch(_){ return null; }
+    }
+
+    let _joinedRoom = false;
+    async function ensureRoom(){
+        if(_joinedRoom || !mxToken()) return !!mxToken();
+        try{
+            await mxAPI('POST','/_matrix/client/v3/join/'+encodeURIComponent(SALA_ROOM_ID),{});
+            _joinedRoom = true;
+        }catch(_){}
+        return _joinedRoom;
+    }
+
+    /* Registra início de transmissão */
+    async function publish(broadcastData){
+        if(!mxToken()) return false;
+        await ensureRoom();
+        const txnId = 'k10bc_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+        const payload = { ...broadcastData, timestamp: Date.now(), _k10bc: 1 };
+        const res = await mxAPI('PUT',
+            '/_matrix/client/v3/rooms/'+encodeURIComponent(SALA_ROOM_ID)+'/send/'+EV_START+'/'+txnId,
+            payload);
+        if(res?.event_id) console.log('[K10Registry] broadcast registrado:', broadcastData.broadcastType, broadcastData.streamId);
+        return !!res?.event_id;
+    }
+
+    /* Registra parada de transmissão */
+    async function publishStop(streamId, broadcastType, peerId){
+        if(!mxToken()) return false;
+        await ensureRoom();
+        const txnId = 'k10bcs_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+        const res = await mxAPI('PUT',
+            '/_matrix/client/v3/rooms/'+encodeURIComponent(SALA_ROOM_ID)+'/send/'+EV_STOP+'/'+txnId,
+            { streamId, broadcastType, peerId, timestamp: Date.now(), _k10bc: 1 });
+        if(res?.event_id) console.log('[K10Registry] broadcast parado:', broadcastType, streamId);
+        return !!res?.event_id;
+    }
+
+    /* Busca transmissões dos últimos 5 minutos */
+    async function fetchRecent(){
+        if(!mxToken()) return [];
+        await ensureRoom();
+        const cutoff = Date.now() - JANELA_MS;
+        const res = await mxAPI('GET',
+            '/_matrix/client/v3/rooms/'+encodeURIComponent(SALA_ROOM_ID)+'/messages?dir=b&limit=300');
+        if(!res?.chunk) return [];
+
+        const starts = new Map();
+        const stops  = new Set();
+        for(const ev of res.chunk){
+            const c = ev.content;
+            if(!c || !c._k10bc) continue;
+            if((c.timestamp||0) < cutoff) continue;
+            if(ev.type === EV_STOP){ if(c.streamId) stops.add(c.streamId); }
+            else if(ev.type === EV_START){ const sid=c.streamId; if(sid && !starts.has(sid)) starts.set(sid,c); }
+        }
+        const ativos = [];
+        for(const [sid,data] of starts){ if(!stops.has(sid)) ativos.push(data); }
+        console.log('[K10Registry] transmissoes ativas (5min):', ativos.length);
+        return ativos;
+    }
+
+    /* Injeta transmissões no estado React como se fossem mensagens P2P */
+    async function syncLateJoiner(){
+        const ativos = await fetchRecent();
+        if(!ativos.length) return;
+        for(const bc of ativos){
+            try{
+                let fakeData = { ...bc };
+                // FIX BUG-REGISTRY-SENDER: todos os handlers indexam state por data.sender,
+                // mas o registry salva o campo como 'peerId'. Mapear aqui para todos os tipos.
+                fakeData.sender     = bc.peerId;
+                fakeData.senderName = bc.senderName || bc.peerId;
+
+                if(bc.broadcastType==='iptv'){
+                    fakeData.type='iptv-start';
+                    fakeData.id=bc.streamId+'_reg_'+Date.now();
+                    fakeData.ttl=0;
+                    // campos iptv: url, name, country, flag já vêm de ...bc via publish({...data})
+                } else if(bc.broadcastType==='radio'){
+                    fakeData.type='radio-world-start';
+                    fakeData.id=bc.streamId+'_reg_'+Date.now();
+                    // FIX BUG-REGISTRY-RADIO: handler usa streamUrl/fileName/radioId
+                    fakeData.radioId   = bc.streamId;
+                    fakeData.fileName  = bc.name;
+                    fakeData.streamUrl = bc.url;
+                    fakeData.ttl=0;
+                } else if(bc.broadcastType==='youtube'){
+                    fakeData.type='radio-youtube-start';
+                    fakeData.id=bc.streamId+'_reg_'+Date.now();
+                    fakeData.youtubeId=bc.youtubeId;
+                    fakeData.ttl=0;
+                } else if(bc.broadcastType==='whiteboard'){
+                    fakeData.type='whiteboard-session-announce';
+                    // FIX BUG-REGISTRY-WB: handler usa owner/ownerName/sessionId
+                    fakeData.owner     = bc.peerId;
+                    fakeData.ownerName = bc.senderName || bc.peerId;
+                    fakeData.sessionId = bc.sessionId || bc.streamId;
+                    fakeData.ttl=0;
+                } else if(bc.broadcastType==='markdown'){
+                    fakeData.type='md-editor-session-announce';
+                    // FIX BUG-REGISTRY-MD: handler usa owner/ownerName/sessionId
+                    fakeData.owner     = bc.peerId;
+                    fakeData.ownerName = bc.senderName || bc.peerId;
+                    fakeData.sessionId = bc.sessionId || bc.streamId;
+                    fakeData.content=bc.content||'';
+                    fakeData.ttl=0;
+                } else if(bc.broadcastType==='youtube-chat'){
+                    // FIX REGISTRY-YTCHAT: recupera o chat YouTube ao vivo para late-joiners
+                    fakeData.type='youtube-chat-start';
+                    fakeData.id=bc.streamId+'_reg_'+Date.now();
+                    fakeData.youtubeId=bc.youtubeId;
+                    fakeData.ttl=0;
+                } else { continue; }
+                if(typeof window.handleIncomingDataRef?.current==='function'){
+                    window.handleIncomingDataRef.current(fakeData, bc.peerId||'__registry__');
+                }
+                window.k10Toast&&window.k10Toast('📡 Recuperado: '+bc.broadcastType+(bc.name?' · '+bc.name:''),'info',4000);
+            }catch(e){ console.warn('[K10Registry] erro ao aplicar:', e); }
+        }
+    }
+
+    /* ══════════════════════════════════════════════════════
+       RELÓGIO DO SERVIDOR DE TELEMETRIA
+       Envia um ping ao Matrix, lê o origin_server_ts de
+       volta e calcula o offset exato entre relógio local
+       e relógio do servidor. Precisão ≈ RTT/2.
+    ══════════════════════════════════════════════════════ */
+    async function syncClockFromMatrix(){
+        if(!mxToken()) return null;
+        await ensureRoom();
+        const t0 = Date.now();
+        const txnId = 'k10clk_'+t0+'_'+Math.random().toString(36).slice(2,6);
+
+        /* 1. Envia evento de ping — o servidor carimbará origin_server_ts */
+        const sent = await mxAPI('PUT',
+            '/_matrix/client/v3/rooms/'+encodeURIComponent(SALA_ROOM_ID)+
+            '/send/m.k10.clock/'+txnId,
+            { _k10clk:1, ts_local: t0 });
+        const t1 = Date.now();
+        if(!sent?.event_id) return null;
+
+        const rtt = t1 - t0;
+
+        /* 2. Busca o evento de volta para ler origin_server_ts */
+        const ev = await mxAPI('GET',
+            '/_matrix/client/v3/rooms/'+encodeURIComponent(SALA_ROOM_ID)+
+            '/event/'+encodeURIComponent(sent.event_id));
+        if(!ev?.origin_server_ts) return null;
+
+        /* 3. Calcula offset:
+              O servidor processou o evento em origin_server_ts.
+              Nosso relógio local quando o servidor processou ≈ t0 + rtt/2.
+              Offset = server_ts - local_ts_at_server_moment              */
+        const offset = ev.origin_server_ts - (t0 + rtt / 2);
+
+        /* Sanidade: ignora offsets absurdos (>5 min) */
+        if(Math.abs(offset) > 300000) {
+            console.warn('[K10Clock] offset suspeito, ignorado:', offset);
+            return null;
+        }
+
+        window.K10ServerClockOffset = offset;
+        console.log(`[K10Clock] ✅ sincronizado com servidor Matrix · offset=${Math.round(offset)}ms · RTT=${rtt}ms`);
+
+        /* Dispara evento global para o React atualizar clockOffsetRef */
+        window.dispatchEvent(new CustomEvent('k10-clock-sync', { detail: { offset, rtt } }));
+        return offset;
+    }
+
+    /* trueNow corrigido pelo servidor Matrix */
+    function trueNow(){ return Date.now() + (window.K10ServerClockOffset || 0); }
+
+    window.K10BroadcastRegistry = { publish, publishStop, fetchRecent, syncLateJoiner, syncClockFromMatrix, trueNow };
+    console.log('[K10BroadcastRegistry] pronto');
+
+    /* Sincroniza o relógio automaticamente assim que o token estiver disponível */
+    function tentarSyncClock(tentativas){
+        tentativas = tentativas||0;
+        if(mxToken()){ syncClockFromMatrix(); return; }
+        if(tentativas < 40) setTimeout(()=>tentarSyncClock(tentativas+1), 3000);
+    }
+    if(document.readyState==='loading'){
+        document.addEventListener('DOMContentLoaded',()=>setTimeout(tentarSyncClock,6000));
+    } else {
+        setTimeout(tentarSyncClock,6000);
+    }
+    /* Re-sincroniza a cada 5 minutos */
+    setInterval(()=>{ if(mxToken()) syncClockFromMatrix(); }, 5*60*1000);
+})();
+</script>
