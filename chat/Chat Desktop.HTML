@@ -30,7 +30,7 @@
 <link rel="dns-prefetch" href="https://0.peerjs.com">
 <link rel="dns-prefetch" href="https://www.youtube.com">
 
-<title>Chat K10 — V3 (Modo Geral e Salinhas: terminal Matrix puro · GATWA/GRUPOS/SERVIDORES/USER removidos do Geral)</title>
+<title>Chat K10 — V3 (Modo Geral: terminal Matrix puro · GATWA/GRUPOS/SERVIDORES/USER removidos do Geral)</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
 <!-- Fuse.js v7 — fuzzy search para contatos (testado em milhões de apps) -->
@@ -74,7 +74,7 @@
 --k10-blue-bdr:      #bfdbfe;
 --k10-blue-txt:      #1e40af;
 
-/* ── VERDE — sucesso, salinhas, Matrix, conexão ── */
+/* ── VERDE — sucesso, Matrix, conexão ── */
 --k10-green:         #10b981;
 --k10-green-dk:      #059669;
 --k10-green-dkr:     #047857;
@@ -134,7 +134,7 @@
 --k10-p2p-sys-txt:   #1d4ed8;
 
 /* ════════════════════════════════════
-   BOLHAS MATRIX — Salinhas e Geral
+   BOLHAS MATRIX — Geral
    ════════════════════════════════════ */
 --k10-mx-recv-bg:    #e2f7ee;   /* recebida — verde claro */
 --k10-mx-recv-txt:   #1e293b;
@@ -250,19 +250,6 @@
 --t: all 0.2s ease;
 --t-fast: all 0.15s ease;
 
-/* ── Salinhas (Matrix) palette ── */
---sl-green:       #10b981;
---sl-green-dk:    #059669;
---sl-green-dkr:   #047857;
---sl-green-bg:    #f0fdf4;
---sl-green-bg2:   #dcfce7;
---sl-green-bdr:   #a7f3d0;
---sl-blue:        #2563eb;
---sl-blue-lt:     #bfdbfe;
---sl-ping-good:   #22c55e;
---sl-ping-mid:    #f59e0b;
---sl-ping-bad:    #ef4444;
-
 /* ── Botões ── */
 --btn-sm-pad: 5px 12px;
 --btn-md-pad: 8px 16px;
@@ -374,11 +361,7 @@ text-shadow: 0 0 8px rgba(74, 222, 128, 0.3);
 .sidebar-tab.active-private  { color: #3b82f6; border-bottom-color: #3b82f6; background: #eff6ff; }
 .sidebar-tab.active-general  { color: #10b981; border-bottom-color: #10b981; background: #f0fdf4; }
 .sidebar-tab.active-youtube  { color: #ef4444; border-bottom-color: #ef4444; background: #fef2f2; }
-.sidebar-tab.active-salinhas { color: #10b981; border-bottom-color: #10b981; background: #f0fdf4; }
-.sidebar-tab:hover:not(.active-private):not(.active-general):not(.active-youtube):not(.active-salinhas) { background: #f8fafc; color: #475569; }
-/* Salinhas sidebar container */
-#matrix-salinhas-sidebar { display: none; flex: 1; overflow-y: auto; flex-direction: column; align-items: stretch; justify-content: flex-start; }
-#matrix-salinhas-sidebar.ativo { display: flex; }
+.sidebar-tab:hover:not(.active-private):not(.active-general):not(.active-youtube) { background: #f8fafc; color: #475569; }
 .sidebar-tab-icon { font-size: 15px; }
 .sidebar-tab-badge { position: absolute; top: 4px; right: 6px; background: #ef4444; color: white; font-size: 9px; font-weight: 700; border-radius: 10px; padding: 1px 5px; min-width: 16px; text-align: center; }
 .sidebar-tab-content { flex: 1; overflow-y: auto; }
@@ -386,7 +369,6 @@ text-shadow: 0 0 8px rgba(74, 222, 128, 0.3);
 .dark-mode .sidebar-tab.active-private { background: #1e3a5f; }
 .dark-mode .sidebar-tab.active-general { background: #052e16; }
 .dark-mode .sidebar-tab.active-youtube { background: #450a0a; }
-.dark-mode .dark-mode .sidebar-tab.active-salinhas { background: #052e16; }
 .conversation-name { font-weight: 600; color: var(--text); font-size: 14px; }
 .conversation-peer-id { font-size: 11px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
 
@@ -3172,7 +3154,7 @@ return `${h}:${m}:${s}`;
 
 
 // ================================================================
-// K10GeneralRoomChat — Salinha Geral (Matrix)
+// K10GeneralRoomChat — Sala Geral (Matrix)
 // Renderiza apenas o container. O JS do Matrix injeta o overlay
 // via window._matrixGeralActive() ao trocar de aba.
 // ================================================================
@@ -3228,7 +3210,7 @@ const [activeChatTab, setActiveChatTab] = useState('general');
 const activeChatTabRef = useRef('general');
 useEffect(() => { activeChatTabRef.current = activeChatTab; }, [activeChatTab]);
 // ── tabUnread: contador de msgs não lidas por aba ──
-const [tabUnread, setTabUnread] = useState({p2p:0, general:0, salinhas:0, youtube:0});
+const [tabUnread, setTabUnread] = useState({p2p:0, general:0, youtube:0});
 // Fuse.js — busca fuzzy de contatos na aba P2P
 const [contactSearch, setContactSearch] = useState('');
 
@@ -3243,16 +3225,12 @@ useEffect(() => {
   }
   prevSelectedContactRef.current = selectedContact;
 }, [selectedContact]);
-// changeTab: troca aba e sincroniza salinhas Matrix + Geral
+// changeTab: troca aba e sincroniza Geral Matrix
 const changeTab = (tab) => {
   setActiveChatTab(tab);
   setTabUnread(prev => ({...prev, [tab]: 0}));
-  if (tab === 'salinhas') {
-    setTimeout(() => window._matrixOnSalinhasActive && window._matrixOnSalinhasActive(), 80);
-  } else if (tab === 'general') {
+  if (tab === 'general') {
     setTimeout(() => window._matrixGeralActive && window._matrixGeralActive(), 80);
-  } else {
-    window._matrixOnSalinhasInactive && window._matrixOnSalinhasInactive();
   }
 };
 
@@ -3363,6 +3341,7 @@ const handleQuizAnswer = (quizId, optionIndex) => {
     connectionsRef.current.forEach(c => { if (c.open) try { c.send({ ...answerData, direct: false }); } catch(e){} });
   }
 };
+window._handleQuizAnswer = handleQuizAnswer; // Expõe para o Quiz flutuante (fora do ChatManager)
 
 
 useEffect(() => {
@@ -3785,7 +3764,6 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
       {activeChatTab === 'p2p' ? '👤 P2P' :
        activeChatTab === 'general' ? '🌐 Geral' :
        activeChatTab === 'youtube' ? '📺 YouTube' :
-       activeChatTab === 'salinhas' ? '💬 Salinhas' :
        t(lang, 'conversations')}
     </h4>
     <button className="icon-btn" onClick={() => setShowTorrentManager(true)} title={t(lang, 'torrentManager')} style={{ padding: '4px' }}>
@@ -3942,22 +3920,6 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
   })()}</div>
 
 
-{/* ── Salinhas Matrix — sidebar dedicada ── */}
-<div id="matrix-salinhas-sidebar" className={activeChatTab === 'salinhas' ? 'ativo' : ''}>
-  <div style={{ padding:'10px 14px 6px', display:'flex', alignItems:'center', justifyContent:'space-between', borderTop:'1px solid var(--border)' }}>
-    <span style={{ fontSize:'11px', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'.08em', display:'flex', alignItems:'center', gap:'6px' }}>
-      <i className="fas fa-comments" style={{ color:'#10b981' }}></i> Salinhas
-    </span>
-    <button
-      onClick={() => window._matrixAbrirMenu && window._matrixAbrirMenu()}
-      style={{ background:'linear-gradient(135deg,#10b981,#059669)', color:'white', border:'none', borderRadius:'6px',
-               padding:'4px 10px', fontSize:'11px', fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:'5px',
-               boxShadow:'0 1px 4px rgba(16,185,129,0.3)' }}>
-      <i className="fas fa-plus-circle"></i> Explorar Salinhas
-    </button>
-  </div>
-  {/* Matrix injeta #matrix-sidebar-block aqui diretamente, sem div intermediário */}
-</div>
 </div>
 
 <div className="chat-messages-container">
@@ -3972,7 +3934,7 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
     fontSize: '11px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px', position: 'relative'
   });
   // ── Navegação por teclado (WCAG 2.1 pattern para tabs) ──
-  const TAB_ORDER = ['p2p', 'general', 'youtube', 'salinhas'];
+  const TAB_ORDER = ['p2p', 'general', 'youtube'];
   const handleTabKeyDown = (e) => {
     const idx = TAB_ORDER.indexOf(activeChatTab);
     if (e.key === 'ArrowRight') {
@@ -4021,13 +3983,6 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
         <span>YouTube</span>
         {youtubeChatId && <span style={{ position:'absolute', top:'4px', right:'6px', background:'#ef4444', borderRadius:'50%', width:'7px', height:'7px' }}></span>}
       </button>
-
-      {/* Salinhas */}
-      <button role="tab" data-tab="salinhas" aria-selected={activeChatTab === 'salinhas'} tabIndex={activeChatTab === 'salinhas' ? 0 : -1}
-        onClick={() => changeTab('salinhas')} onKeyDown={handleTabKeyDown} style={tabStyle('salinhas', '#10b981')} title="Salinhas Matrix">
-        <span style={{ fontSize: '15px' }}>💬</span>
-        <span>Salinhas</span>
-      </button>
     </div>
   );
 })()}
@@ -4066,6 +4021,7 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
 )}
 {filteredMessages.map((msg, i) => {
 if (hiddenMessages.has(msg.timestamp)) return null;
+if (msg.type === 'quiz-question') return null;
 return (
 <div key={msg.timestamp || i}
 className={`message-bubble ${msg.sender === 'you' ? 'sent' : 'received'}`}
@@ -4086,13 +4042,6 @@ style={msg.sender === '__system__' ? { background: '#eff6ff', border: '1px solid
 )}
 {msg.type === 'poll-create' ? (
   <Poll msg={msg} peerId={peerId} onVote={handleVote} />
-) : msg.type === 'quiz-question' ? (
-  msg.sender === 'you'
-    ? <div style={{ fontSize:'12px', color:'#6ee7b7', background:'rgba(16,185,129,0.12)', border:'1px solid rgba(16,185,129,0.3)', borderRadius:'8px', padding:'7px 12px', display:'flex', alignItems:'center', gap:'7px' }}>
-        <span>🤖</span>
-        <span><b>Quiz enviado:</b> {msg.quizQuestion || 'Pergunta do Quiz'}</span>
-      </div>
-    : <QuizQuestion msg={msg} peerId={peerId} onAnswer={handleQuizAnswer} />
 ) : msg.type === 'text' ? (
 msg.text && msg.text.includes('🧲 TORRENT:') ? (
 <div className="torrent-card">
@@ -4250,15 +4199,6 @@ title={t(lang, 'sendMessage')}>
     <div style={{ fontSize:'13px', textAlign:'center', maxWidth:'260px' }}>Inicie um YouTube Chat pelas Ferramentas para ver o chat aqui</div>
   </div>
 )}
-</div>
-</div>
-<div className="k10-tab-panel" hidden={activeChatTab !== 'salinhas'}>
-<div id="matrix-salinhas-content" style={{ flex:1, display:'flex', flexDirection:'column', position:'relative', overflow:'hidden' }}>
-  <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', gap:'12px' }}>
-    <div style={{ fontSize:'48px' }}>💬</div>
-    <div style={{ fontWeight:600, fontSize:'15px' }}>Salinhas Matrix</div>
-    <div style={{ fontSize:'13px', textAlign:'center', maxWidth:'260px' }}>Selecione uma salinha no painel esquerdo ou use <strong>Explorar Salinhas</strong> para adicionar mais</div>
-  </div>
 </div>
 </div>
 </div>
@@ -6775,6 +6715,8 @@ const [quizDiscipline, setQuizDiscipline] = useState('mat');
 const quizDisciplineRef = useRef('mat');
 useEffect(() => { quizDisciplineRef.current = quizDiscipline; }, [quizDiscipline]);
 const currentQuizQuestionRef = useRef(null);
+const [floatingQuiz, setFloatingQuiz] = useState(null); // Quiz flutuante — dados completos do quiz ativo
+window._setFloatingQuiz = (data) => setFloatingQuiz(data); // Expõe para o overlay Geral (plain JS)
 const quizTimerRef = useRef(null);
 const quizJitterTimerRef = useRef(null); // Timer para o atraso inicial (jitter)
 const quizAllIndexRef = useRef(0);
@@ -8459,6 +8401,8 @@ if (data.text === '__QUIZ__' && data.quizPayload) {
         quizCorrect: qd.quizCorrect, quizSubject: qd.quizSubject, quizImage: qd.quizImage || null },
       data.senderName || '🤖 Quiz Bot', messageTime
     );
+  // ── Quiz flutuante — abre janela PiP automática ──
+  setFloatingQuiz(baseQuizMsg);
   return;
 }
 
@@ -8467,6 +8411,8 @@ if (data.text === '__QUIZ_REVEAL__' && data.quizRevealPayload) {
   setMessages(prev => prev.map(m =>
     m.quizId === quizId ? { ...m, quizRevealed: true, quizVotes: { ...(m.quizVotes || {}), ...(votes || {}) } } : m
   ));
+  // ── Atualiza quiz flutuante se for o mesmo quiz ──
+  setFloatingQuiz(prev => prev && prev.quizId === quizId ? { ...prev, quizRevealed: true, quizVotes: { ...(prev.quizVotes || {}), ...(votes || {}) } } : prev);
   // ── MODO GERAL NOVO: revela resposta no overlay Matrix ──
   if (typeof window._matrixGeralRevealQuiz === 'function' &&
       data.quizRevealPayload.quizCorrect !== undefined)
@@ -8927,7 +8873,7 @@ setMessages(prev => [...prev, { text: `System: PeerJS Error (${err.type})`, send
 
 peer.on('disconnected', () => {
 setIsPeerInitialized(false);
-stopMonitorReporting();
+if (typeof stopMonitorReporting === 'function') stopMonitorReporting();
 // peer desconectado — reconectando
 
 
@@ -10015,14 +9961,6 @@ return (
     </div>
       <div className="media-controls-options">
 
-        {/* ─── 1: MATRIX — SALAS ─────────────────────────────── */}
-        <div style={{ fontSize: '9px', letterSpacing: '2px', color: '#34d399', fontWeight: '700', paddingBottom: '4px', borderBottom: '1px solid #334155', marginBottom: '4px' }}>
-          ◉ MATRIX — SALAS
-        </div>
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); window._matrixAbrirMenu && window._matrixAbrirMenu(); }}>
-          <i className="fas fa-comments" style={{color:'#34d399'}}></i>
-          <div><div>Salinhas</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Explorar e entrar em salas Matrix</div></div>
-        </button>
 
         {/* ─── 2: COLABORAÇÃO ──────────────────────────────────── */}
         <div style={{ fontSize: '9px', letterSpacing: '2px', color: '#60a5fa', fontWeight: '700', paddingBottom: '4px', borderBottom: '1px solid #334155', marginBottom: '4px', marginTop: '6px' }}>
@@ -10704,6 +10642,27 @@ onClose={handleYoutubeRadio}
 ))}
 
 
+{/* ── Quiz Flutuante — janela PiP para o quiz ativo ── */}
+{floatingQuiz && (
+    <FloatingWindow
+      title="🤖 Quiz"
+      initialPosition={{ x: Math.max(20, window.innerWidth - 420), y: 80 }}
+      initialSize={{ width: 380, height: 480 }}
+      onClose={() => setFloatingQuiz(null)}
+    >
+      <div style={{ padding: '16px', overflowY: 'auto', flex: 1, background: 'var(--surface)' }}>
+        {floatingQuiz.sender === 'you' ? (
+          <div style={{ fontSize:'13px', color:'#6ee7b7', background:'rgba(16,185,129,0.12)', border:'1px solid rgba(16,185,129,0.3)', borderRadius:'8px', padding:'10px 14px', display:'flex', alignItems:'center', gap:'8px' }}>
+            <span>🤖</span>
+            <span><b>Quiz enviado:</b> {floatingQuiz.quizQuestion || 'Pergunta do Quiz'}</span>
+          </div>
+        ) : (
+          <QuizQuestion msg={(() => { const live = messages.find(m => m.quizId === floatingQuiz.quizId && m.type === 'quiz-question'); return live || floatingQuiz; })()} peerId={peerId} onAnswer={(qId, idx) => { if (window._handleQuizAnswer) window._handleQuizAnswer(qId, idx); }} />
+        )}
+      </div>
+    </FloatingWindow>
+)}
+
 {/* Remote Streams / YouTube Gallery / World Radios */}
 {(() => {
   const videoPeers = remoteStreams.map(s => s.peerId).filter(id => id !== peerId);
@@ -10882,46 +10841,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
 <style>
 /* ── MATRIX SIDEBAR ITEM ── */
-.matrix-conv-item {
-  padding: 11px 14px;
-  border-bottom: 1px solid #f1f5f9;
-  cursor: pointer;
-  transition: background 0.15s;
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.matrix-conv-item:hover { background: #f0fdf4; }
-.matrix-conv-item.active { background: #dcfce7; border-left: 3px solid #10b981; }
-.matrix-conv-name { font-weight: 600; font-size: 13px; color: #1e293b; flex: 1; }
-.matrix-conv-sub  { font-size: 10px; color: #64748b; margin-top: 1px; }
-.matrix-conv-close {
-  opacity: 0.4;
-  font-size: 13px;
-  color: #94a3b8;
-  cursor: pointer;
-  padding: 3px 7px;
-  border-radius: 5px;
-  transition: all 0.15s;
-  flex-shrink: 0;
-  pointer-events: auto;
-  line-height: 1;
-  background: transparent;
-  border: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.matrix-conv-item:hover .matrix-conv-close { opacity: 1; }
-.matrix-conv-close:hover { background: #fee2e2 !important; color: #ef4444 !important; opacity: 1; }
-
-/* Dark mode */
-.dark-mode .matrix-conv-item { border-bottom-color: #1e293b; }
-.dark-mode .matrix-conv-item:hover { background: #052e16; }
-.dark-mode .matrix-conv-item.active { background: #052e16; border-left-color: #10b981; }
-.dark-mode .matrix-conv-name { color: #e2e8f0; }
-.dark-mode .matrix-conv-sub { color: #64748b; }
 
 /* ── MATRIX DIAGNOSTICS ── */
 #matrix-diag-modal {
@@ -10974,38 +10893,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 .mdiag-btn-copy   { background: #334155; color: #94a3b8; }
 .mdiag-btn-close  { background: #1e293b; color: #64748b; }
 
-/* ── MATRIX CHAT OVERLAY HEADER ── */
-#matrix-chat-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: linear-gradient(135deg, var(--sl-green-dkr), var(--sl-green-dk));
-  color: #fff;
-  flex-shrink: 0;
-  min-height: 42px;
-}
-#matrix-chat-back {
-  background: rgba(255,255,255,0.15);
-  border: 1px solid rgba(255,255,255,0.3);
-  color: #fff;
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background 0.15s;
-}
-#matrix-chat-back:hover { background: rgba(255,255,255,0.28); }
-#matrix-chat-sala-nome {
-  flex: 1;
-  font-weight: 700;
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .mx-e2ee-badge {
   background: rgba(255,255,255,0.18);
   border: 1px solid rgba(255,255,255,0.35);
@@ -11030,39 +10917,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 .mx-ping.ping-bad  { color: var(--sl-ping-bad);  }
 .mx-ping.ping-idle { color: rgba(255,255,255,0.35); }
 
-/* Draft indicator on sidebar items */
-.matrix-conv-item.has-draft .matrix-conv-name::after {
-  content: ' ✏️';
-  font-size: 9px;
-  opacity: 0.7;
-}
 
-#matrix-chat-overlay {
-  display: none;
-  position: absolute;
-  inset: 0;
-  background: var(--surface);
-  z-index: 10;
-  flex-direction: column;
-  overflow: hidden;
-}
-#matrix-chat-overlay.ativo {
-  display: flex;
-}
-#matrix-chat-messages {
-  flex: 1;
-  overflow-y: auto;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  background: #f8fafc;
-}
-.dark-mode #matrix-chat-messages { background: #0f172a; }
 
 /* ════════════════════════════════════════════════════════
-   MODO GERAL — Salinha fixa Matrix (overlay sempre visível)
-   Estrutura paralela à das Salinhas, sem interferência.
+   MODO GERAL — Sala fixa Matrix (overlay sempre visível)
+
    ════════════════════════════════════════════════════════ */
 #general-matrix-content {
   display: flex;
@@ -11113,7 +10972,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
   gap: 8px;
   background: #f8fafc;
 }
-/* Modo Geral usa as mesmas cores das Salinhas (matrix-chat-bubble global) — sem overrides */
+/* Modo Geral usa as mesmas cores das bolhas Matrix (global) */
 .dark-mode #general-matrix-messages { background: #0f172a; }
 #general-matrix-empty {
   text-align: center;
@@ -11211,227 +11070,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 .dark-mode .matrix-chat-bubble.bubble-failed { background: #450a0a; }
 .matrix-bubble-name { font-size: 11px; font-weight: 700; color: #059669; margin-bottom: 3px; }
 .matrix-bubble-time { font-size: 10px; color: var(--text-muted); margin-top: 3px; text-align: right; }
-#matrix-chat-input-row {
-  display: flex;
-  gap: 8px;
-  padding: 10px 12px;
-  border-top: 1px solid var(--border);
-  background: var(--surface);
-  flex-shrink: 0;
-}
-#matrix-chat-input {
-  flex: 1;
-  padding: 8px 12px;
-  border: 1.5px solid var(--border);
-  border-radius: 8px;
-  font-size: 13px;
-  font-family: inherit;
-  background: var(--bg);
-  color: var(--text);
-  outline: none;
-}
-#matrix-chat-input:focus { border-color: #10b981; }
-#matrix-chat-send {
-  background: linear-gradient(135deg, #10b981, #059669);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  padding: 8px 16px;
-  cursor: pointer;
-  font-weight: 700;
-  font-size: 13px;
-}
-#matrix-chat-empty {
-  text-align: center;
-  color: var(--text-muted);
-  font-size: 13px;
-  margin-top: 40px;
-}
-
-/* ── MATRIX MENU BUTTON na sidebar ── */
-.matrix-add-sala-btn {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: calc(100% - 20px);
-  margin: 8px 10px 4px;
-  padding: 8px 12px;
-  background: linear-gradient(135deg, #059669, #10b981);
-  color: white;
-  border: none;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: all 0.2s;
-  box-shadow: 0 2px 8px rgba(16,185,129,0.3);
-  letter-spacing: 0.2px;
-}
-.matrix-add-sala-btn:hover {
-  background: linear-gradient(135deg, #047857, #059669);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(16,185,129,0.4);
-}
 
 /* ── MODAL DE SALAS MATRIX ── */
-.matrix-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.6);
-  z-index: 9000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: mxFadeIn 0.2s ease;
-}
-@keyframes mxFadeIn { from { opacity: 0; } to { opacity: 1; } }
-
-.matrix-modal {
-  background: #ffffff;
-  border-radius: 16px;
-  width: 480px;
-  max-width: 95vw;
-  max-height: 82vh;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 24px 80px rgba(0,0,0,0.35);
-  overflow: hidden;
-  animation: mxSlideUp 0.25s ease;
-}
-@keyframes mxSlideUp { from { transform: translateY(20px); opacity:0; } to { transform: translateY(0); opacity:1; } }
-
-.dark-mode .matrix-modal { background: #1e293b; color: #e2e8f0; }
-
-.matrix-modal-header {
-  background: linear-gradient(135deg, #059669, #10b981);
-  color: white;
-  padding: 18px 20px 14px;
-  flex-shrink: 0;
-}
-.matrix-modal-header h3 { margin: 0 0 4px; font-size: 17px; font-weight: 800; }
-.matrix-modal-header p { margin: 0; font-size: 12px; opacity: 0.85; }
-
-.matrix-modal-search {
-  padding: 12px 16px;
-  border-bottom: 1px solid #e2e8f0;
-  flex-shrink: 0;
-  background: #f8fafc;
-}
-.dark-mode .matrix-modal-search { background: #0f172a; border-bottom-color: #334155; }
-
-.matrix-modal-search input {
-  width: 100%;
-  padding: 9px 14px 9px 36px;
-  border: 1.5px solid #e2e8f0;
-  border-radius: 8px;
-  font-size: 13px;
-  outline: none;
-  font-family: inherit;
-  background: white;
-  color: #1e293b;
-  transition: border-color 0.2s;
-  box-sizing: border-box;
-}
-.dark-mode .matrix-modal-search input { background: #1e293b; border-color: #334155; color: #e2e8f0; }
-.matrix-modal-search input:focus { border-color: #10b981; }
-.matrix-search-wrap { position: relative; }
-.matrix-search-wrap i {
-  position: absolute;
-  left: 11px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #94a3b8;
-  font-size: 13px;
-}
-
-.matrix-modal-categories {
-  display: flex;
-  gap: 6px;
-  padding: 8px 16px;
-  flex-wrap: wrap;
-  border-bottom: 1px solid #e2e8f0;
-  flex-shrink: 0;
-  background: #f8fafc;
-}
-.dark-mode .matrix-modal-categories { background: #0f172a; border-bottom-color: #334155; }
-
-.mx-cat-btn {
-  padding: 4px 10px;
-  border-radius: 20px;
-  border: 1.5px solid #e2e8f0;
-  background: white;
-  color: #64748b;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.dark-mode .mx-cat-btn { background: #1e293b; border-color: #334155; color: #94a3b8; }
-.mx-cat-btn:hover { border-color: #10b981; color: #059669; }
-.mx-cat-btn.active { background: #10b981; border-color: #10b981; color: white; }
-
-.matrix-modal-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 8px 0;
-}
-.matrix-modal-list::-webkit-scrollbar { width: 4px; }
-.matrix-modal-list::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-
-.mx-sala-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 16px;
-  cursor: pointer;
-  transition: background 0.12s;
-  border-bottom: 1px solid #f1f5f9;
-}
-.dark-mode .mx-sala-item { border-bottom-color: #1e293b; }
-.mx-sala-item:hover { background: #f0fdf4; }
-.dark-mode .mx-sala-item:hover { background: #052e16; }
-.mx-sala-item.already-joined { opacity: 0.45; pointer-events: none; }
-
-.mx-sala-icon {
-  font-size: 22px;
-  width: 36px;
-  text-align: center;
-  flex-shrink: 0;
-}
-.mx-sala-info { flex: 1; min-width: 0; }
-.mx-sala-name { font-weight: 700; font-size: 13px; color: #1e293b; }
-.dark-mode .mx-sala-name { color: #e2e8f0; }
-.mx-sala-alias { font-size: 10px; color: #94a3b8; margin-top: 1px; font-family: monospace; }
-.mx-sala-cat { font-size: 9px; font-weight: 700; color: #059669; background: #dcfce7; border-radius: 4px; padding: 1px 5px; margin-left: 6px; }
-.dark-mode .mx-sala-cat { background: #052e16; }
-
-.mx-join-btn {
-  background: #10b981;
-  color: white;
-  border: none;
-  border-radius: 7px;
-  padding: 6px 14px;
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all 0.15s;
-  white-space: nowrap;
-}
-.mx-join-btn:hover { background: #059669; transform: scale(1.03); }
-.mx-join-btn.joined { background: #e2e8f0; color: #64748b; cursor: default; }
-.dark-mode .mx-join-btn.joined { background: #334155; color: #94a3b8; }
-
-.matrix-modal-footer {
-  padding: 10px 16px;
-  border-top: 1px solid #e2e8f0;
-  font-size: 11px;
-  color: #94a3b8;
-  text-align: center;
-  flex-shrink: 0;
-  background: #f8fafc;
-}
-.dark-mode .matrix-modal-footer { background: #0f172a; border-top-color: #334155; }
 
 /* ── TOAST DE CONFIRMAÇÃO ── */
 .matrix-toast {
@@ -11470,125 +11110,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
     // ── SALA FIXA DO MODO GERAL ──────────────────────────────────
     // Sala única de papo livre para a aba Geral.
-    // Separada das Salinhas — sem lista, entra direto.
+
     const SALA_GERAL_ALIAS  = '!jKDBXnpcIDcjFlVWFz:matrix.org';
     const SALA_GERAL_NOME   = '🗣️ Conversa Geral';
 
-    // ==================================================
-    // 🏷️ CATEGORIAS para o menu de salas
-    // ==================================================
-    const CATEGORIAS = {
-      'geral':   '🌐 Geral',
-      'tech':    '💻 Tecnologia',
-      'linux':   '🐧 Linux',
-      'games':   '🎮 Games',
-      'br':      '🇧🇷 Brasil/PT',
-      'ciencia': '🔬 Ciência',
-      'cultura': '🎨 Cultura',
-      'crypto':  '₿ Crypto',
-      'outros':  '💬 Outros',
-    };
-
-    // 🌎 LISTA DE SALAS DO MATRIX
-    const SALAS = [
-        // --- 🌐 Geral (carregam automaticamente ao iniciar) ---
-        { alias: "#envs_lounge:matrix.org",    nome: "☕ Envs Lounge",          cat: 'geral' },
-        { alias: "#brasil:matrix.org",         nome: "🇧🇷 Brasil Geral",        cat: 'br'    },
-        { alias: "#conversa:matrix.org",       nome: "🗣️ Conversa Geral (PT)",  cat: 'br'    },
-        { alias: "#shitpost:matrix.org",       nome: "💩 Shitpost",             cat: 'geral' },
-
-        // --- 🌐 Geral (apenas no menu) ---
-        { alias: "#matrix:matrix.org",         nome: "🚀 Matrix Oficial (HQ)",               cat: 'geral' },
-        { alias: "#community:matrix.org",      nome: "👥 Comunidade Matrix",                 cat: 'geral' },
-        { alias: "#offtopic-space:envs.net",   nome: "💬 Offtopic (EN)",                     cat: 'geral' },
-        { alias: "#lounge:envs.net",           nome: "🛋️ General Lounge",                    cat: 'geral' },
-        { alias: "#memes:matrix.org",          nome: "🦄 Memes",                             cat: 'geral' },
-        { alias: "#lgbtq:matrix.org",          nome: "🏳️‍🌈 LGBTQ+",                          cat: 'geral' },
-        { alias: "#neurodiversity:matrix.org", nome: "🧩 Neurodiversidade",                  cat: 'geral' },
-        { alias: "#freelance:matrix.org",      nome: "💸 Freelance",                         cat: 'geral' },
-        { alias: "#remotework:matrix.org",     nome: "🏠 Trabalho Remoto",                   cat: 'geral' },
-
-        // --- 💻 Tecnologia ---
-        { alias: "#python:matrix.org",         nome: "🐍 Python",                            cat: 'tech'  },
-        { alias: "#javascript:matrix.org",     nome: "☕ JavaScript",                        cat: 'tech'  },
-        { alias: "#rust:matrix.org",           nome: "🦀 Rust",                              cat: 'tech'  },
-        { alias: "#golang:matrix.org",         nome: "🏎️ GoLang",                            cat: 'tech'  },
-        { alias: "#selfhosted:matrix.org",     nome: "🏠 Self-Hosted",                       cat: 'tech'  },
-        { alias: "#homelab:matrix.org",        nome: "🏡 Homelab",                           cat: 'tech'  },
-        { alias: "#docker:matrix.org",         nome: "🐳 Docker",                            cat: 'tech'  },
-        { alias: "#kubernetes:matrix.org",     nome: "☸️ Kubernetes",                        cat: 'tech'  },
-        { alias: "#devops:matrix.org",         nome: "🔄 DevOps",                            cat: 'tech'  },
-        { alias: "#sysadmin:matrix.org",       nome: "🖥️ Sysadmin",                          cat: 'tech'  },
-        { alias: "#ai:matrix.org",             nome: "🧠 Inteligência Artificial",           cat: 'tech'  },
-        { alias: "#cybersecurity:matrix.org",  nome: "🛡️ Cybersecurity",                     cat: 'tech'  },
-        { alias: "#privacy:matrix.org",        nome: "🔒 Privacy",                           cat: 'tech'  },
-        { alias: "#opensource:matrix.org",     nome: "🔓 Open Source",                       cat: 'tech'  },
-        { alias: "#electronics:matrix.org",    nome: "⚡ Eletrônica",                        cat: 'tech'  },
-        { alias: "#3dprinting:matrix.org",     nome: "🖨️ Impressão 3D",                      cat: 'tech'  },
-        { alias: "#database:matrix.org",       nome: "🗄️ Bancos de Dados",                   cat: 'tech'  },
-        { alias: "#cloud:matrix.org",          nome: "⛅ Cloud",                             cat: 'tech'  },
-        { alias: "#design:matrix.org",         nome: "🎨 Design",                            cat: 'tech'  },
-
-        // --- 🐧 Linux ---
-        { alias: "#linux:matrix.org",          nome: "🐧 Linux Geral",                       cat: 'linux' },
-        { alias: "#archlinux:matrix.org",      nome: "🤓 Arch Linux",                        cat: 'linux' },
-        { alias: "#fedora:matrix.org",         nome: "🎩 Fedora",                            cat: 'linux' },
-        { alias: "#ubuntu:matrix.org",         nome: "🍜 Ubuntu",                            cat: 'linux' },
-        { alias: "#debian:matrix.org",         nome: "🌀 Debian",                            cat: 'linux' },
-        { alias: "#kde:kde.org",               nome: "🌀 KDE",                               cat: 'linux' },
-        { alias: "#gnome:matrix.org",          nome: "👣 GNOME",                             cat: 'linux' },
-        { alias: "#foss:matrix.org",           nome: "💎 FOSS",                              cat: 'linux' },
-
-        // --- 🎮 Games ---
-        { alias: "#gaming:matrix.org",         nome: "🎮 Gaming Geral",                      cat: 'games' },
-        { alias: "#minecraft:matrix.org",      nome: "⛏️ Minecraft",                         cat: 'games' },
-        { alias: "#games:matrix.org",          nome: "👾 Games",                             cat: 'games' },
-        { alias: "#boardgames:glasgow.social",  nome: "🎲 Board Games",                       cat: 'games' },
-        { alias: "#games-br:matrix.org",       nome: "🎮 Games BR",                          cat: 'games' },
-
-        // --- 🇧🇷 Brasil / Portugal ---
-        { alias: "#pt-br:matrix.org",          nome: "🇧🇷 Comunidade BR",                    cat: 'br'    },
-        { alias: "#portugal:matrix.org",       nome: "🇵🇹 Portugal",                         cat: 'br'    },
-        { alias: "#dev-br:matrix.org",         nome: "👨‍💻 Dev Brasil",                       cat: 'br'    },
-        { alias: "#linux-br:matrix.org",       nome: "🐧 Linux Brasil",                      cat: 'br'    },
-        { alias: "#anime-br:matrix.org",       nome: "🍥 Anime BR",                          cat: 'br'    },
-        { alias: "#tecnologia:matrix.org",     nome: "📡 Tecnologia PT-BR",                  cat: 'br'    },
-
-        // --- 🔬 Ciência ---
-        { alias: "#science:matrix.org",        nome: "🔬 Ciência",                           cat: 'ciencia' },
-        { alias: "#space:matrix.org",          nome: "🚀 Espaço / Astronomia",               cat: 'ciencia' },
-        { alias: "#robotics:matrix.org",       nome: "🤖 Robótica",                          cat: 'ciencia' },
-        { alias: "#machinelearning:matrix.org",nome: "🤖 Machine Learning",                  cat: 'ciencia' },
-        { alias: "#philosophy:matrix.org",     nome: "🤔 Filosofia",                         cat: 'ciencia' },
-        { alias: "#psychology:matrix.org",     nome: "🧠 Psicologia",                        cat: 'ciencia' },
-        { alias: "#history:matrix.org",        nome: "🏛️ História",                          cat: 'ciencia' },
-
-        // --- 🎨 Cultura ---
-        { alias: "#anime:matrix.org",          nome: "🍥 Anime",                             cat: 'cultura' },
-        { alias: "#manga:matrix.org",          nome: "📖 Manga",                             cat: 'cultura' },
-        { alias: "#music:matrix.org",          nome: "🎵 Música",                            cat: 'cultura' },
-        { alias: "#art:matrix.org",            nome: "🎨 Arte",                              cat: 'cultura' },
-        { alias: "#books:matrix.org",          nome: "📚 Livros",                            cat: 'cultura' },
-        { alias: "#writing:matrix.org",        nome: "✍️ Escrita",                           cat: 'cultura' },
-        { alias: "#photography:matrix.org",    nome: "📸 Fotografia",                        cat: 'cultura' },
-        { alias: "#food:matrix.org",           nome: "🍲 Comida",                            cat: 'cultura' },
-        { alias: "#coffee:matrix.org",         nome: "☕ Café",                              cat: 'cultura' },
-        { alias: "#beer:matrix.org",           nome: "🍺 Cerveja",                           cat: 'cultura' },
-        { alias: "#travel:matrix.org",         nome: "✈️ Viagens",                           cat: 'cultura' },
-        { alias: "#sports:matrix.org",         nome: "⚽ Esportes",                          cat: 'cultura' },
-        { alias: "#formula1:matrix.org",       nome: "🏎️ Fórmula 1",                         cat: 'cultura' },
-
-        // --- ₿ Crypto ---
-        { alias: "#bitcoin:matrix.org",        nome: "₿ Bitcoin",                            cat: 'crypto' },
-        { alias: "#ethereum:matrix.org",       nome: "⬡ Ethereum",                           cat: 'crypto' },
-
-        // --- 💬 Outros ---
-        { alias: "#nextcloud:matrix.org",      nome: "☁️ Nextcloud",                         cat: 'outros' },
-        { alias: "#mozilla:matrix.org",        nome: "🔥 Mozilla",                           cat: 'outros' },
-        { alias: "#startups:matrix.org",       nome: "🚀 Startups",                          cat: 'outros' },
-        { alias: "#marketing:matrix.org",      nome: "📈 Marketing",                         cat: 'outros' },
-        { alias: "#ham-radio-space:matrix.m0aws.co.uk", nome: "📡 Radioamador",              cat: 'outros' },
-    ];
 
     // ==================================================
     // 🔧 INTERNOS — não precisa alterar
@@ -11717,93 +11242,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
         sala._mensagens.push({ body, sender: remetente, hora });
 
-        if (_salaAtiva === sala.alias) {
-            renderizarChatMatrix(sala);
-        }
         // Atualiza o Modo Geral se a mensagem for da sala geral
         if (sala.alias === SALA_GERAL_ALIAS) {
             renderizarChatGeral();
         }
     }
 
-    // Renderiza a área de conversa de uma sala específica
-    function renderizarChatMatrix(sala) {
-        const overlay = document.getElementById('matrix-chat-overlay');
-        if (!overlay) return;
-        const msgArea = document.getElementById('matrix-chat-messages');
-        if (!msgArea) return;
 
-        const msgs = sala._mensagens || [];
-        if (msgs.length === 0) {
-            // Só mostra loading se o histórico ainda não foi carregado
-            const status = sala._historicoCarregado
-                ? `<div id="matrix-chat-empty">📭 Nenhuma mensagem ainda em ${sala.nome}</div>`
-                : `<div id="matrix-chat-empty">⏳ Carregando mensagens de ${sala.nome}...</div>`;
-            msgArea.innerHTML = status;
-            return;
-        }
-        msgArea.innerHTML = msgs.map((m, idx) => {
-            const isLocal   = !!m._local;
-            const isFailed  = !!m._falhou;
-            const cls       = isFailed ? 'bubble-failed' : isLocal ? 'bubble-sending' : (m.sender === '👤 Você' ? 'bubble-sent' : '');
-            const label     = isFailed  ? '❌ Você (falhou)' :
-                              isLocal   ? '⏳ Você (enviando…)' :
-                              escapeHtml(m.sender);
-            const retryBtn  = isFailed
-                ? `<span class="matrix-bubble-retry" onclick="window._matrixRetry(${idx})">↩ Tentar novamente</span>`
-                : '';
-            return `
-            <div class="matrix-chat-bubble ${cls}" data-idx="${idx}">
-                <div class="matrix-bubble-name">${label}</div>
-                <div>${escapeHtml(m.body)}</div>
-                <div class="matrix-bubble-time">${m.hora}${retryBtn}</div>
-            </div>`;
-        }).join('');
-        msgArea.scrollTop = msgArea.scrollHeight;
-    }
 
-    // Garante que o overlay DOM exista dentro do container de salinhas
-    function garantirOverlay() {
-        if (document.getElementById('matrix-chat-overlay')) return;
-        // V102: prioriza o container dedicado da aba Salinhas para não cobrir a barra de abas
-        const container = document.getElementById('matrix-salinhas-content')
-            || document.querySelector('.chat-messages-container');
-        if (!container) return;
-        const overlay = document.createElement('div');
-        overlay.id = 'matrix-chat-overlay';
-        overlay.innerHTML = `
-            <div id="matrix-chat-header">
-                <button id="matrix-chat-back" onclick="window._matrixVoltarGeral()" title="Voltar para lista de salinhas">← Voltar</button>
-                <span id="matrix-chat-sala-nome">Salinha</span>
-                <div style="display:flex;align-items:center;gap:6px;flex-shrink:0">
-                    <span id="matrix-ping-dot" class="mx-ping ping-idle" title="Latência do último poll">●</span>
-                    <span class="mx-e2ee-badge">🔒 E2EE</span>
-                </div>
-            </div>
-            <div id="matrix-chat-messages"></div>
-            <div id="matrix-chat-input-row">
-                <input id="matrix-chat-input" type="text" placeholder="Mensagem para esta salinha..." autocomplete="off" />
-                <button id="matrix-chat-send" onclick="window._matrixEnviarChat()">
-                    <i class="fas fa-paper-plane"></i>
-                </button>
-            </div>
-        `;
-        container.appendChild(overlay);
-
-        // Enter para enviar
-        overlay.querySelector('#matrix-chat-input').addEventListener('keypress', function(e) {
-            if (e.key === 'Enter') window._matrixEnviarChat();
-        });
-    }
-
-    // Voltar à lista de salinhas (deseleciona sala ativa)
-    window._matrixVoltarGeral = function() {
-        _salaAtiva = null;
-        window._matrixSalaAtual = 'geral';
-        const overlay = document.getElementById('matrix-chat-overlay');
-        if (overlay) overlay.classList.remove('ativo');
-        renderizarSidebarMatrix();
-    };
 
     async function enviarParaSala(sala, texto) {
         try {
@@ -11865,7 +11311,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
                         if (sala.ultimasMensagens.has(ev.event_id)) continue;
                         sala.ultimasMensagens.add(ev.event_id);
                         injetarMensagemNoChat(sala, { event_id: ev.event_id, sender: ev.sender, body: ev.content.body, timestamp: ev.origin_server_ts, room_id: roomId });
-                        if (_salaAtiva === sala.alias) renderizarChatMatrix(sala);
                     }
                 }
             } catch(e) {
@@ -11895,123 +11340,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         setTimeout(() => t.classList.remove('show'), 2800);
     }
 
-    // --------------------------------------------------
-    // getSidebarContainer — prioriza o container dedicado de Salinhas
-    // --------------------------------------------------
-    function getSidebarContainer() {
-        // V101: container dedicado (aba Salinhas) tem prioridade
-        return document.getElementById('matrix-salinhas-sidebar')
-            || document.querySelector('.sidebar-tab-content')
-            || document.querySelector('.conversations-list')
-            || null;
-    }
 
-    function renderizarSidebarMatrix() {
-        let bloco = document.getElementById('matrix-sidebar-block');
-        const container = getSidebarContainer();
-        if (!container) return;
 
-        // V101: se estamos no container dedicado (#matrix-salinhas-sidebar),
-        // limpa o bloco antigo do .conversations-list se existir
-        if (container.id === 'matrix-salinhas-sidebar') {
-            const antigoBlocoGlobal = document.querySelector('.conversations-list #matrix-sidebar-block');
-            if (antigoBlocoGlobal) antigoBlocoGlobal.remove();
-        }
 
-        if (!bloco) {
-            bloco = document.createElement('div');
-            bloco.id = 'matrix-sidebar-block';
-            bloco.style.cssText = 'overflow-y:auto;';
-        }
-        if (!container.contains(bloco)) {
-            container.appendChild(bloco);
-        }
-
-        // FIX: exclui a sala geral (geral:true) da lista das Salinhas
-        const extras = salasInfo.filter(s => !s.geral);
-        bloco.innerHTML = `
-            ${extras.length > 0 ? `
-                ${extras.map(s => `
-                    <div class="matrix-conv-item ${_salaAtiva === s.alias ? 'active' : ''}"
-                         data-alias="${s.alias.replace(/"/g,'&quot;')}"
-                         onclick="window._matrixSelecionarSala('${s.alias.replace(/'/g,"\\'")}')">
-                        <div style="flex:1"><div class="matrix-conv-name">${escapeHtml(s.nome)}</div><div class="matrix-conv-sub">${escapeHtml(s.alias)}</div></div>
-                        <button class="matrix-conv-close" title="Fechar salinha" onclick="event.stopPropagation();window._matrixFecharSala('${s.alias.replace(/'/g,"\\'")}')">✕</button>
-                    </div>`).join('')}
-            ` : `<div style="padding:12px 14px;color:#64748b;font-size:12px;text-align:center;">Nenhuma salinha adicionada.<br>Use <strong>Explorar Salinhas</strong>.</div>`}
-        `;
-        // Atualiza indicadores de rascunho após renderizar
-        if (typeof _atualizarDraftIndicators === 'function') _atualizarDraftIndicators();
-    }
-
-    // --------------------------------------------------
-    // SELECIONAR sala ativa
-    // --------------------------------------------------
-    function _abrirOverlaySala(alias) {
-        garantirOverlay();
-        const overlay = document.getElementById('matrix-chat-overlay');
-        if (alias) {
-            const sala = salasInfo.find(s => s.alias === alias);
-            if (sala) {
-                if (!sala._mensagens) sala._mensagens = [];
-                if (overlay) overlay.classList.add('ativo');
-                // Atualiza header com nome da sala
-                const nomeEl = document.getElementById('matrix-chat-sala-nome');
-                if (nomeEl) nomeEl.textContent = sala.nome || alias;
-                // Restaura rascunho salvo para esta sala
-                const input = document.getElementById('matrix-chat-input');
-                if (input) {
-                    const draft = sessionStorage.getItem('mx_draft_' + alias) || '';
-                    input.value = draft;
-                    // Salva rascunho ao digitar
-                    input._draftAlias = alias;
-                    if (!input._draftListener) {
-                        input._draftListener = true;
-                        input.addEventListener('input', function() {
-                            if (this._draftAlias) {
-                                const v = this.value;
-                                if (v) sessionStorage.setItem('mx_draft_' + this._draftAlias, v);
-                                else   sessionStorage.removeItem('mx_draft_' + this._draftAlias);
-                                // Atualiza indicador visual de rascunho na sidebar
-                                _atualizarDraftIndicators();
-                            }
-                        });
-                    }
-                }
-                // Mostra mensagens já em cache imediatamente
-                renderizarChatMatrix(sala);
-                // Só carrega histórico se ainda não carregou
-                if (!sala._historicoCarregado) {
-                    sala._historicoCarregado = true;
-                    carregarHistorico(sala, 30);
-                }
-            }
-        } else {
-            if (overlay) overlay.classList.remove('ativo');
-        }
-    }
-
-    // Atualiza o indicador ✏️ de rascunho em cada item da sidebar
-    function _atualizarDraftIndicators() {
-        document.querySelectorAll('.matrix-conv-item').forEach(function(el) {
-            const alias = el.dataset.alias;
-            if (!alias) return;
-            const hasDraft = !!sessionStorage.getItem('mx_draft_' + alias);
-            el.classList.toggle('has-draft', hasDraft);
-        });
-    }
 
     // Helper: atualiza o dot de ping com base em ms
     function _atualizarPing(ms) {
-        // Salinhas
-        const dot = document.getElementById('matrix-ping-dot');
-        if (dot) {
-            dot.classList.remove('ping-good','ping-mid','ping-bad','ping-idle');
-            if      (ms < 800)  { dot.classList.add('ping-good'); dot.title = `Latência: ${ms}ms ✅`; }
-            else if (ms < 2500) { dot.classList.add('ping-mid');  dot.title = `Latência: ${ms}ms ⚠️`; }
-            else                { dot.classList.add('ping-bad');  dot.title = `Latência: ${ms}ms ❌`; }
-        }
-        // Modo Geral (mesmo token, mesmo poll)
         const dotG = document.getElementById('general-matrix-ping');
         if (dotG) {
             dotG.classList.remove('ping-good','ping-mid','ping-bad','ping-idle');
@@ -12021,92 +11355,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         }
     }
 
-    window._matrixSelecionarSala = function(alias) {
-        _salaAtiva = alias;
-        window._matrixSalaAtual = alias || 'geral';
-        renderizarSidebarMatrix();
 
-        // V102/CORREÇÃO Bug 1: verifica se o painel está VISÍVEL (não só se o elemento existe no DOM).
-        // O elemento sempre existe (React usa hidden attr), então precisamos checar closest('[hidden]').
-        const _salinhasEl = document.getElementById('matrix-salinhas-content');
-        const _salinhasActive = _salinhasEl && !_salinhasEl.closest('[hidden]');
-        if (alias && !_salinhasActive) {
-            // Ativa a aba Salinhas clicando no botão correspondente
-            const salinhasBtn = document.querySelector('[title="Salinhas Matrix"]');
-            if (salinhasBtn) {
-                salinhasBtn.click();
-                // Aguarda o React renderizar o #matrix-salinhas-content e reinjecta o bloco
-                setTimeout(function() { renderizarSidebarMatrix(); _abrirOverlaySala(alias); }, 150);
-            } else {
-                _abrirOverlaySala(alias);
-            }
-        } else {
-            _abrirOverlaySala(alias);
-        }
-        console.log(`[Matrix] 🏠 Sala ativa: ${alias || 'MODO GERAL'}`);
-    };
 
-    // --------------------------------------------------
-    // FECHAR sala específica
-    // --------------------------------------------------
-    window._matrixFecharSala = function(alias) {
-        salasInfo = salasInfo.filter(s => s.alias !== alias || s.geral);
-        if (_salaAtiva === alias) {
-            _salaAtiva = null;
-            window._matrixSalaAtual = 'geral';
-            const overlay = document.getElementById('matrix-chat-overlay');
-            if (overlay) overlay.classList.remove('ativo');
-        }
-        renderizarSidebarMatrix();
-        mostrarToast('🚪 Sala fechada');
-    };
 
-    window._matrixEnviarChat = async function() {
-        const input = document.getElementById('matrix-chat-input');
-        if (!input || !input.value.trim() || !_salaAtiva) return;
-        // Pede login APENAS quando o usuário tenta enviar uma mensagem
-        if (!MATRIX_TOKEN) {
-            _matrixSolicitarLogin('Faça login para enviar mensagens');
-            return;
-        }
-        const texto = input.value.trim();
-        input.value = '';
-        // Limpa o rascunho salvo ao enviar
-        sessionStorage.removeItem('mx_draft_' + _salaAtiva);
-        _atualizarDraftIndicators();
-        const sala = salasInfo.find(s => s.alias === _salaAtiva);
-        if (!sala || !sala.room_id) return;
-        if (!sala._mensagens) sala._mensagens = [];
-        // Prefixo com nome do usuário K10
-        const nomeK10 = localStorage.getItem('p2pUserName') || '';
-        const textoFinal = nomeK10 ? `[K10·${nomeK10}] ${texto}` : texto;
-        // Adiciona localmente com estado "enviando…"
-        const msgLocal = { body: textoFinal, sender: '👤 Você', hora: new Date().toLocaleTimeString(), _local: true, _texto: textoFinal };
-        sala._mensagens.push(msgLocal);
-        renderizarChatMatrix(sala);
-        // Tenta enviar para o Matrix via GAS
-        const ok = await enviarParaSala(sala, textoFinal);
-        if (!ok) {
-            // Marca a bolha como falhou para o usuário ver
-            msgLocal._falhou = true;
-            delete msgLocal._local;
-            renderizarChatMatrix(sala);
-        }
-        // Se ok=true, o polling substituirá a bolha local pelo event_id real do Matrix
-    };
-
-    // Retry de mensagem falhada
-    window._matrixRetry = async function(idx) {
-        const sala = salasInfo.find(s => s.alias === _salaAtiva);
-        if (!sala || !sala._mensagens[idx]) return;
-        const m = sala._mensagens[idx];
-        const texto = m._texto || m.body;
-        m._falhou = false;
-        m._local  = true;
-        renderizarChatMatrix(sala);
-        const ok = await enviarParaSala(sala, texto);
-        if (!ok) { m._falhou = true; delete m._local; renderizarChatMatrix(sala); }
-    };
 
     // ══════════════════════════════════════════════════════════════
     // 🔬 MATRIX DIAGNOSTICS — Relatório completo em tempo real
@@ -12294,131 +11545,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         );
     };
 
-    // --------------------------------------------------
-    // ABRIR MODAL de seleção de salas
-    // --------------------------------------------------
-    window._matrixAbrirMenu = function() {
-        if (document.getElementById('matrix-modal-overlay')) return;
-        let catAtiva = 'todas';
-        let busca = '';
-        const overlay = document.createElement('div');
-        overlay.className = 'matrix-modal-overlay';
-        overlay.id = 'matrix-modal-overlay';
-        const salasDiponiveis = SALAS.filter(s => !s.geral);
 
-        function renderLista() {
-            const lista = document.getElementById('mx-sala-list');
-            if (!lista) return;
-            const juntou = new Set(salasInfo.map(s => s.alias));
-            const filtrado = salasDiponiveis.filter(s => {
-                const matchCat = catAtiva === 'todas' || s.cat === catAtiva;
-                const matchBusca = !busca || s.nome.toLowerCase().includes(busca.toLowerCase()) || s.alias.toLowerCase().includes(busca.toLowerCase());
-                return matchCat && matchBusca;
-            });
-            if (filtrado.length === 0) {
-                lista.innerHTML = '<div style="padding:24px;text-align:center;color:#94a3b8;font-size:13px">Nenhuma sala encontrada</div>';
-                return;
-            }
-            lista.innerHTML = filtrado.map(s => {
-                const joined = juntou.has(s.alias);
-                const icon = s.nome.match(/^(\p{Emoji})/u)?.[1] || '💬';
-                const nomeSemIcon = s.nome.replace(/^(\p{Emoji}\s?)/u, '');
-                return `
-                    <div class="mx-sala-item ${joined ? 'already-joined' : ''}">
-                        <div class="mx-sala-icon">${icon}</div>
-                        <div class="mx-sala-info">
-                            <div class="mx-sala-name">${escapeHtml(nomeSemIcon)} ${joined ? '<span class="mx-sala-cat">Aberta</span>' : ''}</div>
-                            <div class="mx-sala-alias">${escapeHtml(s.alias)}</div>
-                        </div>
-                        <button class="mx-join-btn ${joined ? 'joined' : ''}"
-                            onclick="window._matrixEntrarSala('${s.alias.replace(/'/g,"\\'")}','${s.nome.replace(/'/g,"\\'")}','${(s.cat||'outros').replace(/'/g,"\\'")}')">
-                            ${joined ? '✓ Aberta' : 'Entrar'}
-                        </button>
-                    </div>
-                `;
-            }).join('');
-        }
-
-        const catBtns = ['todas', ...Object.keys(CATEGORIAS)];
-        const catHtml = catBtns.map(c => `
-            <button class="mx-cat-btn ${c === 'todas' ? 'active' : ''}" data-cat="${c}"
-                onclick="window._mxSetCat('${c}')">
-                ${c === 'todas' ? '🔍 Todas' : CATEGORIAS[c]}
-            </button>
-        `).join('');
-
-        overlay.innerHTML = `
-            <div class="matrix-modal">
-                <div class="matrix-modal-header">
-                    <h3>🌐 Explorar Salinhas Matrix</h3>
-                    <p>Escolha uma salinha para adicionar à sua lista de conversas</p>
-                </div>
-                <div class="matrix-modal-search">
-                    <div class="matrix-search-wrap">
-                        <i class="fas fa-search"></i>
-                        <input id="mx-search-input" type="text" placeholder="Pesquisar salinhas..." autocomplete="off">
-                    </div>
-                </div>
-                <div class="matrix-modal-categories">${catHtml}</div>
-                <div class="matrix-modal-list" id="mx-sala-list"></div>
-                <div class="matrix-modal-footer">
-                    Clique em <strong>Entrar</strong> para abrir uma sala na lista de conversas
-                    <button onclick="document.getElementById('matrix-modal-overlay').remove()"
-                        style="margin-left:12px;background:none;border:1px solid #e2e8f0;border-radius:6px;padding:3px 10px;cursor:pointer;font-size:11px;color:#64748b">
-                        Fechar
-                    </button>
-                </div>
-            </div>
-        `;
-        document.body.appendChild(overlay);
-        overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
-        const inp = document.getElementById('mx-search-input');
-        inp.addEventListener('input', () => { busca = inp.value; renderLista(); });
-        inp.focus();
-        window._mxSetCat = function(cat) {
-            catAtiva = cat;
-            document.querySelectorAll('.mx-cat-btn').forEach(b => {
-                b.classList.toggle('active', b.dataset.cat === cat);
-            });
-            renderLista();
-        };
-        renderLista();
-    };
-
-    // --------------------------------------------------
-    // ENTRAR em uma sala específica (via modal)
-    // --------------------------------------------------
-    window._matrixEntrarSala = async function(alias, nome, cat) {
-        const jaAberta = salasInfo.find(s => s.alias === alias);
-        if (jaAberta) {
-            document.getElementById('matrix-modal-overlay')?.remove();
-            window._matrixSelecionarSala(alias);
-            return;
-        }
-
-        // ── 1. Resolve room_id (funciona sem login) ──
-        mostrarToast(`⏳ Conectando em ${nome}...`);
-        const roomId = await resolverRoomId(alias);
-        if (!roomId) { mostrarToast('❌ Sala não encontrada'); return; }
-
-        // ── 2. Entra na sala SE estiver logado (não bloqueia se não estiver) ──
-        if (MATRIX_TOKEN) {
-            try {
-                const r = await matrixPost(`/_matrix/client/v3/join/${encodeURIComponent(roomId)}`);
-                if (r && r.errcode === 'M_UNKNOWN_TOKEN') {
-                    MATRIX_TOKEN = ''; localStorage.removeItem('matrixToken');
-                }
-            } catch(e) { console.warn('[Matrix] join aviso:', e.message); }
-        }
-
-        // ── 3. Adiciona à lista e abre (sempre, mesmo sem login) ──
-        const isGeral = ALIASES_GERAL.has(alias);
-        salasInfo.push({ alias, nome, cat, geral: isGeral, room_id: roomId, ultimasMensagens: new Set(), _historicoCarregado: false, _mensagens: [], _sinceToken: null });
-        document.getElementById('matrix-modal-overlay')?.remove();
-        renderizarSidebarMatrix();
-        window._matrixSelecionarSala(alias);
-        mostrarToast(`✅ ${nome} aberta!`);
-    };
 
     // --------------------------------------------------
     // Carrega histórico de uma sala
@@ -12442,10 +11569,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
                 }
                 console.log(`[Matrix] 📜 Histórico: ${dados.mensagens.length} msgs de "${sala.nome}"`);
             }
-            if (_salaAtiva === sala.alias) renderizarChatMatrix(sala);
         } catch (e) {
             console.warn(`[Matrix] ⚠️ Sem histórico para "${sala.nome}":`, e);
-            if (_salaAtiva === sala.alias) renderizarChatMatrix(sala);
         }
     }
 
@@ -12456,8 +11581,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     ]);
 
     // ════════════════════════════════════════════════════════════
-    // MODO GERAL — Salinha fixa Matrix
-    // Funções paralelas às das Salinhas, sem interferência.
+    // MODO GERAL — Sala fixa Matrix
+
     // Login compartilhado: mesmo MATRIX_TOKEN, mesmo longPoll.
     // ════════════════════════════════════════════════════════════
 
@@ -12523,45 +11648,21 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     }
 
     function _renderQuizBubble(m) {
-        const L = ['A','B','C','D','E','F'];
         const qd = m._quizData;
         const qid = qd.quizId;
-        const qs = _qSafe(qid);
         const state = _geralQuizzes.get(qid) || { data: qd, myAnswer: null, revealed: false };
         _geralQuizzes.set(qid, state);
-        const optsHtml = (qd.quizOptions || []).map((opt, i) => {
-            let btnCls = 'quiz-option-btn';
-            let extra = '';
-            if (state.myAnswer !== null || state.revealed) {
-                btnCls += ' disabled';
-                if (i === qd.quizCorrect) btnCls += ' correct';
-                else if (i === state.myAnswer) btnCls += ' wrong';
-            }
-            return `<button class="${btnCls}" id="quiz-btn-${qs}-${i}"
-                onclick="window._geralQuizVotar('${qid.replace(/'/g,"\'")}',${i})">
-                <div class="quiz-option-content">
-                    <span class="quiz-option-letter">${L[i]}</span>
-                    <span class="quiz-option-text-wrap">${escapeHtml(opt)}</span>
-                </div></button>`;
-        }).join('');
-        const imgHtml = qd.quizImage
-            ? `<div class="quiz-world-image-wrap"><img class="quiz-world-image" src="${qd.quizImage}" alt="lugar do mundo" onerror="this.parentNode.style.display='none'" style="width:100%;max-height:190px;object-fit:cover;display:block;border-radius:10px"/></div>`
-            : '';
-        const bannerHtml = state.revealed
-            ? `<div class="quiz-result-banner ${state.myAnswer === qd.quizCorrect ? 'correct' : 'wrong'}">${state.myAnswer === qd.quizCorrect ? '✅ Correto!' : `❌ Errado! Resposta: ${L[qd.quizCorrect]}`}</div>`
-            : '';
-        return `<div class="matrix-chat-bubble" id="quiz-bubble-${qs}">
+        const statusIcon = state.revealed ? '✅' : (state.myAnswer !== null ? '🟢' : '');
+        const statusText = state.revealed ? 'Revelado' : (state.myAnswer !== null ? 'Respondido' : 'Responder ↗');
+        const btnStyle = state.revealed || state.myAnswer !== null
+            ? 'background:rgba(16,185,129,0.15);color:#10b981;border:1px solid rgba(16,185,129,0.3);'
+            : 'background:#6366f1;color:#fff;border:none;';
+        return `<div class="matrix-chat-bubble" style="cursor:pointer" onclick="if(window._setFloatingQuiz){window._setFloatingQuiz({quizId:'${qid.replace(/'/g,"\\'")}',quizQuestion:${JSON.stringify(qd.quizQuestion||'')},quizOptions:${JSON.stringify(qd.quizOptions||[])},quizCorrect:${qd.quizCorrect},quizSubject:${JSON.stringify(qd.quizSubject||'')},quizImage:${JSON.stringify(qd.quizImage||null)},quizStage:${JSON.stringify(qd.quizStage||null)},quizVotes:{},quizRevealed:false,sender:'quiz',senderName:'🤖 Quiz Bot',type:'quiz-question'})}">
             <div class="matrix-bubble-name">${escapeHtml(m.sender || '🤖 Quiz Bot')}</div>
-            <div class="quiz-container" style="margin:4px 0 0;box-shadow:none">
-                <div class="quiz-header">
-                    <span class="quiz-badge">🤖 Quiz</span>
-                    ${qd.quizSubject ? `<span class="quiz-subject">${escapeHtml(qd.quizSubject)}</span>` : ''}
-                    ${qd.quizStage ? `<span class="quiz-stage-badge">${qd.quizStage === 1 ? '🌍 ETAPA 1' : '🗺️ ETAPA 2'}</span>` : ''}
-                </div>
-                ${imgHtml}
-                <div class="quiz-question-text">${escapeHtml(qd.quizQuestion || '')}</div>
-                <div class="quiz-options" id="quiz-opts-${qs}">${optsHtml}</div>
-                <div id="quiz-banner-${qs}">${bannerHtml}</div>
+            <div style="display:flex;align-items:center;gap:8px;font-size:13px;padding:2px 0">
+                <span style="font-size:16px">🤖</span>
+                <span style="flex:1"><b>Quiz:</b> ${escapeHtml(qd.quizQuestion || 'Pergunta')} ${statusIcon}</span>
+                <span style="${btnStyle}border-radius:4px;padding:2px 8px;font-size:10px;font-weight:700">${statusText}</span>
             </div>
             <div class="matrix-bubble-time">${m.hora}</div>
         </div>`;
@@ -12578,8 +11679,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             return;
         }
         msgArea.innerHTML = sala._mensagens.map((m, idx) => {
-            // ── Mensagem de Quiz ──
-            if (m._quiz && m._quizData) return _renderQuizBubble(m);
+            // ── Mensagem de Quiz — não renderiza no chat, vai para janela flutuante ──
+            if (m._quiz && m._quizData) return '';
             // ── Mensagem de texto normal ──
             const isLocal  = !!m._local;
             const isFailed = !!m._falhou;
@@ -12633,6 +11734,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             if (sala._mensagens.length > 500) sala._mensagens.shift();
         }
         renderizarChatGeral();
+        // ── Abre quiz na janela flutuante automaticamente ──
+        if (typeof window._setFloatingQuiz === 'function') {
+            window._setFloatingQuiz({ ...quizData, quizVotes:{}, quizRevealed:false, sender:'quiz', senderName:r, type:'quiz-question' });
+        }
     };
 
     // ── Clique numa opção do quiz no overlay Geral ──
@@ -12659,7 +11764,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     window._matrixGeralEnviar = async function() {
         const input = document.getElementById('general-matrix-input');
         if (!input || !input.value.trim()) return;
-        // Login sob demanda — igual às Salinhas
+        // Login sob demanda
         if (!MATRIX_TOKEN) { _matrixSolicitarLogin('Faça login para enviar mensagens'); return; }
         const sala = _getSalaGeral();
         if (!sala || !sala.room_id) { mostrarToast('⏳ Sala ainda carregando...'); return; }
@@ -12724,7 +11829,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         <div style="background:#1e2030;border:1px solid #4a5568;border-radius:14px;padding:32px;width:360px;max-width:95vw;box-shadow:0 8px 40px rgba(0,0,0,.6)">
             <div style="font-size:22px;font-weight:700;color:#e2e8f0;margin-bottom:6px;">🔑 Login Matrix</div>
             ${motivo ? `<div style="color:#fc8181;font-size:13px;margin-bottom:10px;">${motivo}</div>` : ''}
-            <div style="color:#a0aec0;font-size:13px;margin-bottom:20px;">Faça login para enviar mensagens nas salinhas</div>
+            <div style="color:#a0aec0;font-size:13px;margin-bottom:20px;">Faça login para enviar mensagens</div>
 
             <!-- SSO: Google / GitHub -->
             <button id="mx-sso-google" style="width:100%;padding:11px;border-radius:8px;border:1px solid #4a5568;background:#2d3748;color:#e2e8f0;font-size:14px;font-weight:600;cursor:pointer;margin-bottom:8px;display:flex;align-items:center;justify-content:center;gap:10px;">
@@ -12870,69 +11975,14 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             if (s) console.log('[Matrix] ✅ Sala Geral pré-inicializada no startup');
         }).catch(e => console.warn('[Matrix] ⚠️ Sala Geral startup init falhou:', e.message));
 
-        // Salas carregadas apenas quando o usuário selecionar no Explorar Salinhas
         iniciarLongPoll();
-        console.log(`[Matrix] ✅ Long poll ativo. Salas carregadas: ${salasInfo.length}`);
-        injetarNaSidebar();
+        console.log('[Matrix] ✅ Long poll ativo.');
         // Login só aparece quando o usuário tentar enviar — não interrompe a navegação
 
-        // FIX TIMING: se o usuário já havia selecionado uma sala antes de iniciarMatrix
-        // rodar (nos primeiros 6s), a sala não estava em salasInfo → re-abre agora
-        if (_salaAtiva) {
-            const sala = salasInfo.find(s => s.alias === _salaAtiva);
-            if (sala && !sala._historicoCarregado) {
-                console.log(`[Matrix] 🔄 Re-abrindo sala selecionada antes do init: ${_salaAtiva}`);
-                sala._historicoCarregado = true;
-                carregarHistorico(sala, 30);
-            }
-        }
     }
 
-    function injetarNaSidebar() {
-        // Tenta injetar imediatamente
-        const container = getSidebarContainer();
-        if (container) {
-            renderizarSidebarMatrix();
-        }
 
-        // MutationObserver: re-injeta sempre que o React re-renderizar a sidebar
-        // e remover o bloco do DOM
-        const observer = new MutationObserver(function() {
-            if (!document.getElementById('matrix-sidebar-block')) {
-                renderizarSidebarMatrix();
-            }
-        });
 
-        // Observa o chat-main-container (pai da sidebar) e o container de salinhas
-        const root = document.querySelector('.chat-main-container') || document.getElementById('root') || document.body;
-        observer.observe(root, { childList: true, subtree: true });
-        // Também observa o body para capturar o #matrix-salinhas-sidebar quando ele aparecer
-        observer.observe(document.body, { childList: true, subtree: true });
-
-        console.log('[Matrix] 👁️ MutationObserver ativo para manter sidebar injetada');
-    }
-
-    // V102: handlers chamados pelo React ao trocar de aba
-    window._matrixOnSalinhasActive = function() {
-        renderizarSidebarMatrix();
-        // Se havia uma sala ativa, re-cria o overlay no novo #matrix-salinhas-content
-        if (_salaAtiva) {
-            // O #matrix-salinhas-content foi recriado pelo React — overlay precisa ser recriado
-            const oldOverlay = document.getElementById('matrix-chat-overlay');
-            if (oldOverlay) oldOverlay.remove(); // remove overlay antigo (possivelmente orphan)
-            garantirOverlay();
-            const overlay = document.getElementById('matrix-chat-overlay');
-            if (overlay) overlay.classList.add('ativo');
-            const sala = salasInfo.find(s => s.alias === _salaAtiva);
-            if (sala) renderizarChatMatrix(sala);
-        }
-    };
-
-    window._matrixOnSalinhasInactive = function() {
-        // Oculta o overlay ao sair da aba Salinhas
-        const overlay = document.getElementById('matrix-chat-overlay');
-        if (overlay) overlay.classList.remove('ativo');
-    };
 
     if (document.readyState === 'loading') {
         document.addEventListener('DOMContentLoaded', () => setTimeout(iniciarMatrix, 2000));
@@ -13707,7 +12757,7 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
      CANAL PRINCIPAL: Matrix (sala oculta #k10-telemetria:HOMESERVER)
      CANAL FALLBACK:  PeerJS → K10-MON
      
-     Quando o usuário faz login no Matrix (para Geral/Salinhas/Grupos),
+     Quando o usuário faz login no Matrix (para Geral/Grupos),
      o mesmo token é usado para entrar silenciosamente na sala de
      telemetria e postar eventos m.k10.telemetry.
      Todos os monitores logados na mesma sala recebem em tempo real.
