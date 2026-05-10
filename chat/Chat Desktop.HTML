@@ -11493,6 +11493,25 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     let   MATRIX_TOKEN = localStorage.getItem('matrixToken') || '';
     let   MATRIX_USER  = localStorage.getItem('matrixUser')  || '';
 
+    // ── CONTA PÚBLICA — auto-login quando não há sessão ──────────
+    const PUBLIC_MATRIX_TOKEN = 'mat_LqtWTAwL5IGvoNsSc88vo6ome1r5En_EimTJ3';
+    const PUBLIC_MATRIX_USER  = '@chatk10:matrix.org';
+
+    async function _autoLoginPublico() {
+        if (MATRIX_TOKEN) return; // já tem sessão
+        console.log('[Matrix] 🤖 Auto-login conta pública...');
+        MATRIX_TOKEN = PUBLIC_MATRIX_TOKEN;
+        MATRIX_USER  = PUBLIC_MATRIX_USER;
+        localStorage.setItem('matrixToken',    PUBLIC_MATRIX_TOKEN);
+        localStorage.setItem('matrixUser',     PUBLIC_MATRIX_USER);
+        localStorage.setItem('mxdmToken',      PUBLIC_MATRIX_TOKEN);
+        localStorage.setItem('mxdmHomeserver', MATRIX_HS);
+        localStorage.setItem('mxdmMxid',       PUBLIC_MATRIX_USER);
+        if (window.MxDM && window.MxDM.updateLocalToken)
+            window.MxDM.updateLocalToken(PUBLIC_MATRIX_TOKEN, PUBLIC_MATRIX_USER);
+        console.log('[Matrix] ✅ Auto-login OK:', PUBLIC_MATRIX_USER);
+    }
+
     // ── SALA FIXA DO MODO GERAL ──────────────────────────────────
     // Sala única de papo livre para a aba Geral.
 
@@ -12371,6 +12390,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         console.log('[Matrix] 🟢 Iniciando integração v5.0 — Login direto...');
         if (pollingInterval) clearInterval(pollingInterval);
 
+        // Auto-login na conta pública se não houver sessão
+        await _autoLoginPublico();
+
         // Inicializa Sala Geral proativamente (não aguarda o usuário abrir a aba)
         // Isso garante que enviarParaMatrix e o longPoll já incluem a sala desde o início
         _initSalaGeral().then(s => {
@@ -12379,7 +12401,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
         iniciarLongPoll();
         console.log('[Matrix] ✅ Long poll ativo.');
-        // Login só aparece quando o usuário tentar enviar — não interrompe a navegação
 
     }
 
