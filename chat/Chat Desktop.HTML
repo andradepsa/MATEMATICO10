@@ -3171,6 +3171,167 @@ const K10GeneralRoomChat = () => (
 );
 
 // ================================================================
+// YtChatJoinModal — modal de entrada do YouTube Chat
+// ================================================================
+const YtChatJoinModal = ({ onClose, onStart, onJoin }) => {
+const DEFAULT_YT_ID = '36YnV9STBqc';
+const [ytModalTab, setYtModalTab] = useState('default');
+const [ytCustomUrl, setYtCustomUrl] = useState('');
+const [activeStreams, setActiveStreams] = useState(null);
+const [ytModalErr, setYtModalErr] = useState('');
+
+useEffect(() => {
+  if (ytModalTab === 'active') {
+    setActiveStreams(null);
+    (async () => {
+      try {
+        const all = await window.K10BroadcastRegistry?.fetchRecent() || [];
+        setActiveStreams(all.filter(b => b.broadcastType === 'youtube-chat'));
+      } catch(e) { setActiveStreams([]); }
+    })();
+  }
+}, [ytModalTab]);
+
+const parseYtId = (url) => {
+  try {
+    let u = url.trim();
+    if (!u.startsWith('http')) u = 'https://' + u;
+    if (u.includes('youtu.be/')) return u.split('youtu.be/')[1].split('?')[0];
+    if (u.includes('youtube.com/watch')) return new URL(u).searchParams.get('v');
+    if (u.includes('youtube.com/live/')) return u.split('youtube.com/live/')[1].split('?')[0];
+  } catch(e) {}
+  return null;
+};
+
+const handleOwn = () => {
+  const yId = parseYtId(ytCustomUrl);
+  if (!yId) { setYtModalErr('URL inválida. Use um link do YouTube ao vivo.'); return; }
+  setYtModalErr('');
+  onStart(yId);
+};
+
+const tabBtn = (id, label) => (
+  <button onClick={() => setYtModalTab(id)}
+    style={{ flex:1, padding:'8px 4px', fontSize:'12px', fontWeight:700, border:'none',
+             borderBottom: ytModalTab===id ? '2px solid #ef4444' : '2px solid transparent',
+             background:'none', color: ytModalTab===id ? '#ef4444' : 'var(--text-muted)',
+             cursor:'pointer', transition:'all .15s' }}>
+    {label}
+  </button>
+);
+
+return (
+  <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.72)', zIndex:200,
+                display:'flex', alignItems:'center', justifyContent:'center', padding:'16px' }}
+       onClick={e => { if(e.target===e.currentTarget) onClose(); }}>
+    <div style={{ background:'#0f172a', border:'1px solid #7f1d1d', borderRadius:'18px',
+                  width:'100%', maxWidth:'420px', padding:'24px', color:'#f8fafc',
+                  boxShadow:'0 0 40px rgba(239,68,68,0.25)', display:'flex', flexDirection:'column' }}>
+      {/* Header */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'18px' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+          <span style={{ fontSize:'24px' }}>📺</span>
+          <div>
+            <div style={{ fontWeight:800, fontSize:'16px' }}>YouTube Chat ao Vivo</div>
+            <div style={{ fontSize:'12px', color:'#94a3b8', marginTop:'2px' }}>Transmita ou entre em um chat existente</div>
+          </div>
+        </div>
+        <button onClick={onClose} style={{ background:'none', border:'none', color:'#64748b', fontSize:'22px', cursor:'pointer', lineHeight:1, padding:'0 4px' }}>×</button>
+      </div>
+      {/* Tabs */}
+      <div style={{ display:'flex', borderBottom:'1px solid #1e293b', marginBottom:'18px' }}>
+        {tabBtn('default', '⭐ Padrão')}
+        {tabBtn('own', '🔗 Minha URL')}
+        {tabBtn('active', '📡 Ao Vivo')}
+      </div>
+      {/* Tab: default */}
+      {ytModalTab === 'default' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:'14px' }}>
+          <div style={{ background:'#1e293b', borderRadius:'10px', overflow:'hidden' }}>
+            <img src={'https://img.youtube.com/vi/' + DEFAULT_YT_ID + '/mqdefault.jpg'} alt="thumbnail"
+                 style={{ width:'100%', height:'140px', objectFit:'cover', display:'block' }}
+                 onError={e => e.target.style.display='none'} />
+          </div>
+          <div style={{ fontSize:'13px', color:'#94a3b8', textAlign:'center' }}>Transmissão padrão da comunidade K10</div>
+          <div style={{ display:'flex', gap:'8px' }}>
+            <button onClick={() => onJoin(DEFAULT_YT_ID)}
+              style={{ flex:1, background:'#1e293b', color:'#94a3b8', border:'1px solid #334155',
+                       borderRadius:'8px', padding:'10px', fontSize:'13px', fontWeight:600, cursor:'pointer' }}>
+              👁 Só assistir
+            </button>
+            <button onClick={() => onStart(DEFAULT_YT_ID)}
+              style={{ flex:2, background:'#ef4444', color:'white', border:'none', borderRadius:'8px',
+                       padding:'10px', fontSize:'13px', fontWeight:700, cursor:'pointer',
+                       display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
+              <i className="fab fa-youtube"></i> Transmitir para todos
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Tab: own */}
+      {ytModalTab === 'own' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
+          <div style={{ fontSize:'13px', color:'#94a3b8' }}>Cole o link de um YouTube ao vivo:</div>
+          <input value={ytCustomUrl} onChange={e => { setYtCustomUrl(e.target.value); setYtModalErr(''); }}
+            placeholder="https://www.youtube.com/watch?v=..."
+            style={{ width:'100%', padding:'10px 12px', borderRadius:'8px', border:'1px solid #334155',
+                     background:'#1e293b', color:'white', fontSize:'13px', outline:'none', boxSizing:'border-box' }}
+            onKeyDown={e => { if(e.key==='Enter') handleOwn(); }} />
+          {ytModalErr && <div style={{ color:'#f87171', fontSize:'12px' }}>{ytModalErr}</div>}
+          <div style={{ display:'flex', gap:'8px' }}>
+            <button onClick={() => { const yId = parseYtId(ytCustomUrl); if(!yId){setYtModalErr('URL inválida.');return;} setYtModalErr(''); onJoin(yId); }}
+              style={{ flex:1, background:'#1e293b', color:'#94a3b8', border:'1px solid #334155',
+                       borderRadius:'8px', padding:'10px', fontSize:'13px', fontWeight:600, cursor:'pointer' }}>
+              👁 Só assistir
+            </button>
+            <button onClick={handleOwn}
+              style={{ flex:2, background:'#ef4444', color:'white', border:'none', borderRadius:'8px',
+                       padding:'10px', fontSize:'13px', fontWeight:700, cursor:'pointer',
+                       display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
+              <i className="fab fa-youtube"></i> Transmitir para todos
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Tab: active broadcasts */}
+      {ytModalTab === 'active' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:'10px', maxHeight:'260px', overflowY:'auto' }}>
+          {activeStreams === null && (
+            <div style={{ textAlign:'center', color:'#64748b', padding:'24px', fontSize:'13px' }}>🔄 Buscando transmissões ativas...</div>
+          )}
+          {activeStreams !== null && activeStreams.length === 0 && (
+            <div style={{ textAlign:'center', padding:'24px', fontSize:'13px', color:'#64748b' }}>
+              <div style={{ fontSize:'32px', marginBottom:'8px' }}>📭</div>
+              Nenhum YouTube Chat ativo no momento.<br/>
+              <span style={{ fontSize:'11px' }}>Use a aba Padrão ou Minha URL para iniciar um.</span>
+            </div>
+          )}
+          {activeStreams !== null && activeStreams.map((bc, i) => (
+            <div key={i} style={{ background:'#1e293b', borderRadius:'10px', overflow:'hidden', border:'1px solid #334155' }}>
+              <img src={'https://img.youtube.com/vi/' + bc.youtubeId + '/mqdefault.jpg'} alt=""
+                   style={{ width:'100%', height:'100px', objectFit:'cover', display:'block' }}
+                   onError={e => e.target.style.display='none'} />
+              <div style={{ padding:'10px 12px' }}>
+                <div style={{ fontSize:'12px', color:'#94a3b8', marginBottom:'8px' }}>
+                  📡 Transmitido por <b style={{ color:'#e2e8f0' }}>{bc.senderName || bc.peerId}</b>
+                </div>
+                <button onClick={() => onJoin(bc.youtubeId)}
+                  style={{ width:'100%', background:'#ef4444', color:'white', border:'none', borderRadius:'7px',
+                           padding:'8px', fontSize:'13px', fontWeight:700, cursor:'pointer',
+                           display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
+                  <i className="fab fa-youtube"></i> Entrar neste chat
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+);
+};
+
+// ================================================================
 // ChatManager
 // ================================================================
 const ChatManager = ({
@@ -3184,6 +3345,8 @@ e2eeState, setE2eeState, isCentralServer, serverE2EE, setServerE2EE, connectToPe
 handleTorrentSeed, handleTorrentDownload, setShowTorrentManager,
 pendingTorrentRequests, setPendingTorrentRequests, handleTorrentDirectSeed,
 youtubeChatId, disconnectPeer,
+setYoutubeChatId,
+startYtChatById,
 broadcastYoutubeChat, stopYoutubeChat,
 showWhiteboard, setShowWhiteboard,
 avatars,
@@ -3208,8 +3371,9 @@ const messagesContainerRef = useRef(null);
 const [showSendSecretModal, setShowSendSecretModal] = useState(false);
 const [showServerE2EEModal, setShowServerE2EEModal] = useState(false);
 const [hiddenMessages, setHiddenMessages] = useState(new Set());
-const [activeChatTab, setActiveChatTab] = useState('general');
-const activeChatTabRef = useRef('general');
+const [activeChatTab, setActiveChatTab] = useState('youtube');
+const activeChatTabRef = useRef('youtube');
+const [showYtJoinModal, setShowYtJoinModal] = useState(true);
 useEffect(() => { activeChatTabRef.current = activeChatTab; }, [activeChatTab]);
 // ── tabUnread: contador de msgs não lidas por aba ──
 const [tabUnread, setTabUnread] = useState({p2p:0, general:0, youtube:0});
@@ -3347,7 +3511,7 @@ window._handleQuizAnswer = handleQuizAnswer; // Expõe para o Quiz flutuante (fo
 
 
 useEffect(() => {
-if (!youtubeChatId && activeChatTab === 'youtube') changeTab('general');
+if (!youtubeChatId && activeChatTab === 'youtube') setShowYtJoinModal(true);
 }, [youtubeChatId]);
 
 
@@ -3971,16 +4135,16 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
         <span>P2P</span>
         <UnreadBadge count={tabUnread.p2p} />
       </button>
-      {/* Geral */}
+      {/* Geral — oculta, funcionalidade mantida */}
       <button role="tab" data-tab="general" aria-selected={activeChatTab === 'general'} tabIndex={activeChatTab === 'general' ? 0 : -1}
-        onClick={() => { setSelectedContact(null); changeTab('general'); }} onKeyDown={handleTabKeyDown} style={tabStyle('general', '#10b981')} title="Modo Geral — broadcast P2P">
+        onClick={() => { setSelectedContact(null); changeTab('general'); }} onKeyDown={handleTabKeyDown} style={{...tabStyle('general', '#10b981'), display:'none'}} title="Modo Geral — broadcast P2P">
         <span style={{ fontSize: '15px' }}>🌐</span>
         <span>Geral</span>
         <UnreadBadge count={tabUnread.general} />
       </button>
       {/* YouTube */}
       <button role="tab" data-tab="youtube" aria-selected={activeChatTab === 'youtube'} tabIndex={activeChatTab === 'youtube' ? 0 : -1}
-        onClick={() => changeTab('youtube')} onKeyDown={handleTabKeyDown} style={tabStyle('youtube', '#ef4444')} title="YouTube Chat">
+        onClick={() => { changeTab('youtube'); if (!youtubeChatId) setShowYtJoinModal(true); }} onKeyDown={handleTabKeyDown} style={tabStyle('youtube', '#ef4444')} title="YouTube Chat">
         <span style={{ fontSize: '15px' }}><i className="fab fa-youtube"></i></span>
         <span>YouTube</span>
         {youtubeChatId && <span style={{ position:'absolute', top:'4px', right:'6px', background:'#ef4444', borderRadius:'50%', width:'7px', height:'7px' }}></span>}
@@ -4190,16 +4354,37 @@ title={t(lang, 'sendMessage')}>
         <div style={{ fontSize:'11px', color:'var(--text-subtle)' }}>
           ID do vídeo: <code style={{ background:'var(--bg)', padding:'2px 6px', borderRadius:'4px' }}>{youtubeChatId}</code>
         </div>
+        <button onClick={() => setShowYtJoinModal(true)} style={{ marginTop:'8px', background:'none', border:'1px solid var(--border)', borderRadius:'6px', padding:'6px 14px', fontSize:'12px', color:'var(--text-muted)', cursor:'pointer' }}>
+          <i className="fab fa-youtube"></i> Trocar transmissão
+        </button>
       </div>
     );
   }
-  return <iframe width="100%" height="100%" src={chatUrl} frameBorder="0" style={{ flex: 1 }} />;
+  return (
+    <div style={{ flex:1, display:'flex', flexDirection:'column', position:'relative' }}>
+      <iframe width="100%" height="100%" src={chatUrl} frameBorder="0" style={{ flex: 1 }} />
+      <button onClick={() => setShowYtJoinModal(true)} style={{ position:'absolute', bottom:'10px', right:'10px', background:'rgba(15,23,42,0.85)', border:'1px solid #ef4444', borderRadius:'8px', padding:'6px 14px', fontSize:'12px', color:'#fca5a5', cursor:'pointer', fontWeight:600, zIndex:10 }}>
+        <i className="fab fa-youtube"></i> Trocar transmissão
+      </button>
+    </div>
+  );
 })() : (
-  <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', gap:'12px' }}>
-    <div style={{ fontSize:'48px' }}>📺</div>
-    <div style={{ fontWeight:600, fontSize:'15px' }}>Rádio YouTube</div>
-    <div style={{ fontSize:'13px', textAlign:'center', maxWidth:'260px' }}>Inicie um YouTube Chat pelas Ferramentas para ver o chat aqui</div>
+  <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', gap:'16px', padding:'24px', textAlign:'center' }}>
+    <div style={{ fontSize:'52px' }}>📺</div>
+    <div style={{ fontWeight:700, fontSize:'16px', color:'var(--text)' }}>YouTube Chat ao Vivo</div>
+    <div style={{ fontSize:'13px', maxWidth:'260px', lineHeight:'1.6' }}>Transmita ou entre em um chat ao vivo do YouTube compartilhado na rede.</div>
+    <button onClick={() => setShowYtJoinModal(true)} style={{ background:'#ef4444', color:'white', border:'none', borderRadius:'10px', padding:'11px 26px', fontSize:'14px', fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:'8px', boxShadow:'0 2px 10px rgba(239,68,68,0.4)' }}>
+      <i className="fab fa-youtube"></i> Entrar / Transmitir
+    </button>
   </div>
+)}
+{/* ── Modal de entrada do YouTube Chat ── */}
+{showYtJoinModal && !youtubeChatId && (
+  <YtChatJoinModal
+    onClose={() => setShowYtJoinModal(false)}
+    onStart={(yId) => { startYtChatById(yId, true); setShowYtJoinModal(false); window.k10Toast('📺 YouTube Chat iniciado!', 'success', 3000); }}
+    onJoin={(yId) => { startYtChatById(yId, false); setShowYtJoinModal(false); window.k10Toast('📺 Entrando no YouTube Chat...', 'info', 3000); }}
+  />
 )}
 </div>
 </div>
@@ -9983,6 +10168,29 @@ try {
 } catch(e) {}
 };
 
+// Inicia YouTube Chat direto por ID (sem prompt) — usado pelo modal de entrada
+const startYtChatById = (yId, broadcast) => {
+  if (!yId) return;
+  setYoutubeChatId(yId);
+  if (broadcast) {
+    const msgId = Date.now() + Math.random().toString(36).substring(2);
+    const msgData = { type: 'youtube-chat-start', id: msgId, youtubeId: yId, ttl: 15 };
+    p2pBroadcast(msgData);
+    if (typeof window.enviarParaMatrix === 'function')
+      window.enviarParaMatrix('__K10YTCHAT_START__:' + yId);
+    try {
+      window.__k10YtChatStreamId = msgId;
+      window.K10BroadcastRegistry?.publish({
+        broadcastType: 'youtube-chat',
+        streamId: msgId,
+        youtubeId: yId,
+        peerId,
+        senderName: userName
+      }).then(ok => { if (ok) window.k10Toast?.('📡 Registrado na Telemetria', 'success', 3000); });
+    } catch(e) {}
+  }
+};
+
 
 const stopYoutubeChat = () => {
 setYoutubeChatId(null);
@@ -10910,6 +11118,8 @@ pendingTorrentRequests={pendingTorrentRequests}
 setPendingTorrentRequests={setPendingTorrentRequests}
 handleTorrentDirectSeed={handleTorrentDirectSeed}
 youtubeChatId={youtubeChatId}
+setYoutubeChatId={setYoutubeChatId}
+startYtChatById={startYtChatById}
 broadcastYoutubeChat={broadcastYoutubeChat}
 stopYoutubeChat={stopYoutubeChat}
 disconnectPeer={disconnectPeer}
