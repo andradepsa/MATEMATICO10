@@ -7917,6 +7917,10 @@ if (data.type === 'migrate-to-p2p') return;
 
 if (data.type === 'handshake') {
   // LEGACY-REMOVED: setCentralServerId via isCentralServer/routerMode (gateway K10 desligado).
+  if (!knownUsersRef.current.has(pId)) {
+    knownUsersRef.current.add(pId);
+    setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
+  }
   if (data.avatar) {
     setAvatars(prev => ({ ...prev, [pId]: data.avatar }));
   }
@@ -13147,7 +13151,7 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
             peerId:     peerOk ? peer.id : ('MX-'+mxMxid()),
             userName:   localStorage.getItem('p2pUserName')||'',
             mxid:       mxMxid(),
-            netSize:    window.networkSize||1,
+            netSize:    window.networkSize > 1 ? window.networkSize : (peerOk ? contarConexoes(peer) + 1 : 1),
             activeConns:peerOk ? contarConexoes(peer) : 0,
             ua:         navigator.userAgent.slice(0,250),
             browser, os,
