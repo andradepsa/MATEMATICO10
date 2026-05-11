@@ -12500,13 +12500,18 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         console.log('[Matrix] 🟢 Iniciando integração v5.0 — Login direto...');
         // ── Limpa token compartilhado antigo para forçar registro guest individual ──
         // Usuários que tinham @chatk10 salvo recebem um guest único no próximo login
-        const _savedUser = localStorage.getItem('matrixUser') || '';
-        if (_savedUser === '@chatk10:matrix.org') {
+        // ── Limpa APENAS o token público compartilhado hardcoded ──
+        // Só remove se o token salvo for EXATAMENTE o PUBLIC_MATRIX_TOKEN.
+        // Nunca toca em contas pessoais (token diferente) nem em guests já registrados.
+        const _savedToken = localStorage.getItem('matrixToken') || '';
+        if (_savedToken === PUBLIC_MATRIX_TOKEN) {
             localStorage.removeItem('matrixToken');
             localStorage.removeItem('matrixUser');
             localStorage.removeItem('mxdmToken');
             localStorage.removeItem('mxdmMxid');
-            console.log('[Matrix] 🧹 Token compartilhado removido — registrando guest único...');
+            MATRIX_TOKEN = '';
+            MATRIX_USER  = '';
+            console.log('[Matrix] 🧹 Token público compartilhado removido — registrando guest único...');
         }
         if (pollingInterval) clearInterval(pollingInterval);
 
