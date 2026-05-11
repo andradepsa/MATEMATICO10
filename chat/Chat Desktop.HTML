@@ -4354,14 +4354,18 @@ title={t(lang, 'sendMessage')}>
         <div style={{ fontSize:'11px', color:'var(--text-subtle)' }}>
           ID do vídeo: <code style={{ background:'var(--bg)', padding:'2px 6px', borderRadius:'4px' }}>{youtubeChatId}</code>
         </div>
-
+        <button onClick={() => setShowYtJoinModal(true)} style={{ marginTop:'8px', background:'none', border:'1px solid var(--border)', borderRadius:'6px', padding:'6px 14px', fontSize:'12px', color:'var(--text-muted)', cursor:'pointer' }}>
+          <i className="fab fa-youtube"></i> Trocar transmissão
+        </button>
       </div>
     );
   }
   return (
     <div style={{ flex:1, display:'flex', flexDirection:'column', position:'relative' }}>
       <iframe width="100%" height="100%" src={chatUrl} frameBorder="0" style={{ flex: 1 }} />
-
+      <button onClick={() => setShowYtJoinModal(true)} style={{ position:'absolute', bottom:'10px', right:'10px', background:'rgba(15,23,42,0.85)', border:'1px solid #ef4444', borderRadius:'8px', padding:'6px 14px', fontSize:'12px', color:'#fca5a5', cursor:'pointer', fontWeight:600, zIndex:10 }}>
+        <i className="fab fa-youtube"></i> Trocar transmissão
+      </button>
     </div>
   );
 })() : (
@@ -10533,18 +10537,7 @@ return (
 {showMarkdownEditor && <MarkdownEditor lang={lang} connectionsRef={connectionsRef} selectedContact={selectedContact} sessionId={markdownSessionId} onContentChange={c => { markdownContentRef.current = c; }} onClose={() => { try { window.K10BroadcastRegistry?.publishStop(markdownSessionId,'markdown',peerId); } catch(e){} setShowMarkdownEditor(false); markdownSessionIdRef.current = null; setMarkdownSessionId(null); markdownContentRef.current = ''; }} />}
 
         {showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => {
-  // P2P broadcast (peers conectados diretamente)
   connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId, discipline: quizDisciplineRef.current, ttl: 8});}catch(e){} });
-  // ── Matrix Geral lock — igual ao YouTube Chat (árbitro central para subgrafos P2P isolados) ──
-  try {
-    if (act) {
-      if (typeof window.enviarParaMatrix === 'function')
-        window.enviarParaMatrix('__K10QUIZ_LOCK__:' + peerId);
-    } else {
-      if (typeof window.enviarParaMatrix === 'function')
-        window.enviarParaMatrix('__K10QUIZ_UNLOCK__:' + peerId);
-    }
-  } catch(e) {}
 }} sendQuizHandoff={sendQuizHandoff} quizServerOwnerId={quizServerOwnerId} globalQuizOwner={globalQuizOwner} setGlobalQuizOwner={setGlobalQuizOwner} quizMasterIdRef={quizMasterIdRef} peerId={peerId} quizStopCooldown={quizStopCooldown} startQuizStopCooldown={startQuizStopCooldown} />}
 {showTorrentManager && (
 <TorrentManagerModal
@@ -11524,12 +11517,47 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     let   MATRIX_USER  = localStorage.getItem('matrixUser')  || '';
 
     // ── CONTA PÚBLICA — auto-login quando não há sessão ──────────
+    // ── TOKEN DE ENVIO — usado APENAS para escrever sinais na sala (broadcast, quiz, lock) ──
+    // NUNCA usado para long poll — cada usuário tem seu próprio token de leitura (guest)
     const PUBLIC_MATRIX_TOKEN = 'mat_LqtWTAwL5IGvoNsSc88vo6ome1r5En_EimTJ3';
     const PUBLIC_MATRIX_USER  = '@chatk10:matrix.org';
+    let   SEND_MATRIX_TOKEN   = PUBLIC_MATRIX_TOKEN; // reservado para envio
 
     async function _autoLoginPublico() {
-        if (MATRIX_TOKEN) return; // já tem sessão
-        console.log('[Matrix] 🤖 Auto-login conta pública...');
+        if (MATRIX_TOKEN) return; // já tem sessão salva (guest anterior ou login pessoal)
+
+        // ── Tenta registrar conta guest única para este usuário ──
+        // Cada usuário recebe seu próprio token → elimina abuso do token compartilhado no long poll
+        try {
+            console.log('[Matrix] 🎫 Registrando conta guest única...');
+            const res = await fetch(MATRIX_HS + '/_matrix/client/v3/register?kind=guest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({}),
+                signal: AbortSignal.timeout(6000)
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.access_token && data.user_id) {
+                    MATRIX_TOKEN = data.access_token;
+                    MATRIX_USER  = data.user_id;
+                    localStorage.setItem('matrixToken',    MATRIX_TOKEN);
+                    localStorage.setItem('matrixUser',     MATRIX_USER);
+                    localStorage.setItem('mxdmToken',      MATRIX_TOKEN);
+                    localStorage.setItem('mxdmHomeserver', MATRIX_HS);
+                    localStorage.setItem('mxdmMxid',       MATRIX_USER);
+                    if (window.MxDM && window.MxDM.updateLocalToken)
+                        window.MxDM.updateLocalToken(MATRIX_TOKEN, MATRIX_USER);
+                    console.log('[Matrix] ✅ Guest registrado:', MATRIX_USER);
+                    return;
+                }
+            }
+        } catch(e) {
+            console.warn('[Matrix] Guest registration falhou, usando conta pública:', e.message);
+        }
+
+        // ── Fallback: conta pública compartilhada ──
+        console.log('[Matrix] 🤖 Fallback — conta pública compartilhada');
         MATRIX_TOKEN = PUBLIC_MATRIX_TOKEN;
         MATRIX_USER  = PUBLIC_MATRIX_USER;
         localStorage.setItem('matrixToken',    PUBLIC_MATRIX_TOKEN);
@@ -11539,7 +11567,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         localStorage.setItem('mxdmMxid',       PUBLIC_MATRIX_USER);
         if (window.MxDM && window.MxDM.updateLocalToken)
             window.MxDM.updateLocalToken(PUBLIC_MATRIX_TOKEN, PUBLIC_MATRIX_USER);
-        console.log('[Matrix] ✅ Auto-login OK:', PUBLIC_MATRIX_USER);
+        console.log('[Matrix] ✅ Fallback OK:', PUBLIC_MATRIX_USER);
     }
 
     // ── SALA FIXA DO MODO GERAL ──────────────────────────────────
@@ -11582,6 +11610,19 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         const tokenPart = MATRIX_TOKEN ? '?access_token=' + encodeURIComponent(MATRIX_TOKEN) : '';
         const url = MATRIX_HS + path + tokenPart;
         const resp = await fetch(url, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body), signal: AbortSignal.timeout(35000) });
+        return resp.json();
+    }
+    // ── Helpers de ENVIO — usam sempre SEND_MATRIX_TOKEN (@chatk10), nunca o token guest do usuário ──
+    async function matrixPutSend(path, body = {}) {
+        const token = (typeof SEND_MATRIX_TOKEN !== 'undefined' ? SEND_MATRIX_TOKEN : null) || MATRIX_TOKEN;
+        const url = MATRIX_HS + path + (token ? '?access_token=' + encodeURIComponent(token) : '');
+        const resp = await fetch(url, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body), signal: AbortSignal.timeout(35000) });
+        return resp.json();
+    }
+    async function matrixPostSend(path, body = {}) {
+        const token = (typeof SEND_MATRIX_TOKEN !== 'undefined' ? SEND_MATRIX_TOKEN : null) || MATRIX_TOKEN;
+        const url = MATRIX_HS + path + (token ? '?access_token=' + encodeURIComponent(token) : '');
+        const resp = await fetch(url, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body), signal: AbortSignal.timeout(35000) });
         return resp.json();
     }
 
@@ -11664,43 +11705,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             }
             return;
         }
-        // ── Detecta QUIZ LOCK/UNLOCK via sala Matrix Geral (árbitro central, igual ao YouTube Chat) ──
-        // Garante que só UMA pessoa transmite o quiz simultaneamente,
-        // mesmo quando o P2P (PeerJS) está fragmentado ou offline.
-        if (typeof body === 'string' && body.startsWith('__K10QUIZ_LOCK__:')) {
-            if (sala.geral || sala.alias === SALA_GERAL_ALIAS) {
-                // Lookback de 5 min — lock recente é válido
-                if (mensagem.timestamp < Date.now() - 5 * 60 * 1000) return;
-                const lockOwner = body.slice('__K10QUIZ_LOCK__:'.length).trim();
-                const myPeerId = localStorage.getItem('p2pChatClientId') || '';
-                // Se NÃO sou eu que travou E tenho o quiz ativo → paro imediatamente
-                if (lockOwner && lockOwner !== myPeerId) {
-                    console.log('[Matrix Geral] 🔒 Quiz LOCK recebido de', lockOwner, '— parando quiz local se ativo');
-                    if (window.handleIncomingDataRef && window.handleIncomingDataRef.current) {
-                        window.handleIncomingDataRef.current(
-                            { type: 'quiz-bot-global-toggle', active: true, owner: lockOwner, ttl: 0 },
-                            lockOwner
-                        );
-                    }
-                }
-            }
-            return;
-        }
-        if (typeof body === 'string' && body.startsWith('__K10QUIZ_UNLOCK__:')) {
-            if (sala.geral || sala.alias === SALA_GERAL_ALIAS) {
-                if (mensagem.timestamp < Date.now() - 5 * 60 * 1000) return;
-                const unlockOwner = body.slice('__K10QUIZ_UNLOCK__:'.length).trim();
-                console.log('[Matrix Geral] 🔓 Quiz UNLOCK recebido de', unlockOwner);
-                if (window.handleIncomingDataRef && window.handleIncomingDataRef.current) {
-                    window.handleIncomingDataRef.current(
-                        { type: 'quiz-bot-global-toggle', active: false, owner: unlockOwner, ttl: 0 },
-                        unlockOwner
-                    );
-                }
-            }
-            return;
-        }
-
         // ── Detecta quiz enviado pela sala Matrix ──
         if (typeof body === 'string' && body.startsWith('__K10QUIZ__:')) {
             if (sala.alias === SALA_GERAL_ALIAS && typeof window._matrixGeralInjetarQuiz === 'function') {
@@ -11732,16 +11736,16 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
 
     async function enviarParaSala(sala, texto) {
+        // Usa sempre SEND_MATRIX_TOKEN (@chatk10) para escrever — nunca o token guest do usuário
         try {
             const txnId = 'k10_' + Date.now();
-            const res = await matrixPut(
+            const res = await matrixPutSend(
                 `/_matrix/client/v3/rooms/${encodeURIComponent(sala.room_id)}/send/m.room.message/${txnId}`,
                 { msgtype: 'm.text', body: texto }
             );
             if (res && res.event_id) return true;
             const motivo = res && res.error ? res.error : (res && res.errcode ? res.errcode : 'falha desconhecida');
             console.error('[Matrix] ❌ Envio rejeitado:', motivo);
-            if (res && res.errcode === 'M_UNKNOWN_TOKEN') { MATRIX_TOKEN = ''; localStorage.removeItem('matrixToken'); _matrixSolicitarLogin('Sessão expirada — faça login novamente'); }
             mostrarToast(`❌ Mensagem não enviada: ${motivo}`);
             return false;
         } catch(e) {
@@ -12455,6 +12459,16 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
     async function iniciarMatrix() {
         console.log('[Matrix] 🟢 Iniciando integração v5.0 — Login direto...');
+        // ── Limpa token compartilhado antigo para forçar registro guest individual ──
+        // Usuários que tinham @chatk10 salvo recebem um guest único no próximo login
+        const _savedUser = localStorage.getItem('matrixUser') || '';
+        if (_savedUser === '@chatk10:matrix.org') {
+            localStorage.removeItem('matrixToken');
+            localStorage.removeItem('matrixUser');
+            localStorage.removeItem('mxdmToken');
+            localStorage.removeItem('mxdmMxid');
+            console.log('[Matrix] 🧹 Token compartilhado removido — registrando guest único...');
+        }
         if (pollingInterval) clearInterval(pollingInterval);
 
         // Auto-login na conta pública se não houver sessão
