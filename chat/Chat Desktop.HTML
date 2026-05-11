@@ -7410,6 +7410,12 @@ const broadcastQuizViolation = (violatorId, violatorName, elapsedSec) => {
 // ── Eleição de Mestre P2P (Self-Healing e Consistência) ──
 const checkAndAssumeQuizMaster = () => {
   if (!quizBotActiveRef.current) return false;
+
+  // Se há um dono definido e ele ainda está conectado, não concorre à coroa
+  if (globalQuizOwnerRef.current && globalQuizOwnerRef.current !== peerId) {
+    const ownerOnline = connectionsRef.current.some(c => c.peer === globalQuizOwnerRef.current && c.open);
+    if (ownerOnline) return false; // Dono ativo — aguarda
+  }
   // Pega todos os peers conectados + nós mesmos
   // FIX: exclui servidores K10-GATE / K10-CENTRAL da eleição — eles nunca rodam quiz
   // Sem esse filtro, 'K10-GATE-XXXX' ganha sempre (alfanumérico 'K' < maioria dos IDs)
