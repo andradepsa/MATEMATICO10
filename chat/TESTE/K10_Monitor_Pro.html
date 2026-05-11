@@ -188,10 +188,10 @@ canvas{display:block;width:100%!important}
   <div>
     <h1>K10<span class="dot">.</span>MONITOR<span class="h1-ver">PRO v3</span></h1>
     <div class="badges">
-      <span class="badge badge-a">▲ GEOLOCATION</span>
       <span class="badge badge-c">◈ PEERJS P2P</span>
       <span class="badge badge-g">✦ MATRIX SSO</span>
       <span class="badge badge-a">⬡ REAL-TIME</span>
+      <span class="badge badge-g">🔒 PRIVACIDADE ATIVA</span>
     </div>
   </div>
   <div style="text-align:right">
@@ -267,11 +267,12 @@ canvas{display:block;width:100%!important}
   <!-- MAPA -->
   <div class="map-panel">
     <div class="panel-hdr">
-      <span>🗺️ LOCALIZAÇÃO DOS PEERS (IP-GEOLOCATION)</span>
-      <span style="font-size:9px;color:var(--dim)" id="map-count">0 marcadores</span>
+      <span>🔒 MAPA DESATIVADO — Coleta de geolocalização removida por privacidade</span>
     </div>
-    <div id="map"></div>
-    <div style="font-size:8px;color:var(--dim);padding:6px 12px;text-align:center">Posições aproximadas via ip-api.com · Clique no marcador para detalhes</div>
+    <div style="padding:20px;text-align:center;color:var(--dim);font-size:11px;background:var(--bg3)">
+      Coordenadas e endereços IP não são mais coletados.<br>
+      O monitor exibe apenas: País, NetSize e Conexões Ativas.
+    </div>
   </div>
   <!-- SIDE PANELS -->
   <div class="side-col">
@@ -280,27 +281,17 @@ canvas{display:block;width:100%!important}
       <div class="panel-hdr">🌍 TOP PAÍSES</div>
       <div class="side-content" id="countries-list"><div style="color:var(--dim);padding:8px;font-size:10px">Aguardando...</div></div>
     </div>
-    <!-- BROWSERS -->
-    <div class="side-panel">
-      <div class="panel-hdr">🌐 BROWSERS</div>
-      <div class="side-content" id="browsers-list"><div style="color:var(--dim);padding:8px;font-size:10px">Aguardando...</div></div>
-    </div>
-    <!-- SISTEMAS OPERACIONAIS -->
-    <div class="side-panel">
-      <div class="panel-hdr">💻 SISTEMAS OPERACIONAIS</div>
-      <div class="side-content" id="os-list"><div style="color:var(--dim);padding:8px;font-size:10px">Aguardando...</div></div>
-    </div>
   </div>
 </div>
 
 <!-- ══ PEERS TABLE ══════════════════════════════════════════════════════ -->
 <div class="peers-panel">
   <div class="panel-hdr">
-    <span>📋 TABELA DE PEERS — TODOS OS DADOS</span>
+    <span>📋 TABELA DE PEERS — DADOS ANÔNIMOS</span>
     <span style="font-size:9px;color:var(--amber)" id="table-count">0 peers</span>
   </div>
   <div class="table-controls">
-    <input type="text" class="search-box" id="search-input" placeholder="🔍 Buscar por ID, nome, país, IP..." oninput="scheduleRender()">
+    <input type="text" class="search-box" id="search-input" placeholder="🔍 Buscar por ID, nome, país..." oninput="scheduleRender()">
     <select class="filter-sel" id="filter-country" onchange="scheduleRender()">
       <option value="">Todos os países</option>
     </select>
@@ -322,15 +313,6 @@ canvas{display:block;width:100%!important}
           <th onclick="sortBy('peerId')">PEER ID <span class="sort-icon">⇅</span></th>
           <th onclick="sortBy('userName')">NOME <span class="sort-icon">⇅</span></th>
           <th onclick="sortBy('country')">PAÍS <span class="sort-icon">⇅</span></th>
-          <th onclick="sortBy('city')">CIDADE <span class="sort-icon">⇅</span></th>
-          <th onclick="sortBy('region')">REGIÃO <span class="sort-icon">⇅</span></th>
-          <th onclick="sortBy('ip')">IP <span class="sort-icon">⇅</span></th>
-          <th onclick="sortBy('isp')">ISP <span class="sort-icon">⇅</span></th>
-          <th onclick="sortBy('browser')">BROWSER <span class="sort-icon">⇅</span></th>
-          <th onclick="sortBy('os')">OS <span class="sort-icon">⇅</span></th>
-          <th onclick="sortBy('screen')">TELA <span class="sort-icon">⇅</span></th>
-          <th onclick="sortBy('cores')">CPU <span class="sort-icon">⇅</span></th>
-          <th onclick="sortBy('memory')">RAM <span class="sort-icon">⇅</span></th>
           <th onclick="sortBy('netSize')">NET <span class="sort-icon">⇅</span></th>
           <th onclick="sortBy('activeConns')">CONNS <span class="sort-icon">⇅</span></th>
           <th onclick="sortBy('msgCount')">MSGS <span class="sort-icon">⇅</span></th>
@@ -339,7 +321,7 @@ canvas{display:block;width:100%!important}
         </tr>
       </thead>
       <tbody id="peers-tbody">
-        <tr class="empty-row"><td colspan="18">Aguardando dados de telemetria...</td></tr>
+        <tr class="empty-row"><td colspan="9">Aguardando dados de telemetria...</td></tr>
       </tbody>
     </table>
   </div>
@@ -546,30 +528,8 @@ function renderSidePanels(){
     </div>`
   ).join('')||'<div style="color:var(--dim);padding:8px;font-size:10px">Aguardando...</div>';
 
-  // BROWSERS
-  const bc=new Map();
-  for(const p of uniquePeersMap.values()){const k=p.browser||'Other';bc.set(k,(bc.get(k)||0)+1);}
-  const bcArr=[...bc.entries()].sort((a,b)=>b[1]-a[1]);
-  document.getElementById('browsers-list').innerHTML=bcArr.map(([name,count])=>
-    `<div class="browser-row">
-      <span>${BROWSER_ICON[name]||'🌐'} <span class="browser-badge">${esc(name)}</span></span>
-      <span style="color:var(--amber)">${count}</span>
-    </div>`
-  ).join('')||'<div style="color:var(--dim);padding:8px;font-size:10px">Aguardando...</div>';
-
-  // OS
-  const oc=new Map();
-  for(const p of uniquePeersMap.values()){const k=p.os||'Other';oc.set(k,(oc.get(k)||0)+1);}
-  const ocArr=[...oc.entries()].sort((a,b)=>b[1]-a[1]);
-  document.getElementById('os-list').innerHTML=ocArr.map(([name,count])=>
-    `<div class="os-row">
-      <span>${OS_ICON[name]||'💻'} ${esc(name)}</span>
-      <span style="color:var(--green)">${count}</span>
-    </div>`
-  ).join('')||'<div style="color:var(--dim);padding:8px;font-size:10px">Aguardando...</div>';
-
   // Filtros dinâmicos
-  updateFilters(ccArr.map(([n])=>n), bcArr.map(([n])=>n));
+  updateFilters(ccArr.map(([n])=>n), []);
 }
 
 const BROWSER_ICON={Chrome:'🟡',Firefox:'🦊',Safari:'🍎',Edge:'🔵',Opera:'🔴',Yandex:'🟠',Samsung:'📱',Other:'🌐'};
@@ -596,14 +556,9 @@ function renderTable(){
   if(search) rows=rows.filter(([id,p])=>
     (id||'').toLowerCase().includes(search)||
     (p.userName||'').toLowerCase().includes(search)||
-    (p.country||'').toLowerCase().includes(search)||
-    (p.city||'').toLowerCase().includes(search)||
-    (p.ip||'').includes(search)||
-    (p.isp||'').toLowerCase().includes(search)||
-    (p.browser||'').toLowerCase().includes(search)
+    (p.country||'').toLowerCase().includes(search)
   );
   if(fCountry) rows=rows.filter(([,p])=>p.country===fCountry);
-  if(fBrowser) rows=rows.filter(([,p])=>p.browser===fBrowser);
   if(fStatus==='online') rows=rows.filter(([,p])=>isOnline(p));
   if(fStatus==='offline') rows=rows.filter(([,p])=>!isOnline(p));
 
@@ -617,7 +572,7 @@ function renderTable(){
   document.getElementById('table-count').textContent=rows.length+' peer'+(rows.length!==1?'s':'');
 
   if(rows.length===0){
-    document.getElementById('peers-tbody').innerHTML='<tr class="empty-row"><td colspan="18">Nenhum peer encontrado.</td></tr>';
+    document.getElementById('peers-tbody').innerHTML='<tr class="empty-row"><td colspan="9">Nenhum peer encontrado.</td></tr>';
     return;
   }
 
@@ -628,15 +583,6 @@ function renderTable(){
       <td class="pid-cell" onclick="showDetail('${esc(id)}')" title="Clique para detalhes">${esc(id.slice(0,12))}${id.length>12?'…':''}</td>
       <td style="color:var(--amber)">${esc(p.userName||'—')}</td>
       <td>${p.countryCode?countryFlag(p.countryCode):''} ${esc(p.country||'—')}</td>
-      <td>${esc(p.city||'—')}</td>
-      <td style="color:var(--dim)">${esc(p.region||'—')}</td>
-      <td style="font-size:9px">${esc(p.ip||'—')}</td>
-      <td style="font-size:9px;color:var(--dim);max-width:120px;overflow:hidden;text-overflow:ellipsis" title="${esc(p.isp||'')}">${esc((p.isp||'—').slice(0,18))}</td>
-      <td><span class="tag tag-br">${esc(p.browser||'?')}</span></td>
-      <td><span class="tag tag-os">${esc(p.os||'?')}</span></td>
-      <td style="color:var(--dim)">${esc(p.screen||'—')}</td>
-      <td style="color:var(--purple)">${p.cores?p.cores+'c':'—'}</td>
-      <td style="color:var(--blue)">${p.memory?p.memory+'GB':'—'}</td>
       <td style="color:var(--green)">${fmt(p.netSize)||'—'}</td>
       <td style="color:var(--cyan)">${p.activeConns??'—'}</td>
       <td style="color:var(--amber)">${fmt(p.msgCount)||0}</td>
@@ -673,34 +619,14 @@ function showDetail(id){
           ${detail('Nome',p.userName||'(anônimo)')}
           ${detail('Status',isOnline(p)?'🟢 ONLINE':'🔴 OFFLINE')}
           ${detail('País',`${p.countryCode?countryFlag(p.countryCode):''} ${p.country||'—'}`)}
-          ${detail('Cidade',p.city||'—')}
-          ${detail('Região',p.region||'—')}
-          ${detail('IP',p.ip||'—')}
-          ${detail('ISP',p.isp||'—')}
-          ${detail('Org',p.org||'—')}
-          ${detail('Geo Timezone',p.geoTimezone||'—')}
-          ${detail('Coordenadas',p.lat?`${p.lat.toFixed(4)}, ${p.lon.toFixed(4)}`:'—')}
-          ${detail('Browser',p.browser||'—')}
-          ${detail('OS',p.os||'—')}
-          ${detail('Tela',p.screen||'—')}
-          ${detail('Color Depth',p.colorDepth?p.colorDepth+'bit':'—')}
-          ${detail('DPI',p.devicePixelRatio?'×'+p.devicePixelRatio:'—')}
-          ${detail('Timezone (JS)',p.timezone||'—')}
-          ${detail('Idioma',p.lang||'—')}
-          ${detail('Idiomas',p.langs||'—')}
-          ${detail('Platform',p.platform||'—')}
-          ${detail('CPU Cores',p.cores?p.cores+'c':'—')}
-          ${detail('RAM',p.memory?p.memory+' GB':'—')}
-          ${detail('Touch',p.touchPoints?p.touchPoints+' pontos':'nenhum')}
           ${detail('Net Size',p.netSize||'—')}
           ${detail('Conns Ativas',p.activeConns??'—')}
           ${detail('Msgs Recebidas',p.msgCount||0)}
           ${detail('1ª Vista',p.firstSeen?new Date(p.firstSeen).toLocaleString():'-')}
           ${detail('Última Vista',p.lastSeen?new Date(p.lastSeen).toLocaleString():'-')}
         </div>
-        <div style="margin-top:12px">
-          <div class="detail-key">USER AGENT COMPLETO</div>
-          <div style="background:var(--bg3);padding:8px;font-size:9px;color:var(--dim);border:1px solid var(--border);margin-top:4px;word-break:break-all;line-height:1.6">${esc(p.ua||'—')}</div>
+        <div style="margin-top:12px;padding:8px;background:var(--bg3);border:1px solid var(--border);font-size:9px;color:var(--dim)">
+          🔒 Dados sensíveis não são coletados: IP, geolocalização, user-agent, hardware e fingerprint foram removidos.
         </div>
       </div>
     </div>`;
@@ -726,48 +652,30 @@ function handleMsg(data,pId){
 
   const now=Date.now();
   const existing=uniquePeersMap.get(data.peerId)||{firstSeen:now,msgCount:0};
+  /* ── Apenas campos não-sensíveis são armazenados ──────────────
+     Removidos: ip, lat, lon, city, region, isp, org, geoTimezone,
+     ua, screen, colorDepth, devicePixelRatio, timezone, platform,
+     memory, cores, touchPoints, lang, langs.
+  ─────────────────────────────────────────────────────────────── */
   const updated={
     ...existing,
-    peerId:    data.peerId,
-    userName:  data.userName||existing.userName||'',
-    ip:        data.ip||existing.ip,
-    lat:       data.lat||existing.lat,
-    lon:       data.lon||existing.lon,
-    city:      data.city||existing.city,
-    country:   data.country||existing.country,
+    peerId:      data.peerId,
+    userName:    data.userName||existing.userName||'',
+    country:     data.country||existing.country,
     countryCode: data.countryCode||existing.countryCode,
-    region:    data.region||existing.region,
-    isp:       data.isp||existing.isp,
-    org:       data.org||existing.org,
-    geoTimezone: data.geoTimezone||existing.geoTimezone,
-    netSize:   data.netSize||existing.netSize,
+    netSize:     data.netSize||existing.netSize,
     activeConns: data.activeConns??existing.activeConns,
-    ua:        data.ua||existing.ua,
-    browser:   data.browser||existing.browser,
-    os:        data.os||existing.os,
-    lang:      data.lang||existing.lang,
-    langs:     data.langs||existing.langs,
-    screen:    data.screen||existing.screen,
-    colorDepth: data.colorDepth||existing.colorDepth,
-    devicePixelRatio: data.devicePixelRatio||existing.devicePixelRatio,
-    timezone:  data.timezone||existing.timezone,
-    platform:  data.platform||existing.platform,
-    memory:    data.memory??existing.memory,
-    cores:     data.cores??existing.cores,
-    touchPoints: data.touchPoints??existing.touchPoints,
-    lastSeen:  now,
-    msgCount:  (existing.msgCount||0)+1
+    lastSeen:    now,
+    msgCount:    (existing.msgCount||0)+1
   };
   uniquePeersMap.set(data.peerId, updated);
 
-  if(data.lat&&data.lon)atualizarMapa(data.peerId,data.lat,data.lon,data);
+  /* Mapa removido — coordenadas não são coletadas */
 
   // Se sou master, repasso para todos os monitores inscritos
   if(isMaster && !data._relayed) relayToSubscribers(data);
 
-  const geoStr=data.city?`${data.city}, ${data.country}`:(data.country||'Sem geo');
-  const devStr=data.browser?` | ${data.browser}/${data.os}`:'';
-  log(`📡 ${data.peerId.slice(0,12)} — ${data.userName||'anon'} — ${geoStr}${devStr} | Net:${data.netSize||'?'} Conns:${data.activeConns??'?'}`, 'ok');
+  log(`📡 ${data.peerId.slice(0,12)} — ${data.userName||'anon'} — ${data.country||'—'} | Net:${data.netSize||'?'} Conns:${data.activeConns??'?'}`, 'ok');
 
   scheduleRender();
 }
@@ -993,7 +901,8 @@ setInterval(()=>{
 
 // ── EXPORT ────────────────────────────────────────────────────
 function exportCSV(){
-  const cols=['peerId','userName','country','city','region','ip','isp','org','lat','lon','browser','os','screen','lang','timezone','cores','memory','netSize','activeConns','msgCount','firstSeen','lastSeen','ua'];
+  /* Apenas campos não-sensíveis */
+  const cols=['peerId','userName','country','countryCode','netSize','activeConns','msgCount','firstSeen','lastSeen'];
   const header=cols.join(',');
   const rows=[...uniquePeersMap.values()].map(p=>cols.map(k=>{
     const v=p[k]??'';
@@ -1003,7 +912,14 @@ function exportCSV(){
   log('⬇ CSV exportado ('+uniquePeersMap.size+' peers)','ok');
 }
 function exportJSON(){
-  const data={exportedAt:new Date().toISOString(),total:uniquePeersMap.size,peers:[...uniquePeersMap.values()]};
+  /* Apenas campos não-sensíveis */
+  const safeFields=['peerId','userName','country','countryCode','netSize','activeConns','msgCount','firstSeen','lastSeen'];
+  const safePeers=[...uniquePeersMap.values()].map(p=>{
+    const safe={};
+    safeFields.forEach(k=>{ if(p[k]!==undefined) safe[k]=p[k]; });
+    return safe;
+  });
+  const data={exportedAt:new Date().toISOString(),total:uniquePeersMap.size,peers:safePeers};
   download(JSON.stringify(data,null,2),'k10-peers-'+Date.now()+'.json','application/json');
   log('⬇ JSON exportado ('+uniquePeersMap.size+' peers)','ok');
 }
@@ -1015,8 +931,6 @@ function download(content,filename,mime){
 function clearPeers(){
   if(!confirm('Limpar todos os peers do monitor?'))return;
   uniquePeersMap.clear();
-  for(const m of Object.values(markers))map?.removeLayer(m);
-  Object.keys(markers).forEach(k=>delete markers[k]);
   peakPeers=0; msgCount=0;
   activityHistory.fill(0); msgsHistory.fill(0);
   log('✕ Dados limpos.','warn');
@@ -1087,8 +1001,8 @@ function processarEventoTelemetria(ev){
   if(telMsgsSeen.size>5000)telMsgsSeen.clear();
   const d={...ev.content, type:'k10-telemetry'};
   handleMsg(d,d.peerId);
-  const canal=d.canal||'matrix';
-  log('📨 ['+canal.toUpperCase()+'] '+(d.userName||'anon')+' · '+(d.city||'?')+', '+(d.country||'?')+' · '+d.browser+'/'+d.os,'ok');
+  /* Log sem dados sensíveis */
+  log('📨 [MATRIX] '+(d.userName||'anon')+' · '+(d.country||'?')+' · Net:'+d.netSize,'ok');
 }
 
 async function matrixLogin(user,pass){
