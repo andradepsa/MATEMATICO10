@@ -6686,6 +6686,7 @@ const centralServerIdRef = useRef(null);
 useEffect(() => { centralServerIdRef.current = centralServerId; }, [centralServerId]);
 const [cooldownRemaining, setCooldownRemaining] = useState(0);
 const [networkSize, setNetworkSize] = useState(1);
+useEffect(() => { window.networkSize = networkSize; }, [networkSize]);
 const [isSuperNode, _setIsSuperNodeRaw] = useState(false);
 const setIsSuperNode = (v) => {
   if (v === true && canBeReservadoRef && canBeReservadoRef.current === false) {
@@ -7776,6 +7777,23 @@ if (data && typeof data === 'object') {
 }
 // ────────────────────────────────────────────────────────────────────────────────
 
+// ── FIX-NETSIZE: atualiza knownUsersRef para QUALQUER mensagem com sender válido.
+// Antes, só 'type: message' atualizava o contador — radio-sync, quiz-question,
+// poll-create, etc. eram ignorados, causando netSize:2 em vez de 3 (ou mais).
+if (data && data.sender && typeof data.sender === 'string'
+    && data.sender !== 'server-self' && data.sender !== '__system__'
+    && pId !== peerId) {
+  if (!knownUsersRef.current.has(data.sender)) {
+    if (knownUsersRef.current.size > 10000) {
+      const arr = Array.from(knownUsersRef.current);
+      knownUsersRef.current = new Set(arr.slice(-5000));
+    }
+    knownUsersRef.current.add(data.sender);
+    setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
+  }
+}
+// ────────────────────────────────────────────────────────────────────────────────
+
 if (data && (data.type === 'matrix-rtc-offer' || data.type === 'matrix-rtc-answer' || data.type === 'matrix-rtc-ice' || data.type === 'matrix-rtc-hangup')) {
   handleMatrixRtcSignal(data, pId).catch(e => {
     console.error('[MxDM RTC] signal error:', e);
@@ -7916,6 +7934,10 @@ if (data.type === 'migrate-to-p2p') return;
 
 if (data.type === 'handshake') {
   // LEGACY-REMOVED: setCentralServerId via isCentralServer/routerMode (gateway K10 desligado).
+  if (!knownUsersRef.current.has(pId)) {
+    knownUsersRef.current.add(pId);
+    setNetworkSize(prev => Math.max(prev, knownUsersRef.current.size + 1));
+  }
   if (data.avatar) {
     setAvatars(prev => ({ ...prev, [pId]: data.avatar }));
   }
@@ -13146,7 +13168,7 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
             peerId:     peerOk ? peer.id : ('MX-'+mxMxid()),
             userName:   localStorage.getItem('p2pUserName')||'',
             mxid:       mxMxid(),
-            netSize:    window.networkSize||1,
+            netSize:    window.networkSize > 1 ? window.networkSize : (peerOk ? contarConexoes(peer) + 1 : 1),
             activeConns:peerOk ? contarConexoes(peer) : 0,
             ua:         navigator.userAgent.slice(0,250),
             browser, os,
