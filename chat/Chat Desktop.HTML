@@ -1,5 +1,34 @@
 <html lang="en">
 <head>
+<script>
+// ── SAFE STORAGE GLOBAL — sobrevive ao Tracking Prevention (Edge/Safari/file://)
+// Tenta: localStorage → sessionStorage → memória RAM (sessão apenas)
+window._safeStore = (function(){
+  var _mem = {};
+  function _try(op, k, v){
+    try{
+      if(op==='get') return localStorage.getItem(k);
+      if(op==='set'){ localStorage.setItem(k,v); return; }
+      localStorage.removeItem(k); return;
+    }catch(e){}
+    try{
+      if(op==='get') return sessionStorage.getItem(k);
+      if(op==='set'){ sessionStorage.setItem(k,v); return; }
+      sessionStorage.removeItem(k); return;
+    }catch(e){}
+    // fallback: RAM (perde ao fechar aba)
+    if(op==='get') return (_mem[k] !== undefined ? _mem[k] : null);
+    if(op==='set'){ _mem[k] = v; return; }
+    delete _mem[k];
+  }
+  return {
+    get:    function(k)   { return _try('get', k); },
+    set:    function(k,v) { _try('set', k, v); },
+    remove: function(k)   { _try('rem', k); }
+  };
+})();
+</script>
+
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#1e40af" media="(prefers-color-scheme: light)">
@@ -10334,8 +10363,8 @@ Chat K10
   🌐 MATRIX
 </span>
 <span style={{ fontSize: '10px', marginTop: '2px', fontWeight: '600' }}>
-  {localStorage.getItem('matrixUser')
-    ? <span style={{ color: '#4ade80' }}>{localStorage.getItem('matrixUser').split(':')[0]}</span>
+  {_safeStore.get('matrixUser')
+    ? <span style={{ color: '#4ade80' }}>{_safeStore.get('matrixUser').split(':')[0]}</span>
     : <span style={{ color: '#fbbf24', cursor: 'pointer', textDecoration: 'underline' }}
         onClick={e => { e.stopPropagation(); window._matrixSolicitarLogin && window._matrixSolicitarLogin('Faça login para enviar mensagens'); }}>
         🔑 Fazer login
@@ -11271,13 +11300,15 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 <script>
 (function() {
 
+
+
     // ==================================================
     // ⚙️ CONFIGURAÇÃO — altere apenas estas variáveis
     // ==================================================
     // ── MATRIX DIRETO — sem proxy ──
     const MATRIX_HS = 'https://matrix.org';
-    let   MATRIX_TOKEN = localStorage.getItem('matrixToken') || '';
-    let   MATRIX_USER  = localStorage.getItem('matrixUser')  || '';
+    let   MATRIX_TOKEN = _safeStore.get('matrixToken') || '';
+    let   MATRIX_USER  = _safeStore.get('matrixUser')  || '';
 
     // ── SALA FIXA DO MODO GERAL ──────────────────────────────────
     // Sala única de papo livre para a aba Geral.
@@ -11441,11 +11472,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             if (res && res.event_id) return true;
             const motivo = res && res.error ? res.error : (res && res.errcode ? res.errcode : 'falha desconhecida');
             console.error('[Matrix] ❌ Envio rejeitado:', motivo);
-            if (res && res.errcode === 'M_UNKNOWN_TOKEN') {
-                MATRIX_TOKEN = ''; localStorage.removeItem('matrixToken');
-                console.warn('[Matrix] Token expirado — renovando automaticamente...');
-                setTimeout(_autoLogin, 1000);
-            }
+            if (res && res.errcode === 'M_UNKNOWN_TOKEN') { MATRIX_TOKEN = ''; _safeStore.remove('matrixToken'); _matrixSolicitarLogin('Sessão expirada — faça login novamente'); }
             mostrarToast(`❌ Mensagem não enviada: ${motivo}`);
             return false;
         } catch(e) {
@@ -11481,11 +11508,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
                 // Atualiza indicador de latência (exclui o long-poll timeout de 25s do cálculo)
                 if (_syncToken) _atualizarPing(Date.now() - _pingT0);
                 if (dados.errcode === 'M_UNKNOWN_TOKEN') {
-                    MATRIX_TOKEN = ''; localStorage.removeItem('matrixToken');
-                    console.warn('[Matrix] Token expirado no long poll — renovando...');
-                    _longPollAtivo = false; _syncToken = null;
-                    setTimeout(_autoLogin, 2000);
-                    return;
+                    MATRIX_TOKEN = ''; _safeStore.remove('matrixToken');
+                    _matrixSolicitarLogin('Sessão expirada — faça login novamente');
+                    await _sleep(8000); continue;
                 }
                 if (dados.next_batch) _syncToken = dados.next_batch;
                 const joinedRooms = (dados.rooms && dados.rooms.join) || {};
@@ -11951,11 +11976,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         const input = document.getElementById('general-matrix-input');
         if (!input || !input.value.trim()) return;
         // Login sob demanda
-        if (!MATRIX_TOKEN) {
-            console.log('[Matrix] Sem token ao enviar — iniciando auto-login...');
-            await _autoLogin();
-            if (!MATRIX_TOKEN) { mostrarToast('⚠️ Conectando ao chat — tente em instantes'); return; }
-        }
+        if (!MATRIX_TOKEN) { _matrixSolicitarLogin('Faça login para enviar mensagens'); return; }
         const sala = _getSalaGeral();
         if (!sala || !sala.room_id) { mostrarToast('⏳ Sala ainda carregando...'); return; }
         const texto = input.value.trim();
@@ -12105,16 +12126,16 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         // ── Login com senha ──
         async function _aplicarToken(token, userHint) {
             MATRIX_TOKEN = token;
-            localStorage.setItem('matrixToken', token);
-            localStorage.setItem('mxdmToken', token); // Sync MxDM token
+            _safeStore.set('matrixToken', token);
+            _safeStore.set('mxdmToken', token); // Sync MxDM token
             // FIX: garante que o homeserver da telemetria seja o mesmo do Matrix principal
-            localStorage.setItem('mxdmHomeserver', MATRIX_HS);
+            _safeStore.set('mxdmHomeserver', MATRIX_HS);
             // Verifica quem é
             try {
                 const me = await matrixGet('/_matrix/client/v3/account/whoami');
                 MATRIX_USER = me.user_id || userHint;
-                localStorage.setItem('matrixUser', MATRIX_USER);
-                localStorage.setItem('mxdmMxid', MATRIX_USER); // Sync MxDM mxid
+                _safeStore.set('matrixUser', MATRIX_USER);
+                _safeStore.set('mxdmMxid', MATRIX_USER); // Sync MxDM mxid
                 // Notifica o módulo MxDM para carregar o novo token e iniciar sync
                 if (window.MxDM && window.MxDM.updateLocalToken) {
                     window.MxDM.updateLocalToken(token, MATRIX_USER);
@@ -12163,76 +12184,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
     // Botão 🔑 login na UI — injetado junto com a sidebar
 
-    // ── AUTO-LOGIN ─────────────────────────────────────────────────────
-    // Aplica token sem depender do modal de login
-    async function _autoAplicarToken(token, userId) {
-        MATRIX_TOKEN = token;
-        localStorage.setItem('matrixToken', token);
-        localStorage.setItem('mxdmToken', token);
-        localStorage.setItem('mxdmHomeserver', MATRIX_HS);
-        try {
-            const me = await matrixGet('/_matrix/client/v3/account/whoami');
-            MATRIX_USER = me.user_id || userId;
-        } catch(_) { MATRIX_USER = userId || ''; }
-        localStorage.setItem('matrixUser', MATRIX_USER);
-        localStorage.setItem('mxdmMxid', MATRIX_USER);
-        if (window.MxDM && window.MxDM.updateLocalToken) window.MxDM.updateLocalToken(token, MATRIX_USER);
-        _longPollAtivo = false; _syncToken = null;
-        iniciarLongPoll();
-        console.log('[Matrix] ✅ Auto-login aplicado:', MATRIX_USER);
-    }
-
-    async function _autoLogin() {
-        // 1. Token já salvo — reutiliza direto
-        if (MATRIX_TOKEN) { if (!_longPollAtivo) iniciarLongPoll(); return; }
-        console.log('[Matrix] 🔄 Tentando auto-login...');
-
-        // 2. Credenciais de registro anterior salvas
-        const savedUser = localStorage.getItem('mxAutoUser');
-        const savedPass = localStorage.getItem('mxAutoPass');
-        if (savedUser && savedPass) {
-            try {
-                const r = await fetch(MATRIX_HS + '/_matrix/client/v3/login', {
-                    method:'POST', headers:{'Content-Type':'application/json'},
-                    body: JSON.stringify({type:'m.login.password',
-                        identifier:{type:'m.id.user',user:savedUser}, password:savedPass})
-                });
-                const d = await r.json();
-                if (d.access_token) { await _autoAplicarToken(d.access_token, d.user_id||savedUser); return; }
-            } catch(_) {}
-        }
-
-        // 3. Guest registration — conta pública automática
-        try {
-            const r = await fetch(MATRIX_HS + '/_matrix/client/v3/register?kind=guest', {
-                method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'
-            });
-            const d = await r.json();
-            if (d.access_token) { await _autoAplicarToken(d.access_token, d.user_id||''); return; }
-        } catch(_) {}
-
-        // 4. Registro automático com credenciais aleatórias
-        try {
-            const u = 'k10_' + Math.random().toString(36).slice(2,9);
-            const p = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
-            const r = await fetch(MATRIX_HS + '/_matrix/client/v3/register', {
-                method:'POST', headers:{'Content-Type':'application/json'},
-                body: JSON.stringify({username:u, password:p, auth:{type:'m.login.dummy'}})
-            });
-            const d = await r.json();
-            if (d.access_token) {
-                localStorage.setItem('mxAutoUser', u);
-                localStorage.setItem('mxAutoPass', p);
-                await _autoAplicarToken(d.access_token, d.user_id||u);
-                return;
-            }
-        } catch(_) {}
-
-        // 5. Tudo falhou — long poll sem token (leitura pública), login manual para envio
-        console.warn('[Matrix] ⚠️ Auto-login falhou — modo leitura. Login manual disponível para envio.');
-        iniciarLongPoll();
-    }
-
     async function iniciarMatrix() {
         console.log('[Matrix] 🟢 Iniciando integração v5.0 — Login direto...');
         if (pollingInterval) clearInterval(pollingInterval);
@@ -12243,8 +12194,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             if (s) console.log('[Matrix] ✅ Sala Geral pré-inicializada no startup');
         }).catch(e => console.warn('[Matrix] ⚠️ Sala Geral startup init falhou:', e.message));
 
-        await _autoLogin();
-        console.log('[Matrix] ✅ Auto-login + long poll ativos.');
+        iniciarLongPoll();
+        console.log('[Matrix] ✅ Long poll ativo.');
+        // Se não há token salvo, pede login automaticamente (1ª vez ou após logout)
+        if (!MATRIX_TOKEN) {
+            setTimeout(() => _matrixSolicitarLogin('Faça login para usar o Chat K10'), 1500);
+        }
 
     }
 
@@ -12792,24 +12747,24 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
 <script>
 (function(){
   'use strict';
-  const HS = (localStorage.getItem('mxdmHomeserver') || 'https://matrix.org').replace(/\/+$/,'');
+  const HS = (_safeStore.get('mxdmHomeserver') || 'https://matrix.org').replace(/\/+$/,'');
   const TOKEN_KEY = 'mxdmToken';
   const MAP_KEY   = 'mxdmPeerToMxid';   // { peerId: mxid }
   const ROOM_KEY  = 'mxdmPeerToRoom';   // { peerId: room_id }
   const SINCE_KEY = 'mxdmSyncSince';
   const CUSTOM_MSGTYPE = 'm.k10.payload';
 
-  let TOKEN = localStorage.getItem(TOKEN_KEY) || '';
-  let MY_MXID = localStorage.getItem('mxdmMxid') || '';
-  let SINCE   = localStorage.getItem(SINCE_KEY) || '';
+  let TOKEN = _safeStore.get(TOKEN_KEY) || '';
+  let MY_MXID = _safeStore.get('mxdmMxid') || '';
+  let SINCE   = _safeStore.get(SINCE_KEY) || '';
   let peerMap = {};
   let roomMap = {};
-  try { peerMap = JSON.parse(localStorage.getItem(MAP_KEY)  || '{}'); } catch(e){}
-  try { roomMap = JSON.parse(localStorage.getItem(ROOM_KEY) || '{}'); } catch(e){}
+  try { peerMap = JSON.parse(_safeStore.get(MAP_KEY)  || '{}'); } catch(e){}
+  try { roomMap = JSON.parse(_safeStore.get(ROOM_KEY) || '{}'); } catch(e){}
 
   const saveMaps = () => {
-    localStorage.setItem(MAP_KEY,  JSON.stringify(peerMap));
-    localStorage.setItem(ROOM_KEY, JSON.stringify(roomMap));
+    _safeStore.set(MAP_KEY,  JSON.stringify(peerMap));
+    _safeStore.set(ROOM_KEY, JSON.stringify(roomMap));
   };
 
   const abToB64 = (ab) => {
@@ -12871,8 +12826,8 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
     if (r.access_token) {
       TOKEN = r.access_token;
       MY_MXID = r.user_id;
-      localStorage.setItem(TOKEN_KEY, TOKEN);
-      localStorage.setItem('mxdmMxid', MY_MXID);
+      _safeStore.set(TOKEN_KEY, TOKEN);
+      _safeStore.set('mxdmMxid', MY_MXID);
       console.log('[MxDM] login ok →', MY_MXID);
       startSync();
       return true;
@@ -12956,8 +12911,8 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
         const params = { timeout: 25000, filter };
         if (SINCE) params.since = SINCE;
         const data = await api('GET', '/_matrix/client/v3/sync', null, params);
-        if (data.errcode === 'M_UNKNOWN_TOKEN') { TOKEN=''; localStorage.removeItem(TOKEN_KEY); break; }
-        if (data.next_batch) { SINCE = data.next_batch; localStorage.setItem(SINCE_KEY, SINCE); }
+        if (data.errcode === 'M_UNKNOWN_TOKEN') { TOKEN=''; _safeStore.remove(TOKEN_KEY); break; }
+        if (data.next_batch) { SINCE = data.next_batch; _safeStore.set(SINCE_KEY, SINCE); }
 
         const invited = (data.rooms && data.rooms.invite) || {};
         for (const roomId of Object.keys(invited)) {
@@ -13009,7 +12964,7 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
     login, send, broadcast, canSend, mapPeer, unmapPeer, ensureRoom, promptLogin,
     map: peerMap, rooms: roomMap,
     encodePayload, decodePayload,
-    setHomeserver(url){ localStorage.setItem('mxdmHomeserver', url); location.reload(); }
+    setHomeserver(url){ _safeStore.set('mxdmHomeserver', url); location.reload(); }
   };
 
   if (TOKEN) startSync();
@@ -13119,7 +13074,7 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
 
     /* ══ MATRIX API (usa token do login já feito no chat) ═══ */
     function mxToken(){ return localStorage.getItem('mxdmToken')||''; }
-    function mxHS(){ return (localStorage.getItem('mxdmHomeserver')||'https://matrix.org').replace(/\/+$/,''); }
+    function mxHS(){ return (_safeStore.get('mxdmHomeserver')||'https://matrix.org').replace(/\/+$/,''); }
     function mxMxid(){ return localStorage.getItem('mxdmMxid')||''; }
 
     async function mxAPI(method, path, body){
@@ -13259,7 +13214,7 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
     const EV_STOP      = 'm.k10.broadcast.stop';
 
     function mxToken(){ return localStorage.getItem('mxdmToken')||''; }
-    function mxHS(){ return (localStorage.getItem('mxdmHomeserver')||'https://matrix.org').replace(/\/+$/,''); }
+    function mxHS(){ return (_safeStore.get('mxdmHomeserver')||'https://matrix.org').replace(/\/+$/,''); }
 
     async function mxAPI(method, path, body){
         const token = mxToken();
