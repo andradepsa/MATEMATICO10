@@ -6798,6 +6798,14 @@ useEffect(() => { userAvatarRef.current = userAvatar; }, [userAvatar]);
 const userNameRef = useRef(localStorage.getItem('p2pUserName') || ''); // FIX BUG-3: evita stale closure em sendRadioSync/sendQuizHandoff
 useEffect(() => { userNameRef.current = userName; }, [userName]);
 const [editingName, setEditingName] = useState(!localStorage.getItem('p2pUserName'));
+/* País declarado pelo próprio usuário — nunca coletado automaticamente.
+   Armazena apenas o código ISO (ex: "BR"). Vazio = não informado. */
+const [userCountry, setUserCountry] = useState(() => localStorage.getItem('p2pUserCountry') || '');
+const saveUserCountry = (code) => {
+  setUserCountry(code);
+  if (code) localStorage.setItem('p2pUserCountry', code);
+  else localStorage.removeItem('p2pUserCountry');
+};
 const [avatars, setAvatars] = useState({}); // { peerId: base64 }
 const [connections, setConnections] = useState([]);
 // FIX BUG-2 & BUG-6: connectionsRef always holds latest connections array
@@ -10716,6 +10724,61 @@ overflow: 'hidden'
         </button>
       </div>
     )}
+    {/* ── Seletor de país — declaração voluntária, sem coleta automática ── */}
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+      <span style={{ fontSize: '13px', color: 'var(--text-muted)' }}>🌍 País:</span>
+      <select
+        value={userCountry}
+        onChange={e => saveUserCountry(e.target.value)}
+        title="Seu país (declaração voluntária — apenas código ISO, sem IP ou geolocalização)"
+        style={{
+          fontSize: '13px', padding: '3px 8px', borderRadius: '6px',
+          border: '1px solid var(--border)', background: 'var(--surface)',
+          color: 'var(--text)', cursor: 'pointer', maxWidth: '220px'
+        }}
+      >
+        <option value="">🌐 Não informar</option>
+        <option value="BR">🇧🇷 Brasil</option>
+        <option value="PT">🇵🇹 Portugal</option>
+        <option value="AO">🇦🇴 Angola</option>
+        <option value="MZ">🇲🇿 Moçambique</option>
+        <option value="AR">🇦🇷 Argentina</option>
+        <option value="UY">🇺🇾 Uruguai</option>
+        <option value="PY">🇵🇾 Paraguai</option>
+        <option value="BO">🇧🇴 Bolívia</option>
+        <option value="CL">🇨🇱 Chile</option>
+        <option value="PE">🇵🇪 Peru</option>
+        <option value="CO">🇨🇴 Colômbia</option>
+        <option value="VE">🇻🇪 Venezuela</option>
+        <option value="EC">🇪🇨 Equador</option>
+        <option value="MX">🇲🇽 México</option>
+        <option value="US">🇺🇸 Estados Unidos</option>
+        <option value="CA">🇨🇦 Canadá</option>
+        <option value="ES">🇪🇸 Espanha</option>
+        <option value="FR">🇫🇷 França</option>
+        <option value="DE">🇩🇪 Alemanha</option>
+        <option value="IT">🇮🇹 Itália</option>
+        <option value="GB">🇬🇧 Reino Unido</option>
+        <option value="NL">🇳🇱 Holanda</option>
+        <option value="BE">🇧🇪 Bélgica</option>
+        <option value="CH">🇨🇭 Suíça</option>
+        <option value="JP">🇯🇵 Japão</option>
+        <option value="CN">🇨🇳 China</option>
+        <option value="KR">🇰🇷 Coreia do Sul</option>
+        <option value="IN">🇮🇳 Índia</option>
+        <option value="RU">🇷🇺 Rússia</option>
+        <option value="TR">🇹🇷 Turquia</option>
+        <option value="ZA">🇿🇦 África do Sul</option>
+        <option value="NG">🇳🇬 Nigéria</option>
+        <option value="EG">🇪🇬 Egito</option>
+        <option value="AU">🇦🇺 Austrália</option>
+      </select>
+      {userCountry && (
+        <span style={{ fontSize: '11px', color: 'var(--text-subtle)' }}>
+          ✓ visível no monitor
+        </span>
+      )}
+    </div>
   </div>
 </div>
 
@@ -13320,68 +13383,31 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
      Todos os monitores logados na mesma sala recebem em tempo real.
      ================================================================ -->
 <script>
+/* ══════════════════════════════════════════════════════════════
+   K10 PRESENÇA ANÔNIMA — sem coleta de dados sensíveis
+   Envia apenas: peerId, userName, netSize, activeConns, timestamp.
+   Nenhum IP, geolocalização, user-agent, hardware ou fingerprint
+   é coletado, armazenado ou transmitido.
+   Necessário apenas para que o Broadcast Registry detecte se o
+   peer está online (heartbeat mínimo).
+═══════════════════════════════════════════════════════════════ */
 (function(){
     'use strict';
 
-    /* ══ CONFIG ══════════════════════════════════════════════ */
-    const MONITOR_ID        = 'K10-MON';
     const INTERVALO_REENVIO = 90_000;
     const MAX_TENTATIVAS    = 30;
 
-    /* ══ ESTADO ══════════════════════════════════════════════ */
     let tentativas   = 0;
-    let geoCache     = null;
     let timerReenvio = null;
-    let mxRoomId     = localStorage.getItem('k10TelemetriaRoomId') || null;
+    let mxRoomId     = null;
     let mxRoomTentou = false;
 
-    /* ══ GEO — fallback em cadeia ════════════════════════════ */
-    const GEO_PROVIDERS = [
-        {
-            url: 'https://get.geojs.io/v1/ip/geo.json',
-            parse: d => ({ ip:d.ip, city:d.city, region:d.region, country:d.country,
-                countryCode:d.country_code, lat:parseFloat(d.latitude),
-                lon:parseFloat(d.longitude), isp:d.organization_name,
-                org:d.organization_name, geoTimezone:d.timezone }),
-            check: d => d.ip && d.city && d.latitude
-        },
-        {
-            url: 'https://ipinfo.io/json',
-            parse: d => { const [lat,lon]=(d.loc||',').split(',');
-                return { ip:d.ip, city:d.city, region:d.region, country:null,
-                    countryCode:d.country, lat:parseFloat(lat), lon:parseFloat(lon),
-                    isp:d.org, org:d.org, geoTimezone:d.timezone }; },
-            check: d => d.ip && d.city && d.loc
-        },
-        {
-            url: 'https://www.iplocate.io/api/lookup',
-            parse: d => ({ ip:d.ip, city:d.city, region:d.subdivision, country:d.country,
-                countryCode:d.country_code, lat:d.latitude, lon:d.longitude,
-                isp:d.org, org:d.org, geoTimezone:d.time_zone }),
-            check: d => d.ip && d.city && d.latitude
-        }
-    ];
+    const SALA_ROOM_ID = '!envs-RSauuX1LrriNcVmdwmAGcyVpM0_w8OnC0EZgrQ';
 
-    /* ══ UTILITÁRIOS ════════════════════════════════════════ */
-    function parseBrowser(ua){
-        if(!ua) return {browser:'Unknown',os:'Unknown'};
-        let b='Other',o='Other';
-        if(/Edg\//.test(ua))           b='Edge';
-        else if(/OPR\/|Opera/.test(ua))b='Opera';
-        else if(/YaBrowser/.test(ua))  b='Yandex';
-        else if(/SamsungBrowser/.test(ua))b='Samsung';
-        else if(/Chrome\//.test(ua))   b='Chrome';
-        else if(/Firefox\//.test(ua))  b='Firefox';
-        else if(/Safari\//.test(ua))   b='Safari';
-        if(/Windows NT 1[01]/.test(ua))o='Windows 10/11';
-        else if(/Windows NT 6/.test(ua))o='Windows 7/8';
-        else if(/Mac OS X/.test(ua))   o='macOS';
-        else if(/Android/.test(ua))    o='Android';
-        else if(/iPhone|iPad/.test(ua))o='iOS';
-        else if(/Linux/.test(ua))      o='Linux';
-        else if(/CrOS/.test(ua))       o='ChromeOS';
-        return {browser:b,os:o};
-    }
+    function mxToken(){ return localStorage.getItem('mxdmToken')||''; }
+    function mxSendToken(){ return localStorage.getItem('k10SendToken') || localStorage.getItem('mxdmToken') || ''; }
+    function mxHS(){ return (localStorage.getItem('mxdmHomeserver')||'https://matrix.org').replace(/\/+$/,''); }
+
     function contarConexoes(peer){
         try{
             if(peer._connections instanceof Map) return peer._connections.size;
@@ -13389,28 +13415,6 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
         }catch(_){}
         return 0;
     }
-    function extrairHS(mxid){ const p=(mxid||'').split(':'); return p.length>1?p.slice(1).join(':'):'matrix.org'; }
-
-    /* ══ GEO ════════════════════════════════════════════════ */
-    async function obterGeo(){
-        if(geoCache) return geoCache;
-        for(const p of GEO_PROVIDERS){
-            try{
-                const r=await fetch(p.url,{cache:'no-store'});
-                const d=await r.json();
-                if(!p.check(d)) continue;
-                geoCache=p.parse(d);
-                return geoCache;
-            }catch(_){}
-        }
-        return null;
-    }
-
-    /* ══ MATRIX API (usa token do login já feito no chat) ═══ */
-    function mxToken(){ return localStorage.getItem('mxdmToken')||''; }
-    function mxSendToken(){ return localStorage.getItem('k10SendToken') || localStorage.getItem('mxdmToken') || ''; }
-    function mxHS(){ return (localStorage.getItem('mxdmHomeserver')||'https://matrix.org').replace(/\/+$/,''); }
-    function mxMxid(){ return localStorage.getItem('mxdmMxid')||''; }
 
     async function mxAPI(method, path, body){
         const token = (method === 'GET') ? mxToken() : mxSendToken();
@@ -13425,11 +13429,6 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
         }catch(_){ return null; }
     }
 
-    /* ══ SALA FIXA DE TELEMETRIA — ID DIRETO ════════════════
-       Room ID permanente, nunca muda.
-    ═══════════════════════════════════════════════════════ */
-    const SALA_ROOM_ID = '!envs-RSauuX1LrriNcVmdwmAGcyVpM0_w8OnC0EZgrQ';
-
     async function resolverSala(){
         if(mxRoomId)     return true;
         if(mxRoomTentou) return false;
@@ -13442,91 +13441,71 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
         }catch(_){ return false; }
     }
 
-        /* ══ ENVIO MATRIX ═══════════════════════════════════════ */
-    async function enviarMatrix(dados){
-        const ok=await resolverSala();
-        if(!ok) return false;
-        const txnId='k10tel_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
-        const res=await mxAPI('PUT',
-            '/_matrix/client/v3/rooms/'+encodeURIComponent(mxRoomId)+
-            '/send/m.k10.telemetry/'+txnId,
-            dados);
-        return !!res?.event_id;
-    }
-
-    /* ══ ENVIO PEERJS (fallback) ═════════════════════════════ */
+    /* ── Canal PeerJS: envia para K10-MON (sem dados sensíveis) ── */
     function enviarPeerJS(peer, dados){
         try{
-            const conn=peer.connect(MONITOR_ID,{reliable:false,serialization:'json'});
-            conn.on('open',()=>{
+            const conn = peer.connect('K10-MON', {reliable:false, serialization:'json'});
+            conn.on('open', ()=>{
                 conn.send(dados);
-                setTimeout(()=>{ try{conn.close()}catch(_){} },1500);
+                setTimeout(()=>{ try{ conn.close(); }catch(_){} }, 1500);
             });
-            conn.on('error',()=>{});
+            conn.on('error', ()=>{});
         }catch(_){}
     }
 
-    /* ══ COLETA E ENVIO DUAL ════════════════════════════════ */
-    async function coletarEEnviar(){
-        const peer  = window.__PEER__;
-        const peerOk= peer && peer.open;
-        const mxOk  = !!mxToken();
+    async function enviarPresenca(){
+        const peer   = window.__PEER__;
+        const peerOk = peer && peer.open;
+        const mxOk   = !!mxToken();
         if(!peerOk && !mxOk) return;
 
-        const {browser,os}=parseBrowser(navigator.userAgent);
-        const geo=await obterGeo();
-
-        const dados={
-            type:       'k10-telemetry',
-            peerId:     peerOk ? peer.id : ('MX-'+mxMxid()),
-            userName:   localStorage.getItem('p2pUserName')||'',
-            mxid:       mxMxid(),
-            netSize:    window.networkSize||1,
-            activeConns:peerOk ? contarConexoes(peer) : 0,
-            ua:         navigator.userAgent.slice(0,250),
-            browser, os,
-            lang:       navigator.language,
-            langs:      (navigator.languages||[navigator.language]).join(','),
-            screen:     screen.width+'x'+screen.height,
-            colorDepth: screen.colorDepth,
-            devicePixelRatio: window.devicePixelRatio||1,
-            timezone:   Intl.DateTimeFormat().resolvedOptions().timeZone,
-            platform:   navigator.platform||'',
-            memory:     navigator.deviceMemory||null,
-            cores:      navigator.hardwareConcurrency||null,
-            touchPoints:navigator.maxTouchPoints||0,
-            online:     navigator.onLine,
-            timestamp:  Date.now(),
-            canal:      mxOk ? 'matrix (#telemetria:matrix.org)' : 'peerjs'
+        /* Somente dados nao-sensiveis: identidade de sessao + estado da rede */
+        const dados = {
+            type:        'k10-telemetry',
+            peerId:      peerOk ? peer.id : ('MX-anon'),
+            userName:    localStorage.getItem('p2pUserName') || '',
+            /* País declarado voluntariamente pelo usuário (código ISO, ex: "BR").
+               Vazio se não informado. Nunca coletado via IP ou geolocalização. */
+            country:     localStorage.getItem('p2pUserCountry') || '',
+            netSize:     window.networkSize || 1,
+            activeConns: peerOk ? contarConexoes(peer) : 0,
+            online:      navigator.onLine,
+            timestamp:   Date.now()
         };
-        if(geo) Object.assign(dados,geo);
 
-        /* Canal 1: Matrix (principal) */
-        if(mxOk) enviarMatrix(dados);
+        /* Canal 1: PeerJS -> K10-MON (principal) */
+        if(peerOk) enviarPeerJS(peer, dados);
 
-        /* Canal 2: PeerJS (fallback) */
-        if(peerOk) enviarPeerJS(peer,dados);
+        /* Canal 2: Matrix (heartbeat para Broadcast Registry) */
+        if(mxOk){
+            const ok = await resolverSala();
+            if(ok){
+                const txnId = 'k10tel_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+                await mxAPI('PUT',
+                    '/_matrix/client/v3/rooms/'+encodeURIComponent(mxRoomId)+
+                    '/send/m.k10.telemetry/'+txnId, dados);
+            }
+        }
     }
 
-    /* ══ INICIALIZAÇÃO ══════════════════════════════════════ */
     async function iniciar(){
-        const peer  = window.__PEER__;
-        const peerOk= peer && peer.open;
-        const mxOk  = !!mxToken();
+        const peer   = window.__PEER__;
+        const peerOk = peer && peer.open;
+        const mxOk   = !!mxToken();
         if(!peerOk && !mxOk){
-            if(tentativas++<MAX_TENTATIVAS) setTimeout(iniciar,2000);
+            if(tentativas++ < MAX_TENTATIVAS) setTimeout(iniciar, 2000);
             return;
         }
         if(mxOk && !mxRoomId) resolverSala();
-        coletarEEnviar();
+        enviarPresenca();
         if(timerReenvio) clearInterval(timerReenvio);
-        timerReenvio=setInterval(coletarEEnviar,INTERVALO_REENVIO);
+        timerReenvio = setInterval(enviarPresenca, INTERVALO_REENVIO);
     }
 
     if(document.readyState==='loading'){
-        document.addEventListener('DOMContentLoaded',()=>setTimeout(iniciar,5000));
+        document.addEventListener('DOMContentLoaded', ()=>setTimeout(iniciar, 5000));
     } else {
-        setTimeout(iniciar,5000);
+        setTimeout(iniciar, 5000);
     }
 })();
 </script>
