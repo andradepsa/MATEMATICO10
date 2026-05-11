@@ -12516,11 +12516,16 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         // Auto-login na conta pública se não houver sessão
         await _autoLoginPublico();
 
-        // Inicializa Sala Geral proativamente (não aguarda o usuário abrir a aba)
-        // Isso garante que enviarParaMatrix e o longPoll já incluem a sala desde o início
-        _initSalaGeral().then(s => {
+        // Inicializa Sala Geral proativamente e AGUARDA antes de iniciar o long poll
+        // FIX: antes era .then() sem await — o longPoll iniciava sem sala configurada,
+        // causando atraso no primeiro carregamento (só funcionava após reload)
+        try {
+            const s = await _initSalaGeral();
             if (s) console.log('[Matrix] ✅ Sala Geral pré-inicializada no startup');
-        }).catch(e => console.warn('[Matrix] ⚠️ Sala Geral startup init falhou:', e.message));
+            else console.warn('[Matrix] ⚠️ Sala Geral startup init retornou vazio');
+        } catch(e) {
+            console.warn('[Matrix] ⚠️ Sala Geral startup init falhou:', e.message);
+        }
 
         iniciarLongPoll();
         console.log('[Matrix] ✅ Long poll ativo.');
