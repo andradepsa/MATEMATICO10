@@ -1077,7 +1077,14 @@ async function startMatrixSync(){
       const params={timeout:25000,filter};
       if(SINCE)params.since=SINCE;
       const data=await matrixApi('GET','/_matrix/client/v3/sync',null,params);
-      if(data.errcode==='M_UNKNOWN_TOKEN'){MATRIX_TOKEN='';localStorage.removeItem('mxdmToken');break}
+      if(data.errcode==='M_UNKNOWN_TOKEN'){
+        MATRIX_TOKEN='';MY_MXID='';
+        localStorage.removeItem('mxdmToken');localStorage.removeItem('mxdmMxid');
+        syncRunning=false;
+        log('🔄 Sessão expirada — renovando automaticamente...','warn');
+        setTimeout(autoLoginMatrix,2000);
+        break;
+      }
       if(data.next_batch){SINCE=data.next_batch;localStorage.setItem('mxdmSyncSince',SINCE)}
       const invited=data.rooms?.invite||{};
       for(const rid of Object.keys(invited))await matrixApi('POST',`/_matrix/client/v3/rooms/${encodeURIComponent(rid)}/join`,{});
@@ -1117,11 +1124,60 @@ function renderMatrixRooms(){
     </div>`).join('');
 }
 
-if(MATRIX_TOKEN&&MY_MXID){
-  document.getElementById('mx-status').innerHTML='🟢 '+esc(MY_MXID);
-  document.getElementById('mx-mxid-label').textContent=MY_MXID;
-  garantirSalaTelemetria().then(()=>startMatrixSync());
+// ── AUTO-LOGIN MATRIX ────────────────────────────────────────────────
+// Cadeia: token salvo → credenciais salvas → guest → sem interação do usuário
+async function autoLoginMatrix(){
+  // 1. Já tem token salvo → conecta direto
+  if(MATRIX_TOKEN&&MY_MXID){
+    document.getElementById('mx-status').innerHTML='🟢 '+esc(MY_MXID);
+    document.getElementById('mx-mxid-label').textContent=MY_MXID;
+    setCh('matrix','ok','⬡ MATRIX: '+MY_MXID);
+    garantirSalaTelemetria().then(()=>startMatrixSync());
+    return;
+  }
+  log('🔄 Auto-login Matrix...','warn');
+  setCh('matrix','warn','⬡ MATRIX: conectando...');
+
+  // 2. Credenciais de registro anterior salvas no localStorage
+  const savedUser=localStorage.getItem('mxAutoUser');
+  const savedPass=localStorage.getItem('mxAutoPass');
+  if(savedUser&&savedPass){
+    try{
+      const r=await fetch(HS+'/_matrix/client/v3/login',{method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({type:'m.login.password',
+          identifier:{type:'m.id.user',user:savedUser},password:savedPass})});
+      const d=await r.json();
+      if(d.access_token){aplicarToken(d.access_token,d.user_id||savedUser);log('✅ Auto-login conta salva','ok');return;}
+    }catch(_){}
+  }
+
+  // 3. Guest registration — conta pública automática
+  try{
+    const r=await fetch(HS+'/_matrix/client/v3/register?kind=guest',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:'{}'});
+    const d=await r.json();
+    if(d.access_token){aplicarToken(d.access_token,d.user_id||'guest');log('✅ Auto-login guest','ok');return;}
+  }catch(_){}
+
+  // 4. Registro automático com credenciais aleatórias
+  try{
+    const u='k10mon'+Math.random().toString(36).slice(2,9);
+    const p=Math.random().toString(36).slice(2)+Math.random().toString(36).slice(2);
+    const r=await fetch(HS+'/_matrix/client/v3/register',{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({username:u,password:p,auth:{type:'m.login.dummy'}})});
+    const d=await r.json();
+    if(d.access_token){
+      localStorage.setItem('mxAutoUser',u);localStorage.setItem('mxAutoPass',p);
+      aplicarToken(d.access_token,d.user_id||u);log('✅ Auto-login conta criada: '+u,'ok');return;
+    }
+  }catch(_){}
+
+  log('⚠️ Auto-login falhou — use o botão 🔑 Login manualmente','warn');
+  setCh('matrix','warn','⬡ MATRIX: login manual');
 }
+autoLoginMatrix();
 
 // ── INIT ──────────────────────────────────────────────────────
 window.startMon=startMon; window.stopMon=stopMon;
