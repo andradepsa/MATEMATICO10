@@ -3171,6 +3171,167 @@ const K10GeneralRoomChat = () => (
 );
 
 // ================================================================
+// YtChatJoinModal — modal de entrada do YouTube Chat
+// ================================================================
+const YtChatJoinModal = ({ onClose, onStart, onJoin }) => {
+const DEFAULT_YT_ID = '36YnV9STBqc';
+const [ytModalTab, setYtModalTab] = useState('default');
+const [ytCustomUrl, setYtCustomUrl] = useState('');
+const [activeStreams, setActiveStreams] = useState(null);
+const [ytModalErr, setYtModalErr] = useState('');
+
+useEffect(() => {
+  if (ytModalTab === 'active') {
+    setActiveStreams(null);
+    (async () => {
+      try {
+        const all = await window.K10BroadcastRegistry?.fetchRecent() || [];
+        setActiveStreams(all.filter(b => b.broadcastType === 'youtube-chat'));
+      } catch(e) { setActiveStreams([]); }
+    })();
+  }
+}, [ytModalTab]);
+
+const parseYtId = (url) => {
+  try {
+    let u = url.trim();
+    if (!u.startsWith('http')) u = 'https://' + u;
+    if (u.includes('youtu.be/')) return u.split('youtu.be/')[1].split('?')[0];
+    if (u.includes('youtube.com/watch')) return new URL(u).searchParams.get('v');
+    if (u.includes('youtube.com/live/')) return u.split('youtube.com/live/')[1].split('?')[0];
+  } catch(e) {}
+  return null;
+};
+
+const handleOwn = () => {
+  const yId = parseYtId(ytCustomUrl);
+  if (!yId) { setYtModalErr('URL inválida. Use um link do YouTube ao vivo.'); return; }
+  setYtModalErr('');
+  onStart(yId);
+};
+
+const tabBtn = (id, label) => (
+  <button onClick={() => setYtModalTab(id)}
+    style={{ flex:1, padding:'8px 4px', fontSize:'12px', fontWeight:700, border:'none',
+             borderBottom: ytModalTab===id ? '2px solid #ef4444' : '2px solid transparent',
+             background:'none', color: ytModalTab===id ? '#ef4444' : 'var(--text-muted)',
+             cursor:'pointer', transition:'all .15s' }}>
+    {label}
+  </button>
+);
+
+return (
+  <div style={{ position:'absolute', inset:0, background:'rgba(0,0,0,0.72)', zIndex:200,
+                display:'flex', alignItems:'center', justifyContent:'center', padding:'16px' }}
+       onClick={e => { if(e.target===e.currentTarget) onClose(); }}>
+    <div style={{ background:'#0f172a', border:'1px solid #7f1d1d', borderRadius:'18px',
+                  width:'100%', maxWidth:'420px', padding:'24px', color:'#f8fafc',
+                  boxShadow:'0 0 40px rgba(239,68,68,0.25)', display:'flex', flexDirection:'column' }}>
+      {/* Header */}
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:'18px' }}>
+        <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
+          <span style={{ fontSize:'24px' }}>📺</span>
+          <div>
+            <div style={{ fontWeight:800, fontSize:'16px' }}>YouTube Chat ao Vivo</div>
+            <div style={{ fontSize:'12px', color:'#94a3b8', marginTop:'2px' }}>Transmita ou entre em um chat existente</div>
+          </div>
+        </div>
+        <button onClick={onClose} style={{ background:'none', border:'none', color:'#64748b', fontSize:'22px', cursor:'pointer', lineHeight:1, padding:'0 4px' }}>×</button>
+      </div>
+      {/* Tabs */}
+      <div style={{ display:'flex', borderBottom:'1px solid #1e293b', marginBottom:'18px' }}>
+        {tabBtn('default', '⭐ Padrão')}
+        {tabBtn('own', '🔗 Minha URL')}
+        {tabBtn('active', '📡 Ao Vivo')}
+      </div>
+      {/* Tab: default */}
+      {ytModalTab === 'default' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:'14px' }}>
+          <div style={{ background:'#1e293b', borderRadius:'10px', overflow:'hidden' }}>
+            <img src={'https://img.youtube.com/vi/' + DEFAULT_YT_ID + '/mqdefault.jpg'} alt="thumbnail"
+                 style={{ width:'100%', height:'140px', objectFit:'cover', display:'block' }}
+                 onError={e => e.target.style.display='none'} />
+          </div>
+          <div style={{ fontSize:'13px', color:'#94a3b8', textAlign:'center' }}>Transmissão padrão da comunidade K10</div>
+          <div style={{ display:'flex', gap:'8px' }}>
+            <button onClick={() => onJoin(DEFAULT_YT_ID)}
+              style={{ flex:1, background:'#1e293b', color:'#94a3b8', border:'1px solid #334155',
+                       borderRadius:'8px', padding:'10px', fontSize:'13px', fontWeight:600, cursor:'pointer' }}>
+              👁 Só assistir
+            </button>
+            <button onClick={() => onStart(DEFAULT_YT_ID)}
+              style={{ flex:2, background:'#ef4444', color:'white', border:'none', borderRadius:'8px',
+                       padding:'10px', fontSize:'13px', fontWeight:700, cursor:'pointer',
+                       display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
+              <i className="fab fa-youtube"></i> Transmitir para todos
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Tab: own */}
+      {ytModalTab === 'own' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:'12px' }}>
+          <div style={{ fontSize:'13px', color:'#94a3b8' }}>Cole o link de um YouTube ao vivo:</div>
+          <input value={ytCustomUrl} onChange={e => { setYtCustomUrl(e.target.value); setYtModalErr(''); }}
+            placeholder="https://www.youtube.com/watch?v=..."
+            style={{ width:'100%', padding:'10px 12px', borderRadius:'8px', border:'1px solid #334155',
+                     background:'#1e293b', color:'white', fontSize:'13px', outline:'none', boxSizing:'border-box' }}
+            onKeyDown={e => { if(e.key==='Enter') handleOwn(); }} />
+          {ytModalErr && <div style={{ color:'#f87171', fontSize:'12px' }}>{ytModalErr}</div>}
+          <div style={{ display:'flex', gap:'8px' }}>
+            <button onClick={() => { const yId = parseYtId(ytCustomUrl); if(!yId){setYtModalErr('URL inválida.');return;} setYtModalErr(''); onJoin(yId); }}
+              style={{ flex:1, background:'#1e293b', color:'#94a3b8', border:'1px solid #334155',
+                       borderRadius:'8px', padding:'10px', fontSize:'13px', fontWeight:600, cursor:'pointer' }}>
+              👁 Só assistir
+            </button>
+            <button onClick={handleOwn}
+              style={{ flex:2, background:'#ef4444', color:'white', border:'none', borderRadius:'8px',
+                       padding:'10px', fontSize:'13px', fontWeight:700, cursor:'pointer',
+                       display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
+              <i className="fab fa-youtube"></i> Transmitir para todos
+            </button>
+          </div>
+        </div>
+      )}
+      {/* Tab: active broadcasts */}
+      {ytModalTab === 'active' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:'10px', maxHeight:'260px', overflowY:'auto' }}>
+          {activeStreams === null && (
+            <div style={{ textAlign:'center', color:'#64748b', padding:'24px', fontSize:'13px' }}>🔄 Buscando transmissões ativas...</div>
+          )}
+          {activeStreams !== null && activeStreams.length === 0 && (
+            <div style={{ textAlign:'center', padding:'24px', fontSize:'13px', color:'#64748b' }}>
+              <div style={{ fontSize:'32px', marginBottom:'8px' }}>📭</div>
+              Nenhum YouTube Chat ativo no momento.<br/>
+              <span style={{ fontSize:'11px' }}>Use a aba Padrão ou Minha URL para iniciar um.</span>
+            </div>
+          )}
+          {activeStreams !== null && activeStreams.map((bc, i) => (
+            <div key={i} style={{ background:'#1e293b', borderRadius:'10px', overflow:'hidden', border:'1px solid #334155' }}>
+              <img src={'https://img.youtube.com/vi/' + bc.youtubeId + '/mqdefault.jpg'} alt=""
+                   style={{ width:'100%', height:'100px', objectFit:'cover', display:'block' }}
+                   onError={e => e.target.style.display='none'} />
+              <div style={{ padding:'10px 12px' }}>
+                <div style={{ fontSize:'12px', color:'#94a3b8', marginBottom:'8px' }}>
+                  📡 Transmitido por <b style={{ color:'#e2e8f0' }}>{bc.senderName || bc.peerId}</b>
+                </div>
+                <button onClick={() => onJoin(bc.youtubeId)}
+                  style={{ width:'100%', background:'#ef4444', color:'white', border:'none', borderRadius:'7px',
+                           padding:'8px', fontSize:'13px', fontWeight:700, cursor:'pointer',
+                           display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
+                  <i className="fab fa-youtube"></i> Entrar neste chat
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  </div>
+);
+};
+
+// ================================================================
 // ChatManager
 // ================================================================
 const ChatManager = ({
@@ -3184,6 +3345,8 @@ e2eeState, setE2eeState, isCentralServer, serverE2EE, setServerE2EE, connectToPe
 handleTorrentSeed, handleTorrentDownload, setShowTorrentManager,
 pendingTorrentRequests, setPendingTorrentRequests, handleTorrentDirectSeed,
 youtubeChatId, disconnectPeer,
+setYoutubeChatId,
+startYtChatById,
 broadcastYoutubeChat, stopYoutubeChat,
 showWhiteboard, setShowWhiteboard,
 avatars,
@@ -3208,8 +3371,9 @@ const messagesContainerRef = useRef(null);
 const [showSendSecretModal, setShowSendSecretModal] = useState(false);
 const [showServerE2EEModal, setShowServerE2EEModal] = useState(false);
 const [hiddenMessages, setHiddenMessages] = useState(new Set());
-const [activeChatTab, setActiveChatTab] = useState('general');
-const activeChatTabRef = useRef('general');
+const [activeChatTab, setActiveChatTab] = useState('youtube');
+const activeChatTabRef = useRef('youtube');
+const [showYtJoinModal, setShowYtJoinModal] = useState(true);
 useEffect(() => { activeChatTabRef.current = activeChatTab; }, [activeChatTab]);
 // ── tabUnread: contador de msgs não lidas por aba ──
 const [tabUnread, setTabUnread] = useState({p2p:0, general:0, youtube:0});
@@ -3347,7 +3511,7 @@ window._handleQuizAnswer = handleQuizAnswer; // Expõe para o Quiz flutuante (fo
 
 
 useEffect(() => {
-if (!youtubeChatId && activeChatTab === 'youtube') changeTab('general');
+if (!youtubeChatId && activeChatTab === 'youtube') setShowYtJoinModal(true);
 }, [youtubeChatId]);
 
 
@@ -3971,16 +4135,16 @@ onClose={() => setShowServerE2EEModal(false)} currentServerE2EE={serverE2EE[sele
         <span>P2P</span>
         <UnreadBadge count={tabUnread.p2p} />
       </button>
-      {/* Geral */}
+      {/* Geral — oculta, funcionalidade mantida */}
       <button role="tab" data-tab="general" aria-selected={activeChatTab === 'general'} tabIndex={activeChatTab === 'general' ? 0 : -1}
-        onClick={() => { setSelectedContact(null); changeTab('general'); }} onKeyDown={handleTabKeyDown} style={tabStyle('general', '#10b981')} title="Modo Geral — broadcast P2P">
+        onClick={() => { setSelectedContact(null); changeTab('general'); }} onKeyDown={handleTabKeyDown} style={{...tabStyle('general', '#10b981'), display:'none'}} title="Modo Geral — broadcast P2P">
         <span style={{ fontSize: '15px' }}>🌐</span>
         <span>Geral</span>
         <UnreadBadge count={tabUnread.general} />
       </button>
       {/* YouTube */}
       <button role="tab" data-tab="youtube" aria-selected={activeChatTab === 'youtube'} tabIndex={activeChatTab === 'youtube' ? 0 : -1}
-        onClick={() => changeTab('youtube')} onKeyDown={handleTabKeyDown} style={tabStyle('youtube', '#ef4444')} title="YouTube Chat">
+        onClick={() => { changeTab('youtube'); if (!youtubeChatId) setShowYtJoinModal(true); }} onKeyDown={handleTabKeyDown} style={tabStyle('youtube', '#ef4444')} title="YouTube Chat">
         <span style={{ fontSize: '15px' }}><i className="fab fa-youtube"></i></span>
         <span>YouTube</span>
         {youtubeChatId && <span style={{ position:'absolute', top:'4px', right:'6px', background:'#ef4444', borderRadius:'50%', width:'7px', height:'7px' }}></span>}
@@ -4190,16 +4354,34 @@ title={t(lang, 'sendMessage')}>
         <div style={{ fontSize:'11px', color:'var(--text-subtle)' }}>
           ID do vídeo: <code style={{ background:'var(--bg)', padding:'2px 6px', borderRadius:'4px' }}>{youtubeChatId}</code>
         </div>
+        <button onClick={() => setShowYtJoinModal(true)} style={{ marginTop:'8px', background:'none', border:'1px solid var(--border)', borderRadius:'6px', padding:'6px 14px', fontSize:'12px', color:'var(--text-muted)', cursor:'pointer' }}>
+          <i className="fab fa-youtube"></i> Trocar transmissão
+        </button>
       </div>
     );
   }
-  return <iframe width="100%" height="100%" src={chatUrl} frameBorder="0" style={{ flex: 1 }} />;
+  return (
+    <div style={{ flex:1, display:'flex', flexDirection:'column', position:'relative' }}>
+      <iframe width="100%" height="100%" src={chatUrl} frameBorder="0" style={{ flex: 1 }} />
+    </div>
+  );
 })() : (
-  <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', gap:'12px' }}>
-    <div style={{ fontSize:'48px' }}>📺</div>
-    <div style={{ fontWeight:600, fontSize:'15px' }}>Rádio YouTube</div>
-    <div style={{ fontSize:'13px', textAlign:'center', maxWidth:'260px' }}>Inicie um YouTube Chat pelas Ferramentas para ver o chat aqui</div>
+  <div style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', color:'var(--text-muted)', gap:'16px', padding:'24px', textAlign:'center' }}>
+    <div style={{ fontSize:'52px' }}>📺</div>
+    <div style={{ fontWeight:700, fontSize:'16px', color:'var(--text)' }}>YouTube Chat ao Vivo</div>
+    <div style={{ fontSize:'13px', maxWidth:'260px', lineHeight:'1.6' }}>Transmita ou entre em um chat ao vivo do YouTube compartilhado na rede.</div>
+    <button onClick={() => setShowYtJoinModal(true)} style={{ background:'#ef4444', color:'white', border:'none', borderRadius:'10px', padding:'11px 26px', fontSize:'14px', fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', gap:'8px', boxShadow:'0 2px 10px rgba(239,68,68,0.4)' }}>
+      <i className="fab fa-youtube"></i> Entrar / Transmitir
+    </button>
   </div>
+)}
+{/* ── Modal de entrada do YouTube Chat ── */}
+{showYtJoinModal && !youtubeChatId && (
+  <YtChatJoinModal
+    onClose={() => setShowYtJoinModal(false)}
+    onStart={(yId) => { startYtChatById(yId, true); setShowYtJoinModal(false); window.k10Toast('📺 YouTube Chat iniciado!', 'success', 3000); }}
+    onJoin={(yId) => { startYtChatById(yId, false); setShowYtJoinModal(false); window.k10Toast('📺 Entrando no YouTube Chat...', 'info', 3000); }}
+  />
 )}
 </div>
 </div>
@@ -5667,6 +5849,14 @@ const QuizBotWindow = ({ lang, onClose, quizBotActive, setQuizBotActive, askNext
             className="primary-btn" 
             onClick={() => {
               const newActive = !quizBotActive;
+              // GUARD: bloqueia início se outro usuário já é dono
+              if (newActive && (
+                (globalQuizOwner && globalQuizOwner !== peerId) ||
+                (serverQuizBotActive && quizServerOwnerId && quizServerOwnerId !== peerId)
+              )) {
+                window.k10Toast && window.k10Toast('⚠️ Quiz já está ativo por outro usuário.', 'warning');
+                return;
+              }
               let handoffSent = false;
               if (!newActive && sendQuizHandoff) {
                 try { sendQuizHandoff(); handoffSent = true; } catch(e) { console.warn('Quiz handoff failed', e); }
@@ -7217,6 +7407,12 @@ const broadcastQuizViolation = (violatorId, violatorName, elapsedSec) => {
 // ── Eleição de Mestre P2P (Self-Healing e Consistência) ──
 const checkAndAssumeQuizMaster = () => {
   if (!quizBotActiveRef.current) return false;
+
+  // Se há um dono definido e ele ainda está conectado, não concorre à coroa
+  if (globalQuizOwnerRef.current && globalQuizOwnerRef.current !== peerId) {
+    const ownerOnline = connectionsRef.current.some(c => c.peer === globalQuizOwnerRef.current && c.open);
+    if (ownerOnline) return false; // Dono ativo — aguarda
+  }
   // Pega todos os peers conectados + nós mesmos
   // FIX: exclui servidores K10-GATE / K10-CENTRAL da eleição — eles nunca rodam quiz
   // Sem esse filtro, 'K10-GATE-XXXX' ganha sempre (alfanumérico 'K' < maioria dos IDs)
@@ -7832,6 +8028,14 @@ if (data.type === 'quiz-buffer-sync' && data.hits) {
 if (data.type === 'quiz-bot-global-toggle') {
   // V69-LOCK-1: só o dono atual pode parar — ignora stop vindo de quem não é o globalQuizOwner
   if (!data.active && data.owner && data.owner !== globalQuizOwnerRef.current) return;
+  // FIRST-OWNER-WINS: se já há um dono ativo diferente, ignora novo start
+  if (data.active && globalQuizOwnerRef.current && globalQuizOwnerRef.current !== data.owner) return;
+  // RELAY: propaga pelo mesh para peers não diretamente conectados ao transmissor
+  const ttlLeft = (data.ttl !== undefined ? data.ttl : 8) - 1;
+  if (ttlLeft > 0) {
+    const relay = { ...data, ttl: ttlLeft };
+    connectionsRef.current.forEach(c => { if (c.peer !== pId && c.open) try { c.send(relay); } catch(e) {} });
+  }
   setQuizBotActive(data.active);
   quizBotActiveRef.current = data.active;
   if (data.active) {
@@ -7842,7 +8046,8 @@ if (data.type === 'quiz-bot-global-toggle') {
       setQuizDiscipline(data.discipline);
       quizDisciplineRef.current = data.discipline;
     }
-    setTimeout(checkAndAssumeQuizMaster, 2000);
+    // NÃO chama checkAndAssumeQuizMaster aqui — o dono ainda está ativo.
+    // O failover é tratado pelos handlers de desconexão.
   } else {
     setGlobalQuizOwner(null);
     globalQuizOwnerRef.current = null;
@@ -9983,6 +10188,29 @@ try {
 } catch(e) {}
 };
 
+// Inicia YouTube Chat direto por ID (sem prompt) — usado pelo modal de entrada
+const startYtChatById = (yId, broadcast) => {
+  if (!yId) return;
+  setYoutubeChatId(yId);
+  if (broadcast) {
+    const msgId = Date.now() + Math.random().toString(36).substring(2);
+    const msgData = { type: 'youtube-chat-start', id: msgId, youtubeId: yId, ttl: 15 };
+    p2pBroadcast(msgData);
+    if (typeof window.enviarParaMatrix === 'function')
+      window.enviarParaMatrix('__K10YTCHAT_START__:' + yId);
+    try {
+      window.__k10YtChatStreamId = msgId;
+      window.K10BroadcastRegistry?.publish({
+        broadcastType: 'youtube-chat',
+        streamId: msgId,
+        youtubeId: yId,
+        peerId,
+        senderName: userName
+      }).then(ok => { if (ok) window.k10Toast?.('📡 Registrado na Telemetria', 'success', 3000); });
+    } catch(e) {}
+  }
+};
+
 
 const stopYoutubeChat = () => {
 setYoutubeChatId(null);
@@ -10148,7 +10376,9 @@ return (
           <i className="fas fa-file-code" style={{color:'#a78bfa'}}></i>
           <div><div>{t(lang, 'markdownEditor')}{markdownSessionId ? <span style={{marginLeft:'6px',background:'#10b981',color:'white',fontSize:'9px',borderRadius:'4px',padding:'1px 5px',fontWeight:700}}>ATIVO · 🔑{markdownSessionId.slice(-6)}</span> : null}</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Editor colaborativo em tempo real</div></div>
         </button>
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowQuizBot(true); }}>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); setShowQuizBot(true); }}
+          disabled={!!(quizBotActive && globalQuizOwner && globalQuizOwner !== peerId)}
+          style={{ opacity: (quizBotActive && globalQuizOwner && globalQuizOwner !== peerId) ? 0.45 : 1, cursor: (quizBotActive && globalQuizOwner && globalQuizOwner !== peerId) ? 'not-allowed' : 'pointer' }}>
           <i className="fas fa-robot" style={{color:'#f472b6'}}></i>
           <div><div>Quiz Bot</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>100k+ perguntas · 100+ idiomas · P2P</div></div>
         </button>
@@ -10165,7 +10395,9 @@ return (
           <i className="fas fa-film" style={{color:'#c084fc'}}></i>
           <div><div>Filmes Públicos</div><div style={{fontSize:'10px',color:'#94a3b8',fontWeight:400}}>Archive.org · domínio público · janelinha</div></div>
         </button>
-        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); youtubeChatId ? stopYoutubeChat() : broadcastYoutubeChat(); }} style={{ opacity: (!broadcastYoutubeChat || !stopYoutubeChat) ? 0.45 : 1 }}>
+        <button className="media-controls-btn" onClick={() => { setShowMediaControls(false); youtubeChatId ? stopYoutubeChat() : broadcastYoutubeChat(); }}
+          disabled={!!(youtubeChatId && youtubeChatOwnerRef.current !== peerId)}
+          style={{ opacity: ((!broadcastYoutubeChat || !stopYoutubeChat) || (youtubeChatId && youtubeChatOwnerRef.current !== peerId)) ? 0.45 : 1, cursor: (youtubeChatId && youtubeChatOwnerRef.current !== peerId) ? 'not-allowed' : 'pointer' }}>
           <i className="fab fa-youtube" style={{color: youtubeChatId ? '#ef4444' : '#ff4444'}}></i>
           <div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -10302,7 +10534,15 @@ return (
 {showMarkdownEditor && <MarkdownEditor lang={lang} connectionsRef={connectionsRef} selectedContact={selectedContact} sessionId={markdownSessionId} onContentChange={c => { markdownContentRef.current = c; }} onClose={() => { try { window.K10BroadcastRegistry?.publishStop(markdownSessionId,'markdown',peerId); } catch(e){} setShowMarkdownEditor(false); markdownSessionIdRef.current = null; setMarkdownSessionId(null); markdownContentRef.current = ''; }} />}
 
         {showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => {
-  connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId, discipline: quizDisciplineRef.current});}catch(e){} });
+  // P2P: avisa peers conectados diretamente
+  connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId, discipline: quizDisciplineRef.current, ttl: 8});}catch(e){} });
+  // Matrix Geral: árbitro central — garante 1 único transmissor mesmo com P2P fragmentado
+  try {
+    if (typeof window.enviarParaMatrix === 'function') {
+      if (act) window.enviarParaMatrix('__K10QUIZ_LOCK__:' + peerId);
+      else      window.enviarParaMatrix('__K10QUIZ_UNLOCK__:' + peerId);
+    }
+  } catch(e) {}
 }} sendQuizHandoff={sendQuizHandoff} quizServerOwnerId={quizServerOwnerId} globalQuizOwner={globalQuizOwner} setGlobalQuizOwner={setGlobalQuizOwner} quizMasterIdRef={quizMasterIdRef} peerId={peerId} quizStopCooldown={quizStopCooldown} startQuizStopCooldown={startQuizStopCooldown} />}
 {showTorrentManager && (
 <TorrentManagerModal
@@ -10910,6 +11150,8 @@ pendingTorrentRequests={pendingTorrentRequests}
 setPendingTorrentRequests={setPendingTorrentRequests}
 handleTorrentDirectSeed={handleTorrentDirectSeed}
 youtubeChatId={youtubeChatId}
+setYoutubeChatId={setYoutubeChatId}
+startYtChatById={startYtChatById}
 broadcastYoutubeChat={broadcastYoutubeChat}
 stopYoutubeChat={stopYoutubeChat}
 disconnectPeer={disconnectPeer}
@@ -11279,24 +11521,59 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     let   MATRIX_TOKEN = localStorage.getItem('matrixToken') || '';
     let   MATRIX_USER  = localStorage.getItem('matrixUser')  || '';
 
-    // ── MODO VISITANTE — acesso sem cadastro ──────────────────────────
-    // Token de uma conta compartilhada. Todos que abrem sem login usam
-    // esta conta automaticamente. Para usar conta própria: clicar em 🔑 Entrar.
-    const _GUEST_TOKEN = 'mat_TCawSvPBYBI4FcOIOinctYU0vc3v2l_0HHPQG';
-    const _GUEST_USER  = '@chatk10:matrix.org';
+    // ── CONTA PÚBLICA — auto-login quando não há sessão ──────────
+    // ── TOKEN DE ENVIO — usado APENAS para escrever sinais na sala (broadcast, quiz, lock) ──
+    // NUNCA usado para long poll — cada usuário tem seu próprio token de leitura (guest)
+    const PUBLIC_MATRIX_TOKEN = 'mat_LqtWTAwL5IGvoNsSc88vo6ome1r5En_EimTJ3';
+    const PUBLIC_MATRIX_USER  = '@chatk10:matrix.org';
+    let   SEND_MATRIX_TOKEN   = PUBLIC_MATRIX_TOKEN; // reservado para envio
 
-    (function _autoGuestLogin() {
-        if (MATRIX_TOKEN) return; // já tem login real, não faz nada
-        MATRIX_TOKEN = _GUEST_TOKEN;
-        MATRIX_USER  = _GUEST_USER;
-        localStorage.setItem('matrixToken',     MATRIX_TOKEN);
-        localStorage.setItem('matrixUser',      MATRIX_USER);
-        localStorage.setItem('mxdmToken',       MATRIX_TOKEN);
-        localStorage.setItem('mxdmHomeserver',  MATRIX_HS);
-        localStorage.setItem('mxdmMxid',        MATRIX_USER);
-        localStorage.setItem('matrixGuestMode', 'true');
-        console.log('[K10] 👁️ Modo visitante ativo — sem cadastro');
-    })();
+    async function _autoLoginPublico() {
+        if (MATRIX_TOKEN) return; // já tem sessão salva (guest anterior ou login pessoal)
+
+        // ── Tenta registrar conta guest única para este usuário ──
+        // Cada usuário recebe seu próprio token → elimina abuso do token compartilhado no long poll
+        try {
+            console.log('[Matrix] 🎫 Registrando conta guest única...');
+            const res = await fetch(MATRIX_HS + '/_matrix/client/v3/register?kind=guest', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({}),
+                signal: AbortSignal.timeout(6000)
+            });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.access_token && data.user_id) {
+                    MATRIX_TOKEN = data.access_token;
+                    MATRIX_USER  = data.user_id;
+                    localStorage.setItem('matrixToken',    MATRIX_TOKEN);
+                    localStorage.setItem('matrixUser',     MATRIX_USER);
+                    localStorage.setItem('mxdmToken',      MATRIX_TOKEN);
+                    localStorage.setItem('mxdmHomeserver', MATRIX_HS);
+                    localStorage.setItem('mxdmMxid',       MATRIX_USER);
+                    if (window.MxDM && window.MxDM.updateLocalToken)
+                        window.MxDM.updateLocalToken(MATRIX_TOKEN, MATRIX_USER);
+                    console.log('[Matrix] ✅ Guest registrado:', MATRIX_USER);
+                    return;
+                }
+            }
+        } catch(e) {
+            console.warn('[Matrix] Guest registration falhou, usando conta pública:', e.message);
+        }
+
+        // ── Fallback: conta pública compartilhada ──
+        console.log('[Matrix] 🤖 Fallback — conta pública compartilhada');
+        MATRIX_TOKEN = PUBLIC_MATRIX_TOKEN;
+        MATRIX_USER  = PUBLIC_MATRIX_USER;
+        localStorage.setItem('matrixToken',    PUBLIC_MATRIX_TOKEN);
+        localStorage.setItem('matrixUser',     PUBLIC_MATRIX_USER);
+        localStorage.setItem('mxdmToken',      PUBLIC_MATRIX_TOKEN);
+        localStorage.setItem('mxdmHomeserver', MATRIX_HS);
+        localStorage.setItem('mxdmMxid',       PUBLIC_MATRIX_USER);
+        if (window.MxDM && window.MxDM.updateLocalToken)
+            window.MxDM.updateLocalToken(PUBLIC_MATRIX_TOKEN, PUBLIC_MATRIX_USER);
+        console.log('[Matrix] ✅ Fallback OK:', PUBLIC_MATRIX_USER);
+    }
 
     // ── SALA FIXA DO MODO GERAL ──────────────────────────────────
     // Sala única de papo livre para a aba Geral.
@@ -11338,6 +11615,19 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         const tokenPart = MATRIX_TOKEN ? '?access_token=' + encodeURIComponent(MATRIX_TOKEN) : '';
         const url = MATRIX_HS + path + tokenPart;
         const resp = await fetch(url, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body), signal: AbortSignal.timeout(35000) });
+        return resp.json();
+    }
+    // ── Helpers de ENVIO — usam sempre SEND_MATRIX_TOKEN (@chatk10), nunca o token guest do usuário ──
+    async function matrixPutSend(path, body = {}) {
+        const token = (typeof SEND_MATRIX_TOKEN !== 'undefined' ? SEND_MATRIX_TOKEN : null) || MATRIX_TOKEN;
+        const url = MATRIX_HS + path + (token ? '?access_token=' + encodeURIComponent(token) : '');
+        const resp = await fetch(url, { method: 'PUT', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body), signal: AbortSignal.timeout(35000) });
+        return resp.json();
+    }
+    async function matrixPostSend(path, body = {}) {
+        const token = (typeof SEND_MATRIX_TOKEN !== 'undefined' ? SEND_MATRIX_TOKEN : null) || MATRIX_TOKEN;
+        const url = MATRIX_HS + path + (token ? '?access_token=' + encodeURIComponent(token) : '');
+        const resp = await fetch(url, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body), signal: AbortSignal.timeout(35000) });
         return resp.json();
     }
 
@@ -11420,6 +11710,40 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             }
             return;
         }
+        // ── Detecta QUIZ LOCK/UNLOCK — garante 1 transmissor simultâneo (igual YouTube Chat) ──
+        if (typeof body === 'string' && body.startsWith('__K10QUIZ_LOCK__:')) {
+            if (sala.geral || sala.alias === SALA_GERAL_ALIAS) {
+                if (mensagem.timestamp < Date.now() - 5 * 60 * 1000) return; // ignora locks velhos
+                const lockOwner = body.slice('__K10QUIZ_LOCK__:'.length).trim();
+                const myPeerId  = localStorage.getItem('p2pChatClientId') || '';
+                // Se NÃO sou eu que travou → propago o toggle para parar meu quiz local
+                if (lockOwner && lockOwner !== myPeerId) {
+                    console.log('[Matrix Geral] 🔒 QUIZ_LOCK de', lockOwner, '— parando quiz local se ativo');
+                    if (window.handleIncomingDataRef && window.handleIncomingDataRef.current) {
+                        window.handleIncomingDataRef.current(
+                            { type: 'quiz-bot-global-toggle', active: true, owner: lockOwner, ttl: 0 },
+                            lockOwner
+                        );
+                    }
+                }
+            }
+            return;
+        }
+        if (typeof body === 'string' && body.startsWith('__K10QUIZ_UNLOCK__:')) {
+            if (sala.geral || sala.alias === SALA_GERAL_ALIAS) {
+                if (mensagem.timestamp < Date.now() - 5 * 60 * 1000) return;
+                const unlockOwner = body.slice('__K10QUIZ_UNLOCK__:'.length).trim();
+                console.log('[Matrix Geral] 🔓 QUIZ_UNLOCK de', unlockOwner);
+                if (window.handleIncomingDataRef && window.handleIncomingDataRef.current) {
+                    window.handleIncomingDataRef.current(
+                        { type: 'quiz-bot-global-toggle', active: false, owner: unlockOwner, ttl: 0 },
+                        unlockOwner
+                    );
+                }
+            }
+            return;
+        }
+
         // ── Detecta quiz enviado pela sala Matrix ──
         if (typeof body === 'string' && body.startsWith('__K10QUIZ__:')) {
             if (sala.alias === SALA_GERAL_ALIAS && typeof window._matrixGeralInjetarQuiz === 'function') {
@@ -11451,16 +11775,16 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
 
     async function enviarParaSala(sala, texto) {
+        // Usa sempre SEND_MATRIX_TOKEN (@chatk10) para escrever — nunca o token guest do usuário
         try {
             const txnId = 'k10_' + Date.now();
-            const res = await matrixPut(
+            const res = await matrixPutSend(
                 `/_matrix/client/v3/rooms/${encodeURIComponent(sala.room_id)}/send/m.room.message/${txnId}`,
                 { msgtype: 'm.text', body: texto }
             );
             if (res && res.event_id) return true;
             const motivo = res && res.error ? res.error : (res && res.errcode ? res.errcode : 'falha desconhecida');
             console.error('[Matrix] ❌ Envio rejeitado:', motivo);
-            if (res && res.errcode === 'M_UNKNOWN_TOKEN') { MATRIX_TOKEN = ''; localStorage.removeItem('matrixToken'); _matrixSolicitarLogin('Sessão expirada — faça login novamente'); }
             mostrarToast(`❌ Mensagem não enviada: ${motivo}`);
             return false;
         } catch(e) {
@@ -11827,14 +12151,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
                     <small>Papo livre · Matrix</small>
                 </div>
                 <span id="general-matrix-ping" class="mx-ping ping-idle" title="Latência">●</span>
-                ${localStorage.getItem('matrixGuestMode') === 'true'
-                    ? `<span id="k10-guest-badge" onclick="window._matrixSolicitarLogin && window._matrixSolicitarLogin('Faça login para usar sua conta')"
-                        title="Você está como visitante — clique para fazer login"
-                        style="background:#f59e0b;color:#000;font-size:11px;font-weight:700;padding:3px 10px;border-radius:20px;cursor:pointer;display:flex;align-items:center;gap:5px;">
-                        👁️ Visitante &nbsp;<span style="text-decoration:underline">Entrar</span>
-                      </span>`
-                    : `<span class="mx-e2ee-badge">🔒 Matrix</span>`
-                }
+                <span class="mx-e2ee-badge">🔒 Matrix</span>
             </div>
             <div id="general-matrix-messages">
                 <div id="general-matrix-empty">⏳ Carregando mensagens...</div>
@@ -12026,15 +12343,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     // --------------------------------------------------
     // LOGIN MATRIX — modal com SSO (Google/GitHub/email) + senha
     // --------------------------------------------------
-    window._matrixSolicitarLogin = function _matrixSolicitarLogin(motivo = '') {
+    function _matrixSolicitarLogin(motivo = '') {
         document.getElementById('matrix-login-overlay')?.remove();
-
         const ov = document.createElement('div');
         ov.id = 'matrix-login-overlay';
         ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:99999;display:flex;align-items:center;justify-content:center;';
         ov.innerHTML = `
-        <div style="background:#1e2030;border:1px solid #4a5568;border-radius:14px;padding:32px;width:360px;max-width:95vw;box-shadow:0 8px 40px rgba(0,0,0,.6);position:relative;">
-            <button id="mx-login-close" title="Voltar ao chat" style="position:absolute;top:12px;right:12px;background:rgba(255,255,255,0.08);border:1px solid #4a5568;color:#a0aec0;font-size:18px;width:32px;height:32px;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
+        <div style="background:#1e2030;border:1px solid #4a5568;border-radius:14px;padding:32px;width:360px;max-width:95vw;box-shadow:0 8px 40px rgba(0,0,0,.6)">
             <div style="font-size:22px;font-weight:700;color:#e2e8f0;margin-bottom:6px;">🔑 Login Matrix</div>
             ${motivo ? `<div style="color:#fc8181;font-size:13px;margin-bottom:10px;">${motivo}</div>` : ''}
             <div style="color:#a0aec0;font-size:13px;margin-bottom:20px;">Faça login para enviar mensagens</div>
@@ -12069,12 +12384,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             </div>
         </div>`;
         document.body.appendChild(ov);
-
-        // ── Fechar modal (visitante volta ao chat) ──
-        function _fecharModal() { ov.remove(); document.removeEventListener('keydown', _escHandler); }
-        function _escHandler(e) { if (e.key === 'Escape') _fecharModal(); }
-        ov.querySelector('#mx-login-close').onclick = _fecharModal;
-        document.addEventListener('keydown', _escHandler);
 
         const btn  = ov.querySelector('#mx-login-btn');
         const err  = ov.querySelector('#mx-login-err');
@@ -12131,7 +12440,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             MATRIX_TOKEN = token;
             localStorage.setItem('matrixToken', token);
             localStorage.setItem('mxdmToken', token); // Sync MxDM token
-            localStorage.removeItem('matrixGuestMode'); // sai do modo visitante
             // FIX: garante que o homeserver da telemetria seja o mesmo do Matrix principal
             localStorage.setItem('mxdmHomeserver', MATRIX_HS);
             // Verifica quem é
@@ -12190,17 +12498,39 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
     async function iniciarMatrix() {
         console.log('[Matrix] 🟢 Iniciando integração v5.0 — Login direto...');
+        // ── Limpa token compartilhado antigo para forçar registro guest individual ──
+        // Usuários que tinham @chatk10 salvo recebem um guest único no próximo login
+        // ── Limpa APENAS o token público compartilhado hardcoded ──
+        // Só remove se o token salvo for EXATAMENTE o PUBLIC_MATRIX_TOKEN.
+        // Nunca toca em contas pessoais (token diferente) nem em guests já registrados.
+        const _savedToken = localStorage.getItem('matrixToken') || '';
+        if (_savedToken === PUBLIC_MATRIX_TOKEN) {
+            localStorage.removeItem('matrixToken');
+            localStorage.removeItem('matrixUser');
+            localStorage.removeItem('mxdmToken');
+            localStorage.removeItem('mxdmMxid');
+            MATRIX_TOKEN = '';
+            MATRIX_USER  = '';
+            console.log('[Matrix] 🧹 Token público compartilhado removido — registrando guest único...');
+        }
         if (pollingInterval) clearInterval(pollingInterval);
 
-        // Inicializa Sala Geral proativamente (não aguarda o usuário abrir a aba)
-        // Isso garante que enviarParaMatrix e o longPoll já incluem a sala desde o início
-        _initSalaGeral().then(s => {
+        // Auto-login na conta pública se não houver sessão
+        await _autoLoginPublico();
+
+        // Inicializa Sala Geral proativamente e AGUARDA antes de iniciar o long poll
+        // FIX: antes era .then() sem await — o longPoll iniciava sem sala configurada,
+        // causando atraso no primeiro carregamento (só funcionava após reload)
+        try {
+            const s = await _initSalaGeral();
             if (s) console.log('[Matrix] ✅ Sala Geral pré-inicializada no startup');
-        }).catch(e => console.warn('[Matrix] ⚠️ Sala Geral startup init falhou:', e.message));
+            else console.warn('[Matrix] ⚠️ Sala Geral startup init retornou vazio');
+        } catch(e) {
+            console.warn('[Matrix] ⚠️ Sala Geral startup init falhou:', e.message);
+        }
 
         iniciarLongPoll();
         console.log('[Matrix] ✅ Long poll ativo.');
-        // Login só aparece quando o usuário tentar enviar — não interrompe a navegação
 
     }
 
