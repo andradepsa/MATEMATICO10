@@ -11527,6 +11527,9 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     const PUBLIC_MATRIX_TOKEN = 'mat_LqtWTAwL5IGvoNsSc88vo6ome1r5En_EimTJ3';
     const PUBLIC_MATRIX_USER  = '@chatk10:matrix.org';
     let   SEND_MATRIX_TOKEN   = PUBLIC_MATRIX_TOKEN; // reservado para envio
+    // Expõe token de envio no localStorage para que Registry e Telemetria possam escrever na sala
+    // independente do token de leitura do usuário (que pode ser guest sem permissão de escrita)
+    localStorage.setItem('k10SendToken', PUBLIC_MATRIX_TOKEN);
 
     async function _autoLoginPublico() {
         if (MATRIX_TOKEN) return; // já tem sessão salva (guest anterior ou login pessoal)
@@ -13405,11 +13408,12 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
 
     /* ══ MATRIX API (usa token do login já feito no chat) ═══ */
     function mxToken(){ return localStorage.getItem('mxdmToken')||''; }
+    function mxSendToken(){ return localStorage.getItem('k10SendToken') || localStorage.getItem('mxdmToken') || ''; }
     function mxHS(){ return (localStorage.getItem('mxdmHomeserver')||'https://matrix.org').replace(/\/+$/,''); }
     function mxMxid(){ return localStorage.getItem('mxdmMxid')||''; }
 
     async function mxAPI(method, path, body){
-        const token=mxToken();
+        const token = (method === 'GET') ? mxToken() : mxSendToken();
         if(!token) return null;
         try{
             const res=await fetch(mxHS()+path,{
@@ -13545,10 +13549,11 @@ body.dark-mode .icon-btn:hover  { background: #334155 !important; }
     const EV_STOP      = 'm.k10.broadcast.stop';
 
     function mxToken(){ return localStorage.getItem('mxdmToken')||''; }
+    function mxSendToken(){ return localStorage.getItem('k10SendToken') || localStorage.getItem('mxdmToken') || ''; }
     function mxHS(){ return (localStorage.getItem('mxdmHomeserver')||'https://matrix.org').replace(/\/+$/,''); }
 
     async function mxAPI(method, path, body){
-        const token = mxToken();
+        const token = (method === 'GET') ? mxToken() : mxSendToken();
         if(!token) return null;
         try{
             const res = await fetch(mxHS()+path,{
