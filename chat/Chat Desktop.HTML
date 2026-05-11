@@ -11441,7 +11441,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             if (res && res.event_id) return true;
             const motivo = res && res.error ? res.error : (res && res.errcode ? res.errcode : 'falha desconhecida');
             console.error('[Matrix] ❌ Envio rejeitado:', motivo);
-            if (res && res.errcode === 'M_UNKNOWN_TOKEN') { MATRIX_TOKEN = ''; localStorage.removeItem('matrixToken'); _matrixSolicitarLogin('Sessão expirada — faça login novamente'); }
+            if (res && res.errcode === 'M_UNKNOWN_TOKEN') {
+                MATRIX_TOKEN = ''; localStorage.removeItem('matrixToken');
+                console.warn('[Matrix] Token expirado — renovando automaticamente...');
+                setTimeout(_autoLogin, 1000);
+            }
             mostrarToast(`❌ Mensagem não enviada: ${motivo}`);
             return false;
         } catch(e) {
@@ -11478,8 +11482,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
                 if (_syncToken) _atualizarPing(Date.now() - _pingT0);
                 if (dados.errcode === 'M_UNKNOWN_TOKEN') {
                     MATRIX_TOKEN = ''; localStorage.removeItem('matrixToken');
-                    _matrixSolicitarLogin('Sessão expirada — faça login novamente');
-                    await _sleep(8000); continue;
+                    console.warn('[Matrix] Token expirado no long poll — renovando...');
+                    _longPollAtivo = false; _syncToken = null;
+                    setTimeout(_autoLogin, 2000);
+                    return;
                 }
                 if (dados.next_batch) _syncToken = dados.next_batch;
                 const joinedRooms = (dados.rooms && dados.rooms.join) || {};
@@ -11945,7 +11951,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
         const input = document.getElementById('general-matrix-input');
         if (!input || !input.value.trim()) return;
         // Login sob demanda
-        if (!MATRIX_TOKEN) { _matrixSolicitarLogin('Faça login para enviar mensagens'); return; }
+        if (!MATRIX_TOKEN) {
+            console.log('[Matrix] Sem token ao enviar — iniciando auto-login...');
+            await _autoLogin();
+            if (!MATRIX_TOKEN) { mostrarToast('⚠️ Conectando ao chat — tente em instantes'); return; }
+        }
         const sala = _getSalaGeral();
         if (!sala || !sala.room_id) { mostrarToast('⏳ Sala ainda carregando...'); return; }
         const texto = input.value.trim();
@@ -12153,6 +12163,76 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
 
     // Botão 🔑 login na UI — injetado junto com a sidebar
 
+    // ── AUTO-LOGIN ─────────────────────────────────────────────────────
+    // Aplica token sem depender do modal de login
+    async function _autoAplicarToken(token, userId) {
+        MATRIX_TOKEN = token;
+        localStorage.setItem('matrixToken', token);
+        localStorage.setItem('mxdmToken', token);
+        localStorage.setItem('mxdmHomeserver', MATRIX_HS);
+        try {
+            const me = await matrixGet('/_matrix/client/v3/account/whoami');
+            MATRIX_USER = me.user_id || userId;
+        } catch(_) { MATRIX_USER = userId || ''; }
+        localStorage.setItem('matrixUser', MATRIX_USER);
+        localStorage.setItem('mxdmMxid', MATRIX_USER);
+        if (window.MxDM && window.MxDM.updateLocalToken) window.MxDM.updateLocalToken(token, MATRIX_USER);
+        _longPollAtivo = false; _syncToken = null;
+        iniciarLongPoll();
+        console.log('[Matrix] ✅ Auto-login aplicado:', MATRIX_USER);
+    }
+
+    async function _autoLogin() {
+        // 1. Token já salvo — reutiliza direto
+        if (MATRIX_TOKEN) { if (!_longPollAtivo) iniciarLongPoll(); return; }
+        console.log('[Matrix] 🔄 Tentando auto-login...');
+
+        // 2. Credenciais de registro anterior salvas
+        const savedUser = localStorage.getItem('mxAutoUser');
+        const savedPass = localStorage.getItem('mxAutoPass');
+        if (savedUser && savedPass) {
+            try {
+                const r = await fetch(MATRIX_HS + '/_matrix/client/v3/login', {
+                    method:'POST', headers:{'Content-Type':'application/json'},
+                    body: JSON.stringify({type:'m.login.password',
+                        identifier:{type:'m.id.user',user:savedUser}, password:savedPass})
+                });
+                const d = await r.json();
+                if (d.access_token) { await _autoAplicarToken(d.access_token, d.user_id||savedUser); return; }
+            } catch(_) {}
+        }
+
+        // 3. Guest registration — conta pública automática
+        try {
+            const r = await fetch(MATRIX_HS + '/_matrix/client/v3/register?kind=guest', {
+                method:'POST', headers:{'Content-Type':'application/json'}, body:'{}'
+            });
+            const d = await r.json();
+            if (d.access_token) { await _autoAplicarToken(d.access_token, d.user_id||''); return; }
+        } catch(_) {}
+
+        // 4. Registro automático com credenciais aleatórias
+        try {
+            const u = 'k10_' + Math.random().toString(36).slice(2,9);
+            const p = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2);
+            const r = await fetch(MATRIX_HS + '/_matrix/client/v3/register', {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({username:u, password:p, auth:{type:'m.login.dummy'}})
+            });
+            const d = await r.json();
+            if (d.access_token) {
+                localStorage.setItem('mxAutoUser', u);
+                localStorage.setItem('mxAutoPass', p);
+                await _autoAplicarToken(d.access_token, d.user_id||u);
+                return;
+            }
+        } catch(_) {}
+
+        // 5. Tudo falhou — long poll sem token (leitura pública), login manual para envio
+        console.warn('[Matrix] ⚠️ Auto-login falhou — modo leitura. Login manual disponível para envio.');
+        iniciarLongPoll();
+    }
+
     async function iniciarMatrix() {
         console.log('[Matrix] 🟢 Iniciando integração v5.0 — Login direto...');
         if (pollingInterval) clearInterval(pollingInterval);
@@ -12163,9 +12243,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             if (s) console.log('[Matrix] ✅ Sala Geral pré-inicializada no startup');
         }).catch(e => console.warn('[Matrix] ⚠️ Sala Geral startup init falhou:', e.message));
 
-        iniciarLongPoll();
-        console.log('[Matrix] ✅ Long poll ativo.');
-        // Login só aparece quando o usuário tentar enviar — não interrompe a navegação
+        await _autoLogin();
+        console.log('[Matrix] ✅ Auto-login + long poll ativos.');
 
     }
 
