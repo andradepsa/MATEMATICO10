@@ -10537,7 +10537,15 @@ return (
 {showMarkdownEditor && <MarkdownEditor lang={lang} connectionsRef={connectionsRef} selectedContact={selectedContact} sessionId={markdownSessionId} onContentChange={c => { markdownContentRef.current = c; }} onClose={() => { try { window.K10BroadcastRegistry?.publishStop(markdownSessionId,'markdown',peerId); } catch(e){} setShowMarkdownEditor(false); markdownSessionIdRef.current = null; setMarkdownSessionId(null); markdownContentRef.current = ''; }} />}
 
         {showQuizBot && <QuizBotWindow lang={lang} onClose={() => setShowQuizBot(false)} quizBotActive={quizBotActive} setQuizBotActive={setQuizBotActive} askNextQuestion={askNextQuestion} quizInterval={quizInterval} setQuizInterval={setQuizInterval} quizIntervalInput={quizIntervalInput} setQuizIntervalInput={setQuizIntervalInput} quizDiscipline={quizDiscipline} setQuizDiscipline={setQuizDiscipline} serverQuizBotActive={serverQuizBotActive} notifyServer={notifyServer} quizJitterTimerRef={quizJitterTimerRef} broadcastToggle={(act) => {
+  // P2P: avisa peers conectados diretamente
   connectionsRef.current.forEach(c => { if(c.open) try{c.send({type: 'quiz-bot-global-toggle', active: act, owner: peerId, discipline: quizDisciplineRef.current, ttl: 8});}catch(e){} });
+  // Matrix Geral: árbitro central — garante 1 único transmissor mesmo com P2P fragmentado
+  try {
+    if (typeof window.enviarParaMatrix === 'function') {
+      if (act) window.enviarParaMatrix('__K10QUIZ_LOCK__:' + peerId);
+      else      window.enviarParaMatrix('__K10QUIZ_UNLOCK__:' + peerId);
+    }
+  } catch(e) {}
 }} sendQuizHandoff={sendQuizHandoff} quizServerOwnerId={quizServerOwnerId} globalQuizOwner={globalQuizOwner} setGlobalQuizOwner={setGlobalQuizOwner} quizMasterIdRef={quizMasterIdRef} peerId={peerId} quizStopCooldown={quizStopCooldown} startQuizStopCooldown={startQuizStopCooldown} />}
 {showTorrentManager && (
 <TorrentManagerModal
@@ -11705,6 +11713,40 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
             }
             return;
         }
+        // ── Detecta QUIZ LOCK/UNLOCK — garante 1 transmissor simultâneo (igual YouTube Chat) ──
+        if (typeof body === 'string' && body.startsWith('__K10QUIZ_LOCK__:')) {
+            if (sala.geral || sala.alias === SALA_GERAL_ALIAS) {
+                if (mensagem.timestamp < Date.now() - 5 * 60 * 1000) return; // ignora locks velhos
+                const lockOwner = body.slice('__K10QUIZ_LOCK__:'.length).trim();
+                const myPeerId  = localStorage.getItem('p2pChatClientId') || '';
+                // Se NÃO sou eu que travou → propago o toggle para parar meu quiz local
+                if (lockOwner && lockOwner !== myPeerId) {
+                    console.log('[Matrix Geral] 🔒 QUIZ_LOCK de', lockOwner, '— parando quiz local se ativo');
+                    if (window.handleIncomingDataRef && window.handleIncomingDataRef.current) {
+                        window.handleIncomingDataRef.current(
+                            { type: 'quiz-bot-global-toggle', active: true, owner: lockOwner, ttl: 0 },
+                            lockOwner
+                        );
+                    }
+                }
+            }
+            return;
+        }
+        if (typeof body === 'string' && body.startsWith('__K10QUIZ_UNLOCK__:')) {
+            if (sala.geral || sala.alias === SALA_GERAL_ALIAS) {
+                if (mensagem.timestamp < Date.now() - 5 * 60 * 1000) return;
+                const unlockOwner = body.slice('__K10QUIZ_UNLOCK__:'.length).trim();
+                console.log('[Matrix Geral] 🔓 QUIZ_UNLOCK de', unlockOwner);
+                if (window.handleIncomingDataRef && window.handleIncomingDataRef.current) {
+                    window.handleIncomingDataRef.current(
+                        { type: 'quiz-bot-global-toggle', active: false, owner: unlockOwner, ttl: 0 },
+                        unlockOwner
+                    );
+                }
+            }
+            return;
+        }
+
         // ── Detecta quiz enviado pela sala Matrix ──
         if (typeof body === 'string' && body.startsWith('__K10QUIZ__:')) {
             if (sala.alias === SALA_GERAL_ALIAS && typeof window._matrixGeralInjetarQuiz === 'function') {
