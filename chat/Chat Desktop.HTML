@@ -11867,9 +11867,11 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
                 // Atualiza indicador de latência (exclui o long-poll timeout de 25s do cálculo)
                 if (_syncToken) _atualizarPing(Date.now() - _pingT0);
                 if (dados.errcode === 'M_UNKNOWN_TOKEN') {
+                    console.warn('[Matrix] ⚠️ Token expirado — renovando automaticamente...');
                     MATRIX_TOKEN = ''; localStorage.removeItem('matrixToken');
-                    _matrixSolicitarLogin('Sessão expirada — faça login novamente');
-                    await _sleep(8000); continue;
+                    await _autoLoginPublico();
+                    _syncToken = null; // reseta o since para evitar erro com token novo
+                    await _sleep(2000); continue;
                 }
                 if (dados.next_batch) _syncToken = dados.next_batch;
                 const joinedRooms = (dados.rooms && dados.rooms.join) || {};
@@ -12334,8 +12336,12 @@ ReactDOM.createRoot(document.getElementById('root')).render(<ErrorBoundary><App 
     window._matrixGeralEnviar = async function() {
         const input = document.getElementById('general-matrix-input');
         if (!input || !input.value.trim()) return;
-        // Login sob demanda
-        if (!MATRIX_TOKEN) { _matrixSolicitarLogin('Faça login para enviar mensagens'); return; }
+        // Login sob demanda — tenta renovar automaticamente antes de bloquear
+        if (!MATRIX_TOKEN) {
+            console.log('[Matrix] Token ausente ao enviar — tentando auto-login...');
+            await _autoLoginPublico();
+            if (!MATRIX_TOKEN) { _matrixSolicitarLogin('Faça login para enviar mensagens'); return; }
+        }
         const sala = _getSalaGeral();
         if (!sala || !sala.room_id) { mostrarToast('⏳ Sala ainda carregando...'); return; }
         const texto = input.value.trim();
