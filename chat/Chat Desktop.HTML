@@ -8031,6 +8031,8 @@ if (data.type === 'quiz-buffer-sync' && data.hits) {
 if (data.type === 'quiz-bot-global-toggle') {
   // V69-LOCK-1: só o dono atual pode parar — ignora stop vindo de quem não é o globalQuizOwner
   if (!data.active && data.owner && data.owner !== globalQuizOwnerRef.current) return;
+  // FIRST-OWNER-WINS: se já há um dono ativo diferente, ignora novo start
+  if (data.active && globalQuizOwnerRef.current && globalQuizOwnerRef.current !== data.owner) return;
   // RELAY: propaga pelo mesh para peers não diretamente conectados ao transmissor
   const ttlLeft = (data.ttl !== undefined ? data.ttl : 8) - 1;
   if (ttlLeft > 0) {
