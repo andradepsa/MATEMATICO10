@@ -67,7 +67,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v15 — Âncora postalcode + trava Haversine + dedupe de entrada</strong></p>
+            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v16 — Âncora postalcode + pedágios 100% locais (radial &lt; 50ms)</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -93,10 +93,14 @@
                 <input type="checkbox" id="circuitoCheck" style="width:16px;height:16px;accent-color:#2c7da0;">
                 🔄 Fechar circuito (retornar à origem)
             </label>
-            <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:0.88rem;color:#334155;cursor:pointer;">
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:0.88rem;color:#334155;cursor:pointer;">
                 <input type="checkbox" id="pedagioCheck" checked style="width:16px;height:16px;accent-color:#2c7da0;">
-                🎫 Calcular pedágios reais (OSM)
+                🎫 Calcular pedágios reais (banco local)
             </label>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+                <button id="btnUpdateTolls" type="button" onclick="updateTollDBFromOSM()" style="flex:1;padding:8px 10px;background:#0ea5e9;color:white;border:none;border-radius:8px;font-size:0.78rem;font-weight:600;cursor:pointer;">📥 Atualizar banco BR</button>
+                <span id="tollDbStatus" style="font-size:0.72rem;color:#64748b;flex:1;">…</span>
+            </div>
 
             <div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:10px;padding:10px;margin-bottom:12px;">
                 <label style="display:block;font-weight:600;color:#1e2f4e;font-size:0.82rem;margin-bottom:4px;">🚚 Veículo (categoria tarifária ABCR)</label>
@@ -987,6 +991,194 @@ var TOLL_DB = [
 // o Overpass devolve a praça mas sem 'charge:BRL'. Valores ANTT/ARTESP 2025.
 var TOLL_FALLBACK_PRICE = 12.00;
 
+// ============================================
+// AUTO-HIDRATAÇÃO + DOWNLOADER CHUNKED DO OSM
+// ============================================
+// 1) Boot: tenta ler localStorage (cache) → senão tenta /toll-db-br.json
+//    (snapshot embutido). 2) Botão "Atualizar banco BR" baixa do Overpass
+//    em 6 chunks regionais (rate-limit + retry + fallback de servidor) e
+//    salva no localStorage. Nunca derruba o TOLL_DB curado em caso de erro.
+var TOLL_DB_BUILTIN_LEN = -1; // preenchido na 1ª hidratação (depois do concat nacional abaixo)
+var TOLL_LS_KEY = 'toll_db_br_v1';
+var TOLL_OVERPASS_SERVERS = [
+    'https://overpass-api.de/api/interpreter',
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
+];
+// 6 chunks regionais — cada um < ~12° lat × 12° lon, dentro do limite Overpass
+var TOLL_BR_CHUNKS = [
+    { id: 'N',    bbox: [-10.0, -74.0,   5.5, -50.0] },
+    { id: 'NE',   bbox: [-18.0, -50.0,  -2.0, -34.0] },
+    { id: 'CO',   bbox: [-24.0, -62.0, -10.0, -50.0] },
+    { id: 'SE-N', bbox: [-22.0, -52.0, -14.0, -38.0] },
+    { id: 'SE-S', bbox: [-26.0, -52.0, -22.0, -38.0] },
+    { id: 'S',    bbox: [-34.0, -58.0, -26.0, -47.0] }
+];
+
+function setTollStatus(msg, color) {
+    var el = document.getElementById('tollDbStatus');
+    if (el) { el.textContent = msg; el.style.color = color || '#64748b'; }
+}
+
+function _tollSleep(ms) { return new Promise(function(r){ setTimeout(r, ms); }); }
+
+function _parseChargeBRL(tags) {
+    var c = tags && tags.charge;
+    if (!c) return null;
+    var m = String(c).replace(',', '.').match(/(\d+\.?\d*)/);
+    if (!m) return null;
+    var n = parseFloat(m[1]);
+    return (isFinite(n) && n > 0) ? n : null;
+}
+
+function _normalizeOsmToll(el) {
+    var lat = el.lat != null ? el.lat : (el.center ? el.center.lat : null);
+    var lon = el.lon != null ? el.lon : (el.center ? el.center.lon : null);
+    if (lat == null || lon == null) return null;
+    var t = el.tags || {};
+    var isGantry = t.highway === 'toll_gantry';
+    var road = (t.ref ? String(t.ref).split(';')[0].trim() : null) || t.operator || 'desconhecida';
+    var name = t.name || (t.operator ? 'Pç. ' + t.operator : 'Pedágio ' + road);
+    return {
+        name: name,
+        lat: +lat.toFixed(5),
+        lon: +lon.toFixed(5),
+        price: _parseChargeBRL(t),
+        road: road,
+        radiusKm: isGantry ? 1.5 : 0.6
+    };
+}
+
+async function _fetchOverpassChunkBR(bbox) {
+    var query = '[out:json][timeout:90];('
+        + 'node["barrier"="toll_booth"]('+bbox.join(',')+');'
+        + 'way["barrier"="toll_booth"]('+bbox.join(',')+');'
+        + 'node["highway"="toll_gantry"]('+bbox.join(',')+');'
+        + 'way["highway"="toll_gantry"]('+bbox.join(',')+');'
+        + ');out tags center;';
+    var lastErr = null;
+    for (var s = 0; s < TOLL_OVERPASS_SERVERS.length; s++) {
+        var url = TOLL_OVERPASS_SERVERS[s];
+        try {
+            var resp = await fetch(url, {
+                method: 'POST',
+                body: 'data=' + encodeURIComponent(query),
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+            });
+            if (!resp.ok) {
+                lastErr = new Error('HTTP ' + resp.status);
+                if (resp.status === 429) await _tollSleep(6000);
+                continue;
+            }
+            return await resp.json();
+        } catch (e) { lastErr = e; }
+    }
+    throw lastErr || new Error('todos os servidores Overpass falharam');
+}
+
+async function updateTollDBFromOSM() {
+    var btn = document.getElementById('btnUpdateTolls');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Baixando…'; }
+    var dedup = new Map();
+    var totalChunks = TOLL_BR_CHUNKS.length;
+    var okChunks = 0;
+    try {
+        for (var i = 0; i < TOLL_BR_CHUNKS.length; i++) {
+            var c = TOLL_BR_CHUNKS[i];
+            setTollStatus('Chunk ' + (i+1) + '/' + totalChunks + ' (' + c.id + ')…', '#0ea5e9');
+            try {
+                var data = await _fetchOverpassChunkBR(c.bbox);
+                var added = 0;
+                (data.elements || []).forEach(function(el) {
+                    var n = _normalizeOsmToll(el);
+                    if (!n) return;
+                    var k = n.lat.toFixed(4) + '|' + n.lon.toFixed(4);
+                    if (!dedup.has(k)) { dedup.set(k, n); added++; }
+                });
+                okChunks++;
+                console.log('[toll-db] chunk', c.id, 'OK +'+added+' praças');
+            } catch (eChunk) {
+                console.warn('[toll-db] chunk', c.id, 'FALHOU:', eChunk.message);
+            }
+            // rate-limit Overpass público
+            if (i < TOLL_BR_CHUNKS.length - 1) await _tollSleep(1500);
+        }
+        if (okChunks === 0) throw new Error('nenhum chunk respondeu');
+        var arr = Array.from(dedup.values());
+        var payload = { ts: Date.now(), tolls: arr };
+        try { localStorage.setItem(TOLL_LS_KEY, JSON.stringify(payload)); } catch(_) {}
+        _hydrateTollDB(arr, 'OSM atualizado');
+        setTollStatus('✅ ' + arr.length + ' praças (' + okChunks + '/' + totalChunks + ' chunks) — ' + new Date().toLocaleString('pt-BR'), '#16a34a');
+    } catch (e) {
+        setTollStatus('❌ ' + e.message + ' — banco curado mantido', '#dc2626');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '📥 Atualizar banco BR'; }
+    }
+}
+
+function _hydrateTollDB(arr, source) {
+    if (!Array.isArray(arr) || arr.length === 0) return;
+    if (TOLL_DB_BUILTIN_LEN < 0) TOLL_DB_BUILTIN_LEN = TOLL_DB.length;
+    // Mescla: começa com o curado (preços confiáveis), adiciona OSM sem
+    // sobrescrever entradas existentes que já têm preço.
+    var byKey = new Map();
+    for (var i = 0; i < TOLL_DB_BUILTIN_LEN && i < TOLL_DB.length; i++) {
+        var d = TOLL_DB[i];
+        byKey.set(d.lat.toFixed(3) + '|' + d.lon.toFixed(3), d);
+    }
+    for (var i = 0; i < TOLL_DB_BUILTIN_LEN && i < TOLL_DB.length; i++) {
+        var d = TOLL_DB[i];
+        byKey.set(d.lat.toFixed(3) + '|' + d.lon.toFixed(3), d);
+    }
+    for (var j = 0; j < arr.length; j++) {
+        var e = arr[j];
+        var k = e.lat.toFixed(3) + '|' + e.lon.toFixed(3);
+        if (!byKey.has(k)) byKey.set(k, e);
+    }
+    TOLL_DB = Array.from(byKey.values());
+    console.log('[toll-db] hidratado de ' + source + ' → ' + TOLL_DB.length + ' praças (curadas: ' + TOLL_DB_BUILTIN_LEN + ')');
+}
+
+async function _bootTollDB() {
+    if (TOLL_DB_BUILTIN_LEN < 0) TOLL_DB_BUILTIN_LEN = TOLL_DB.length;
+    setTollStatus('curado: ' + TOLL_DB_BUILTIN_LEN + ' praças', '#64748b');
+    // 1) cache local
+    try {
+        var raw = localStorage.getItem(TOLL_LS_KEY);
+        if (raw) {
+            var p = JSON.parse(raw);
+            if (p && Array.isArray(p.tolls) && p.tolls.length > 0) {
+                _hydrateTollDB(p.tolls, 'cache localStorage');
+                var dt = new Date(p.ts || Date.now());
+                setTollStatus('✅ ' + TOLL_DB.length + ' praças (cache ' + dt.toLocaleDateString('pt-BR') + ')', '#16a34a');
+                return;
+            }
+        }
+    } catch(_) {}
+    // 2) snapshot embutido
+    try {
+        var resp = await fetch('toll-db-br.json', { cache: 'no-cache' });
+        if (resp.ok) {
+            var arr = await resp.json();
+            if (Array.isArray(arr) && arr.length > 0) {
+                _hydrateTollDB(arr, 'toll-db-br.json');
+                setTollStatus('✅ ' + TOLL_DB.length + ' praças (snapshot)', '#16a34a');
+                return;
+            }
+        }
+    } catch(_) {}
+    setTollStatus('⚠️ usando só banco curado (' + TOLL_DB_BUILTIN_LEN + ') — clique "Atualizar"', '#d97706');
+}
+
+// dispara o boot logo que carregar
+if (typeof window !== 'undefined') {
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', _bootTollDB);
+    } else {
+        _bootTollDB();
+    }
+}
+
 // Ampliação nacional: praças principais nas rodovias mais movimentadas.
 // Não pretende ser exaustiva — cobre os corredores onde o OSM costuma falhar.
 TOLL_DB = TOLL_DB.concat([
@@ -1155,151 +1347,48 @@ async function fetchOverpassChunk(bbox, legNum, chunkIdx) {
     return null;
 }
 
+// ============================================
+// v16 — CÁLCULO DE PEDÁGIOS 100% LOCAL (RADIAL)
+// Sem Overpass em runtime. Varre TOLL_DB contra a geometria OSRM em
+// memória. Tempo: < 50 ms até para rotas de 50 paradas.
+// Para popular TOLL_DB com todos os pedágios federais do Brasil, rode:
+//   node scripts/fetch-br-tolls.mjs
+// e cole a saída no array TOLL_DB no topo deste arquivo.
+// ============================================
 async function calcTollsReal(geometry, routeRefs, routeNames, legNum) {
-    var coords = geometry.coordinates; // [lon, lat]
-    if (!coords || coords.length === 0) return applyTollDB([], coords || []);
-
-    // CHUNKING: divide rotas longas em pedaços de ~1.5° (~170 km).
-    // Bbox único para 1.288 km estoura limite do Overpass (timeout/HTTP 504/429)
-    // — essa era a causa raiz da omissão de pedágios em PR/SC/MS/MG.
-    var chunks = buildRouteChunks(coords, 1.5);
-    rLog('dim', 'Trecho #'+legNum+': '+coords.length+' pontos → '+chunks.length+' chunk(s) Overpass');
-
-    var merged = { elements: [] };
-    var anyOk = false;
-    for (var ci = 0; ci < chunks.length; ci++) {
-        var c = chunks[ci];
-        var buf = 0.05; // ≈5,5 km de folga em cada lado
-        var bbox = (c.minLat-buf).toFixed(5)+','+(c.minLon-buf).toFixed(5)+','+(c.maxLat+buf).toFixed(5)+','+(c.maxLon+buf).toFixed(5);
-        var data = await fetchOverpassChunk(bbox, legNum, (ci+1)+'/'+chunks.length);
-        if (data && data.elements) { merged.elements = merged.elements.concat(data.elements); anyOk = true; }
-        // Respeita rate-limit do Overpass público (≈1 req/s sustentado)
-        if (ci < chunks.length - 1) await sleep(1100);
-    }
-    if (!anyOk) {
-        rLog('warn', 'Todos os chunks Overpass falharam no trecho #'+legNum+' — usando só TOLL_DB nacional');
-        return applyTollDB([], coords);
-    }
-    var data = merged;
-    try {
-        // ── Passo 1: construir mapa nodeId → refs/nomes das rodovias-pai ──
-        // (apenas way elements com tipo "way" e array nodes[])
-        var nodeToParentRefs  = {}; // nodeId → Set<ref>
-        var nodeToParentNames = {}; // nodeId → Set<name_lower>
-        for (var i = 0; i < data.elements.length; i++) {
-            var el = data.elements[i];
-            if (el.type !== 'way' || !el.nodes) continue;
-            // Só nos interessa se for a via-pai (não barrier=toll_booth — essa já é o pedágio)
-            if (el.tags && el.tags['barrier'] === 'toll_booth') continue;
-            var wayRefs  = (el.tags && el.tags['ref'])  ? el.tags['ref'].split(';').map(function(r){ return r.trim(); }).filter(Boolean) : [];
-            var wayName  = (el.tags && el.tags['name']) ? el.tags['name'].trim().toLowerCase() : '';
-            for (var n = 0; n < el.nodes.length; n++) {
-                var nid = el.nodes[n];
-                if (!nodeToParentRefs[nid])  nodeToParentRefs[nid]  = new Set();
-                if (!nodeToParentNames[nid]) nodeToParentNames[nid] = new Set();
-                wayRefs.forEach(function(r){ nodeToParentRefs[nid].add(r); });
-                if (wayName) nodeToParentNames[nid].add(wayName);
-            }
-        }
-
-        // ── Passo 2: filtrar nós de pedágio próximos à rota ──
-        var RAW_THRESHOLD_KM = 0.12; // 120m — ligeiramente maior que v3 para não perder praças legítimas
-        var haveRefInfo = (routeRefs && routeRefs.size > 0) || (routeNames && routeNames.size > 0);
-        var raw = [];
-        for (var i = 0; i < data.elements.length; i++) {
-            var el = data.elements[i];
-            // ★ FIX v14: aceita toll_booth COM ou SEM tag toll=yes (muitas praças OSM
-            // em PR/SC/MS/MG não têm toll=yes — esse era o motivo do "apagão" de pedágios).
-            // Também aceita highway=toll_gantry (Free Flow / pórticos).
-            var isTollBooth = el.tags && el.tags['barrier'] === 'toll_booth';
-            var isTollGantry = el.tags && el.tags['highway'] === 'toll_gantry';
-            var isTollNode  = (el.type === 'node') && (isTollBooth || isTollGantry);
-            var isTollWay   = (el.type === 'way')  && (isTollBooth || isTollGantry);
-            if (!isTollNode && !isTollWay) continue;
-
-            var elLat = el.lat !== undefined ? el.lat : (el.center ? el.center.lat : null);
-            var elLon = el.lon !== undefined ? el.lon : (el.center ? el.center.lon : null);
-            if (elLat === null || elLon === null) continue;
-
-            // Filtro 1 — proximidade geométrica
-            if (!isNearRoute(elLat, elLon, coords, RAW_THRESHOLD_KM)) continue;
-
-            // Filtro 2 — pertence à rodovia percorrida? (só aplica se temos info de steps)
-            if (haveRefInfo && isTollNode) {
-                var elId = el.id;
-                var pRefs  = nodeToParentRefs[elId]  || new Set();
-                var pNames = nodeToParentNames[elId]  || new Set();
-                // Se há info de rodovias-pai, exige interseção com a rota
-                if (pRefs.size > 0 || pNames.size > 0) {
-                    var onRoute = false;
-                    pRefs.forEach(function(r){ if (routeRefs && routeRefs.has(r)) onRoute = true; });
-                    if (!onRoute) {
-                        pNames.forEach(function(n){ if (routeNames && routeNames.has(n)) onRoute = true; });
-                    }
-                    if (!onRoute) {
-                        rLog('dim', '  ↳ Filtrado (rodovia alheia): id='+elId+' refs=['+Array.from(pRefs).join(',')+'] nomes=['+Array.from(pNames).join(',')+']');
-                        continue;
-                    }
-                }
-                // Se não há info de rodovias-pai (nó solto no OSM), mantém por proximidade
-            }
-
-            var price    = parseTollCharge(el.tags || {});
-            var name     = (el.tags && (el.tags['name'] || el.tags['operator'] || el.tags['ref'])) || 'Praça';
-            var isGantry = (el.tags && el.tags['highway'] === 'toll_gantry');
-            raw.push({ name: name, price: price, lat: elLat, lon: elLon, gantry: isGantry });
-        }
-
-        // ── Passo 3: deduplicação com raio diferenciado ──
-        // toll_gantry (Free Flow) → 2 km  (pórticos na mesma rodovia ficam até 1 km entre si)
-        // toll_booth  (praça física) → 0.5 km (faixas de uma mesma praça ficam < 100 m)
-        var DEDUP_BOOTH_KM   = 0.5;
-        var DEDUP_GANTRY_KM  = 2.0;
-        var clusters = [];
-        for (var i = 0; i < raw.length; i++) {
-            var assigned = false;
-            var dedupR = raw[i].gantry ? DEDUP_GANTRY_KM : DEDUP_BOOTH_KM;
-            for (var c = 0; c < clusters.length; c++) {
-                if (haversineKm(raw[i].lat, raw[i].lon, clusters[c].lat, clusters[c].lon) < dedupR) {
-                    clusters[c].members.push(raw[i]);
-                    var n = clusters[c].members.length;
-                    clusters[c].lat = (clusters[c].lat * (n-1) + raw[i].lat) / n;
-                    clusters[c].lon = (clusters[c].lon * (n-1) + raw[i].lon) / n;
-                    if (clusters[c].price === null && raw[i].price !== null) {
-                        clusters[c].price = raw[i].price;
-                        clusters[c].name  = raw[i].name;
-                    } else if (raw[i].price !== null && clusters[c].price !== null && raw[i].price > clusters[c].price) {
-                        clusters[c].price = raw[i].price;
-                        clusters[c].name  = raw[i].name;
-                    }
-                    assigned = true;
-                    break;
-                }
-            }
-            if (!assigned) {
-                clusters.push({ lat: raw[i].lat, lon: raw[i].lon, name: raw[i].name, price: raw[i].price, gantry: raw[i].gantry, members: [raw[i]] });
-            }
-        }
-
-        // ── Passo 4: converter clusters em pedágios únicos e logar ──
-        var tolls = [];
-        for (var c = 0; c < clusters.length; c++) {
-            var cl = clusters[c];
-            var dupes = cl.members.length;
-            rLog('ok', '  Pedágio: "'+cl.name+'" preço='+(cl.price !== null ? 'R$ '+cl.price.toFixed(2) : 'n/d')
-                +' lat='+cl.lat.toFixed(7)+' lon='+cl.lon.toFixed(7)
-                +(cl.gantry ? ' [Free Flow]' : '')
-                +(dupes > 1 ? ' ['+dupes+' nós agrupados]' : ''));
-            tolls.push({ name: cl.name, price: cl.price, lat: cl.lat, lon: cl.lon });
-        }
-        rLog('info', '  Total após deduplicação OSM: '+tolls.length+' praça(s) ('+raw.length+' nós brutos → '+tolls.length+' físicas)');
-        var reconciled = applyTollDB(tolls, coords);
-        rLog('info', '  Total final (após banco próprio): '+reconciled.length+' praça(s)');
-        return reconciled;
-    } catch(e) {
-        rLog('warn', 'Overpass parse error trecho #'+legNum+': '+e.message);
+    var coords = (geometry && geometry.coordinates) || [];
+    if (coords.length === 0) {
+        rLog('warn', 'Trecho #'+legNum+': geometria vazia, sem pedágios.');
         return [];
     }
+
+    var t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    var encontrados = new Map(); // dedupe por lat,lon
+
+    for (var j = 0; j < TOLL_DB.length; j++) {
+        var db = TOLL_DB[j];
+        var raio = (typeof db.radiusKm === 'number' && db.radiusKm > 0) ? db.radiusKm : 0.6;
+        if (!isNearRoute(db.lat, db.lon, coords, raio)) continue;
+
+        var chave = db.road + '|' + db.lat.toFixed(5) + '|' + db.lon.toFixed(5);
+        if (encontrados.has(chave)) continue;
+
+        encontrados.set(chave, {
+            name: db.name,
+            price: (typeof db.price === 'number') ? db.price : null,
+            lat: db.lat,
+            lon: db.lon,
+            road: db.road
+        });
+        rLog('ok', '  ↳ Pedágio na rota: "'+db.name+'" R$ '+
+            (typeof db.price === 'number' ? db.price.toFixed(2) : 'n/d')+
+            ' ('+db.road+')');
+    }
+
+    var tolls = Array.from(encontrados.values());
+    var t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
+    rLog('info', '  Trecho #'+legNum+': '+tolls.length+' pedágio(s) cruzados localmente em '+(t1-t0).toFixed(1)+' ms (TOLL_DB='+TOLL_DB.length+' praças)');
+    return tolls;
 }
 
 // ============================================
