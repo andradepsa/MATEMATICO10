@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora Multi-Paradas para Entregas</title>
+    <title>Calculadora Multi-Paradas para Entregas — v9</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -67,7 +67,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-        <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; v8.0 (Photon geocoder + fix pedágios)</p>
+        <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v9.0 — Overpass geocoder</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -393,11 +393,12 @@ async function runOverpassGeoQuery(query) {
         var url = OVERPASS_GEO_SERVERS[s] + '?data=' + encodeURIComponent(query);
         try {
             rLog('dim', 'Overpass geocoder (srv ' + (s+1) + '): ' + OVERPASS_GEO_SERVERS[s]);
-            var resp = await fetch(url, { signal: AbortSignal.timeout(13000) });
+            // Promise.race: compatível com browsers sem AbortSignal.timeout()
+            var timeoutP = new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('timeout 13s')); }, 13000); });
+            var resp = await Promise.race([fetch(url), timeoutP]);
             if (!resp.ok) { rLog('warn', 'Overpass geocoder HTTP ' + resp.status); continue; }
             var data = await resp.json();
             if (data.elements && data.elements.length > 0) {
-                // Retorna ponto do primeiro elemento com coordenadas
                 for (var i = 0; i < data.elements.length; i++) {
                     var el = data.elements[i];
                     var lat = el.lat !== undefined ? el.lat : (el.center ? el.center.lat : null);
