@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora Multi-Paradas para Entregas — v9</title>
+    <title>Calculadora Multi-Paradas para Entregas — v14</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -67,7 +67,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-        <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v13 — Pedágios Brasil-inteiro (chunked Overpass + DB nacional)</strong></p>
+            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v14 — Geocoder por centróide de cidade + Overpass relaxado</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -560,6 +560,51 @@ function resultToPoint(r) {
 }
 
 // ============================================
+// CENTRÓIDE DE CIDADE (cache) — base para escolher resultado correto
+// em rotas longas. ANTES o sistema usava a parada anterior como referência,
+// o que fazia com que "São José do Rio Preto" fosse geocodificado para uma
+// rua homônima em Ribeirão Preto (200km de erro). Agora usamos o centróide
+// real da cidade-alvo como referência.
+// ============================================
+var cityCentroidCache = {};
+async function getCityCentroid(cidade, uf) {
+    if (!cidade) return null;
+    var key = (cidade + '|' + (uf||'')).toLowerCase();
+    if (cityCentroidCache[key] !== undefined) return cityCentroidCache[key];
+    var q = cidade + (uf ? ', ' + uf : '') + ', Brasil';
+    rLog('dim', 'Buscando centróide da cidade: "' + q + '"');
+    try {
+        var results = await nominatimSearch(q, null);
+        // Filtra resultados que parecem ser cidade/município (display contém UF)
+        var best = null;
+        for (var i = 0; i < results.length; i++) {
+            var d = (results[i].display_name || '').toLowerCase();
+            if (uf && d.indexOf(', ' + uf.toLowerCase()) === -1 && d.indexOf(uf.toLowerCase() + ',') === -1) continue;
+            best = results[i]; break;
+        }
+        if (!best && results.length > 0) best = results[0];
+        if (!best) { cityCentroidCache[key] = null; return null; }
+        var pt = { lat: parseFloat(best.lat), lon: parseFloat(best.lon) };
+        cityCentroidCache[key] = pt;
+        rLog('ok', 'Centróide ' + cidade + '/' + uf + ': ' + pt.lat.toFixed(4) + ', ' + pt.lon.toFixed(4));
+        return pt;
+    } catch(e) {
+        rLog('warn', 'Falha ao buscar centróide de ' + cidade + ': ' + e.message);
+        cityCentroidCache[key] = null;
+        return null;
+    }
+}
+
+// Tenta extrair "Cidade, UF" do final de um endereço livre (ex: "Av X, 100, Ribeirão Preto, SP")
+function extractCityUF(address) {
+    var m = address.match(/,\s*([^,]+?)\s*[-,\/]\s*([A-Z]{2})\s*(?:,\s*Brasil)?\s*$/i);
+    if (m) return { cidade: m[1].trim(), uf: m[2].trim().toUpperCase() };
+    m = address.match(/,\s*([^,]+?)\s*,\s*([A-Z]{2})\s*$/i);
+    if (m) return { cidade: m[1].trim(), uf: m[2].trim().toUpperCase() };
+    return null;
+}
+
+// ============================================
 // GEOCODIFICAÇÃO PRINCIPAL
 // ============================================
 async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
@@ -570,22 +615,20 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
         rLog('step', 'GEOCODIFICAÇÃO (CEP): "' + input + '"');
         rLog('ok', 'CEP detectado: ' + cep.cepFmt + (cep.numero ? ' | Número: ' + cep.numero : ' | SEM NÚMERO'));
 
-        // 1. ViaCEP
         var cepData = await lookupCEP(cep.cep);
 
         if (!cepData) {
-            // CEP inválido — tenta tratar o input como endereço normal
             rLog('warn', 'CEP inválido. Tentando como endereço normal...');
             return await geocodeAsAddress(input, refLat, refLon, refLabel);
         }
 
-        // Geocoder principal: Nominatim + Photon.
-        // Overpass foi removido da geocodificação porque gera 400/403/timeout em browser e trava o fluxo.
+        // ★ FIX: usa centróide REAL da cidade do CEP como referência (não a parada anterior)
+        var centroid = await getCityCentroid(cepData.cidade, cepData.uf);
+        var anchor = centroid || (refLat !== null ? { lat: refLat, lon: refLon } : null);
+        if (centroid) rLog('ok', 'Âncora: centróide de ' + cepData.cidade + '/' + cepData.uf);
+        else if (anchor) rLog('warn', 'Sem centróide; usando parada anterior como âncora (menos confiável)');
 
-        // 2. Montar endereço completo
         var queries = [];
-
-        // Query 1: logradouro + número + bairro + cidade + UF (mais preciso)
         if (cepData.logradouro) {
             var parts1 = [cepData.logradouro];
             if (cep.numero) parts1.push(cep.numero);
@@ -594,50 +637,44 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
             parts1.push(cepData.uf);
             queries.push(parts1.join(', '));
         }
-
-        // Query 2: logradouro + cidade (sem bairro, sem número — fallback)
-        if (cepData.logradouro) {
-            queries.push(cepData.logradouro + ', ' + cepData.cidade + ', ' + cepData.uf);
-        }
-
-        // Query 3: logradouro + número + cidade (sem bairro — tenta variação)
-        if (cepData.logradouro && cep.numero) {
-            queries.push(cepData.logradouro + ', ' + cep.numero + ', ' + cepData.cidade + ', ' + cepData.uf + ', Brasil');
-        }
-
-        // Query 4: bairro + cidade (CEP genérico sem logradouro)
-        if (cepData.bairro) {
-            queries.push(cepData.bairro + ', ' + cepData.cidade + ', ' + cepData.uf);
-        }
-
-        // Query 5: logradouro + cidade + Brasil (sem UF, mais abrangente)
-        if (cepData.logradouro) {
-            queries.push(cepData.logradouro + ', ' + cepData.cidade + ', Brasil');
-        }
-
-        // Query 6: só cidade + UF (último recurso)
+        if (cepData.logradouro) queries.push(cepData.logradouro + ', ' + cepData.cidade + ', ' + cepData.uf);
+        if (cepData.logradouro && cep.numero) queries.push(cepData.logradouro + ', ' + cep.numero + ', ' + cepData.cidade + ', ' + cepData.uf + ', Brasil');
+        if (cepData.bairro) queries.push(cepData.bairro + ', ' + cepData.cidade + ', ' + cepData.uf);
+        if (cepData.logradouro) queries.push(cepData.logradouro + ', ' + cepData.cidade + ', Brasil');
         queries.push(cepData.cidade + ', ' + cepData.uf);
 
-        // Viewbox se tiver referência — usa buffer maior (1.5°) para CEPs em cidades distantes
+        // Viewbox AO REDOR DO CENTRÓIDE da cidade (não da parada anterior)
         var vb = null;
-        if (refLat !== null && refLon !== null) {
-            vb = (refLon-1.5).toFixed(4)+','+(refLat-1.5).toFixed(4)+','+(refLon+1.5).toFixed(4)+','+(refLat+1.5).toFixed(4);
+        if (anchor) {
+            vb = (anchor.lon-1.0).toFixed(4)+','+(anchor.lat-1.0).toFixed(4)+','+(anchor.lon+1.0).toFixed(4)+','+(anchor.lat+1.0).toFixed(4);
         }
 
-        // Tentar cada query na ordem até achar resultado
+        var MAX_DIST_FROM_CITY_KM = 80; // raio máximo aceitável da cidade-alvo
+
         for (var q = 0; q < queries.length; q++) {
             rLog('info', 'Tentativa ' + (q+1) + '/' + queries.length + ': "' + queries[q] + '"');
             if (statusDiv) statusDiv.innerHTML = '<p>⏳ Geocodificando: "' + escHtml(queries[q]) + '"...</p>';
 
-            // Nas últimas 2 tentativas, remove o viewbox para busca nacional
             var vbAtual = (q >= queries.length - 2) ? null : vb;
             var results = await nominatimSearch(queries[q], vbAtual);
 
             if (results.length > 0) {
-                if (refLat !== null && refLon !== null) {
-                    var best = pickClosest(results, refLat, refLon);
-                    rLog('ok', 'ESCOLHIDO: ' + best.display_name);
-                    return resultToPoint(best);
+                if (anchor) {
+                    // Filtra: só aceita resultados dentro de MAX_DIST_FROM_CITY_KM do centróide
+                    var validos = [];
+                    for (var ri = 0; ri < results.length; ri++) {
+                        var d = haversineKm(anchor.lat, anchor.lon, parseFloat(results[ri].lat), parseFloat(results[ri].lon));
+                        var marker = d <= MAX_DIST_FROM_CITY_KM ? ' ✓' : ' ✗ (fora do raio ' + MAX_DIST_FROM_CITY_KM + 'km)';
+                        rLog(d <= MAX_DIST_FROM_CITY_KM ? 'ok' : 'warn',
+                            '#' + (ri+1) + ': ' + d.toFixed(2) + 'km da cidade' + marker + ' → ' + results[ri].display_name);
+                        if (d <= MAX_DIST_FROM_CITY_KM) validos.push({ r: results[ri], d: d });
+                    }
+                    if (validos.length > 0) {
+                        validos.sort(function(a,b){ return a.d - b.d; });
+                        rLog('ok', 'ESCOLHIDO: ' + validos[0].r.display_name);
+                        return resultToPoint(validos[0].r);
+                    }
+                    rLog('warn', 'Todos os resultados fora do raio da cidade — tentando próxima query');
                 } else {
                     logAllResults(results);
                     rLog('ok', 'ESCOLHIDO #1: ' + results[0].display_name);
@@ -645,39 +682,75 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
                 }
             } else {
                 rLog('warn', 'Nenhum resultado para essa query.');
-                if (q < queries.length - 1) {
-                    rLog('dim', 'Tentando próxima variação...');
-                }
             }
         }
 
-        // Se nada funcionou, tenta o input original como endereço
+        // Última cartada: se nada serviu, devolve o centróide da cidade
+        if (anchor && centroid) {
+            rLog('warn', 'Nenhum endereço preciso encontrado — usando CENTRÓIDE da cidade como ponto');
+            return { lat: centroid.lat, lon: centroid.lon, display: cepData.cidade + ' - ' + cepData.uf + ', Brasil (centróide)' };
+        }
+
         rLog('warn', 'Todas as queries CEP falharam. Tentando input original como endereço...');
         return await geocodeAsAddress(input, refLat, refLon, refLabel);
 
     } else {
-        // ═══════ MODO ENDEREÇO ═══════
         return await geocodeAsAddress(input, refLat, refLon, refLabel);
     }
 }
 
 async function geocodeAsAddress(address, refLat, refLon, refLabel) {
-    if (refLat !== null && refLon !== null) {
-        rLog('step', 'GEOCODIFICAÇÃO (endereço): "' + address + '" (perto de ' + refLabel + ')');
-        var vb = (refLon-0.5).toFixed(4)+','+(refLat-0.5).toFixed(4)+','+(refLon+0.5).toFixed(4)+','+(refLat+0.5).toFixed(4);
-        var results = await nominatimSearch(address, vb);
-        if (results.length === 0) throw new Error('Endereço não encontrado: "' + address + '"');
-        var best = pickClosest(results, refLat, refLon);
-        rLog('ok', 'ESCOLHIDO: ' + best.display_name);
-        return resultToPoint(best);
-    } else {
-        rLog('step', 'GEOCODIFICAÇÃO (endereço): "' + address + '"');
-        var results = await nominatimSearch(address, null);
-        if (results.length === 0) throw new Error('Endereço não encontrado: "' + address + '"');
-        logAllResults(results);
-        rLog('ok', 'ESCOLHIDO #1: ' + results[0].display_name);
-        return resultToPoint(results[0]);
+    rLog('step', 'GEOCODIFICAÇÃO (endereço): "' + address + '"');
+
+    // ★ FIX: tenta extrair Cidade/UF do próprio endereço e usar centróide como referência
+    var cu = extractCityUF(address);
+    var anchor = null;
+    if (cu) {
+        var centroid = await getCityCentroid(cu.cidade, cu.uf);
+        if (centroid) {
+            anchor = centroid;
+            rLog('ok', 'Âncora extraída do endereço: ' + cu.cidade + '/' + cu.uf);
+        }
     }
+    if (!anchor && refLat !== null && refLon !== null) {
+        anchor = { lat: refLat, lon: refLon };
+        rLog('warn', 'Sem cidade detectada; usando referência ' + refLabel);
+    }
+
+    var vb = anchor ? ((anchor.lon-1.0).toFixed(4)+','+(anchor.lat-1.0).toFixed(4)+','+(anchor.lon+1.0).toFixed(4)+','+(anchor.lat+1.0).toFixed(4)) : null;
+    var results = await nominatimSearch(address, vb);
+    if (results.length === 0 && vb) {
+        rLog('warn', 'Sem resultados com viewbox; tentando busca nacional');
+        results = await nominatimSearch(address, null);
+    }
+    if (results.length === 0) throw new Error('Endereço não encontrado: "' + address + '"');
+
+    if (anchor) {
+        var MAX_KM = 80;
+        var validos = [];
+        for (var i = 0; i < results.length; i++) {
+            var d = haversineKm(anchor.lat, anchor.lon, parseFloat(results[i].lat), parseFloat(results[i].lon));
+            rLog(d <= MAX_KM ? 'ok' : 'warn', '#' + (i+1) + ': ' + d.toFixed(2) + 'km da âncora → ' + results[i].display_name);
+            if (d <= MAX_KM) validos.push({ r: results[i], d: d });
+        }
+        if (validos.length > 0) {
+            validos.sort(function(a,b){ return a.d - b.d; });
+            rLog('ok', 'ESCOLHIDO: ' + validos[0].r.display_name);
+            return resultToPoint(validos[0].r);
+        }
+        // Se nenhum dentro do raio mas temos centróide da cidade, devolve centróide
+        if (cu) {
+            var c2 = await getCityCentroid(cu.cidade, cu.uf);
+            if (c2) {
+                rLog('warn', 'Nenhum resultado dentro do raio — usando centróide da cidade');
+                return { lat: c2.lat, lon: c2.lon, display: address + ' (centróide ' + cu.cidade + '/' + cu.uf + ')' };
+            }
+        }
+        rLog('warn', 'Nenhum resultado dentro do raio — usando #1 como fallback');
+    }
+    logAllResults(results);
+    rLog('ok', 'ESCOLHIDO #1: ' + results[0].display_name);
+    return resultToPoint(results[0]);
 }
 
 // ============================================
@@ -1098,12 +1171,13 @@ async function calcTollsReal(geometry, routeRefs, routeNames, legNum) {
         var raw = [];
         for (var i = 0; i < data.elements.length; i++) {
             var el = data.elements[i];
-            // Só processa nós/ways de pedágio físicos (toll_booth + toll=yes)
-            // Descarta toll_gantry e qualquer nó sem a combinação exata exigida.
-            var hasTollYes  = el.tags && el.tags['toll'] === 'yes';
+            // ★ FIX v14: aceita toll_booth COM ou SEM tag toll=yes (muitas praças OSM
+            // em PR/SC/MS/MG não têm toll=yes — esse era o motivo do "apagão" de pedágios).
+            // Também aceita highway=toll_gantry (Free Flow / pórticos).
             var isTollBooth = el.tags && el.tags['barrier'] === 'toll_booth';
-            var isTollNode  = (el.type === 'node') && isTollBooth && hasTollYes;
-            var isTollWay   = (el.type === 'way')  && isTollBooth && hasTollYes;
+            var isTollGantry = el.tags && el.tags['highway'] === 'toll_gantry';
+            var isTollNode  = (el.type === 'node') && (isTollBooth || isTollGantry);
+            var isTollWay   = (el.type === 'way')  && (isTollBooth || isTollGantry);
             if (!isTollNode && !isTollWay) continue;
 
             var elLat = el.lat !== undefined ? el.lat : (el.center ? el.center.lat : null);
