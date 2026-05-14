@@ -97,6 +97,24 @@
                 <input type="checkbox" id="pedagioCheck" checked style="width:16px;height:16px;accent-color:#2c7da0;">
                 🎫 Calcular pedágios reais (OSM)
             </label>
+
+            <div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:10px;padding:10px;margin-bottom:12px;">
+                <label style="display:block;font-weight:600;color:#1e2f4e;font-size:0.82rem;margin-bottom:4px;">🚚 Veículo (categoria tarifária ABCR)</label>
+                <select id="vehicleSelect" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.85rem;margin-bottom:8px;">
+                    <option value="1|2|12">Cat 1 — Auto/Camioneta (2 eixos rodando) · 12 km/L</option>
+                    <option value="2|3|9">Cat 2 — Caminhão leve / Auto c/ reboque (3 eixos) · 9 km/L</option>
+                    <option value="3|2|10">Cat 3 — Moto (2 eixos · multiplicador 0,5) · 30 km/L</option>
+                    <option value="4|4|6">Cat 4 — Caminhão / Ônibus (4 eixos) · 6 km/L</option>
+                    <option value="5|5|4">Cat 5 — Caminhão c/ reboque (5 eixos) · 4 km/L</option>
+                    <option value="6|6|3">Cat 6 — Carreta (6 eixos) · 3 km/L</option>
+                    <option value="7|7|2.8">Cat 7 — Carreta especial (7 eixos) · 2,8 km/L</option>
+                    <option value="8|8|2.5">Cat 8 — Bitrem (8 eixos) · 2,5 km/L</option>
+                    <option value="9|9|2.2">Cat 9 — Rodotrem (9 eixos) · 2,2 km/L</option>
+                </select>
+                <label style="display:block;font-weight:600;color:#1e2f4e;font-size:0.82rem;margin-bottom:4px;">⛽ Preço do combustível (R$/L)</label>
+                <input type="number" id="fuelPrice" value="6.19" step="0.01" min="0" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.85rem;">
+            </div>
+
             <button class="calc-btn" id="calculateBtn" onclick="planRoute()">Calcular Rota Completa</button>
 
             <div class="result-box" id="resultArea">
@@ -1062,9 +1080,18 @@ async function planRoute() {
             }
             leg.tolls = legTolls;
 
+            // ── Multiplicador por eixos (ABCR) ──
+            // Cat 3 (moto) = 0,5x | demais = nº de eixos x tarifa base de 2 eixos
+            var vSel = document.getElementById('vehicleSelect').value.split('|');
+            var vCat = parseInt(vSel[0]);
+            var vEixos = parseInt(vSel[1]);
+            var axleMult = (vCat === 3) ? 0.5 : (vEixos / 2); // tarifa OSM = base 2 eixos
             var legTollCost = 0;
             for (var t = 0; t < legTolls.length; t++) {
-                if (legTolls[t].price !== null) legTollCost += legTolls[t].price;
+                if (legTolls[t].price !== null) {
+                    legTolls[t].priceVehicle = legTolls[t].price * axleMult;
+                    legTollCost += legTolls[t].priceVehicle;
+                }
                 totalTolls.push(legTolls[t]);
             }
             leg.tollCost = legTollCost;
@@ -1078,7 +1105,12 @@ async function planRoute() {
             rFlush();
         }
 
-        var custoKm = totalDist * 2.50;
+        // ── Custo de combustível (km/L × R$/L) ──
+        var vSel2 = document.getElementById('vehicleSelect').value.split('|');
+        var kmL = parseFloat(vSel2[2]);
+        var fuelPrice = parseFloat(document.getElementById('fuelPrice').value) || 0;
+        var litros = totalDist / kmL;
+        var custoKm = litros * fuelPrice;
         var custoTotal = custoKm + totalTollCost;
         var tollsComPreco = totalTolls.filter(function(x){ return x.price !== null; }).length;
         var tollsSemPreco = totalTolls.filter(function(x){ return x.price === null; }).length;
@@ -1100,9 +1132,10 @@ async function planRoute() {
         rLog('step', 'TOTAIS');
         rLog('ok', 'Distância total: ' + totalDist.toFixed(1) + ' km');
         rLog('ok', 'Tempo total: ' + formatTime(totalDur) + ' (' + totalDur + ' min)');
-        rLog('ok', 'Pedágios: ' + totalTolls.length + ' praças (' + tollsComPreco + ' c/ preço OSM, ' + tollsSemPreco + ' s/ preço)');
-        rLog('ok', 'Custo rodagem (R$ 2,50/km): R$ ' + custoKm.toFixed(2));
-        rLog('ok', 'Custo pedágios (OSM): R$ ' + totalTollCost.toFixed(2));
+        rLog('ok', 'Pedágios: ' + totalTolls.length + ' praças (' + tollsComPreco + ' c/ preço OSM, ' + tollsSemPreco + ' s/ preço) — multiplicador eixos x' + axleMult);
+        rLog('ok', 'Combustível: ' + litros.toFixed(2) + ' L × R$ ' + fuelPrice.toFixed(2) + ' = R$ ' + custoKm.toFixed(2) + ' (' + kmL + ' km/L)');
+        rLog('ok', 'Custo pedágios: R$ ' + totalTollCost.toFixed(2));
+        rLog('ok', 'CUSTO TOTAL: R$ ' + custoTotal.toFixed(2));
         rLog('ok', 'CUSTO TOTAL: R$ ' + custoTotal.toFixed(2));
         rLog('step', 'FIM DO RELATÓRIO');
         rFlush();
@@ -1130,7 +1163,7 @@ async function planRoute() {
                 var tl = legs[i].tolls[t];
                 L.marker([tl.lat, tl.lon], {
                     icon: L.divIcon({ className:'', html:'<div style="background:#f59e0b;color:white;width:20px;height:20px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:11px;border:2px solid white;">🎫</div>', iconSize:[20,20], iconAnchor:[10,10] })
-                }).addTo(routeLayer).bindPopup('<b>Pedágio</b><br>'+tl.name+'<br>'+(tl.price !== null ? 'R$ '+tl.price.toFixed(2) : 'Preço não disponível no OSM'));
+                }).addTo(routeLayer).bindPopup('<b>Pedágio</b><br>'+tl.name+'<br>'+(tl.price !== null ? 'Base: R$ '+tl.price.toFixed(2)+'<br>Veículo (x'+axleMult+'): R$ '+(tl.priceVehicle||0).toFixed(2) : 'Preço não disponível no OSM'));
             }
         }
         map.fitBounds(routeLayer.getBounds(), { padding: [40,40] });
@@ -1152,8 +1185,8 @@ async function planRoute() {
         html += '<div class="total-box">' +
             '<p><span class="big">'+totalDist.toFixed(1)+' km</span> total</p>' +
             '<p>⏱️ <strong>'+formatTime(totalDur)+'</strong></p>' +
-            '<p>🚗 Rodagem: <strong>R$ '+custoKm.toFixed(2).replace('.',',')+'</strong></p>' +
-            '<p>🎫 Pedágios: <strong>R$ '+totalTollCost.toFixed(2).replace('.',',')+'</strong> ('+totalTolls.length+' praças)</p>' +
+            '<p>⛽ Combustível: <strong>R$ '+custoKm.toFixed(2).replace('.',',')+'</strong> ('+litros.toFixed(1)+' L · '+kmL+' km/L · R$ '+fuelPrice.toFixed(2).replace('.',',')+'/L)</p>' +
+            '<p>🎫 Pedágios: <strong>R$ '+totalTollCost.toFixed(2).replace('.',',')+'</strong> ('+totalTolls.length+' praças · x'+axleMult+' eixos)</p>' +
             '<p>💰 <strong style="color:#16a34a;font-size:1.1rem;">TOTAL: R$ '+custoTotal.toFixed(2).replace('.',',')+'</strong></p>' +
             tollNote + '</div>';
         resultDiv.innerHTML = html;
