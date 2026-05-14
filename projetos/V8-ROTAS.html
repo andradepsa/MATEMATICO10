@@ -378,6 +378,125 @@ async function nominatimSearch(query, viewboxStr) {
     return results; // formato compatível com Nominatim
 }
 
+// ============================================
+// GEOCODIFICAÇÃO VIA OVERPASS (primária — não é bloqueada por extensões)
+// Usa os mesmos servidores já utilizados para cálculo de pedágios.
+// ============================================
+var OVERPASS_GEO_SERVERS = [
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+    'https://overpass-api.de/api/interpreter'
+];
+
+async function runOverpassGeoQuery(query) {
+    for (var s = 0; s < OVERPASS_GEO_SERVERS.length; s++) {
+        var url = OVERPASS_GEO_SERVERS[s] + '?data=' + encodeURIComponent(query);
+        try {
+            rLog('dim', 'Overpass geocoder (srv ' + (s+1) + '): ' + OVERPASS_GEO_SERVERS[s]);
+            var resp = await fetch(url, { signal: AbortSignal.timeout(13000) });
+            if (!resp.ok) { rLog('warn', 'Overpass geocoder HTTP ' + resp.status); continue; }
+            var data = await resp.json();
+            if (data.elements && data.elements.length > 0) {
+                // Retorna ponto do primeiro elemento com coordenadas
+                for (var i = 0; i < data.elements.length; i++) {
+                    var el = data.elements[i];
+                    var lat = el.lat !== undefined ? el.lat : (el.center ? el.center.lat : null);
+                    var lon = el.lon !== undefined ? el.lon : (el.center ? el.center.lon : null);
+                    if (lat !== null && lon !== null) return { lat: lat, lon: lon };
+                }
+            }
+        } catch(e) {
+            rLog('warn', 'Overpass geocoder srv ' + (s+1) + ' falhou: ' + e.message);
+        }
+    }
+    return null;
+}
+
+// Escapa caracteres especiais de Overpass regex
+function ovEscape(s) {
+    return s.replace(/[\\"]/g, '\\$&')
+            .replace(/[.*+?^${}()|[\]]/g, '\\$&');
+}
+
+async function overpassGeocodeFromCEP(cepData, numero, statusDiv) {
+    var street = cepData.logradouro;
+    var city   = cepData.cidade;
+
+    if (!street) return null;
+
+    rLog('step', 'GEOCODIFICAÇÃO (Overpass): "' + street + (numero ? ', ' + numero : '') + '" em ' + city);
+    if (statusDiv) statusDiv.innerHTML = '<p>⏳ Geocodificando via Overpass...</p>';
+
+    var eStreet = ovEscape(street);
+    var eCity   = ovEscape(city);
+
+    // Tentativa 1: addr:housenumber exato (nó ou way)
+    if (numero) {
+        var q1 = '[out:json][timeout:12];'
+            + 'area["name"="' + eCity + '"]["boundary"="administrative"]->.city;'
+            + '('
+            + 'node["addr:street"~"' + eStreet + '","i"]["addr:housenumber"="' + numero + '"](area.city);'
+            + 'way["addr:street"~"' + eStreet + '","i"]["addr:housenumber"="' + numero + '"](area.city);'
+            + ');'
+            + 'out center;';
+        rLog('dim', 'Overpass tentativa 1: addr:housenumber=' + numero);
+        var r1 = await runOverpassGeoQuery(q1);
+        if (r1) {
+            rLog('ok', 'Overpass: endereço exato! lat=' + r1.lat.toFixed(6) + ' lon=' + r1.lon.toFixed(6));
+            return buildOverpassPoint(r1, street, numero, cepData);
+        }
+        rLog('warn', 'Overpass: nenhum nó addr:housenumber=' + numero);
+    }
+
+    // Tentativa 2: centróide da via (highway)
+    var q2 = '[out:json][timeout:12];'
+        + 'area["name"="' + eCity + '"]["boundary"="administrative"]->.city;'
+        + 'way["name"~"^' + eStreet + '$","i"]["highway"](area.city);'
+        + 'out center;';
+    rLog('dim', 'Overpass tentativa 2: centróide via');
+    var r2 = await runOverpassGeoQuery(q2);
+    if (r2) {
+        rLog('ok', 'Overpass: centróide encontrado (aprox.) lat=' + r2.lat.toFixed(6) + ' lon=' + r2.lon.toFixed(6));
+        return buildOverpassPoint(r2, street, numero, cepData);
+    }
+    rLog('warn', 'Overpass tentativa 2 sem resultado.');
+
+    // Tentativa 3: via com busca parcial (sem ^ e $)
+    var q3 = '[out:json][timeout:12];'
+        + 'area["name"="' + eCity + '"]["boundary"="administrative"]->.city;'
+        + 'way["name"~"' + eStreet + '","i"]["highway"](area.city);'
+        + 'out center;';
+    rLog('dim', 'Overpass tentativa 3: busca parcial de nome');
+    var r3 = await runOverpassGeoQuery(q3);
+    if (r3) {
+        rLog('ok', 'Overpass: via parcial encontrada lat=' + r3.lat.toFixed(6) + ' lon=' + r3.lon.toFixed(6));
+        return buildOverpassPoint(r3, street, numero, cepData);
+    }
+    rLog('warn', 'Overpass tentativa 3 sem resultado.');
+
+    // Tentativa 4: centróide do município (último recurso com Overpass)
+    var q4 = '[out:json][timeout:10];'
+        + 'relation["name"="' + eCity + '"]["boundary"="administrative"]["admin_level"~"^[78]$"];'
+        + 'out center;';
+    rLog('dim', 'Overpass tentativa 4: centróide do município');
+    var r4 = await runOverpassGeoQuery(q4);
+    if (r4) {
+        rLog('warn', 'Overpass: usando centróide do município (baixa precisão)');
+        return buildOverpassPoint(r4, street, numero, cepData);
+    }
+
+    rLog('warn', 'Overpass: todas as tentativas falharam para "' + street + '" em ' + city);
+    return null;
+}
+
+function buildOverpassPoint(pt, street, numero, cepData) {
+    var display = street;
+    if (numero) display += ', ' + numero;
+    if (cepData.bairro) display += ', ' + cepData.bairro;
+    display += ', ' + cepData.cidade + ' - ' + cepData.uf + ', Brasil';
+    return { lat: pt.lat, lon: pt.lon, display: display };
+}
+
 // Seleciona o resultado mais próximo de um ponto de referência
 function pickClosest(results, refLat, refLon) {
     var best = null, bestDist = Infinity;
@@ -424,6 +543,14 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
             return await geocodeAsAddress(input, refLat, refLon, refLabel);
         }
 
+        // ── ESTRATÉGIA PRIMÁRIA: Overpass (não bloqueado por extensões) ──
+        if (cepData.logradouro) {
+            var overpassResult = await overpassGeocodeFromCEP(cepData, cep.numero, statusDiv);
+            if (overpassResult) return overpassResult;
+            rLog('warn', 'Overpass falhou. Tentando geocodificadores externos (podem estar bloqueados)...');
+        }
+
+        // ── FALLBACK: API externa (Photon/Nominatim) ──
         // 2. Montar endereço completo
         var queries = [];
 
