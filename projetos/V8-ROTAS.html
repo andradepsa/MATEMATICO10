@@ -324,16 +324,19 @@ async function nominatimSearch(query, viewboxStr) {
     await waitNominatim();
 
     // Photon API: usa dados OSM, suporta CORS nativo, sem API key
+    // NÃO suporta bbox — usa lat/lon para bias de localização
     var url = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(query)
         + '&limit=5&lang=pt';
 
-    // Bbox: viewboxStr gerado pelo app usa formato minLon,minLat,maxLon,maxLat
-    // Photon aceita exatamente esse formato
     if (viewboxStr) {
-        url += '&bbox=' + viewboxStr;
+        // viewboxStr = "minLon,minLat,maxLon,maxLat" — extrai centro para bias
+        var vp = viewboxStr.split(',');
+        var bLon = (parseFloat(vp[0]) + parseFloat(vp[2])) / 2;
+        var bLat = (parseFloat(vp[1]) + parseFloat(vp[3])) / 2;
+        url += '&lat=' + bLat.toFixed(4) + '&lon=' + bLon.toFixed(4);
     } else {
-        // Sem viewbox → restringe ao Brasil
-        url += '&bbox=-73.99,-33.74,-34.73,5.27';
+        // Brasil: bias para São Paulo como padrão
+        url += '&lat=-23.5505&lon=-46.6333';
     }
 
     rLog('dim', 'Photon: ' + url);
