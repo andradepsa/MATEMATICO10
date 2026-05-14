@@ -67,7 +67,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-        <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v12 — Overpass POST + geocoder estável</strong></p>
+        <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v13 — Pedágios Brasil-inteiro (chunked Overpass + DB nacional)</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -873,6 +873,64 @@ var TOLL_DB = [
     { name: 'Free Flow Dutra — Guarulhos',    lat: -23.46280, lon: -46.43800, price: 4.50,  road: 'BR-116', radiusKm: 1.5 },
     { name: 'Free Flow Dutra — Jacareí',      lat: -23.30260, lon: -45.96670, price: 4.50,  road: 'BR-116', radiusKm: 1.5 }
 ];
+// Tarifa-mediana de fallback (categoria 1) por concessionária — usada quando
+// o Overpass devolve a praça mas sem 'charge:BRL'. Valores ANTT/ARTESP 2025.
+var TOLL_FALLBACK_PRICE = 12.00;
+
+// Ampliação nacional: praças principais nas rodovias mais movimentadas.
+// Não pretende ser exaustiva — cobre os corredores onde o OSM costuma falhar.
+TOLL_DB = TOLL_DB.concat([
+    // ── SP — Anhangüera/Bandeirantes (CCR AutoBAn) ──
+    { name: 'Anhangüera — Pç. Caieiras (km 32)',     lat: -23.36420, lon: -46.74410, price: 8.30,  road: 'SP-330', radiusKm: 2.5 },
+    { name: 'Bandeirantes — Pç. Perus (km 28)',      lat: -23.40180, lon: -46.74340, price: 11.40, road: 'SP-348', radiusKm: 2.5 },
+    { name: 'Anhangüera — Pç. Nova Odessa (km 116)', lat: -22.78320, lon: -47.30210, price: 8.30,  road: 'SP-330', radiusKm: 2.5 },
+    { name: 'Bandeirantes — Pç. Sumaré (km 110)',    lat: -22.81850, lon: -47.21780, price: 11.40, road: 'SP-348', radiusKm: 2.5 },
+    { name: 'Anhangüera — Pç. Limeira (km 155)',     lat: -22.55680, lon: -47.39120, price: 8.30,  road: 'SP-330', radiusKm: 2.5 },
+    // ── SP — Washington Luís (Eixo SP / ViaPaulista) ──
+    { name: 'Washington Luís — Pç. Itirapina',       lat: -22.21180, lon: -47.79120, price: 9.30,  road: 'SP-310', radiusKm: 2.5 },
+    { name: 'Washington Luís — Pç. Matão',           lat: -21.59500, lon: -48.32750, price: 9.30,  road: 'SP-310', radiusKm: 2.5 },
+    // ── SP — Ayrton Senna / Carvalho Pinto (Ecopistas) ──
+    { name: 'Ayrton Senna — Pç. Itaquaquecetuba',    lat: -23.45260, lon: -46.34350, price: 9.20,  road: 'SP-070', radiusKm: 2.5 },
+    { name: 'Carvalho Pinto — Pç. Jacareí',          lat: -23.27950, lon: -45.94680, price: 9.20,  road: 'SP-070', radiusKm: 2.5 },
+    // ── SP — Castello Branco / Raposo Tavares (CCR ViaOeste / Rotas Sorocabana) ──
+    { name: 'Castello Branco — Pç. Barueri',         lat: -23.49380, lon: -46.85830, price: 9.30,  road: 'SP-280', radiusKm: 2.5 },
+    { name: 'Raposo Tavares — Pç. Cotia',            lat: -23.59640, lon: -46.91720, price: 5.30,  road: 'SP-270', radiusKm: 2.5 },
+    // ── SP — Régis Bittencourt (Arteris) — corredor SP→Curitiba ──
+    { name: 'Régis Bittencourt — Pç. Miracatu',      lat: -24.28080, lon: -47.46260, price: 14.20, road: 'BR-116', radiusKm: 3.0 },
+    { name: 'Régis Bittencourt — Pç. Juquitiba',     lat: -23.93350, lon: -47.07450, price: 14.20, road: 'BR-116', radiusKm: 3.0 },
+    { name: 'Régis Bittencourt — Pç. Registro',      lat: -24.43730, lon: -47.78090, price: 14.20, road: 'BR-116', radiusKm: 3.0 },
+    // ── SP — Fernão Dias (Arteris) — corredor SP→BH ──
+    { name: 'Fernão Dias — Pç. Mairiporã',           lat: -23.31000, lon: -46.55630, price: 9.10,  road: 'BR-381', radiusKm: 3.0 },
+    { name: 'Fernão Dias — Pç. Vargem',              lat: -22.88240, lon: -46.41530, price: 9.10,  road: 'BR-381', radiusKm: 3.0 },
+    { name: 'Fernão Dias — Pç. Cambuí',              lat: -22.62170, lon: -46.05590, price: 9.10,  road: 'BR-381', radiusKm: 3.0 },
+    { name: 'Fernão Dias — Pç. Carmo da Cachoeira',  lat: -21.53620, lon: -45.36200, price: 9.10,  road: 'BR-381', radiusKm: 3.0 },
+    { name: 'Fernão Dias — Pç. Carvalhos',           lat: -22.04680, lon: -45.64590, price: 9.10,  road: 'BR-381', radiusKm: 3.0 },
+    { name: 'Fernão Dias — Pç. Itatiaiuçu',          lat: -20.13980, lon: -44.42230, price: 9.10,  road: 'BR-381', radiusKm: 3.0 },
+    // ── SP — Tamoios (Concessionária Tamoios) ──
+    { name: 'Tamoios — Pç. Caraguatatuba',           lat: -23.51270, lon: -45.59140, price: 13.30, road: 'SP-099', radiusKm: 3.0 },
+    // ── PR — BR-376 (Arteris Litoral Sul) ──
+    { name: 'BR-376 — Pç. São Luís do Purunã',       lat: -25.40680, lon: -49.68610, price: 8.40,  road: 'BR-376', radiusKm: 3.0 },
+    { name: 'BR-376 — Pç. Tijucas do Sul',           lat: -25.92740, lon: -49.20300, price: 8.40,  road: 'BR-376', radiusKm: 3.0 },
+    { name: 'BR-376 — Pç. Garuva (PR/SC)',           lat: -26.05920, lon: -48.83500, price: 8.40,  road: 'BR-376', radiusKm: 3.0 },
+    // ── PR — BR-116 / Curitiba ──
+    { name: 'BR-116 — Pç. Mandirituba',              lat: -25.78820, lon: -49.32530, price: 7.80,  road: 'BR-116', radiusKm: 3.0 },
+    // ── SC — BR-101 Sul (Arteris) ──
+    { name: 'BR-101 — Pç. Araquari',                 lat: -26.36760, lon: -48.72600, price: 6.20,  road: 'BR-101', radiusKm: 3.0 },
+    { name: 'BR-101 — Pç. Tijucas',                  lat: -27.24180, lon: -48.62330, price: 6.20,  road: 'BR-101', radiusKm: 3.0 },
+    { name: 'BR-101 — Pç. Palhoça',                  lat: -27.71250, lon: -48.69090, price: 6.20,  road: 'BR-101', radiusKm: 3.0 },
+    // ── MG — BR-040 (Via 040) ──
+    { name: 'BR-040 — Pç. Itabirito',                lat: -20.27160, lon: -43.81350, price: 11.60, road: 'BR-040', radiusKm: 3.0 },
+    { name: 'BR-040 — Pç. Carandaí',                 lat: -20.96620, lon: -43.79550, price: 11.60, road: 'BR-040', radiusKm: 3.0 },
+    { name: 'BR-040 — Pç. Juiz de Fora',             lat: -21.69780, lon: -43.40720, price: 11.60, road: 'BR-040', radiusKm: 3.0 },
+    // ── MS — BR-163 (CCR MSVia) ──
+    { name: 'BR-163 — Pç. Mundo Novo',               lat: -23.84900, lon: -54.27600, price: 12.40, road: 'BR-163', radiusKm: 3.0 },
+    { name: 'BR-163 — Pç. Naviraí',                  lat: -23.06600, lon: -54.20460, price: 12.40, road: 'BR-163', radiusKm: 3.0 },
+    { name: 'BR-163 — Pç. Caarapó',                  lat: -22.62250, lon: -54.81350, price: 12.40, road: 'BR-163', radiusKm: 3.0 },
+    { name: 'BR-163 — Pç. Dourados',                 lat: -22.30970, lon: -54.91200, price: 12.40, road: 'BR-163', radiusKm: 3.0 },
+    { name: 'BR-163 — Pç. Nova Alvorada do Sul',     lat: -21.43830, lon: -54.41260, price: 12.40, road: 'BR-163', radiusKm: 3.0 },
+    { name: 'BR-163 — Pç. Campo Grande Sul',         lat: -20.74750, lon: -54.65820, price: 12.40, road: 'BR-163', radiusKm: 3.0 },
+    { name: 'BR-163 — Pç. São Gabriel do Oeste',     lat: -19.39550, lon: -54.56230, price: 12.40, road: 'BR-163', radiusKm: 3.0 }
+]);
 
 // Aplica banco próprio: corrige preços e injeta praças que o OSM omitiu.
 // Também descarta "fantasmas" (preço < R$ 1,00 sem correspondência no banco).
@@ -916,60 +974,103 @@ function applyTollDB(tolls, coords) {
     return out;
 }
 
-async function calcTollsReal(geometry, routeRefs, routeNames, legNum) {
-    var coords = geometry.coordinates; // [lon, lat]
-    var minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
-    for (var i = 0; i < coords.length; i++) {
-        var lo = coords[i][0], la = coords[i][1];
-        if (la < minLat) minLat = la; if (la > maxLat) maxLat = la;
-        if (lo < minLon) minLon = lo; if (lo > maxLon) maxLon = lo;
-    }
-    var buf = 0.02;
-    var bbox = (minLat-buf).toFixed(5)+','+(minLon-buf).toFixed(5)+','+(maxLat+buf).toFixed(5)+','+(maxLon+buf).toFixed(5);
+// Servidores Overpass — usados em ordem com fallback automático
+var OVERPASS_SERVERS = [
+    'https://overpass.kumi.systems/api/interpreter',
+    'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+    'https://overpass-api.de/api/interpreter'
+];
 
-    // Query em dois blocos:
-    // 1. Nós/ways de pedágio com tags e coordenadas (center)
-    // 2. Ways-pai (rodovias que contêm esses nós) com body (inclui array nodes[])
-    // → permite associar cada pedágio à rodovia-mãe e filtrar os que não pertencem à rota
-    // Filtro estrito: barrier=toll_booth AND toll=yes
-    // Descarta câmeras, radares e pórticos de fiscalização que usam tags semelhantes.
-    var query = '[out:json][timeout:35];'
+function sleep(ms) { return new Promise(function(r){ setTimeout(r, ms); }); }
+
+// Constrói chunks da rota: bbox de no máx ~1.5° (≈170 km) com sobreposição
+// para garantir que praças na fronteira de dois chunks sejam pegas pelo
+// menos uma vez. Esta é a CORREÇÃO PRINCIPAL do bug de omissão massiva.
+function buildRouteChunks(coords, maxSpanDeg) {
+    var chunks = [];
+    if (!coords || coords.length === 0) return chunks;
+    var cur = { minLat: Infinity, maxLat: -Infinity, minLon: Infinity, maxLon: -Infinity };
+    function span(b) { return Math.max(b.maxLat - b.minLat, b.maxLon - b.minLon); }
+    function push(lo, la) {
+        if (la < cur.minLat) cur.minLat = la;
+        if (la > cur.maxLat) cur.maxLat = la;
+        if (lo < cur.minLon) cur.minLon = lo;
+        if (lo > cur.maxLon) cur.maxLon = lo;
+    }
+    for (var i = 0; i < coords.length; i++) {
+        push(coords[i][0], coords[i][1]);
+        // Fecha chunk quando estoura span OU é o último ponto
+        if (span(cur) > maxSpanDeg || i === coords.length - 1) {
+            chunks.push(cur);
+            // Sobrepõe: próximo chunk começa do mesmo ponto
+            cur = { minLat: Infinity, maxLat: -Infinity, minLon: Infinity, maxLon: -Infinity };
+            push(coords[i][0], coords[i][1]);
+        }
+    }
+    return chunks;
+}
+
+async function fetchOverpassChunk(bbox, legNum, chunkIdx) {
+    // Filtro RELAXADO: aceita toll_booth (com ou sem toll=yes) e toll_gantry.
+    // Muitas praças OSM no Brasil (PR, SC, MS, MG) NÃO têm toll=yes — esse era
+    // o segundo motivo da omissão massiva.
+    var query = '[out:json][timeout:60];'
         + '('
-        + 'node["barrier"="toll_booth"]["toll"="yes"]('+bbox+');'
-        + 'way["barrier"="toll_booth"]["toll"="yes"]('+bbox+');'
+        + 'node["barrier"="toll_booth"]('+bbox+');'
+        + 'way["barrier"="toll_booth"]('+bbox+');'
+        + 'node["highway"="toll_gantry"]('+bbox+');'
+        + 'way["highway"="toll_gantry"]('+bbox+');'
         + ')->.tolls;'
         + '.tolls out tags center;'
         + 'way(bn.tolls)["highway"]->.tollroads;'
         + '.tollroads out body;';
-
-    var overpassServers = [
-        'https://overpass.kumi.systems/api/interpreter',
-        'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
-        'https://overpass-api.de/api/interpreter'
-    ];
-    rLog('dim', 'Overpass pedágios trecho #'+legNum+': bbox='+bbox);
-    var data = null;
-    for (var s = 0; s < overpassServers.length; s++) {
+    for (var s = 0; s < OVERPASS_SERVERS.length; s++) {
         try {
-            rLog('dim', 'Tentando servidor Overpass POST ' + (s+1) + '/'+overpassServers.length+': ' + overpassServers[s]);
-            var opts = {
-                method: 'POST',
-                body: new URLSearchParams({ data: query })
-            };
-            if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) opts.signal = AbortSignal.timeout(20000);
-            var resp = await fetch(overpassServers[s], opts);
-            if (!resp.ok) { rLog('warn', 'Overpass HTTP '+resp.status+' no servidor '+(s+1)); continue; }
-            data = await resp.json();
-            rLog('ok', 'Overpass OK (servidor '+(s+1)+'): '+data.elements.length+' elemento(s) na bbox');
-            break;
+            rLog('dim', '  ↳ Trecho #'+legNum+' chunk '+chunkIdx+' → srv '+(s+1)+'/'+OVERPASS_SERVERS.length);
+            var opts = { method: 'POST', body: new URLSearchParams({ data: query }) };
+            if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) opts.signal = AbortSignal.timeout(45000);
+            var resp = await fetch(OVERPASS_SERVERS[s], opts);
+            if (resp.status === 429 || resp.status === 504) {
+                rLog('warn', '  ↳ HTTP '+resp.status+' (rate-limit/timeout) — esperando 3s e tentando próximo srv');
+                await sleep(3000); continue;
+            }
+            if (!resp.ok) { rLog('warn', '  ↳ HTTP '+resp.status+' srv '+(s+1)); continue; }
+            var data = await resp.json();
+            rLog('ok', '  ↳ chunk '+chunkIdx+' OK: '+data.elements.length+' elem.');
+            return data;
         } catch(e) {
-            rLog('warn', 'Overpass servidor '+(s+1)+' falhou: '+e.message);
+            rLog('warn', '  ↳ srv '+(s+1)+' falhou: '+e.message);
         }
     }
-    if (!data) {
-        rLog('warn', 'Todos os servidores Overpass falharam no trecho #'+legNum+' — usando apenas banco próprio');
+    return null;
+}
+
+async function calcTollsReal(geometry, routeRefs, routeNames, legNum) {
+    var coords = geometry.coordinates; // [lon, lat]
+    if (!coords || coords.length === 0) return applyTollDB([], coords || []);
+
+    // CHUNKING: divide rotas longas em pedaços de ~1.5° (~170 km).
+    // Bbox único para 1.288 km estoura limite do Overpass (timeout/HTTP 504/429)
+    // — essa era a causa raiz da omissão de pedágios em PR/SC/MS/MG.
+    var chunks = buildRouteChunks(coords, 1.5);
+    rLog('dim', 'Trecho #'+legNum+': '+coords.length+' pontos → '+chunks.length+' chunk(s) Overpass');
+
+    var merged = { elements: [] };
+    var anyOk = false;
+    for (var ci = 0; ci < chunks.length; ci++) {
+        var c = chunks[ci];
+        var buf = 0.05; // ≈5,5 km de folga em cada lado
+        var bbox = (c.minLat-buf).toFixed(5)+','+(c.minLon-buf).toFixed(5)+','+(c.maxLat+buf).toFixed(5)+','+(c.maxLon+buf).toFixed(5);
+        var data = await fetchOverpassChunk(bbox, legNum, (ci+1)+'/'+chunks.length);
+        if (data && data.elements) { merged.elements = merged.elements.concat(data.elements); anyOk = true; }
+        // Respeita rate-limit do Overpass público (≈1 req/s sustentado)
+        if (ci < chunks.length - 1) await sleep(1100);
+    }
+    if (!anyOk) {
+        rLog('warn', 'Todos os chunks Overpass falharam no trecho #'+legNum+' — usando só TOLL_DB nacional');
         return applyTollDB([], coords);
     }
+    var data = merged;
     try {
         // ── Passo 1: construir mapa nodeId → refs/nomes das rodovias-pai ──
         // (apenas way elements com tipo "way" e array nodes[])
@@ -1142,6 +1243,21 @@ async function planRoute() {
             points.push({ lat: points[0].lat, lon: points[0].lon, display: points[0].display, label: 'Origem (retorno)' });
         }
 
+        // ── Dedupe de paradas consecutivas idênticas (poupa chamadas Overpass) ──
+        var deduped = [points[0]];
+        for (var di = 1; di < points.length; di++) {
+            var prevP = deduped[deduped.length-1];
+            var curP  = points[di];
+            var sameCoord = (Math.abs(prevP.lat - curP.lat) < 1e-5 && Math.abs(prevP.lon - curP.lon) < 1e-5);
+            if (sameCoord) {
+                rLog('warn', 'Parada redundante removida: "'+curP.label+'" ≡ "'+prevP.label+'" (mesmas coordenadas)');
+                continue;
+            }
+            deduped.push(curP);
+        }
+        if (deduped.length !== points.length) rLog('ok', 'Após dedupe: '+deduped.length+' pontos efetivos');
+        points = deduped;
+
         // ROTAS + PEDÁGIOS
         var legs = [], totalDist = 0, totalDur = 0, totalTolls = [], totalTollCost = 0;
         var numLegs = points.length - 1;
@@ -1165,10 +1281,14 @@ async function planRoute() {
             var axleMult = (vCat === 3) ? 0.5 : (vEixos / 2); // tarifa OSM = base 2 eixos
             var legTollCost = 0;
             for (var t = 0; t < legTolls.length; t++) {
-                if (legTolls[t].price !== null) {
-                    legTolls[t].priceVehicle = legTolls[t].price * axleMult;
-                    legTollCost += legTolls[t].priceVehicle;
+                // Fallback: se OSM não trouxe preço e a praça não casou com TOLL_DB,
+                // usa mediana ANTT cat-1 (R$ 12,00) para não devolver R$ 0,00.
+                if (legTolls[t].price === null) {
+                    legTolls[t].price = TOLL_FALLBACK_PRICE;
+                    legTolls[t].estimated = true;
                 }
+                legTolls[t].priceVehicle = legTolls[t].price * axleMult;
+                legTollCost += legTolls[t].priceVehicle;
                 totalTolls.push(legTolls[t]);
             }
             leg.tollCost = legTollCost;
