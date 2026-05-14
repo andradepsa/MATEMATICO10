@@ -67,7 +67,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-        <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v9.0 — Overpass geocoder</strong></p>
+        <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v12 — Overpass POST + geocoder estável</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -134,7 +134,7 @@
             <div class="report-block" id="reportBlock">Nenhum cálculo realizado ainda.</div>
         </div>
     </div>
-    <div class="attribution">ESRI World Imagery | OSRM | Photon (Komoot) | OpenStreetMap | ViaCEP</div>
+    <div class="attribution">ESRI World Imagery | OSRM | Nominatim | Photon | OpenStreetMap | ViaCEP</div>
 </div>
 
 <script>
@@ -336,64 +336,79 @@ async function lookupCEP(cep) {
 }
 
 // ============================================
-// GEOCODIFICAÇÃO (Photon — substitui Nominatim, CORS-friendly)
+// GEOCODIFICAÇÃO (Nominatim + Photon fallback)
 // ============================================
 async function nominatimSearch(query, viewboxStr) {
     await waitNominatim();
 
-    // Photon API: usa dados OSM, suporta CORS nativo, sem API key
-    // NÃO suporta bbox — usa lat/lon para bias de localização
-    var url = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(query)
-        + '&limit=5&lang=pt';
+    var results = [];
 
+    // 1) Nominatim primeiro: mais estável para browser e aceita countrycodes/viewbox.
+    var nUrl = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=br&q='
+        + encodeURIComponent(query);
+    if (viewboxStr) nUrl += '&viewbox=' + encodeURIComponent(viewboxStr) + '&bounded=0';
+    rLog('dim', 'Nominatim: ' + nUrl);
+
+    try {
+        var nResp = await fetchRetry(nUrl, {}, 'Nominatim', 2);
+        var nData = await nResp.json();
+        for (var ni = 0; ni < nData.length; ni++) {
+            results.push({
+                lat: nData[ni].lat,
+                lon: nData[ni].lon,
+                display_name: nData[ni].display_name
+            });
+        }
+        rLog('info', 'Nominatim retornou ' + results.length + ' resultado(s)');
+        if (results.length > 0) return results;
+    } catch (eNominatim) {
+        rLog('warn', 'Nominatim falhou: ' + eNominatim.message);
+    }
+
+    // 2) Photon fallback: NÃO usar lang=pt; Photon só aceita default/de/en/fr e devolve HTTP 400 com pt.
+    var pUrl = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(query) + '&limit=5';
     if (viewboxStr) {
-        // viewboxStr = "minLon,minLat,maxLon,maxLat" — extrai centro para bias
         var vp = viewboxStr.split(',');
         var bLon = (parseFloat(vp[0]) + parseFloat(vp[2])) / 2;
         var bLat = (parseFloat(vp[1]) + parseFloat(vp[3])) / 2;
-        url += '&lat=' + bLat.toFixed(4) + '&lon=' + bLon.toFixed(4);
+        pUrl += '&lat=' + bLat.toFixed(4) + '&lon=' + bLon.toFixed(4);
     } else {
-        // Brasil: bias para São Paulo como padrão
-        url += '&lat=-23.5505&lon=-46.6333';
+        pUrl += '&lat=-23.5505&lon=-46.6333';
     }
+    rLog('dim', 'Photon: ' + pUrl);
 
-    rLog('dim', 'Photon: ' + url);
+    try {
+        var pResp = await fetchRetry(pUrl, {}, 'Photon', 2);
+        var pData = await pResp.json();
+        if (pData.features) {
+            for (var i = 0; i < pData.features.length; i++) {
+                var f = pData.features[i];
+                var p = f.properties || {};
+                var coords = f.geometry && f.geometry.coordinates;
+                if (!coords) continue;
+                if (p.countrycode && p.countrycode.toLowerCase() !== 'br') continue;
 
-    var resp = await fetchRetry(url, { headers: { 'User-Agent': 'EntregaCalc/2.0' } }, 'Photon', 3);
-    var data = await resp.json();
-
-    // Converte formato GeoJSON do Photon para o formato Nominatim usado pelo resto do código
-    var results = [];
-    if (data.features) {
-        for (var i = 0; i < data.features.length; i++) {
-            var f = data.features[i];
-            var p = f.properties;
-            var coords = f.geometry.coordinates; // [lon, lat]
-
-            // Filtra para Brasil (Photon pode retornar resultados de outros países)
-            if (p.countrycode && p.countrycode.toLowerCase() !== 'br') continue;
-
-            // Monta display_name legível
-            var parts = [];
-            if (p.name && p.name !== p.street) parts.push(p.name);
-            if (p.housenumber) parts.push(p.housenumber);
-            if (p.street) parts.push(p.street);
-            if (p.district) parts.push(p.district);
-            if (p.city) parts.push(p.city);
-            if (p.state) parts.push(p.state);
-            if (p.country) parts.push(p.country);
-            var display = parts.filter(Boolean).join(', ') || (coords[1] + ', ' + coords[0]);
-
-            results.push({
-                lat: coords[1].toString(),
-                lon: coords[0].toString(),
-                display_name: display
-            });
+                var parts = [];
+                if (p.name && p.name !== p.street) parts.push(p.name);
+                if (p.housenumber) parts.push(p.housenumber);
+                if (p.street) parts.push(p.street);
+                if (p.district) parts.push(p.district);
+                if (p.city) parts.push(p.city);
+                if (p.state) parts.push(p.state);
+                if (p.country) parts.push(p.country);
+                results.push({
+                    lat: coords[1].toString(),
+                    lon: coords[0].toString(),
+                    display_name: parts.filter(Boolean).join(', ') || (coords[1] + ', ' + coords[0])
+                });
+            }
         }
+        rLog('info', 'Photon retornou ' + results.length + ' resultado(s) (Brasil)');
+        return results;
+    } catch (ePhoton) {
+        rLog('warn', 'Photon falhou: ' + ePhoton.message);
+        return [];
     }
-
-    rLog('info', 'Photon retornou ' + results.length + ' resultado(s) (Brasil)');
-    return results; // formato compatível com Nominatim
 }
 
 // ============================================
@@ -408,12 +423,14 @@ var OVERPASS_GEO_SERVERS = [
 
 async function runOverpassGeoQuery(query) {
     for (var s = 0; s < OVERPASS_GEO_SERVERS.length; s++) {
-        var url = OVERPASS_GEO_SERVERS[s] + '?data=' + encodeURIComponent(query);
         try {
-            rLog('dim', 'Overpass geocoder (srv ' + (s+1) + '): ' + OVERPASS_GEO_SERVERS[s]);
-            // Promise.race: compatível com browsers sem AbortSignal.timeout()
+            rLog('dim', 'Overpass geocoder POST (srv ' + (s+1) + '): ' + OVERPASS_GEO_SERVERS[s]);
+            // POST evita o erro "Feature is disabled"/400 que alguns mirrors retornam em GET ?data=...
             var timeoutP = new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('timeout 13s')); }, 13000); });
-            var resp = await Promise.race([fetch(url), timeoutP]);
+            var resp = await Promise.race([fetch(OVERPASS_GEO_SERVERS[s], {
+                method: 'POST',
+                body: new URLSearchParams({ data: query })
+            }), timeoutP]);
             if (!resp.ok) { rLog('warn', 'Overpass geocoder HTTP ' + resp.status); continue; }
             var data = await resp.json();
             if (data.elements && data.elements.length > 0) {
@@ -454,8 +471,8 @@ async function overpassGeocodeFromCEP(cepData, numero, statusDiv) {
         var q1 = '[out:json][timeout:12];'
             + 'area["name"="' + eCity + '"]["boundary"="administrative"]->.city;'
             + '('
-            + 'node["addr:street"~"' + eStreet + '","i"]["addr:housenumber"="' + numero + '"](area.city);'
-            + 'way["addr:street"~"' + eStreet + '","i"]["addr:housenumber"="' + numero + '"](area.city);'
+            + 'node["addr:street"~"' + eStreet + '",i]["addr:housenumber"="' + numero + '"](area.city);'
+            + 'way["addr:street"~"' + eStreet + '",i]["addr:housenumber"="' + numero + '"](area.city);'
             + ');'
             + 'out center;';
         rLog('dim', 'Overpass tentativa 1: addr:housenumber=' + numero);
@@ -470,7 +487,7 @@ async function overpassGeocodeFromCEP(cepData, numero, statusDiv) {
     // Tentativa 2: centróide da via (highway)
     var q2 = '[out:json][timeout:12];'
         + 'area["name"="' + eCity + '"]["boundary"="administrative"]->.city;'
-        + 'way["name"~"^' + eStreet + '$","i"]["highway"](area.city);'
+        + 'way["name"~"^' + eStreet + '$",i]["highway"](area.city);'
         + 'out center;';
     rLog('dim', 'Overpass tentativa 2: centróide via');
     var r2 = await runOverpassGeoQuery(q2);
@@ -483,7 +500,7 @@ async function overpassGeocodeFromCEP(cepData, numero, statusDiv) {
     // Tentativa 3: via com busca parcial (sem ^ e $)
     var q3 = '[out:json][timeout:12];'
         + 'area["name"="' + eCity + '"]["boundary"="administrative"]->.city;'
-        + 'way["name"~"' + eStreet + '","i"]["highway"](area.city);'
+        + 'way["name"~"' + eStreet + '",i]["highway"](area.city);'
         + 'out center;';
     rLog('dim', 'Overpass tentativa 3: busca parcial de nome');
     var r3 = await runOverpassGeoQuery(q3);
@@ -562,14 +579,9 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
             return await geocodeAsAddress(input, refLat, refLon, refLabel);
         }
 
-        // ── ESTRATÉGIA PRIMÁRIA: Overpass (não bloqueado por extensões) ──
-        if (cepData.logradouro) {
-            var overpassResult = await overpassGeocodeFromCEP(cepData, cep.numero, statusDiv);
-            if (overpassResult) return overpassResult;
-            rLog('warn', 'Overpass falhou. Tentando geocodificadores externos (podem estar bloqueados)...');
-        }
+        // Geocoder principal: Nominatim + Photon.
+        // Overpass foi removido da geocodificação porque gera 400/403/timeout em browser e trava o fluxo.
 
-        // ── FALLBACK: API externa (Photon/Nominatim) ──
         // 2. Montar endereço completo
         var queries = [];
 
@@ -879,10 +891,14 @@ async function calcTollsReal(geometry, routeRefs, routeNames, legNum) {
     rLog('dim', 'Overpass pedágios trecho #'+legNum+': bbox='+bbox);
     var data = null;
     for (var s = 0; s < overpassServers.length; s++) {
-        var url = overpassServers[s] + '?data=' + encodeURIComponent(query);
         try {
-            rLog('dim', 'Tentando servidor Overpass ' + (s+1) + '/'+overpassServers.length+': ' + overpassServers[s]);
-            var resp = await fetch(url, { signal: AbortSignal.timeout(20000) });
+            rLog('dim', 'Tentando servidor Overpass POST ' + (s+1) + '/'+overpassServers.length+': ' + overpassServers[s]);
+            var opts = {
+                method: 'POST',
+                body: new URLSearchParams({ data: query })
+            };
+            if (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) opts.signal = AbortSignal.timeout(20000);
+            var resp = await fetch(overpassServers[s], opts);
             if (!resp.ok) { rLog('warn', 'Overpass HTTP '+resp.status+' no servidor '+(s+1)); continue; }
             data = await resp.json();
             rLog('ok', 'Overpass OK (servidor '+(s+1)+'): '+data.elements.length+' elemento(s) na bbox');
