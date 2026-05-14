@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calculadora Multi-Paradas para Entregas</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f0f4f8; padding: 20px; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; border-radius: 24px; box-shadow: 0 10px 25px rgba(0,0,0,0.05); overflow: hidden; }
+        .header { background: #1e2f4e; color: white; padding: 20px 30px; }
+        .header h1 { font-size: 1.5rem; margin-bottom: 5px; }
+        .header p { font-size: 0.85rem; opacity: 0.8; }
+        .content { display: flex; flex-direction: row; flex-wrap: wrap; }
+        .sidebar { flex: 1; min-width: 300px; max-width: 420px; padding: 20px; background: #f9fafc; border-right: 1px solid #e2e8f0; max-height: 700px; overflow-y: auto; }
+        .map-area { flex: 2; min-width: 300px; height: 700px; }
+        .section-label { font-weight: 700; color: #1e2f4e; margin-bottom: 10px; font-size: 0.95rem; }
+        .origin-box { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 12px; padding: 12px; margin-bottom: 16px; }
+        .origin-box label { font-weight: 600; color: #3730a3; font-size: 0.85rem; display: block; margin-bottom: 6px; }
+        .origin-box input { width: 100%; padding: 9px 10px; border: 1px solid #a5b4fc; border-radius: 8px; font-size: 0.9rem; }
+        .format-hint { background: #fef3c7; border: 1px solid #fcd34d; border-radius: 10px; padding: 10px; margin-bottom: 14px; font-size: 0.78rem; color: #92400e; line-height: 1.6; }
+        .format-hint code { background: #fde68a; padding: 1px 5px; border-radius: 4px; font-weight: 600; }
+        .stops-list { margin-bottom: 12px; }
+        .stop-item { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .stop-number { background: #2c7da0; color: white; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: bold; flex-shrink: 0; }
+        .stop-item input { flex: 1; padding: 9px 10px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; }
+        .stop-remove { background: #fee2e2; color: #dc2626; border: none; width: 28px; height: 28px; border-radius: 8px; cursor: pointer; font-size: 1rem; flex-shrink: 0; }
+        .stop-remove:hover { background: #fca5a5; }
+        .add-btn { background: #f0fdf4; color: #16a34a; border: 1px dashed #86efac; padding: 8px; border-radius: 10px; cursor: pointer; width: 100%; font-size: 0.85rem; font-weight: 600; margin-bottom: 16px; }
+        .add-btn:hover { background: #dcfce7; }
+        .calc-btn { background-color: #2c7da0; color: white; border: none; padding: 13px 20px; border-radius: 40px; font-weight: bold; cursor: pointer; width: 100%; font-size: 1rem; transition: background 0.2s; }
+        .calc-btn:hover { background-color: #1e5a73; }
+        .calc-btn:disabled { background: #94a3b8; cursor: not-allowed; }
+        .result-box { margin-top: 16px; padding: 14px; background: white; border-radius: 14px; border: 1px solid #e2e8f0; }
+        .result-box p { margin: 4px 0; color: #334155; font-size: 0.88rem; }
+        .leg-detail { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; margin: 8px 0; }
+        .leg-detail .leg-title { font-weight: 700; color: #1e2f4e; font-size: 0.85rem; margin-bottom: 4px; }
+        .leg-detail p { font-size: 0.8rem; margin: 2px 0; }
+        .total-box { background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 12px; padding: 12px; margin-top: 10px; }
+        .total-box .big { font-size: 1.5rem; font-weight: bold; color: #2c7da0; }
+        .report-section { padding: 20px 30px; border-top: 2px solid #e2e8f0; }
+        .report-toggle { background: #f1f5f9; border: 1px solid #cbd5e1; padding: 12px 20px; border-radius: 12px; cursor: pointer; width: 100%; text-align: left; font-size: 0.95rem; font-weight: 600; color: #1e2f4e; display: flex; justify-content: space-between; align-items: center; }
+        .report-toggle:hover { background: #e2e8f0; }
+        .report-toggle .arrow { transition: transform 0.2s; }
+        .report-toggle.open .arrow { transform: rotate(90deg); }
+        .report-content { display: none; margin-top: 15px; }
+        .report-content.visible { display: block; }
+        .report-block { background: #0f172a; color: #e2e8f0; padding: 16px; border-radius: 10px; font-family: 'Cascadia Code','Fira Code','Consolas', monospace; font-size: 0.75rem; line-height: 1.6; white-space: pre-wrap; word-break: break-all; max-height: 600px; overflow-y: auto; margin-bottom: 10px; }
+        .report-block .step { color: #38bdf8; font-weight: bold; }
+        .report-block .ok { color: #4ade80; }
+        .report-block .warn { color: #fbbf24; }
+        .report-block .err { color: #f87171; }
+        .report-block .dim { color: #64748b; }
+        .report-block .val { color: #c084fc; }
+        .copy-btn { background: #334155; color: #e2e8f0; border: 1px solid #475569; padding: 8px 16px; border-radius: 8px; cursor: pointer; font-size: 0.8rem; }
+        .copy-btn:hover { background: #475569; }
+        .attribution { padding: 12px; text-align: center; font-size: 0.72rem; color: #64748b; border-top: 1px solid #e2e8f0; }
+        @media (max-width: 768px) {
+            .sidebar { border-right: none; border-bottom: 1px solid #e2e8f0; max-width: 100%; max-height: none; }
+            .map-area { height: 400px; }
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
+        <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; v8.0 (Photon geocoder + fix pedágios)</p>
+    </div>
+    <div class="content">
+        <div class="sidebar">
+            <div class="format-hint">
+                📌 <strong>Formatos aceitos em qualquer campo:</strong><br>
+                <code>01310-100, 1000</code> CEP com traço + número<br>
+                <code>01310100, 1000</code> CEP sem traço + número<br>
+                <code>01310-100 nº 1000</code> CEP + nº + número<br>
+                <code>01310-100</code> só o CEP (sem número)<br>
+                <code>Av. Paulista, 1000, São Paulo</code> endereço normal
+            </div>
+
+            <div class="origin-box">
+                <label>📍 Ponto de Partida (Origem)</label>
+                <input type="text" id="originInput" placeholder="CEP+número ou endereço completo" onblur="previewSinglePin('originInput','origin')">
+            </div>
+
+            <div class="section-label">🏁 Paradas de Entrega</div>
+            <div class="stops-list" id="stopsList"></div>
+            <button class="add-btn" onclick="addStop()">+ Adicionar Parada</button>
+
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:0.88rem;color:#334155;cursor:pointer;">
+                <input type="checkbox" id="circuitoCheck" style="width:16px;height:16px;accent-color:#2c7da0;">
+                🔄 Fechar circuito (retornar à origem)
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:0.88rem;color:#334155;cursor:pointer;">
+                <input type="checkbox" id="pedagioCheck" checked style="width:16px;height:16px;accent-color:#2c7da0;">
+                🎫 Calcular pedágios reais (OSM)
+            </label>
+            <button class="calc-btn" id="calculateBtn" onclick="planRoute()">Calcular Rota Completa</button>
+
+            <div class="result-box" id="resultArea">
+                <p>🔍 Adicione paradas e clique em calcular.</p>
+            </div>
+        </div>
+        <div id="map" class="map-area"></div>
+    </div>
+
+    <div class="report-section">
+        <button class="report-toggle" id="reportToggle" onclick="toggleReport()">
+            <span>🔬 Relatório Técnico (para verificação por IA)</span>
+            <span class="arrow">▶</span>
+        </button>
+        <div class="report-content" id="reportContent">
+            <button class="copy-btn" onclick="copyReport()">📋 Copiar Relatório</button>
+            <div class="report-block" id="reportBlock">Nenhum cálculo realizado ainda.</div>
+        </div>
+    </div>
+    <div class="attribution">ESRI World Imagery | OSRM | Photon (Komoot) | OpenStreetMap | ViaCEP</div>
+</div>
+
+<script>
+// ============================================
+// MAPA
+// ============================================
+var map = L.map('map').setView([-23.5505, -46.6333], 12);
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    attribution: '&copy; Esri', maxZoom: 18
+}).addTo(map);
+var routeLayer = L.featureGroup().addTo(map);
+var previewLayer = L.featureGroup().addTo(map);
+var LEG_COLORS = ['#e63946','#2a9d8f','#e9c46a','#264653','#f4a261','#6a4c93','#1982c4','#ff595e','#8ac926','#ff924c'];
+
+// ============================================
+// PARADAS
+// ============================================
+var stopCount = 0;
+function addStop(value) {
+    stopCount++;
+    var uid = stopCount; // UID imutável para o DOM element
+    var div = document.createElement('div');
+    div.className = 'stop-item';
+    div.id = 'stop-' + uid;
+    div.setAttribute('data-uid', uid);
+    div.innerHTML =
+        '<span class="stop-number">?</span>' +
+        '<input type="text" id="stopInput-' + uid + '" placeholder="CEP+número ou endereço" value="' + (value || '') + '" onblur="previewSinglePin(\'stopInput-' + uid + '\',\'stop-' + uid + '\')">' +
+        '<button class="stop-remove" onclick="removeStop(' + uid + ')" title="Remover">×</button>';
+    document.getElementById('stopsList').appendChild(div);
+    renumberStops(); // atualiza rótulos visuais
+}
+function removeStop(uid) {
+    var el = document.getElementById('stop-' + uid);
+    if (el) el.remove();
+    renumberStops();
+}
+function renumberStops() {
+    // Apenas atualiza o rótulo visual (círculo numerado), não o id/data-uid
+    var items = document.querySelectorAll('.stop-item');
+    for (var i = 0; i < items.length; i++)
+        items[i].querySelector('.stop-number').textContent = (i + 1);
+}
+function getStopAddresses() {
+    var arr = [];
+    var inputs = document.querySelectorAll('.stops-list input[type="text"]');
+    for (var i = 0; i < inputs.length; i++) {
+        var v = inputs[i].value.trim();
+        if (v) arr.push(v);
+    }
+    return arr;
+}
+
+// Exemplos
+document.getElementById('originInput').value = '01310-100, 1000';
+addStop('01305-100, 500');
+addStop('Praça da Sé, São Paulo, SP');
+
+// ============================================
+// RELATÓRIO
+// ============================================
+var reportLines = [], reportPlain = [];
+function rClear() { reportLines = []; reportPlain = []; }
+function rLog(type, text) {
+    var ts = new Date().toISOString();
+    var p = '', c = '';
+    if (type==='step') { p='═══ ETAPA: '; c='step'; }
+    else if (type==='ok') { p='  ✅ '; c='ok'; }
+    else if (type==='warn') { p='  ⚠️  '; c='warn'; }
+    else if (type==='err') { p='  ❌ '; c='err'; }
+    else if (type==='val') { p='     '; c='val'; }
+    else if (type==='dim') { p='     '; c='dim'; }
+    else { p='  '; c=''; }
+    reportLines.push('<span class="'+c+'">['+ts+'] '+p+escHtml(text)+'</span>');
+    reportPlain.push('['+ts+'] '+p+text);
+}
+function rFlush() { document.getElementById('reportBlock').innerHTML = reportLines.join('\n'); }
+function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function toggleReport() {
+    document.getElementById('reportToggle').classList.toggle('open');
+    document.getElementById('reportContent').classList.toggle('visible');
+}
+function copyReport() {
+    var text = reportPlain.join('\n');
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(function(){ alert('Relatório copiado!'); });
+    } else {
+        var ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+        alert('Relatório copiado!');
+    }
+}
+
+// ============================================
+// UTILIDADES
+// ============================================
+function haversineKm(lat1, lon1, lat2, lon2) {
+    var R = 6371, dLat = (lat2-lat1)*Math.PI/180, dLon = (lon2-lon1)*Math.PI/180;
+    var a = Math.sin(dLat/2)*Math.sin(dLat/2) +
+            Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*
+            Math.sin(dLon/2)*Math.sin(dLon/2);
+    return R*2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function sleep(ms) { return new Promise(function(r){ setTimeout(r, ms); }); }
+
+// Timestamp do último request ao Nominatim (para rate limit global)
+var lastNominatimTime = 0;
+
+// Garante 1.2s entre requests ao Nominatim
+async function waitNominatim() {
+    var now = Date.now();
+    var elapsed = now - lastNominatimTime;
+    if (elapsed < 1200) {
+        var wait = 1200 - elapsed;
+        rLog('dim', 'Aguardando ' + wait + 'ms (rate limit Nominatim)...');
+        await sleep(wait);
+    }
+    lastNominatimTime = Date.now();
+}
+
+// Fetch com retry automático (para 429, timeout, rede)
+async function fetchRetry(url, options, label, maxRetries) {
+    maxRetries = maxRetries || 3;
+    for (var attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+            var resp = await fetch(url, options);
+            if (resp.status === 429) {
+                rLog('warn', label + ' → 429 Rate Limit (tentativa ' + attempt + '/' + maxRetries + '). Aguardando 3s...');
+                await sleep(3000);
+                lastNominatimTime = Date.now();
+                continue;
+            }
+            if (!resp.ok) {
+                rLog('warn', label + ' → HTTP ' + resp.status + ' (tentativa ' + attempt + '/' + maxRetries + ')');
+                if (attempt < maxRetries) { await sleep(2000); continue; }
+                throw new Error(label + ' falhou com HTTP ' + resp.status);
+            }
+            return resp;
+        } catch (err) {
+            if (err.message && err.message.indexOf('HTTP') >= 0) throw err;
+            rLog('warn', label + ' → Erro de rede: ' + err.message + ' (tentativa ' + attempt + '/' + maxRetries + ')');
+            if (attempt < maxRetries) { await sleep(2000); continue; }
+            throw new Error(label + ' — falha de rede após ' + maxRetries + ' tentativas: ' + err.message);
+        }
+    }
+}
+
+// ============================================
+// DETECÇÃO DE CEP (mais formatos)
+// ============================================
+function parseCepInput(input) {
+    var s = input.trim();
+
+    // Remove prefixos: "CEP:", "CEP", "cep"
+    s = s.replace(/^cep\s*:?\s*/i, '');
+
+    // Padrão 1: CEP + número → "01310-100, 1000" / "01310100 1000" / "01310-100 nº 1000" / "01310-100 n 1000"
+    var m = s.match(/^(\d{5})-?(\d{3})\s*[,;.\s]+\s*(?:n[º°]?\s*)?(\d+.*)$/i);
+    if (m) {
+        return { cep: m[1]+m[2], cepFmt: m[1]+'-'+m[2], numero: m[3].trim() };
+    }
+
+    // Padrão 2: só CEP sem número → "01310-100" / "01310100"
+    var m2 = s.match(/^(\d{5})-?(\d{3})$/);
+    if (m2) {
+        return { cep: m2[1]+m2[2], cepFmt: m2[1]+'-'+m2[2], numero: null };
+    }
+
+    return null;
+}
+
+// ============================================
+// VIACEP
+// ============================================
+async function lookupCEP(cep) {
+    var url = 'https://viacep.com.br/ws/' + cep + '/json/';
+    rLog('dim', 'ViaCEP: ' + url);
+
+    var resp = await fetchRetry(url, {}, 'ViaCEP', 3);
+    var data = await resp.json();
+
+    if (data.erro) {
+        rLog('err', 'ViaCEP: CEP ' + cep + ' NÃO EXISTE!');
+        return null;
+    }
+
+    rLog('ok', 'ViaCEP OK:');
+    rLog('val', '  logradouro: "' + (data.logradouro||'') + '"');
+    rLog('val', '  bairro: "' + (data.bairro||'') + '"');
+    rLog('val', '  cidade: ' + data.localidade + ' | UF: ' + data.uf);
+    return {
+        logradouro: data.logradouro || '',
+        bairro: data.bairro || '',
+        cidade: data.localidade || '',
+        uf: data.uf || ''
+    };
+}
+
+// ============================================
+// GEOCODIFICAÇÃO (Photon — substitui Nominatim, CORS-friendly)
+// ============================================
+async function nominatimSearch(query, viewboxStr) {
+    await waitNominatim();
+
+    // Photon API: usa dados OSM, suporta CORS nativo, sem API key
+    var url = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(query)
+        + '&limit=5&lang=pt';
+
+    // Bbox: viewboxStr gerado pelo app usa formato minLon,minLat,maxLon,maxLat
+    // Photon aceita exatamente esse formato
+    if (viewboxStr) {
+        url += '&bbox=' + viewboxStr;
+    } else {
+        // Sem viewbox → restringe ao Brasil
+        url += '&bbox=-73.99,-33.74,-34.73,5.27';
+    }
+
+    rLog('dim', 'Photon: ' + url);
+
+    var resp = await fetchRetry(url, { headers: { 'User-Agent': 'EntregaCalc/2.0' } }, 'Photon', 3);
+    var data = await resp.json();
+
+    // Converte formato GeoJSON do Photon para o formato Nominatim usado pelo resto do código
+    var results = [];
+    if (data.features) {
+        for (var i = 0; i < data.features.length; i++) {
+            var f = data.features[i];
+            var p = f.properties;
+            var coords = f.geometry.coordinates; // [lon, lat]
+
+            // Filtra para Brasil (Photon pode retornar resultados de outros países)
+            if (p.countrycode && p.countrycode.toLowerCase() !== 'br') continue;
+
+            // Monta display_name legível
+            var parts = [];
+            if (p.name && p.name !== p.street) parts.push(p.name);
+            if (p.housenumber) parts.push(p.housenumber);
+            if (p.street) parts.push(p.street);
+            if (p.district) parts.push(p.district);
+            if (p.city) parts.push(p.city);
+            if (p.state) parts.push(p.state);
+            if (p.country) parts.push(p.country);
+            var display = parts.filter(Boolean).join(', ') || (coords[1] + ', ' + coords[0]);
+
+            results.push({
+                lat: coords[1].toString(),
+                lon: coords[0].toString(),
+                display_name: display
+            });
+        }
+    }
+
+    rLog('info', 'Photon retornou ' + results.length + ' resultado(s) (Brasil)');
+    return results; // formato compatível com Nominatim
+}
+
+// Seleciona o resultado mais próximo de um ponto de referência
+function pickClosest(results, refLat, refLon) {
+    var best = null, bestDist = Infinity;
+    for (var i = 0; i < results.length; i++) {
+        var rLat = parseFloat(results[i].lat);
+        var rLon = parseFloat(results[i].lon);
+        var d = haversineKm(refLat, refLon, rLat, rLon);
+        var marker = '';
+        if (d < bestDist) { bestDist = d; best = results[i]; marker = ' ★ MAIS PRÓXIMO'; }
+        rLog(d < 30 ? 'ok' : d < 100 ? 'warn' : 'err',
+            '#' + (i+1) + ': ' + d.toFixed(2) + 'km' + marker + ' → ' + results[i].display_name);
+    }
+    if (bestDist > 50) rLog('warn', 'ATENÇÃO: melhor resultado a ' + bestDist.toFixed(1) + 'km da referência!');
+    return best;
+}
+
+function logAllResults(results) {
+    for (var i = 0; i < results.length; i++) {
+        rLog('dim', '#' + (i+1) + ': lat=' + results[i].lat + ' lon=' + results[i].lon + ' → ' + results[i].display_name);
+    }
+}
+
+function resultToPoint(r) {
+    return { lat: parseFloat(r.lat), lon: parseFloat(r.lon), display: r.display_name };
+}
+
+// ============================================
+// GEOCODIFICAÇÃO PRINCIPAL
+// ============================================
+async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
+    var cep = parseCepInput(input);
+
+    if (cep) {
+        // ═══════ MODO CEP ═══════
+        rLog('step', 'GEOCODIFICAÇÃO (CEP): "' + input + '"');
+        rLog('ok', 'CEP detectado: ' + cep.cepFmt + (cep.numero ? ' | Número: ' + cep.numero : ' | SEM NÚMERO'));
+
+        // 1. ViaCEP
+        var cepData = await lookupCEP(cep.cep);
+
+        if (!cepData) {
+            // CEP inválido — tenta tratar o input como endereço normal
+            rLog('warn', 'CEP inválido. Tentando como endereço normal...');
+            return await geocodeAsAddress(input, refLat, refLon, refLabel);
+        }
+
+        // 2. Montar endereço completo
+        var queries = [];
+
+        // Query 1: logradouro + número + bairro + cidade + UF (mais preciso)
+        if (cepData.logradouro) {
+            var parts1 = [cepData.logradouro];
+            if (cep.numero) parts1.push(cep.numero);
+            if (cepData.bairro) parts1.push(cepData.bairro);
+            parts1.push(cepData.cidade);
+            parts1.push(cepData.uf);
+            queries.push(parts1.join(', '));
+        }
+
+        // Query 2: logradouro + cidade (sem bairro, sem número — fallback)
+        if (cepData.logradouro) {
+            queries.push(cepData.logradouro + ', ' + cepData.cidade + ', ' + cepData.uf);
+        }
+
+        // Query 3: logradouro + número + cidade (sem bairro — tenta variação)
+        if (cepData.logradouro && cep.numero) {
+            queries.push(cepData.logradouro + ', ' + cep.numero + ', ' + cepData.cidade + ', ' + cepData.uf + ', Brasil');
+        }
+
+        // Query 4: bairro + cidade (CEP genérico sem logradouro)
+        if (cepData.bairro) {
+            queries.push(cepData.bairro + ', ' + cepData.cidade + ', ' + cepData.uf);
+        }
+
+        // Query 5: logradouro + cidade + Brasil (sem UF, mais abrangente)
+        if (cepData.logradouro) {
+            queries.push(cepData.logradouro + ', ' + cepData.cidade + ', Brasil');
+        }
+
+        // Query 6: só cidade + UF (último recurso)
+        queries.push(cepData.cidade + ', ' + cepData.uf);
+
+        // Viewbox se tiver referência — usa buffer maior (1.5°) para CEPs em cidades distantes
+        var vb = null;
+        if (refLat !== null && refLon !== null) {
+            vb = (refLon-1.5).toFixed(4)+','+(refLat-1.5).toFixed(4)+','+(refLon+1.5).toFixed(4)+','+(refLat+1.5).toFixed(4);
+        }
+
+        // Tentar cada query na ordem até achar resultado
+        for (var q = 0; q < queries.length; q++) {
+            rLog('info', 'Tentativa ' + (q+1) + '/' + queries.length + ': "' + queries[q] + '"');
+            if (statusDiv) statusDiv.innerHTML = '<p>⏳ Geocodificando: "' + escHtml(queries[q]) + '"...</p>';
+
+            // Nas últimas 2 tentativas, remove o viewbox para busca nacional
+            var vbAtual = (q >= queries.length - 2) ? null : vb;
+            var results = await nominatimSearch(queries[q], vbAtual);
+
+            if (results.length > 0) {
+                if (refLat !== null && refLon !== null) {
+                    var best = pickClosest(results, refLat, refLon);
+                    rLog('ok', 'ESCOLHIDO: ' + best.display_name);
+                    return resultToPoint(best);
+                } else {
+                    logAllResults(results);
+                    rLog('ok', 'ESCOLHIDO #1: ' + results[0].display_name);
+                    return resultToPoint(results[0]);
+                }
+            } else {
+                rLog('warn', 'Nenhum resultado para essa query.');
+                if (q < queries.length - 1) {
+                    rLog('dim', 'Tentando próxima variação...');
+                }
+            }
+        }
+
+        // Se nada funcionou, tenta o input original como endereço
+        rLog('warn', 'Todas as queries CEP falharam. Tentando input original como endereço...');
+        return await geocodeAsAddress(input, refLat, refLon, refLabel);
+
+    } else {
+        // ═══════ MODO ENDEREÇO ═══════
+        return await geocodeAsAddress(input, refLat, refLon, refLabel);
+    }
+}
+
+async function geocodeAsAddress(address, refLat, refLon, refLabel) {
+    if (refLat !== null && refLon !== null) {
+        rLog('step', 'GEOCODIFICAÇÃO (endereço): "' + address + '" (perto de ' + refLabel + ')');
+        var vb = (refLon-0.5).toFixed(4)+','+(refLat-0.5).toFixed(4)+','+(refLon+0.5).toFixed(4)+','+(refLat+0.5).toFixed(4);
+        var results = await nominatimSearch(address, vb);
+        if (results.length === 0) throw new Error('Endereço não encontrado: "' + address + '"');
+        var best = pickClosest(results, refLat, refLon);
+        rLog('ok', 'ESCOLHIDO: ' + best.display_name);
+        return resultToPoint(best);
+    } else {
+        rLog('step', 'GEOCODIFICAÇÃO (endereço): "' + address + '"');
+        var results = await nominatimSearch(address, null);
+        if (results.length === 0) throw new Error('Endereço não encontrado: "' + address + '"');
+        logAllResults(results);
+        rLog('ok', 'ESCOLHIDO #1: ' + results[0].display_name);
+        return resultToPoint(results[0]);
+    }
+}
+
+// ============================================
+// OSRM
+// ============================================
+async function calcOSRM(from, to, legNum) {
+    rLog('step', 'ROTA OSRM — TRECHO #' + legNum);
+    // steps=true → extrai refs e nomes das rodovias realmente percorridas
+    var url = 'https://router.project-osrm.org/route/v1/driving/'
+        + from.lon+','+from.lat+';'+to.lon+','+to.lat
+        + '?overview=full&geometries=geojson&steps=true';
+    rLog('dim', 'URL: ' + url);
+
+    var resp = await fetchRetry(url, {}, 'OSRM', 3);
+    var data = await resp.json();
+    rLog('info', 'OSRM code: ' + data.code);
+    if (data.code !== 'Ok') { rLog('err', 'OSRM FALHOU: ' + data.code); throw new Error('Erro OSRM trecho #' + legNum); }
+
+    var route = data.routes[0];
+    var distKm = (route.distance / 1000).toFixed(1);
+    var durMin = (route.duration / 60).toFixed(0);
+    rLog('ok', 'Distância: ' + route.distance + 'm → ' + distKm + ' km');
+    rLog('ok', 'Duração: ' + route.duration + 's → ' + durMin + ' min');
+
+    if (data.waypoints) {
+        for (var i = 0; i < data.waypoints.length; i++) {
+            var wp = data.waypoints[i];
+            rLog('dim', 'WP#' + (i+1) + ': "' + wp.name + '" [' + wp.location + '] snap=' + wp.distance.toFixed(1) + 'm');
+        }
+    }
+
+    // ── Extrai refs e nomes das rodovias percorridas pelos steps ──
+    var routeRefs = new Set();
+    var routeNames = new Set();
+    if (route.legs) {
+        route.legs.forEach(function(leg) {
+            if (leg.steps) {
+                leg.steps.forEach(function(step) {
+                    if (step.ref) {
+                        step.ref.split(';').forEach(function(r) {
+                            var t = r.trim(); if (t) routeRefs.add(t);
+                        });
+                    }
+                    if (step.name && step.name.trim()) {
+                        routeNames.add(step.name.trim().toLowerCase());
+                    }
+                });
+            }
+        });
+    }
+    rLog('dim', 'Refs OSM percorridos: ' + (routeRefs.size ? Array.from(routeRefs).join(', ') : '(nenhum)'));
+    rLog('dim', 'Nomes OSM percorridos: ' + Array.from(routeNames).slice(0,8).join(', ') + (routeNames.size > 8 ? '…' : ''));
+
+    var haver = haversineKm(from.lat, from.lon, to.lat, to.lon);
+    var ratio = haver > 0 ? parseFloat(distKm) / haver : 0;
+    rLog('info', 'Haversine: ' + haver.toFixed(2) + 'km | Razão: ' + ratio.toFixed(2) + 'x');
+    if (ratio > 3) rLog('warn', 'Razão alta (' + ratio.toFixed(2) + 'x)');
+    else rLog('ok', 'Razão OK');
+
+    return { distanceKm: distKm, durationMin: durMin, geometry: route.geometry, haversine: haver.toFixed(2), routeRefs: routeRefs, routeNames: routeNames };
+}
+
+// ============================================
+// PREVIEW DE PARADAS NO MAPA (on blur)
+// ============================================
+var previewPinCache = {}; // inputId → {addr, lat, lon}
+var previewBusy = false;
+var previewQueue = [];
+
+async function previewSinglePin(inputId, pinKey) {
+    var input = document.getElementById(inputId);
+    if (!input) return;
+    var addr = input.value.trim();
+    if (!addr) {
+        // Remove pin se campo apagado
+        if (previewPinCache[pinKey]) {
+            previewLayer.clearLayers();
+            delete previewPinCache[pinKey];
+            _redrawPreviewPins();
+        }
+        return;
+    }
+    // Já geocodificado com mesmo endereço
+    if (previewPinCache[pinKey] && previewPinCache[pinKey].addr === addr) return;
+
+    // Enfileira para respeitar rate limit
+    previewQueue.push({ inputId, pinKey, addr });
+    if (!previewBusy) _drainPreviewQueue();
+}
+
+async function _drainPreviewQueue() {
+    previewBusy = true;
+    while (previewQueue.length > 0) {
+        var job = previewQueue.shift();
+        try {
+            var input = document.getElementById(job.inputId);
+            if (input) input.style.borderColor = '#fbbf24'; // amarelo = carregando
+            var pt = await smartGeocode(job.addr, null, null, null, null);
+            previewPinCache[job.pinKey] = { addr: job.addr, lat: pt.lat, lon: pt.lon, display: pt.display };
+            if (input) input.style.borderColor = '#4ade80'; // verde = ok
+        } catch(e) {
+            var input = document.getElementById(job.inputId);
+            if (input) input.style.borderColor = '#f87171'; // vermelho = erro
+        }
+        _redrawPreviewPins();
+    }
+    previewBusy = false;
+}
+
+function _redrawPreviewPins() {
+    previewLayer.clearLayers();
+    var keys = Object.keys(previewPinCache);
+    var bounds = [];
+    for (var i = 0; i < keys.length; i++) {
+        var p = previewPinCache[keys[i]];
+        var isOrigin = keys[i] === 'origin';
+        var label = isOrigin ? '📍' : (i).toString();
+        var bg = isOrigin ? '#1e2f4e' : LEG_COLORS[(i-1) % LEG_COLORS.length];
+        var size = isOrigin ? 28 : 26;
+        var marker = L.marker([p.lat, p.lon], {
+            icon: L.divIcon({
+                className: '',
+                html: '<div style="background:' + bg + ';color:white;width:' + size + 'px;height:' + size + 'px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px;border:2px solid white;opacity:0.85;">' + label + '</div>',
+                iconSize: [size, size], iconAnchor: [size/2, size/2]
+            })
+        }).addTo(previewLayer);
+        marker.bindPopup('<b>' + (isOrigin ? 'Origem' : 'Parada') + '</b><br>' + p.display);
+        bounds.push([p.lat, p.lon]);
+    }
+    if (bounds.length > 0) {
+        try { map.fitBounds(bounds.length === 1 ? [[bounds[0][0]-0.005,bounds[0][1]-0.005],[bounds[0][0]+0.005,bounds[0][1]+0.005]] : bounds, { padding: [40,40] }); } catch(e){}
+    }
+}
+
+// ============================================
+// FORMATAÇÃO DE TEMPO
+// ============================================
+function formatTime(totalMin) {
+    totalMin = parseInt(totalMin);
+    if (totalMin < 60) return totalMin + ' min';
+    var days = Math.floor(totalMin / 1440);
+    var rem = totalMin % 1440;
+    var hours = Math.floor(rem / 60);
+    var mins = rem % 60;
+    var parts = [];
+    if (days > 0) parts.push(days + 'd');
+    if (hours > 0) parts.push(hours + 'h');
+    if (mins > 0 || parts.length === 0) parts.push(mins + 'min');
+    return parts.join(' ');
+}
+
+// ============================================
+// PEDÁGIOS REAIS VIA OVERPASS (OSM)
+// ============================================
+function pointToSegmentDistKm(pLat, pLon, aLat, aLon, bLat, bLon) {
+    var dx = bLat - aLat, dy = bLon - aLon;
+    var lenSq = dx*dx + dy*dy;
+    var t = lenSq < 1e-12 ? 0 : Math.max(0, Math.min(1, ((pLat-aLat)*dx + (pLon-aLon)*dy) / lenSq));
+    return haversineKm(pLat, pLon, aLat + t*dx, aLon + t*dy);
+}
+
+function isNearRoute(lat, lon, coords, threshKm) {
+    for (var i = 0; i < coords.length - 1; i++) {
+        if (pointToSegmentDistKm(lat, lon, coords[i][1], coords[i][0], coords[i+1][1], coords[i+1][0]) < threshKm) return true;
+    }
+    return false;
+}
+
+function parseTollCharge(tags) {
+    // Tenta extrair valor em BRL das tags OSM (ordem de prioridade)
+    var raw = tags['charge:BRL'] || tags['charge'] || tags['toll:motorcar'] || tags['fee'] || tags['toll:hgv'] || tags['toll'] || '';
+    if (!raw || raw === 'yes' || raw === 'no') return null;
+    // Ex: "R$ 12,50" / "12.50 BRL" / "12,50" / "BRL 38.70"
+    var m = raw.match(/[\d]+[.,][\d]+/);
+    if (m) return parseFloat(m[0].replace(',','.'));
+    var m2 = raw.match(/[\d]+/);
+    if (m2) return parseFloat(m2[0]);
+    return null;
+}
+
+async function calcTollsReal(geometry, routeRefs, routeNames, legNum) {
+    var coords = geometry.coordinates; // [lon, lat]
+    var minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
+    for (var i = 0; i < coords.length; i++) {
+        var lo = coords[i][0], la = coords[i][1];
+        if (la < minLat) minLat = la; if (la > maxLat) maxLat = la;
+        if (lo < minLon) minLon = lo; if (lo > maxLon) maxLon = lo;
+    }
+    var buf = 0.02;
+    var bbox = (minLat-buf).toFixed(5)+','+(minLon-buf).toFixed(5)+','+(maxLat+buf).toFixed(5)+','+(maxLon+buf).toFixed(5);
+
+    // Query em dois blocos:
+    // 1. Nós/ways de pedágio com tags e coordenadas (center)
+    // 2. Ways-pai (rodovias que contêm esses nós) com body (inclui array nodes[])
+    // → permite associar cada pedágio à rodovia-mãe e filtrar os que não pertencem à rota
+    var query = '[out:json][timeout:35];'
+        + '('
+        + 'node["barrier"="toll_booth"]('+bbox+');'
+        + 'node["highway"="toll_gantry"]('+bbox+');'
+        + 'way["barrier"="toll_booth"]('+bbox+');'
+        + ')->.tolls;'
+        + '.tolls out tags center;'
+        + 'way(bn.tolls)["highway"]->.tollroads;'
+        + '.tollroads out body;';
+
+    var overpassServers = [
+        'https://overpass.kumi.systems/api/interpreter',
+        'https://maps.mail.ru/osm/tools/overpass/api/interpreter',
+        'https://overpass-api.de/api/interpreter'
+    ];
+    rLog('dim', 'Overpass pedágios trecho #'+legNum+': bbox='+bbox);
+    var data = null;
+    for (var s = 0; s < overpassServers.length; s++) {
+        var url = overpassServers[s] + '?data=' + encodeURIComponent(query);
+        try {
+            rLog('dim', 'Tentando servidor Overpass ' + (s+1) + '/'+overpassServers.length+': ' + overpassServers[s]);
+            var resp = await fetch(url, { signal: AbortSignal.timeout(20000) });
+            if (!resp.ok) { rLog('warn', 'Overpass HTTP '+resp.status+' no servidor '+(s+1)); continue; }
+            data = await resp.json();
+            rLog('ok', 'Overpass OK (servidor '+(s+1)+'): '+data.elements.length+' elemento(s) na bbox');
+            break;
+        } catch(e) {
+            rLog('warn', 'Overpass servidor '+(s+1)+' falhou: '+e.message);
+        }
+    }
+    if (!data) {
+        rLog('warn', 'Todos os servidores Overpass falharam no trecho #'+legNum);
+        return [];
+    }
+    try {
+        // ── Passo 1: construir mapa nodeId → refs/nomes das rodovias-pai ──
+        // (apenas way elements com tipo "way" e array nodes[])
+        var nodeToParentRefs  = {}; // nodeId → Set<ref>
+        var nodeToParentNames = {}; // nodeId → Set<name_lower>
+        for (var i = 0; i < data.elements.length; i++) {
+            var el = data.elements[i];
+            if (el.type !== 'way' || !el.nodes) continue;
+            // Só nos interessa se for a via-pai (não barrier=toll_booth — essa já é o pedágio)
+            if (el.tags && el.tags['barrier'] === 'toll_booth') continue;
+            var wayRefs  = (el.tags && el.tags['ref'])  ? el.tags['ref'].split(';').map(function(r){ return r.trim(); }).filter(Boolean) : [];
+            var wayName  = (el.tags && el.tags['name']) ? el.tags['name'].trim().toLowerCase() : '';
+            for (var n = 0; n < el.nodes.length; n++) {
+                var nid = el.nodes[n];
+                if (!nodeToParentRefs[nid])  nodeToParentRefs[nid]  = new Set();
+                if (!nodeToParentNames[nid]) nodeToParentNames[nid] = new Set();
+                wayRefs.forEach(function(r){ nodeToParentRefs[nid].add(r); });
+                if (wayName) nodeToParentNames[nid].add(wayName);
+            }
+        }
+
+        // ── Passo 2: filtrar nós de pedágio próximos à rota ──
+        var RAW_THRESHOLD_KM = 0.12; // 120m — ligeiramente maior que v3 para não perder praças legítimas
+        var haveRefInfo = (routeRefs && routeRefs.size > 0) || (routeNames && routeNames.size > 0);
+        var raw = [];
+        for (var i = 0; i < data.elements.length; i++) {
+            var el = data.elements[i];
+            // Só processa nós/ways de pedágio (ignora ways-pai já processados)
+            var isTollNode = (el.type === 'node') && (
+                (el.tags && el.tags['barrier'] === 'toll_booth') ||
+                (el.tags && el.tags['highway'] === 'toll_gantry')
+            );
+            var isTollWay = (el.type === 'way') && el.tags && el.tags['barrier'] === 'toll_booth';
+            if (!isTollNode && !isTollWay) continue;
+
+            var elLat = el.lat !== undefined ? el.lat : (el.center ? el.center.lat : null);
+            var elLon = el.lon !== undefined ? el.lon : (el.center ? el.center.lon : null);
+            if (elLat === null || elLon === null) continue;
+
+            // Filtro 1 — proximidade geométrica
+            if (!isNearRoute(elLat, elLon, coords, RAW_THRESHOLD_KM)) continue;
+
+            // Filtro 2 — pertence à rodovia percorrida? (só aplica se temos info de steps)
+            if (haveRefInfo && isTollNode) {
+                var elId = el.id;
+                var pRefs  = nodeToParentRefs[elId]  || new Set();
+                var pNames = nodeToParentNames[elId]  || new Set();
+                // Se há info de rodovias-pai, exige interseção com a rota
+                if (pRefs.size > 0 || pNames.size > 0) {
+                    var onRoute = false;
+                    pRefs.forEach(function(r){ if (routeRefs && routeRefs.has(r)) onRoute = true; });
+                    if (!onRoute) {
+                        pNames.forEach(function(n){ if (routeNames && routeNames.has(n)) onRoute = true; });
+                    }
+                    if (!onRoute) {
+                        rLog('dim', '  ↳ Filtrado (rodovia alheia): id='+elId+' refs=['+Array.from(pRefs).join(',')+'] nomes=['+Array.from(pNames).join(',')+']');
+                        continue;
+                    }
+                }
+                // Se não há info de rodovias-pai (nó solto no OSM), mantém por proximidade
+            }
+
+            var price    = parseTollCharge(el.tags || {});
+            var name     = (el.tags && (el.tags['name'] || el.tags['operator'] || el.tags['ref'])) || 'Praça';
+            var isGantry = (el.tags && el.tags['highway'] === 'toll_gantry');
+            raw.push({ name: name, price: price, lat: elLat, lon: elLon, gantry: isGantry });
+        }
+
+        // ── Passo 3: deduplicação com raio diferenciado ──
+        // toll_gantry (Free Flow) → 2 km  (pórticos na mesma rodovia ficam até 1 km entre si)
+        // toll_booth  (praça física) → 0.5 km (faixas de uma mesma praça ficam < 100 m)
+        var DEDUP_BOOTH_KM   = 0.5;
+        var DEDUP_GANTRY_KM  = 2.0;
+        var clusters = [];
+        for (var i = 0; i < raw.length; i++) {
+            var assigned = false;
+            var dedupR = raw[i].gantry ? DEDUP_GANTRY_KM : DEDUP_BOOTH_KM;
+            for (var c = 0; c < clusters.length; c++) {
+                if (haversineKm(raw[i].lat, raw[i].lon, clusters[c].lat, clusters[c].lon) < dedupR) {
+                    clusters[c].members.push(raw[i]);
+                    var n = clusters[c].members.length;
+                    clusters[c].lat = (clusters[c].lat * (n-1) + raw[i].lat) / n;
+                    clusters[c].lon = (clusters[c].lon * (n-1) + raw[i].lon) / n;
+                    if (clusters[c].price === null && raw[i].price !== null) {
+                        clusters[c].price = raw[i].price;
+                        clusters[c].name  = raw[i].name;
+                    } else if (raw[i].price !== null && clusters[c].price !== null && raw[i].price > clusters[c].price) {
+                        clusters[c].price = raw[i].price;
+                        clusters[c].name  = raw[i].name;
+                    }
+                    assigned = true;
+                    break;
+                }
+            }
+            if (!assigned) {
+                clusters.push({ lat: raw[i].lat, lon: raw[i].lon, name: raw[i].name, price: raw[i].price, gantry: raw[i].gantry, members: [raw[i]] });
+            }
+        }
+
+        // ── Passo 4: converter clusters em pedágios únicos e logar ──
+        var tolls = [];
+        for (var c = 0; c < clusters.length; c++) {
+            var cl = clusters[c];
+            var dupes = cl.members.length;
+            rLog('ok', '  Pedágio: "'+cl.name+'" preço='+(cl.price !== null ? 'R$ '+cl.price.toFixed(2) : 'n/d')
+                +' lat='+cl.lat.toFixed(7)+' lon='+cl.lon.toFixed(7)
+                +(cl.gantry ? ' [Free Flow]' : '')
+                +(dupes > 1 ? ' ['+dupes+' nós agrupados]' : ''));
+            tolls.push({ name: cl.name, price: cl.price, lat: cl.lat, lon: cl.lon });
+        }
+        rLog('info', '  Total após deduplicação: '+tolls.length+' praça(s) ('+raw.length+' nós brutos → '+tolls.length+' físicas)');
+        return tolls;
+    } catch(e) {
+        rLog('warn', 'Overpass parse error trecho #'+legNum+': '+e.message);
+        return [];
+    }
+}
+
+// ============================================
+// FUNÇÃO PRINCIPAL
+// ============================================
+async function planRoute() {
+    var originAddr = document.getElementById('originInput').value.trim();
+    var stopAddrs = getStopAddresses();
+    var resultDiv = document.getElementById('resultArea');
+    var btn = document.getElementById('calculateBtn');
+    var doCircuito = document.getElementById('circuitoCheck').checked;
+    var doPedagios = document.getElementById('pedagioCheck').checked;
+
+    if (!originAddr) { resultDiv.innerHTML = '<p style="color:#e11d48;">❌ Preencha a origem.</p>'; return; }
+    if (stopAddrs.length === 0) { resultDiv.innerHTML = '<p style="color:#e11d48;">❌ Adicione pelo menos 1 parada.</p>'; return; }
+
+    btn.disabled = true;
+    btn.textContent = 'Calculando...';
+    rClear();
+    routeLayer.clearLayers();
+    previewLayer.clearLayers();
+    previewPinCache = {};
+    lastNominatimTime = 0;
+
+    rLog('step', 'INÍCIO — ' + (stopAddrs.length+1) + ' pontos' + (doCircuito ? ' + retorno à origem' : ''));
+    rLog('info', 'Data/hora: ' + new Date().toLocaleString('pt-BR'));
+    rLog('info', 'Origem: "' + originAddr + '"');
+    for (var s = 0; s < stopAddrs.length; s++) rLog('info', 'Parada #' + (s+1) + ': "' + stopAddrs[s] + '"');
+    if (doCircuito) rLog('info', 'Circuito: SIM (retorno à origem)');
+    rFlush();
+
+    try {
+        var points = [];
+
+        // ORIGEM
+        resultDiv.innerHTML = '<p>⏳ Geocodificando origem...</p>';
+        var orig = await smartGeocode(originAddr, null, null, null, resultDiv);
+        points.push({ lat: orig.lat, lon: orig.lon, display: orig.display, label: 'Origem' });
+        rFlush();
+
+        // PARADAS
+        for (var i = 0; i < stopAddrs.length; i++) {
+            resultDiv.innerHTML = '<p>⏳ Geocodificando parada ' + (i+1) + '/' + stopAddrs.length + '...</p>';
+            var prev = points[points.length-1];
+            var pt = await smartGeocode(stopAddrs[i], prev.lat, prev.lon, prev.label, resultDiv);
+            points.push({ lat: pt.lat, lon: pt.lon, display: pt.display, label: 'Parada #' + (i+1) });
+            rFlush();
+        }
+
+        // CIRCUITO: adiciona origem como ponto final
+        if (doCircuito) {
+            points.push({ lat: points[0].lat, lon: points[0].lon, display: points[0].display, label: 'Origem (retorno)' });
+        }
+
+        // ROTAS + PEDÁGIOS
+        var legs = [], totalDist = 0, totalDur = 0, totalTolls = [], totalTollCost = 0;
+        var numLegs = points.length - 1;
+        for (var i = 0; i < numLegs; i++) {
+            resultDiv.innerHTML = '<p>⏳ Calculando trecho ' + (i+1) + '/' + numLegs + '...</p>';
+            var leg = await calcOSRM(points[i], points[i+1], i+1);
+
+            // PEDÁGIOS REAIS
+            var legTolls = [];
+            if (doPedagios) {
+                resultDiv.innerHTML = '<p>⏳ Buscando pedágios do trecho ' + (i+1) + '...</p>';
+                legTolls = await calcTollsReal(leg.geometry, leg.routeRefs, leg.routeNames, i+1);
+            }
+            leg.tolls = legTolls;
+
+            var legTollCost = 0;
+            for (var t = 0; t < legTolls.length; t++) {
+                if (legTolls[t].price !== null) legTollCost += legTolls[t].price;
+                totalTolls.push(legTolls[t]);
+            }
+            leg.tollCost = legTollCost;
+            leg.tollsWithPrice = legTolls.filter(function(x){ return x.price !== null; }).length;
+            leg.tollsNoPrice = legTolls.filter(function(x){ return x.price === null; }).length;
+
+            legs.push(leg);
+            totalDist += parseFloat(leg.distanceKm);
+            totalDur += parseInt(leg.durationMin);
+            totalTollCost += legTollCost;
+            rFlush();
+        }
+
+        var custoKm = totalDist * 2.50;
+        var custoTotal = custoKm + totalTollCost;
+        var tollsComPreco = totalTolls.filter(function(x){ return x.price !== null; }).length;
+        var tollsSemPreco = totalTolls.filter(function(x){ return x.price === null; }).length;
+
+        // RESUMO LOG
+        rLog('step', '════════════════════════════════');
+        rLog('step', 'RESUMO FINAL — ' + legs.length + ' TRECHOS');
+        rLog('step', '════════════════════════════════');
+        for (var i = 0; i < points.length; i++) {
+            var isRetorno = doCircuito && i === points.length-1;
+            var role = i === 0 ? '📍 ORIGEM' : (isRetorno ? '🔄 RETORNO ORIGEM' : '🏁 PARADA #' + i);
+            rLog('ok', role + ': ' + points[i].display);
+            rLog('val', '  lat=' + points[i].lat + ', lon=' + points[i].lon);
+            if (i > 0) {
+                var lg = legs[i-1];
+                rLog('val', '  Trecho #'+i+': '+lg.distanceKm+'km | '+lg.durationMin+' min | '+lg.tolls.length+' pedágios | R$ '+lg.tollCost.toFixed(2));
+            }
+        }
+        rLog('step', 'TOTAIS');
+        rLog('ok', 'Distância total: ' + totalDist.toFixed(1) + ' km');
+        rLog('ok', 'Tempo total: ' + formatTime(totalDur) + ' (' + totalDur + ' min)');
+        rLog('ok', 'Pedágios: ' + totalTolls.length + ' praças (' + tollsComPreco + ' c/ preço OSM, ' + tollsSemPreco + ' s/ preço)');
+        rLog('ok', 'Custo rodagem (R$ 2,50/km): R$ ' + custoKm.toFixed(2));
+        rLog('ok', 'Custo pedágios (OSM): R$ ' + totalTollCost.toFixed(2));
+        rLog('ok', 'CUSTO TOTAL: R$ ' + custoTotal.toFixed(2));
+        rLog('step', 'FIM DO RELATÓRIO');
+        rFlush();
+
+        // MAPA — origem
+        L.marker([points[0].lat, points[0].lon], {
+            icon: L.divIcon({ className:'', html:'<div style="background:#1e2f4e;color:white;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;border:2px solid white;">📍</div>', iconSize:[28,28], iconAnchor:[14,14] })
+        }).addTo(routeLayer).bindPopup('<b>Origem</b><br>'+points[0].display);
+
+        for (var i = 0; i < legs.length; i++) {
+            var color = LEG_COLORS[i % LEG_COLORS.length];
+            L.geoJSON(legs[i].geometry, { style: { color: color, weight: 5, opacity: 0.85 } }).addTo(routeLayer);
+
+            // Marcador de parada (exceto retorno à origem que já tem marcador)
+            var isRetornoLeg = doCircuito && i === legs.length - 1;
+            if (!isRetornoLeg) {
+                var pt = points[i+1];
+                L.marker([pt.lat, pt.lon], {
+                    icon: L.divIcon({ className:'', html:'<div style="background:'+color+';color:white;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px;border:2px solid white;">'+(i+1)+'</div>', iconSize:[26,26], iconAnchor:[13,13] })
+                }).addTo(routeLayer).bindPopup('<b>Parada #'+(i+1)+'</b><br>'+pt.display+'<br>'+legs[i].distanceKm+'km | '+formatTime(legs[i].durationMin)+'<br>🎫 '+legs[i].tolls.length+' pedágios');
+            }
+
+            // Marcadores de pedágios no mapa
+            for (var t = 0; t < legs[i].tolls.length; t++) {
+                var tl = legs[i].tolls[t];
+                L.marker([tl.lat, tl.lon], {
+                    icon: L.divIcon({ className:'', html:'<div style="background:#f59e0b;color:white;width:20px;height:20px;border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:11px;border:2px solid white;">🎫</div>', iconSize:[20,20], iconAnchor:[10,10] })
+                }).addTo(routeLayer).bindPopup('<b>Pedágio</b><br>'+tl.name+'<br>'+(tl.price !== null ? 'R$ '+tl.price.toFixed(2) : 'Preço não disponível no OSM'));
+            }
+        }
+        map.fitBounds(routeLayer.getBounds(), { padding: [40,40] });
+
+        // RESULTADO VISUAL
+        var html = '<p style="color:#16a34a;font-weight:bold;">✅ ' + legs.length + ' trecho(s) calculado(s)!</p>';
+        for (var i = 0; i < legs.length; i++) {
+            var c = LEG_COLORS[i % LEG_COLORS.length];
+            var fromLabel = points[i].label;
+            var toLabel = points[i+1].label;
+            var tollStr = legs[i].tolls.length === 0
+                ? '🎫 Sem pedágios'
+                : '🎫 '+legs[i].tolls.length+' pedágio(s)' + (legs[i].tollCost > 0 ? ' — R$ '+legs[i].tollCost.toFixed(2).replace('.',',') : (legs[i].tollsNoPrice > 0 ? ' (preço p/consultar)' : ''));
+            html += '<div class="leg-detail"><div class="leg-title"><span style="color:'+c+';">●</span> '+fromLabel+' → '+toLabel+'</div>' +
+                '<p>📏 '+legs[i].distanceKm+' km | 📐 '+legs[i].haversine+' km reta | ⏱️ '+formatTime(legs[i].durationMin)+'</p>' +
+                '<p>'+tollStr+'</p></div>';
+        }
+        var tollNote = tollsSemPreco > 0 ? '<p style="font-size:0.75rem;color:#64748b;margin-top:4px;">⚠️ '+tollsSemPreco+' praça(s) sem preço no OSM — valor parcial</p>' : '';
+        html += '<div class="total-box">' +
+            '<p><span class="big">'+totalDist.toFixed(1)+' km</span> total</p>' +
+            '<p>⏱️ <strong>'+formatTime(totalDur)+'</strong></p>' +
+            '<p>🚗 Rodagem: <strong>R$ '+custoKm.toFixed(2).replace('.',',')+'</strong></p>' +
+            '<p>🎫 Pedágios: <strong>R$ '+totalTollCost.toFixed(2).replace('.',',')+'</strong> ('+totalTolls.length+' praças)</p>' +
+            '<p>💰 <strong style="color:#16a34a;font-size:1.1rem;">TOTAL: R$ '+custoTotal.toFixed(2).replace('.',',')+'</strong></p>' +
+            tollNote + '</div>';
+        resultDiv.innerHTML = html;
+
+    } catch (error) {
+        rLog('err', 'ERRO: ' + error.message);
+        rFlush();
+        resultDiv.innerHTML = '<p style="color:#e11d48;">❌ ' + error.message + '</p><p style="font-size:0.8rem;color:#64748b;margin-top:8px;">Abra o Relatório Técnico para ver detalhes.</p>';
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Calcular Rota Completa';
+}
+</script>
+</body>
+</html>
