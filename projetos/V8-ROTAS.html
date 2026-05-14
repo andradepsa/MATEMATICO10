@@ -858,6 +858,64 @@ function parseTollCharge(tags) {
     return null;
 }
 
+// ============================================
+// BANCO DE DADOS PRÓPRIO DE PEDÁGIOS (ARTESP/ANTT)
+// Coordenadas e tarifas reais (categoria 1 — auto/eixo simples)
+// Fonte: ARTESP 2025 (concessionárias Ecovias, CCR ViaOeste, RioSP, etc.)
+// ============================================
+var TOLL_DB = [
+    // SP-150 Anchieta — Praça Piratininga (São Bernardo do Campo, km 31)
+    { name: 'Pedágio Piratininga (Anchieta)', lat: -23.78475, lon: -46.52600, price: 38.70, road: 'SP-150', radiusKm: 3.0 },
+    // SP-160 Imigrantes — Praça Piratininga (km 32)
+    { name: 'Pedágio Piratininga (Imigrantes)', lat: -23.78695, lon: -46.52535, price: 38.70, road: 'SP-160', radiusKm: 3.0 },
+    // BR-116 Dutra — Free Flow CCR RioSP (preços por pórtico)
+    { name: 'Free Flow Dutra — Arujá',        lat: -23.39610, lon: -46.32420, price: 4.50,  road: 'BR-116', radiusKm: 1.5 },
+    { name: 'Free Flow Dutra — Guarulhos',    lat: -23.46280, lon: -46.43800, price: 4.50,  road: 'BR-116', radiusKm: 1.5 },
+    { name: 'Free Flow Dutra — Jacareí',      lat: -23.30260, lon: -45.96670, price: 4.50,  road: 'BR-116', radiusKm: 1.5 }
+];
+
+// Aplica banco próprio: corrige preços e injeta praças que o OSM omitiu.
+// Também descarta "fantasmas" (preço < R$ 1,00 sem correspondência no banco).
+function applyTollDB(tolls, coords) {
+    var out = [];
+    var matchedDB = {};
+
+    // 1. Para cada pedágio detectado, tenta casar com o banco
+    for (var i = 0; i < tolls.length; i++) {
+        var t = tolls[i];
+        var matched = null;
+        for (var j = 0; j < TOLL_DB.length; j++) {
+            var db = TOLL_DB[j];
+            if (haversineKm(t.lat, t.lon, db.lat, db.lon) <= db.radiusKm) {
+                matched = db; matchedDB[j] = true; break;
+            }
+        }
+        if (matched) {
+            rLog('ok', '  ↳ Reconciliado com banco: "'+t.name+'" → "'+matched.name+'" R$ '+matched.price.toFixed(2));
+            out.push({ name: matched.name, price: matched.price, lat: matched.lat, lon: matched.lon });
+        } else {
+            // Sem correspondência — descarta fantasmas (< R$ 1,00)
+            if (t.price !== null && t.price < 1.00) {
+                rLog('warn', '  ↳ Descartado fantasma (sem banco, R$ '+t.price.toFixed(2)+'): "'+t.name+'" lat='+t.lat.toFixed(5)+' lon='+t.lon.toFixed(5));
+                continue;
+            }
+            out.push(t);
+        }
+    }
+
+    // 2. Injeta praças do banco que estão na rota mas o OSM não detectou
+    for (var j = 0; j < TOLL_DB.length; j++) {
+        if (matchedDB[j]) continue;
+        var db = TOLL_DB[j];
+        if (isNearRoute(db.lat, db.lon, coords, 0.6)) {
+            rLog('ok', '  ↳ INJETADO do banco (OSM omitiu): "'+db.name+'" R$ '+db.price.toFixed(2));
+            out.push({ name: db.name, price: db.price, lat: db.lat, lon: db.lon });
+        }
+    }
+
+    return out;
+}
+
 async function calcTollsReal(geometry, routeRefs, routeNames, legNum) {
     var coords = geometry.coordinates; // [lon, lat]
     var minLat = Infinity, maxLat = -Infinity, minLon = Infinity, maxLon = -Infinity;
@@ -909,8 +967,8 @@ async function calcTollsReal(geometry, routeRefs, routeNames, legNum) {
         }
     }
     if (!data) {
-        rLog('warn', 'Todos os servidores Overpass falharam no trecho #'+legNum);
-        return [];
+        rLog('warn', 'Todos os servidores Overpass falharam no trecho #'+legNum+' — usando apenas banco próprio');
+        return applyTollDB([], coords);
     }
     try {
         // ── Passo 1: construir mapa nodeId → refs/nomes das rodovias-pai ──
@@ -1022,8 +1080,10 @@ async function calcTollsReal(geometry, routeRefs, routeNames, legNum) {
                 +(dupes > 1 ? ' ['+dupes+' nós agrupados]' : ''));
             tolls.push({ name: cl.name, price: cl.price, lat: cl.lat, lon: cl.lon });
         }
-        rLog('info', '  Total após deduplicação: '+tolls.length+' praça(s) ('+raw.length+' nós brutos → '+tolls.length+' físicas)');
-        return tolls;
+        rLog('info', '  Total após deduplicação OSM: '+tolls.length+' praça(s) ('+raw.length+' nós brutos → '+tolls.length+' físicas)');
+        var reconciled = applyTollDB(tolls, coords);
+        rLog('info', '  Total final (após banco próprio): '+reconciled.length+' praça(s)');
+        return reconciled;
     } catch(e) {
         rLog('warn', 'Overpass parse error trecho #'+legNum+': '+e.message);
         return [];
