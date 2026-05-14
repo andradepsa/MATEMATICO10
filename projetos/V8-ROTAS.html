@@ -67,7 +67,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v14 — Geocoder por centróide de cidade + Overpass relaxado</strong></p>
+            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v15 — Âncora postalcode + trava Haversine + dedupe de entrada</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -567,6 +567,36 @@ function resultToPoint(r) {
 // real da cidade-alvo como referência.
 // ============================================
 var cityCentroidCache = {};
+var postalAnchorCache = {};
+
+// ★ v15: Busca por CEP usando o parâmetro nativo postalcode= do Nominatim
+// (mais confiável que pesquisa textual; dá uma âncora geográfica garantida)
+async function nominatimByPostalcode(cepDigits) {
+    if (!cepDigits) return null;
+    if (postalAnchorCache[cepDigits] !== undefined) return postalAnchorCache[cepDigits];
+    await waitNominatim();
+    var url = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=3&countrycodes=br&country=brazil&postalcode='
+        + encodeURIComponent(cepDigits);
+    rLog('dim', 'Nominatim postalcode: ' + url);
+    try {
+        var resp = await fetchRetry(url, {}, 'Nominatim/postalcode', 2);
+        var data = await resp.json();
+        if (data && data.length > 0) {
+            var pt = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), display: data[0].display_name };
+            postalAnchorCache[cepDigits] = pt;
+            rLog('ok', 'Postalcode âncora ' + cepDigits + ': ' + pt.lat.toFixed(4) + ', ' + pt.lon.toFixed(4));
+            return pt;
+        }
+        rLog('warn', 'Postalcode ' + cepDigits + ': sem resultado');
+        postalAnchorCache[cepDigits] = null;
+        return null;
+    } catch(e) {
+        rLog('warn', 'Postalcode ' + cepDigits + ' falhou: ' + e.message);
+        postalAnchorCache[cepDigits] = null;
+        return null;
+    }
+}
+
 async function getCityCentroid(cidade, uf) {
     if (!cidade) return null;
     var key = (cidade + '|' + (uf||'')).toLowerCase();
@@ -622,11 +652,14 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
             return await geocodeAsAddress(input, refLat, refLon, refLabel);
         }
 
-        // ★ FIX: usa centróide REAL da cidade do CEP como referência (não a parada anterior)
+        // ★ v15: âncora primária = postalcode no Nominatim; secundária = centróide da cidade do ViaCEP
+        // NUNCA usa a parada anterior como âncora em modo CEP (causava bug histórico Ribeirão↔Rio Preto)
+        var postalAnchor = await nominatimByPostalcode(cep.cep);
         var centroid = await getCityCentroid(cepData.cidade, cepData.uf);
-        var anchor = centroid || (refLat !== null ? { lat: refLat, lon: refLon } : null);
-        if (centroid) rLog('ok', 'Âncora: centróide de ' + cepData.cidade + '/' + cepData.uf);
-        else if (anchor) rLog('warn', 'Sem centróide; usando parada anterior como âncora (menos confiável)');
+        var anchor = postalAnchor || centroid;
+        if (postalAnchor) rLog('ok', 'Âncora: postalcode ' + cep.cepFmt);
+        else if (centroid) rLog('ok', 'Âncora: centróide de ' + cepData.cidade + '/' + cepData.uf);
+        else rLog('err', 'SEM âncora geográfica para ' + cep.cepFmt + ' — fallback puro a Nominatim (alto risco)');
 
         var queries = [];
         if (cepData.logradouro) {
@@ -643,7 +676,7 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
         if (cepData.logradouro) queries.push(cepData.logradouro + ', ' + cepData.cidade + ', Brasil');
         queries.push(cepData.cidade + ', ' + cepData.uf);
 
-        // Viewbox AO REDOR DO CENTRÓIDE da cidade (não da parada anterior)
+        // Viewbox AO REDOR DA ÂNCORA (postalcode > centróide)
         var vb = null;
         if (anchor) {
             vb = (anchor.lon-1.0).toFixed(4)+','+(anchor.lat-1.0).toFixed(4)+','+(anchor.lon+1.0).toFixed(4)+','+(anchor.lat+1.0).toFixed(4);
@@ -660,13 +693,13 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
 
             if (results.length > 0) {
                 if (anchor) {
-                    // Filtra: só aceita resultados dentro de MAX_DIST_FROM_CITY_KM do centróide
+                    // Filtra: só aceita resultados dentro de MAX_DIST_FROM_CITY_KM da âncora
                     var validos = [];
                     for (var ri = 0; ri < results.length; ri++) {
                         var d = haversineKm(anchor.lat, anchor.lon, parseFloat(results[ri].lat), parseFloat(results[ri].lon));
                         var marker = d <= MAX_DIST_FROM_CITY_KM ? ' ✓' : ' ✗ (fora do raio ' + MAX_DIST_FROM_CITY_KM + 'km)';
                         rLog(d <= MAX_DIST_FROM_CITY_KM ? 'ok' : 'warn',
-                            '#' + (ri+1) + ': ' + d.toFixed(2) + 'km da cidade' + marker + ' → ' + results[ri].display_name);
+                            '#' + (ri+1) + ': ' + d.toFixed(2) + 'km da âncora' + marker + ' → ' + results[ri].display_name);
                         if (d <= MAX_DIST_FROM_CITY_KM) validos.push({ r: results[ri], d: d });
                     }
                     if (validos.length > 0) {
@@ -674,7 +707,7 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
                         rLog('ok', 'ESCOLHIDO: ' + validos[0].r.display_name);
                         return resultToPoint(validos[0].r);
                     }
-                    rLog('warn', 'Todos os resultados fora do raio da cidade — tentando próxima query');
+                    rLog('warn', 'Todos os resultados fora do raio da âncora — tentando próxima query');
                 } else {
                     logAllResults(results);
                     rLog('ok', 'ESCOLHIDO #1: ' + results[0].display_name);
@@ -685,14 +718,18 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
             }
         }
 
-        // Última cartada: se nada serviu, devolve o centróide da cidade
-        if (anchor && centroid) {
+        // ★ v15: Última cartada — devolve a âncora (postalcode ou centróide), NUNCA a parada anterior
+        if (postalAnchor) {
+            rLog('warn', 'Nenhum endereço preciso encontrado — usando âncora postalcode (' + cep.cepFmt + ')');
+            return { lat: postalAnchor.lat, lon: postalAnchor.lon, display: cepData.cidade + ' - ' + cepData.uf + ' (CEP ' + cep.cepFmt + ')' };
+        }
+        if (centroid) {
             rLog('warn', 'Nenhum endereço preciso encontrado — usando CENTRÓIDE da cidade como ponto');
             return { lat: centroid.lat, lon: centroid.lon, display: cepData.cidade + ' - ' + cepData.uf + ', Brasil (centróide)' };
         }
 
-        rLog('warn', 'Todas as queries CEP falharam. Tentando input original como endereço...');
-        return await geocodeAsAddress(input, refLat, refLon, refLabel);
+        rLog('err', 'CEP ' + cep.cepFmt + ' não pôde ser ancorado em ' + cepData.cidade + '/' + cepData.uf);
+        throw new Error('CEP ' + cep.cepFmt + ' não geocodificável em ' + cepData.cidade + '/' + cepData.uf);
 
     } else {
         return await geocodeAsAddress(input, refLat, refLon, refLabel);
@@ -1270,14 +1307,34 @@ async function calcTollsReal(geometry, routeRefs, routeNames, legNum) {
 // ============================================
 async function planRoute() {
     var originAddr = document.getElementById('originInput').value.trim();
-    var stopAddrs = getStopAddresses();
+    var stopAddrsRaw = getStopAddresses();
     var resultDiv = document.getElementById('resultArea');
     var btn = document.getElementById('calculateBtn');
     var doCircuito = document.getElementById('circuitoCheck').checked;
     var doPedagios = document.getElementById('pedagioCheck').checked;
 
     if (!originAddr) { resultDiv.innerHTML = '<p style="color:#e11d48;">❌ Preencha a origem.</p>'; return; }
-    if (stopAddrs.length === 0) { resultDiv.innerHTML = '<p style="color:#e11d48;">❌ Adicione pelo menos 1 parada.</p>'; return; }
+    if (stopAddrsRaw.length === 0) { resultDiv.innerHTML = '<p style="color:#e11d48;">❌ Adicione pelo menos 1 parada.</p>'; return; }
+
+    // ★ v15: Higienização de entrada — remove paradas consecutivas com mesmo CEP/texto
+    // (evita "pular" cálculo e Origem→Parada#2 silencioso quando Parada#1 == Origem)
+    function _norm(s) {
+        var c = parseCepInput(s);
+        if (c) return 'CEP:' + c.cep + (c.numero ? '#' + c.numero : '');
+        return 'A:' + s.toLowerCase().replace(/\s+/g,' ').trim();
+    }
+    var stopAddrs = [];
+    var lastKey = _norm(originAddr);
+    for (var sa = 0; sa < stopAddrsRaw.length; sa++) {
+        var k = _norm(stopAddrsRaw[sa]);
+        if (k === lastKey) {
+            rLog('warn', 'Parada duplicada removida (igual à anterior): "' + stopAddrsRaw[sa] + '"');
+            continue;
+        }
+        stopAddrs.push(stopAddrsRaw[sa]);
+        lastKey = k;
+    }
+    if (stopAddrs.length === 0) { resultDiv.innerHTML = '<p style="color:#e11d48;">❌ Após dedupe, nenhuma parada distinta restou.</p>'; btn.disabled=false; btn.textContent='Calcular Rota Completa'; return; }
 
     btn.disabled = true;
     btn.textContent = 'Calculando...';
@@ -1300,7 +1357,7 @@ async function planRoute() {
         // ORIGEM
         resultDiv.innerHTML = '<p>⏳ Geocodificando origem...</p>';
         var orig = await smartGeocode(originAddr, null, null, null, resultDiv);
-        points.push({ lat: orig.lat, lon: orig.lon, display: orig.display, label: 'Origem' });
+        points.push({ lat: orig.lat, lon: orig.lon, display: orig.display, label: 'Origem', input: originAddr });
         rFlush();
 
         // PARADAS
@@ -1308,16 +1365,16 @@ async function planRoute() {
             resultDiv.innerHTML = '<p>⏳ Geocodificando parada ' + (i+1) + '/' + stopAddrs.length + '...</p>';
             var prev = points[points.length-1];
             var pt = await smartGeocode(stopAddrs[i], prev.lat, prev.lon, prev.label, resultDiv);
-            points.push({ lat: pt.lat, lon: pt.lon, display: pt.display, label: 'Parada #' + (i+1) });
+            points.push({ lat: pt.lat, lon: pt.lon, display: pt.display, label: 'Parada #' + (i+1), input: stopAddrs[i] });
             rFlush();
         }
 
         // CIRCUITO: adiciona origem como ponto final
         if (doCircuito) {
-            points.push({ lat: points[0].lat, lon: points[0].lon, display: points[0].display, label: 'Origem (retorno)' });
+            points.push({ lat: points[0].lat, lon: points[0].lon, display: points[0].display, label: 'Origem (retorno)', input: originAddr });
         }
 
-        // ── Dedupe de paradas consecutivas idênticas (poupa chamadas Overpass) ──
+        // ── Dedupe de paradas consecutivas idênticas por coordenada ──
         var deduped = [points[0]];
         for (var di = 1; di < points.length; di++) {
             var prevP = deduped[deduped.length-1];
@@ -1338,6 +1395,34 @@ async function planRoute() {
         for (var i = 0; i < numLegs; i++) {
             resultDiv.innerHTML = '<p>⏳ Calculando trecho ' + (i+1) + '/' + numLegs + '...</p>';
             var leg = await calcOSRM(points[i], points[i+1], i+1);
+
+            // ★ v15: TRAVA HAVERSINE — distância esperada entre os centróides das cidades dos dois CEPs.
+            // Se a rota OSRM ficar < 50% do esperado, refazemos os pontos como centróides da cidade-alvo.
+            try {
+                var cepA = parseCepInput(points[i].input || '');
+                var cepB = parseCepInput(points[i+1].input || '');
+                if (cepA && cepB) {
+                    var ca = await lookupCEP(cepA.cep);
+                    var cb = await lookupCEP(cepB.cep);
+                    if (ca && cb && (ca.cidade !== cb.cidade || ca.uf !== cb.uf)) {
+                        var ctA = await getCityCentroid(ca.cidade, ca.uf);
+                        var ctB = await getCityCentroid(cb.cidade, cb.uf);
+                        if (ctA && ctB) {
+                            var expected = haversineKm(ctA.lat, ctA.lon, ctB.lat, ctB.lon);
+                            var actual = parseFloat(leg.distanceKm);
+                            if (expected > 30 && actual < expected * 0.5) {
+                                rLog('err', 'INCONSISTÊNCIA Haversine: rota='+actual+'km mas esperado ≥ '+expected.toFixed(0)+'km entre '+ca.cidade+' e '+cb.cidade+'. Refazendo com centróides.');
+                                // Sobrescreve os pontos com os centróides reais e recalcula a rota
+                                points[i]   = { lat: ctA.lat, lon: ctA.lon, display: ca.cidade+' - '+ca.uf+' (centróide forçado)', label: points[i].label, input: points[i].input };
+                                points[i+1] = { lat: ctB.lat, lon: ctB.lon, display: cb.cidade+' - '+cb.uf+' (centróide forçado)', label: points[i+1].label, input: points[i+1].input };
+                                leg = await calcOSRM(points[i], points[i+1], i+1);
+                            }
+                        }
+                    }
+                }
+            } catch(eHv) {
+                rLog('warn', 'Trava Haversine falhou silenciosamente: ' + eHv.message);
+            }
 
             // PEDÁGIOS REAIS
             var legTolls = [];
