@@ -873,11 +873,12 @@ async function calcTollsReal(geometry, routeRefs, routeNames, legNum) {
     // 1. Nós/ways de pedágio com tags e coordenadas (center)
     // 2. Ways-pai (rodovias que contêm esses nós) com body (inclui array nodes[])
     // → permite associar cada pedágio à rodovia-mãe e filtrar os que não pertencem à rota
+    // Filtro estrito: barrier=toll_booth AND toll=yes
+    // Descarta câmeras, radares e pórticos de fiscalização que usam tags semelhantes.
     var query = '[out:json][timeout:35];'
         + '('
-        + 'node["barrier"="toll_booth"]('+bbox+');'
-        + 'node["highway"="toll_gantry"]('+bbox+');'
-        + 'way["barrier"="toll_booth"]('+bbox+');'
+        + 'node["barrier"="toll_booth"]["toll"="yes"]('+bbox+');'
+        + 'way["barrier"="toll_booth"]["toll"="yes"]('+bbox+');'
         + ')->.tolls;'
         + '.tolls out tags center;'
         + 'way(bn.tolls)["highway"]->.tollroads;'
@@ -938,12 +939,12 @@ async function calcTollsReal(geometry, routeRefs, routeNames, legNum) {
         var raw = [];
         for (var i = 0; i < data.elements.length; i++) {
             var el = data.elements[i];
-            // Só processa nós/ways de pedágio (ignora ways-pai já processados)
-            var isTollNode = (el.type === 'node') && (
-                (el.tags && el.tags['barrier'] === 'toll_booth') ||
-                (el.tags && el.tags['highway'] === 'toll_gantry')
-            );
-            var isTollWay = (el.type === 'way') && el.tags && el.tags['barrier'] === 'toll_booth';
+            // Só processa nós/ways de pedágio físicos (toll_booth + toll=yes)
+            // Descarta toll_gantry e qualquer nó sem a combinação exata exigida.
+            var hasTollYes  = el.tags && el.tags['toll'] === 'yes';
+            var isTollBooth = el.tags && el.tags['barrier'] === 'toll_booth';
+            var isTollNode  = (el.type === 'node') && isTollBooth && hasTollYes;
+            var isTollWay   = (el.type === 'way')  && isTollBooth && hasTollYes;
             if (!isTollNode && !isTollWay) continue;
 
             var elLat = el.lat !== undefined ? el.lat : (el.center ? el.center.lat : null);
