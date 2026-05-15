@@ -1610,13 +1610,32 @@ async function planRoute() {
         rFlush();
 
         // PARADAS
+        var failedStops = [];
         for (var i = 0; i < stopAddrs.length; i++) {
             resultDiv.innerHTML = '<p>⏳ Geocodificando parada ' + (i+1) + '/' + stopAddrs.length + ' (Pausa de segurança 2s)...</p>';
             await sleep(2000); // 2s hard delay por endereço para evitar ban do IP
             var prev = points[points.length-1];
-            var pt = await smartGeocode(stopAddrs[i], prev.lat, prev.lon, prev.label, resultDiv);
-            points.push({ lat: pt.lat, lon: pt.lon, display: pt.display, label: 'Parada #' + (i+1), input: stopAddrs[i] });
+            try {
+                var pt = await smartGeocode(stopAddrs[i], prev.lat, prev.lon, prev.label, resultDiv);
+                points.push({ lat: pt.lat, lon: pt.lon, display: pt.display, label: 'Parada #' + (i+1), input: stopAddrs[i] });
+            } catch (geoErr) {
+                rLog('err', '⏩ PULANDO parada #' + (i+1) + ': ' + geoErr.message);
+                failedStops.push({ num: i+1, addr: stopAddrs[i], err: geoErr.message });
+            }
             rFlush();
+        }
+
+        // Avisa sobre paradas que falharam
+        if (failedStops.length > 0) {
+            rLog('warn', '⚠️  ' + failedStops.length + ' parada(s) não geocodificada(s) — excluídas do cálculo:');
+            for (var fi = 0; fi < failedStops.length; fi++) {
+                rLog('warn', '   #' + failedStops[fi].num + ': ' + failedStops[fi].addr);
+            }
+            rFlush();
+        }
+
+        if (points.length < 2) {
+            throw new Error('Menos de 2 pontos geocodificados — impossível calcular rota.');
         }
 
         // OTIMIZAÇÃO GLOBAL: 2-Opt Algoritmo (Evita ziguezague / Bate-volta)
@@ -1871,6 +1890,15 @@ async function planRoute() {
             '<p>🎫 Pedágios: <strong>R$ '+totalTollCost.toFixed(2).replace('.',',')+'</strong> ('+totalTolls.length+' praças · x'+axleMult+' eixos)</p>' +
             '<p>💰 <strong style="color:#16a34a;font-size:1.1rem;">TOTAL: R$ '+custoTotal.toFixed(2).replace('.',',')+'</strong></p>' +
             tollNote + '</div>';
+        // Aviso de paradas puladas
+        if (failedStops.length > 0) {
+            html += '<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;margin-top:10px;">';
+            html += '<p style="color:#dc2626;font-weight:bold;margin:0 0 6px 0;">⚠️ ' + failedStops.length + ' parada(s) não encontrada(s) — excluída(s) do cálculo:</p>';
+            for (var fs = 0; fs < failedStops.length; fs++) {
+                html += '<p style="color:#991b1b;margin:2px 0;font-size:0.85rem;">#' + failedStops[fs].num + ': ' + escHtml(failedStops[fs].addr) + '</p>';
+            }
+            html += '</div>';
+        }
         resultDiv.innerHTML = html;
 
     } catch (error) {
