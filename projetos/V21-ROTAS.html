@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora Multi-Paradas para Entregas — v14</title>
+    <title>Calculadora Multi-Paradas para Entregas — v21</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -116,7 +116,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v18 — RMSP Lock: CEPs 01000-09999 forçados para Região Metropolitana de SP</strong></p>
+            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v21 — Fallback Blindado: CEP inválido no ViaCEP nunca mais causa deriva para outra cidade/estado</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -1213,7 +1213,63 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
         var cepData = await lookupCEP(cep.cep);
 
         if (!cepData) {
-            rLog('warn', 'CEP inválido. Tentando como endereço normal...');
+            rLog('warn', 'CEP inválido no ViaCEP. Ativando Fallback Blindado v21...');
+
+            // ★ v21: FALLBACK BLINDADO — nunca envia string crua CEP+número ao Nominatim.
+            // Causa do bug histórico: "08143-110, 66" → Nominatim lia o "66" solto
+            // e retornava "Av. Vinte de Janeiro, 66 — Galeão/RJ", quebrando o circuito todo.
+
+            // 1. Tenta âncora via Nominatim postalcode (pode ter o CEP mesmo sem ViaCEP)
+            var fbAnchor = await nominatimByPostalcode(cep.cep);
+
+            // 2. Se postalcode falhou, inferir região pelo prefixo do CEP
+            if (!fbAnchor) {
+                var cepInt = parseInt(cep.cep, 10);
+                // Faixa 01000000–09999999 = todo o estado de São Paulo (RMSP + interior próximo)
+                if (cepInt >= 1000000 && cepInt <= 9999999) {
+                    fbAnchor = { lat: -23.5505, lon: -46.6333, display: 'São Paulo, SP (RMSP âncora)' };
+                    rLog('warn', 'RMSP LOCK: CEP ' + cep.cepFmt + ' na faixa SP → âncora RMSP forçada');
+                }
+            }
+
+            if (fbAnchor) {
+                var fbVb = (fbAnchor.lon - 0.5).toFixed(4) + ',' + (fbAnchor.lat - 0.5).toFixed(4)
+                         + ',' + (fbAnchor.lon + 0.5).toFixed(4) + ',' + (fbAnchor.lat + 0.5).toFixed(4);
+
+                // 3. Monta query limpa: CEP primeiro (como texto de busca), número por último
+                //    Isso evita que o Nominatim confunda o número com endereço no RJ
+                var cleanQuery = cep.numero
+                    ? cep.cepFmt + ' ' + cep.numero + ', São Paulo, SP, Brasil'
+                    : cep.cepFmt + ', São Paulo, SP, Brasil';
+                rLog('warn', '[Fallback Blindado] Query segura: "' + cleanQuery + '"');
+
+                var fbRes = await nominatimSearch(cleanQuery, fbVb);
+                if (fbRes.length > 0) {
+                    var fbBest = null, fbBestDist = Infinity;
+                    for (var fbi = 0; fbi < fbRes.length; fbi++) {
+                        var fbd = haversineKm(fbAnchor.lat, fbAnchor.lon,
+                                              parseFloat(fbRes[fbi].lat), parseFloat(fbRes[fbi].lon));
+                        rLog(fbd < 80 ? 'ok' : 'warn',
+                            'FB #' + (fbi+1) + ': ' + fbd.toFixed(1) + 'km → ' + fbRes[fbi].display_name);
+                        if (fbd < 80 && fbd < fbBestDist) { fbBestDist = fbd; fbBest = fbRes[fbi]; }
+                    }
+                    if (fbBest) {
+                        rLog('ok', '[Fallback Blindado] ACEITO → ' + fbBest.display_name);
+                        return resultToPoint(fbBest);
+                    }
+                }
+
+                // 4. Query não retornou nada útil → centróide regional com aviso claro
+                rLog('warn', '[Fallback Blindado] Sem resultado — usando âncora regional (baixa precisão)');
+                return {
+                    lat: fbAnchor.lat, lon: fbAnchor.lon,
+                    display: cep.cepFmt + (cep.numero ? ', ' + cep.numero : '')
+                             + ' (CEP inválido — localização aproximada SP)'
+                };
+            }
+
+            // 5. CEP fora da faixa SP e sem âncora → tenta como endereço genérico
+            rLog('warn', 'Sem âncora regional detectada — tentando como endereço normal');
             return await geocodeAsAddress(input, refLat, refLon, refLabel);
         }
 
