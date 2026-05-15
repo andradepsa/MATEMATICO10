@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora Multi-Paradas para Entregas — v27</title>
+    <title>Calculadora Multi-Paradas para Entregas — v31</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -116,7 +116,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v27 — Municipal Lock: Overpass restrito ao admin_level=8 do município · viewbox city-anchored · tabela CEP Itaquaquecetuba corrigida</strong></p>
+            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v31 — Rua do Usuário: prioridade máxima sobre ViaCEP · Escape automático de Bairro (3 tentativas) · TSP NN+2-opt</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -166,6 +166,13 @@
                 <input type="checkbox" id="circuitoCheck" style="width:16px;height:16px;accent-color:#2c7da0;">
                 🔄 Fechar circuito (retornar à origem)
             </label>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:0.88rem;color:#334155;cursor:pointer;">
+                <input type="checkbox" id="tspCheck" checked style="width:16px;height:16px;accent-color:#16a34a;">
+                🧭 Otimizar rota automaticamente (TSP)
+            </label>
+            <div id="tspInfo" style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:8px 10px;margin-bottom:12px;font-size:0.76rem;color:#065f46;line-height:1.5;">
+                <strong>Nearest Neighbor + 2-opt</strong> — reordena as paradas por proximidade geográfica (Haversine) antes de calcular as rotas OSRM. Elimina "vai e vem" sem usar APIs pagas.
+            </div>
             <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:0.88rem;color:#334155;cursor:pointer;">
                 <input type="checkbox" id="pedagioCheck" checked style="width:16px;height:16px;accent-color:#2c7da0;">
                 🎫 Calcular pedágios reais (OSM)
@@ -253,6 +260,17 @@ var routeLayer = L.featureGroup().addTo(map);
 var previewLayer = L.featureGroup().addTo(map);
 var LEG_COLORS = ['#e63946','#2a9d8f','#e9c46a','#264653','#f4a261','#6a4c93','#1982c4','#ff595e','#8ac926','#ff924c'];
 
+// ★ v30: Toggle da info box do TSP
+document.addEventListener('DOMContentLoaded', function() {
+    var tspCk = document.getElementById('tspCheck');
+    var tspInfo = document.getElementById('tspInfo');
+    if (tspCk && tspInfo) {
+        tspCk.addEventListener('change', function() {
+            tspInfo.style.display = tspCk.checked ? 'block' : 'none';
+        });
+    }
+});
+
 // ============================================
 // PARADAS
 // ============================================
@@ -329,37 +347,47 @@ function clearBeforePaste() {
 // preservando o CEP como prefixo para o modo smartGeocode
 // ============================================
 function normalizeFullAddressFormat(line) {
-    // Detecta CEP no início seguido de pelo menos 4 campos separados por vírgula
-    // Ex: "08143-110, Rua José Augusto Lobo, 66, São Paulo, SP, Brasil"
+    // ★ v31: aceita 4 campos (Rua, Nº, Cidade, UF) OU 5 campos (Rua, Nº, Bairro, Cidade, UF)
+    // Ex 4: "08143-110, Rua José Augusto Lobo, 66, São Paulo, SP, Brasil"
+    // Ex 5: "13015-100, Rua Barreto Leme, 10, Centro, Campinas, SP, Brasil"
     var m = line.match(/^(\d{5}-?\d{3})\s*,\s*(.+?,\s*.+?,\s*.+?,\s*[A-Z]{2})(?:\s*,\s*Brasil)?\s*$/i);
     if (!m) return null;
 
     var cepRaw = m[1].replace('-','');
     var cepFmt = cepRaw.substring(0,5) + '-' + cepRaw.substring(5);
-    // resto: "Rua X, Número, Cidade, SP"
-    var rest = m[2].trim();
-    // Divide em partes: [logradouro, numero, municipio, estado]
-    var parts = rest.split(/\s*,\s*/);
+    var rest   = m[2].trim();
+    var parts  = rest.split(/\s*,\s*/);
     if (parts.length < 4) return null;
 
-    var logradouro = parts[0].trim();
-    var numero     = parts[1].trim();
-    var municipio  = parts[2].trim();
-    var estado     = parts[3].trim().toUpperCase();
+    var logradouro, numero, bairro, municipio, estado;
 
-    // Resultado: monta endereço completo que o smartGeocode entende
-    // Formato "CEP, numero" dispara o modo CEP com ViaCEP; o endereço completo
-    // é guardado no campo display para exibição na tabela.
+    if (parts.length >= 5) {
+        // ★ v31: formato com bairro — [rua, numero, bairro, cidade, UF]
+        logradouro = parts[0].trim();
+        numero     = parts[1].trim();
+        bairro     = parts[2].trim();
+        municipio  = parts[3].trim();
+        estado     = parts[4].trim().toUpperCase();
+    } else {
+        // formato original — [rua, numero, cidade, UF]
+        logradouro = parts[0].trim();
+        numero     = parts[1].trim();
+        bairro     = '';
+        municipio  = parts[2].trim();
+        estado     = parts[3].trim().toUpperCase();
+    }
+
     return {
-        // O que vai para o campo de input (e para smartGeocode)
-        cleaned: cepFmt + ', ' + numero,
-        // Texto descritivo para exibição no preview e na tabela
-        display: logradouro + ', ' + numero + ', ' + municipio + ' - ' + estado + ', Brasil (CEP ' + cepFmt + ')',
-        cep: cepFmt,
-        numero: numero,
+        cleaned:    cepFmt + ', ' + numero,
+        display:    logradouro + ', ' + numero
+                    + (bairro ? ', ' + bairro : '')
+                    + ', ' + municipio + ' - ' + estado + ', Brasil (CEP ' + cepFmt + ')',
+        cep:        cepFmt,
+        numero:     numero,
         logradouro: logradouro,
-        municipio: municipio,
-        estado: estado,
+        bairro:     bairro,    // ★ v31: capturado quando presente no input
+        municipio:  municipio,
+        estado:     estado,
         isFullFormat: true
     };
 }
@@ -1086,8 +1114,8 @@ function ovEscape(s) {
             .replace(/[.*+?^${}()|[\]]/g, '\\$&');
 }
 
-async function overpassGeocodeFromCEP(cepData, numero, statusDiv, streetOverride) {
-    var street = (streetOverride && streetOverride.length > 2) ? streetOverride : cepData.logradouro;
+async function overpassGeocodeFromCEP(cepData, numero, statusDiv) {
+    var street = cepData.logradouro;
     var city   = cepData.cidade;
 
     if (!street) return null;
@@ -1756,11 +1784,20 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
         // ════════════════════════════════════════════
 
         // ── TENTATIVA 1: OVERPASS (busca DENTRO do limite administrativo da cidade) ──
-        if (temLogradouro) {
+        // ★ v31: se o usuário digitou a rua (fullFmtCheck.logradouro), usa ela em vez da
+        // rua do ViaCEP — evita que CEPs com logradouro cadastrado errado puxem rua errada.
+        if (fullFmtCheck && fullFmtCheck.logradouro && cepData) {
+            var cepDataParaOverpass = Object.assign({}, cepData);
+            cepDataParaOverpass.logradouro = fullFmtCheck.logradouro;
+            rLog('ok', '★ v31: Overpass usará rua do usuário: "' + fullFmtCheck.logradouro + '" (ViaCEP tinha: "' + (cepData.logradouro||'(vazio)') + '")');
+        } else {
+            var cepDataParaOverpass = cepData;
+        }
+        if (temLogradouro || (fullFmtCheck && fullFmtCheck.logradouro)) {
             rLog('step', '🔍 TENTATIVA 1/3: Overpass (dentro de ' + cepData.cidade + ')');
             if (statusDiv) statusDiv.innerHTML = '<p>⏳ Overpass: buscando dentro de ' + escHtml(cepData.cidade) + '...</p>';
             try {
-                var ovResult = await overpassGeocodeFromCEP(cepData, cep.numero, statusDiv);
+                var ovResult = await overpassGeocodeFromCEP(cepDataParaOverpass, cep.numero, statusDiv);
                 if (ovResult) {
                     var ovValidacao = validarContraCorreios(ovResult, cepData);
                     var ovDistAnchor = haversineKm(anchor.lat, anchor.lon, ovResult.lat, ovResult.lon);
@@ -1783,6 +1820,26 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
         // ── TENTATIVA 2: NOMINATIM com queries blindadas + viewbox + validação ──
         rLog('step', '🔍 TENTATIVA 2/3: Nominatim blindado (viewbox 0.3° + cidade obrigatória)');
         var queries = [];
+
+        // ★ v31: PRIORIDADE MÁXIMA — rua digitada pelo usuário precede a rua do ViaCEP.
+        // Escape automático de bairro: tenta COM bairro, depois SEM, para absorver
+        // divergências de grafia entre o input e a base OSM (ex: "Jardim roncaglia" vs "Jardim Roncáglia").
+        if (fullFmtCheck && fullFmtCheck.logradouro) {
+            var uRua    = fullFmtCheck.logradouro;
+            var uNum    = fullFmtCheck.numero || cep.numero || '';
+            var uBairro = fullFmtCheck.bairro || (temBairro ? cepData.bairro : '');
+            rLog('ok', '★ v31: Rua do usuário com prioridade: "' + uRua + '"' + (uBairro ? ' | Bairro: "' + uBairro + '"' : ''));
+            // T1: rua digitada + numero + bairro + cidade
+            if (uNum && uBairro) queries.push(uRua + ', ' + uNum + ', ' + uBairro + ', ' + cidadeUf);
+            // T2: rua digitada + numero + cidade (ESCAPE sem bairro)
+            if (uNum)            queries.push(uRua + ', ' + uNum + ', ' + cidadeUf);
+            // T3: rua digitada + bairro + cidade (sem numero)
+            if (uBairro)         queries.push(uRua + ', ' + uBairro + ', ' + cidadeUf);
+            // T4: rua digitada + cidade apenas
+                                 queries.push(uRua + ', ' + cidadeUf);
+        }
+
+        // Queries originais usando logradouro ViaCEP (como fallback se rua do usuário falhar)
         if (temLogradouro) {
             if (cep.numero) {
                 queries.push(cepData.logradouro + ', ' + cep.numero + ', ' + (temBairro ? cepData.bairro + ', ' : '') + cidadeUf);
@@ -1795,6 +1852,9 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
                 queries.push(cepData.bairro + ', ' + cidadeUf);
             }
         }
+
+        // Remove queries duplicadas mantendo a ordem
+        queries = queries.filter(function(q, i){ return queries.indexOf(q) === i; });
         queries.push(cidadeUf);
 
         for (var q = 0; q < queries.length; q++) {
@@ -1852,8 +1912,10 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
 
         // ── TENTATIVA 3: NOMINATIM bounded=1 (FORÇADO dentro do viewbox) ──
         rLog('step', '🔍 TENTATIVA 3/3: Nominatim bounded=1 (forçado dentro do viewbox)');
-        if (temLogradouro) {
-            var boundedQuery = cepData.logradouro + ', ' + cidadeUf;
+        // ★ v31: prioriza rua digitada pelo usuário também na tentativa forçada
+        var _boundedRua = (fullFmtCheck && fullFmtCheck.logradouro) ? fullFmtCheck.logradouro : (cepData.logradouro || '');
+        if (_boundedRua) {
+            var boundedQuery = _boundedRua + ', ' + cidadeUf;
             rLog('info', 'Query forçada: "' + boundedQuery + '" com bounded=1');
             if (statusDiv) statusDiv.innerHTML = '<p>⏳ Nominatim forçado...</p>';
 
@@ -2558,8 +2620,145 @@ async function calcTollsReal(geometry, routeRefs, routeNames, legNum) {
 }
 
 // ============================================
-// FUNÇÃO PRINCIPAL
+// ★ v30: TSP — NEAREST NEIGHBOR + 2-OPT (Haversine)
+// Reordena as paradas por proximidade real antes do OSRM.
+// Opera 100% no frontend, sem APIs pagas.
 // ============================================
+
+/**
+ * Retorna o índice da parada não visitada mais próxima de (lat, lon).
+ * Usa a função haversineKm já presente no código (distância real em km).
+ */
+function tspNearestNeighbor(origin, stops) {
+    var remaining = stops.map(function(s, i){ return i; }); // índices disponíveis
+    var ordered   = [];
+    var cur       = origin;
+
+    rLog('step', '══ TSP — NEAREST NEIGHBOR ══');
+    rLog('info', 'Ponto inicial: ' + origin.display + ' (' + origin.lat.toFixed(5) + ', ' + origin.lon.toFixed(5) + ')');
+
+    while (remaining.length > 0) {
+        var bestIdx  = -1;
+        var bestDist = Infinity;
+        for (var r = 0; r < remaining.length; r++) {
+            var candidate = stops[remaining[r]];
+            var d = haversineKm(cur.lat, cur.lon, candidate.lat, candidate.lon);
+            if (d < bestDist) {
+                bestDist = d;
+                bestIdx  = r;
+            }
+        }
+        var chosen = remaining.splice(bestIdx, 1)[0];
+        ordered.push(chosen);
+        cur = stops[chosen];
+        rLog('ok', '  → ' + stops[chosen].label + ': ' + stops[chosen].display + ' (Δ=' + bestDist.toFixed(2) + 'km da anterior)');
+    }
+    return ordered; // array de índices originais na nova ordem
+}
+
+/**
+ * Calcula a distância total de uma sequência de pontos (incluindo o retorno
+ * à origem se doCircuito=true). Usa Haversine.
+ */
+function tspTotalDistance(origin, stopsOrdered, doCircuito) {
+    var total = 0;
+    var prev  = origin;
+    for (var i = 0; i < stopsOrdered.length; i++) {
+        total += haversineKm(prev.lat, prev.lon, stopsOrdered[i].lat, stopsOrdered[i].lon);
+        prev = stopsOrdered[i];
+    }
+    if (doCircuito) total += haversineKm(prev.lat, prev.lon, origin.lat, origin.lon);
+    return total;
+}
+
+/**
+ * Melhoria 2-opt: elimina cruzamentos invertendo sub-rotas iterativamente.
+ * Para quando nenhuma troca reduz a distância total (convergência).
+ */
+function tspTwoOpt(origin, stops, doCircuito) {
+    var best    = stops.slice(); // cópia mutável
+    var bestDist = tspTotalDistance(origin, best, doCircuito);
+    var improved = true;
+    var iterations = 0;
+
+    rLog('step', '══ TSP — 2-OPT REFINEMENT ══');
+    rLog('info', 'Distância inicial (pós-NN): ' + bestDist.toFixed(2) + ' km (Haversine)');
+
+    while (improved) {
+        improved  = false;
+        iterations++;
+        for (var i = 0; i < best.length - 1; i++) {
+            for (var k = i + 1; k < best.length; k++) {
+                // Inverte o segmento [i..k]
+                var newRoute = best.slice();
+                var left  = i, right = k;
+                while (left < right) {
+                    var tmp        = newRoute[left];
+                    newRoute[left] = newRoute[right];
+                    newRoute[right] = tmp;
+                    left++; right--;
+                }
+                var newDist = tspTotalDistance(origin, newRoute, doCircuito);
+                if (newDist < bestDist - 0.001) { // tolerância 1m para evitar loop por float
+                    best     = newRoute;
+                    bestDist = newDist;
+                    improved = true;
+                }
+            }
+        }
+    }
+
+    rLog('ok', 'Distância final (pós-2-opt): ' + bestDist.toFixed(2) + ' km | iterações: ' + iterations);
+    return best;
+}
+
+/**
+ * Ponto de entrada: recebe origin (point) e array de stops (points[1..n]).
+ * Retorna array de stops reordenado pela heurística TSP.
+ */
+function optimizarRotaTSP(origin, stops, doCircuito) {
+    if (stops.length <= 1) {
+        rLog('info', 'TSP: ≤1 parada — sem necessidade de otimizar');
+        return stops;
+    }
+
+    rLog('step', '════════════════════════════════');
+    rLog('step', 'TSP — OTIMIZAÇÃO DE ROTA (' + stops.length + ' paradas)');
+    rLog('step', '════════════════════════════════');
+
+    // 1. Nearest Neighbor — constrói ordem inicial
+    var orderedIdx = tspNearestNeighbor(origin, stops);
+    var nnOrdered  = orderedIdx.map(function(i){ return stops[i]; });
+
+    // 2. 2-opt — elimina cruzamentos na ordem NN
+    var optimized  = tspTwoOpt(origin, nnOrdered, doCircuito);
+
+    // Log do antes/depois
+    var distBefore = tspTotalDistance(origin, stops, doCircuito);
+    var distAfter  = tspTotalDistance(origin, optimized, doCircuito);
+    var ganho      = distBefore - distAfter;
+    rLog('ok', 'Ordem original → Haversine total: ' + distBefore.toFixed(2) + ' km');
+    rLog('ok', 'Ordem TSP      → Haversine total: ' + distAfter.toFixed(2) + ' km');
+    if (ganho > 0.5) {
+        rLog('ok', '✅ Ganho de ' + ganho.toFixed(1) + ' km (' + ((ganho/distBefore)*100).toFixed(1) + '%) pela otimização TSP');
+    } else {
+        rLog('info', 'ℹ️ Ordem já estava próxima do ótimo (ganho < 0,5 km)');
+    }
+
+    // Log nova ordem
+    rLog('step', 'NOVA ORDEM DE PARADAS:');
+    for (var i = 0; i < optimized.length; i++) {
+        rLog('val', '  #' + (i+1) + ': ' + optimized[i].display);
+    }
+
+    return optimized;
+}
+
+// ============================================
+// FIM TSP v30
+// ============================================
+
+
 async function planRoute() {
     var originAddr = document.getElementById('originInput').value.trim();
     var stopObjs = getStopAddresses(); // [{addr, display}]
@@ -2691,6 +2890,48 @@ async function planRoute() {
         }
         if (deduped.length !== points.length) rLog('ok', 'Após dedupe: '+deduped.length+' pontos efetivos');
         points = deduped;
+
+        // ── ★ v30: TSP — REORDENA PARADAS POR COORDENADAS ──
+        // Roda após geocodificar tudo e ANTES do OSRM.
+        // Preserva sempre o ponto 0 (origem) fixo.
+        var doTSP = document.getElementById('tspCheck').checked;
+        if (doTSP && points.length > 2) {
+            // Separa origem das paradas intermediárias
+            // Se circuito ativo, o último ponto é o retorno à origem — preservamos separado
+            var tspOrigin = points[0];
+            var tspStops;
+            if (doCircuito && points[points.length-1].label === 'Origem (retorno)') {
+                tspStops = points.slice(1, points.length - 1);
+            } else {
+                tspStops = points.slice(1);
+            }
+
+            resultDiv.innerHTML = '<p>⏳ Otimizando ordem das paradas (TSP)...</p>';
+            var stopsOtimizadas = optimizarRotaTSP(tspOrigin, tspStops, doCircuito);
+
+            // Reconstrói o array de points com rótulos atualizados
+            var newPoints = [tspOrigin];
+            for (var ti = 0; ti < stopsOtimizadas.length; ti++) {
+                var sp = stopsOtimizadas[ti];
+                newPoints.push({
+                    lat: sp.lat, lon: sp.lon,
+                    display: sp.display,
+                    label: 'Parada #' + (ti + 1),
+                    input: sp.input || '',
+                    bairro: sp.bairro || ''
+                });
+            }
+            if (doCircuito) {
+                newPoints.push({ lat: tspOrigin.lat, lon: tspOrigin.lon, display: tspOrigin.display, label: 'Origem (retorno)', input: originAddr });
+            }
+            points = newPoints;
+            rLog('ok', 'Pontos reordenados pelo TSP. Total: ' + points.length);
+        } else if (doTSP) {
+            rLog('info', 'TSP: skipped (≤2 pontos totais — sem ganho possível)');
+        } else {
+            rLog('info', 'TSP: desativado pelo usuário — usando ordem original');
+        }
+        rFlush();
 
         // ROTAS + PEDÁGIOS
         var legs = [], totalDist = 0, totalDur = 0, totalTolls = [], totalTollCost = 0;
