@@ -1006,7 +1006,10 @@ async function nominatimSearch(query, viewboxStr) {
                 results.push({
                     lat: coords[1].toString(),
                     lon: coords[0].toString(),
-                    display_name: parts.filter(Boolean).join(', ') || (coords[1] + ', ' + coords[0])
+                    display_name: parts.filter(Boolean).join(', ') || (coords[1] + ', ' + coords[0]),
+                    _city: p.city || p.municipality || '',          // ★ v26: City Strict Match
+                    _state: p.state || '',
+                    _street: p.street || p.name || ''
                 });
             }
         }
@@ -1463,8 +1466,38 @@ function consensusVote(candidates, anchor, cepData) {
 }
 
 // ============================================
-// GEOCODIFICAÇÃO PRINCIPAL
+// ★ v26: CITY STRICT MATCH
+// Se o resultado do Photon tiver campo estruturado _city,
+// compara com a cidade esperada (ViaCEP). Bloqueia homônimos
+// em municípios vizinhos (ex: "Rua Amador Bueno, Guarulhos"
+// quando o usuário pediu "São Paulo").
 // ============================================
+function norm(s) {
+    return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
+}
+
+function cidadeCompativel(resultado, cidadeEsperada) {
+    if (!cidadeEsperada) return { ok: true, motivo: 'sem cidade esperada' };
+    var cidadeRes = resultado._city || '';
+    if (!cidadeRes) return { ok: true, motivo: 'Photon sem campo city — não bloqueia' };
+
+    var nEsp = norm(cidadeEsperada);
+    var nRes = norm(cidadeRes);
+
+    // Correspondência exata ou uma contém a outra
+    if (nRes === nEsp || nRes.indexOf(nEsp) !== -1 || nEsp.indexOf(nRes) !== -1) {
+        return { ok: true, motivo: '✅ city OK: "' + cidadeRes + '" ≈ "' + cidadeEsperada + '"' };
+    }
+    // Levenshtein normalizado (tolera variações como "Sao Paulo" vs "São Paulo")
+    var sim = 1 - levenshtein(nEsp, nRes) / Math.max(nEsp.length, nRes.length, 1);
+    if (sim >= 0.75) {
+        return { ok: true, motivo: '✅ city OK (sim=' + sim.toFixed(2) + '): "' + cidadeRes + '" ≈ "' + cidadeEsperada + '"' };
+    }
+    return {
+        ok: false,
+        motivo: '❌ CITY MISMATCH (sim=' + sim.toFixed(2) + '): esperado "' + cidadeEsperada + '" mas Photon retornou "' + cidadeRes + '" — BLOQUEADO'
+    };
+}
 async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
     var cep = parseCepInput(input);
 
@@ -1697,12 +1730,15 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
                     if (temLogradouro && q < queries.length - 1) { // última query é só cidadeUf → não aplica
                         strCheck = validarLogradouro(results[ri].display_name, cepData.logradouro);
                     }
-                    var strTag = strCheck.ok ? '' : ' ✗ STR';
-                    rLog(d <= MAX_DIST_FROM_CITY_KM && strCheck.ok ? 'ok' : 'warn',
+                    // ★ v26: City Strict Match — usa campo estruturado _city do Photon
+                    var cityCheck = cidadeCompativel(results[ri], cepData.cidade);
+                    var strTag = (!strCheck.ok ? ' ✗ STR' : '') + (!cityCheck.ok ? ' ✗ CITY' : '');
+                    rLog(d <= MAX_DIST_FROM_CITY_KM && strCheck.ok && cityCheck.ok ? 'ok' : 'warn',
                         '#' + (ri+1) + ': ' + d.toFixed(2) + 'km' + marker + strTag + ' → ' + results[ri].display_name);
                     if (strCheck.ok) rLog('dim', '   ' + strCheck.motivo);
                     else             rLog('warn', '   ' + strCheck.motivo);
-                    if (d <= MAX_DIST_FROM_CITY_KM && strCheck.ok) validos.push({ r: results[ri], d: d });
+                    if (!cityCheck.ok) rLog('warn', '   ' + cityCheck.motivo);
+                    if (d <= MAX_DIST_FROM_CITY_KM && strCheck.ok && cityCheck.ok) validos.push({ r: results[ri], d: d });
                 }
 
                 if (validos.length > 0) {
@@ -1748,13 +1784,23 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
                 var bData = await bResp.json();
                 if (bData.length > 0) {
                     for (var bi = 0; bi < bData.length; bi++) {
-                        var bPt = { lat: parseFloat(bData[bi].lat), lon: parseFloat(bData[bi].lon), display: bData[bi].display_name };
+                        // Extrai _city do addressdetails do Nominatim (campo address.city/town/village)
+                        var bAddr = bData[bi].address || {};
+                        var bCityField = bAddr.city || bAddr.town || bAddr.village || bAddr.municipality || '';
+                        var bPt = {
+                            lat: parseFloat(bData[bi].lat), lon: parseFloat(bData[bi].lon),
+                            display: bData[bi].display_name,
+                            _city: bCityField, _street: bAddr.road || bAddr.pedestrian || ''
+                        };
                         var bDist = haversineKm(anchor.lat, anchor.lon, bPt.lat, bPt.lon);
-                        // ★ v25: trava de logradouro também na tentativa 3
+                        // ★ v25: trava de logradouro
                         var bStrCheck = temLogradouro ? validarLogradouro(bPt.display, cepData.logradouro) : { ok: true, motivo: '' };
-                        var bTag = bStrCheck.ok ? '' : ' ✗ STR';
+                        // ★ v26: City Strict Match
+                        var bCityCheck = cidadeCompativel(bPt, cepData.cidade);
+                        var bTag = (!bStrCheck.ok ? ' ✗ STR' : '') + (!bCityCheck.ok ? ' ✗ CITY' : '');
                         rLog('info', 'Bounded #' + (bi+1) + ': ' + bDist.toFixed(1) + 'km' + bTag + ' → ' + bPt.display);
                         if (!bStrCheck.ok) { rLog('warn', '   ' + bStrCheck.motivo); continue; }
+                        if (!bCityCheck.ok) { rLog('warn', '   ' + bCityCheck.motivo); continue; }
                         if (bDist <= MAX_DIST_FROM_CITY_KM) {
                             var bVal = validarContraCorreios(bPt, cepData);
                             if (bVal.valido) {
