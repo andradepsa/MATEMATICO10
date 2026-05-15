@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora Multi-Paradas para Entregas — v23</title>
+    <title>Calculadora Multi-Paradas para Entregas — v24</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -116,18 +116,17 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v23 — Âncoras sub-regionais granulares + getCityCentroid no último recurso (sem coordenada duplicada)</strong></p>
+            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v24 — Suporte a formato completo: CEP, Rua, Número, Município, Estado, Brasil + tabela de endereços enriquecida</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
             <div class="format-hint">
                 📌 <strong>Formatos aceitos em qualquer campo:</strong><br>
-                <code>01310-100, 1000</code> CEP com traço + número<br>
-                <code>01310100, 1000</code> CEP sem traço + número<br>
-                <code>01310-100 nº 1000</code> CEP + nº + número<br>
+                <code>01310-100, 1000</code> CEP + número<br>
+                <code>01310-100, Av. Paulista, 1000, São Paulo, SP, Brasil</code> formato completo<br>
                 <code>01310-100</code> só o CEP (sem número)<br>
-                <code>Av. Paulista, 1000, São Paulo</code> endereço normal<br>
-                <br>💡 <strong>Dica:</strong> Use o botão <strong>📋 Colar Lista</strong> para adicionar vários endereços de uma vez! Também pode colar direto do Excel em qualquer campo.
+                <code>Av. Paulista, 1000, São Paulo, SP</code> endereço normal<br>
+                <br>💡 <strong>Dica:</strong> Use o botão <strong>📋 Colar Lista</strong> para adicionar vários endereços de uma vez! Aceita o formato <em>CEP, Rua, Número, Município, Estado, Brasil</em> — um por linha.
             </div>
 
             <div class="origin-box">
@@ -148,10 +147,10 @@
                     <h3>📋 Colar Lista de Endereços</h3>
                     <p>Cole uma lista com <strong>um endereço por linha</strong>. Aceita CEP+número, endereço completo, ou misturado:</p>
                     <p style="background:#fef3c7;padding:6px 10px;border-radius:8px;border:1px solid #fcd34d;color:#92400e;">
-                        <code>08730-000, 400</code><br>
-                        <code>01310-100, 1000</code><br>
-                        <code>Av. Paulista, 1000, São Paulo, SP</code><br>
-                        <code>09400-000, 8</code>
+                        <code>08730-000, Rua Ipiranga, 400, Mogi das Cruzes, SP, Brasil</code><br>
+                        <code>08143-110, Rua José Augusto Lobo, 66, São Paulo, SP, Brasil</code><br>
+                        <code>08730-000, 400</code> — CEP + número (formato curto)<br>
+                        <code>Av. Paulista, 1000, São Paulo, SP</code> — endereço normal
                     </p>
                     <textarea id="pasteArea" placeholder="Cole seus endereços aqui — um por linha..." oninput="previewPasteList()"></textarea>
                     <div class="preview-box" id="pastePreview"></div>
@@ -258,16 +257,17 @@ var LEG_COLORS = ['#e63946','#2a9d8f','#e9c46a','#264653','#f4a261','#6a4c93','#
 // PARADAS
 // ============================================
 var stopCount = 0;
-function addStop(value) {
+function addStop(value, displayValue) {
     stopCount++;
     var uid = stopCount; // UID imutável para o DOM element
     var div = document.createElement('div');
     div.className = 'stop-item';
     div.id = 'stop-' + uid;
     div.setAttribute('data-uid', uid);
+    var dispAttr = displayValue ? ' data-fulldisplay="' + escHtml(displayValue) + '"' : '';
     div.innerHTML =
         '<span class="stop-number">?</span>' +
-        '<input type="text" id="stopInput-' + uid + '" placeholder="CEP+número ou endereço" value="' + (value || '') + '" onblur="previewSinglePin(\'stopInput-' + uid + '\',\'stop-' + uid + '\')">' +
+        '<input type="text" id="stopInput-' + uid + '" placeholder="CEP+número ou endereço" value="' + (value || '') + '"' + dispAttr + ' onblur="previewSinglePin(\'stopInput-' + uid + '\',\'stop-' + uid + '\')">' +
         '<button class="stop-remove" onclick="removeStop(' + uid + ')" title="Remover">×</button>';
     document.getElementById('stopsList').appendChild(div);
     renumberStops(); // atualiza rótulos visuais
@@ -288,9 +288,13 @@ function getStopAddresses() {
     var inputs = document.querySelectorAll('.stops-list input[type="text"]');
     for (var i = 0; i < inputs.length; i++) {
         var v = inputs[i].value.trim();
-        if (v) arr.push(v);
+        if (v) arr.push({ addr: v, display: inputs[i].getAttribute('data-fulldisplay') || v });
     }
     return arr;
+}
+// Retorna só os endereços (compatibilidade)
+function getStopAddressesRaw() {
+    return getStopAddresses().map(function(x){ return x.addr; });
 }
 
 // Exemplos
@@ -318,6 +322,48 @@ function clearBeforePaste() {
     stopCount = 0;
 }
 
+// ============================================
+// NORMALIZAÇÃO DO FORMATO COMPLETO
+// Aceita: CEP, Rua, Número, Município, Estado[, Brasil]
+// Converte para: "Rua, Número, Município, Estado, Brasil"
+// preservando o CEP como prefixo para o modo smartGeocode
+// ============================================
+function normalizeFullAddressFormat(line) {
+    // Detecta CEP no início seguido de pelo menos 4 campos separados por vírgula
+    // Ex: "08143-110, Rua José Augusto Lobo, 66, São Paulo, SP, Brasil"
+    var m = line.match(/^(\d{5}-?\d{3})\s*,\s*(.+?,\s*.+?,\s*.+?,\s*[A-Z]{2})(?:\s*,\s*Brasil)?\s*$/i);
+    if (!m) return null;
+
+    var cepRaw = m[1].replace('-','');
+    var cepFmt = cepRaw.substring(0,5) + '-' + cepRaw.substring(5);
+    // resto: "Rua X, Número, Cidade, SP"
+    var rest = m[2].trim();
+    // Divide em partes: [logradouro, numero, municipio, estado]
+    var parts = rest.split(/\s*,\s*/);
+    if (parts.length < 4) return null;
+
+    var logradouro = parts[0].trim();
+    var numero     = parts[1].trim();
+    var municipio  = parts[2].trim();
+    var estado     = parts[3].trim().toUpperCase();
+
+    // Resultado: monta endereço completo que o smartGeocode entende
+    // Formato "CEP, numero" dispara o modo CEP com ViaCEP; o endereço completo
+    // é guardado no campo display para exibição na tabela.
+    return {
+        // O que vai para o campo de input (e para smartGeocode)
+        cleaned: cepFmt + ', ' + numero,
+        // Texto descritivo para exibição no preview e na tabela
+        display: logradouro + ', ' + numero + ', ' + municipio + ' - ' + estado + ', Brasil (CEP ' + cepFmt + ')',
+        cep: cepFmt,
+        numero: numero,
+        logradouro: logradouro,
+        municipio: municipio,
+        estado: estado,
+        isFullFormat: true
+    };
+}
+
 // Valida uma linha individual
 function validatePasteLine(line) {
     line = line.trim();
@@ -331,7 +377,21 @@ function validatePasteLine(line) {
 
     if (!line) return { valid: false, reason: 'vazio após limpeza', cleaned: '' };
     if (line.length < 4) return { valid: false, reason: 'muito curto (' + line.length + ' chars)', cleaned: line };
-    if (line.length > 200) return { valid: false, reason: 'muito longo (' + line.length + ' chars)', cleaned: line };
+    if (line.length > 300) return { valid: false, reason: 'muito longo (' + line.length + ' chars)', cleaned: line };
+
+    // ★ v24: Detecta formato completo: CEP, Rua, Número, Município, Estado[, Brasil]
+    var fullFmt = normalizeFullAddressFormat(line);
+    if (fullFmt) {
+        return {
+            valid: true,
+            type: 'cep_completo',
+            cep: fullFmt.cep,
+            numero: fullFmt.numero,
+            cleaned: fullFmt.cleaned,
+            displayHint: fullFmt.display,
+            original: line
+        };
+    }
 
     // Detecta formato CEP (com ou sem traço)
     var cepMatch = line.match(/\b(\d{5})-?(\d{3})\b/);
@@ -401,10 +461,11 @@ function previewPasteList() {
         }
         seen[chave] = true;
 
-        var icon = result.type === 'cep' ? '📮' : (result.type === 'endereco' ? '📍' : '❓');
+        var icon = result.type === 'cep_completo' ? '📮' : (result.type === 'cep' ? '📮' : (result.type === 'endereco' ? '📍' : '❓'));
         var warnTag = result.warning ? ' <span class="preview-warn">(' + result.warning + ')</span>' : '';
-        html += '<div class="preview-ok">' + icon + ' ' + escHtml(result.cleaned) + warnTag + '</div>';
-        _lastPasteLines.push(result.cleaned);
+        var labelText = result.displayHint || result.cleaned;
+        html += '<div class="preview-ok">' + icon + ' ' + escHtml(labelText) + warnTag + '</div>';
+        _lastPasteLines.push(result.displayHint ? { cleaned: result.cleaned, displayHint: result.displayHint } : result.cleaned);
         validCount++;
     }
 
@@ -430,7 +491,12 @@ function previewPasteList() {
 function confirmPasteList() {
     if (_lastPasteLines.length === 0) return;
     for (var i = 0; i < _lastPasteLines.length; i++) {
-        addStop(_lastPasteLines[i]);
+        var item = _lastPasteLines[i];
+        if (typeof item === 'object') {
+            addStop(item.cleaned, item.displayHint || null);
+        } else {
+            addStop(item);
+        }
     }
     closePasteModal();
 }
@@ -527,6 +593,7 @@ function buildAddrReport(points, failedStops) {
             role: role,
             input: p.input || '',
             found: p.display || '',
+            bairro: p.bairro || '',
             lat: p.lat,
             lon: p.lon,
             status: 'ok'
@@ -541,6 +608,7 @@ function buildAddrReport(points, failedStops) {
             role: '❌ #' + (failedStops[f].num || '?'),
             input: failedStops[f].addr || '',
             found: failedStops[f].err || 'Não encontrado',
+            bairro: '',
             lat: null,
             lon: null,
             status: 'fail'
@@ -560,7 +628,7 @@ function buildAddrReport(points, failedStops) {
 
     // Tabela
     var html = '<table class="addr-table">';
-    html += '<tr><th>#</th><th>Digitado</th><th>Encontrado</th><th>Coordenadas</th><th>✓</th></tr>';
+    html += '<tr><th>#</th><th>CEP</th><th>Logradouro</th><th>Nº</th><th>Bairro</th><th>Município</th><th>Estado</th><th>Encontrado</th><th>Coords</th><th>✓</th></tr>';
 
     for (var r = 0; r < _addrReportData.length; r++) {
         var d = _addrReportData[r];
@@ -569,9 +637,37 @@ function buildAddrReport(points, failedStops) {
         var coordStr = d.lat !== null ? d.lat.toFixed(6) + ', ' + d.lon.toFixed(6) : '—';
         var foundClass = d.status === 'ok' ? 'addr-found' : 'preview-err';
 
+        // Tenta parsear campos do input (formato completo ou CEP+número)
+        var fCep = '', fRua = '', fNum = '', fBairro = '', fMun = '', fEst = '';
+        var fullParsed = normalizeFullAddressFormat(d.input || '');
+        if (fullParsed) {
+            fCep = fullParsed.cep;
+            fRua = fullParsed.logradouro;
+            fNum = fullParsed.numero;
+            fMun = fullParsed.municipio;
+            fEst = fullParsed.estado;
+        } else {
+            // Tenta extrair ao menos o CEP
+            var cepP = parseCepInput(d.input || '');
+            if (cepP) {
+                fCep = cepP.cepFmt;
+                fNum = cepP.numero || '';
+            }
+            // Tenta extrair município/estado do display do geocodificador
+            var cuP = extractCityUF(d.found || '');
+            if (cuP) { fMun = cuP.cidade; fEst = cuP.uf; }
+        }
+        // Bairro: vem do ViaCEP (via point.bairro) ou do input se disponível
+        fBairro = d.bairro || '';
+
         html += '<tr' + rowStyle + '>';
         html += '<td style="font-weight:700;white-space:nowrap;">' + d.role + '</td>';
-        html += '<td class="addr-input">' + escHtml(d.input) + '</td>';
+        html += '<td class="addr-input" style="white-space:nowrap;">' + escHtml(fCep) + '</td>';
+        html += '<td class="addr-input">' + escHtml(fRua) + '</td>';
+        html += '<td class="addr-input" style="white-space:nowrap;">' + escHtml(fNum) + '</td>';
+        html += '<td class="addr-input">' + escHtml(fBairro) + '</td>';
+        html += '<td class="addr-input">' + escHtml(fMun) + '</td>';
+        html += '<td class="addr-input" style="white-space:nowrap;">' + escHtml(fEst) + '</td>';
         html += '<td class="' + foundClass + '">' + escHtml(d.found) + '</td>';
         html += '<td class="addr-coords">' + coordStr + '</td>';
         html += '<td class="addr-status">' + statusIcon + '</td>';
@@ -592,11 +688,21 @@ function copyAddrReport(format) {
     var data = _addrReportData;
 
     if (format === 'csv') {
-        lines.push('#;Digitado;Encontrado;Latitude;Longitude;Status');
+        lines.push('#;CEP;Logradouro;Numero;Bairro;Municipio;Estado;Encontrado;Latitude;Longitude;Status');
         for (var i = 0; i < data.length; i++) {
             var d = data[i];
+            var fCep2 = '', fRua2 = '', fNum2 = '', fBairro2 = '', fMun2 = '', fEst2 = '';
+            var fp2 = normalizeFullAddressFormat(d.input || '');
+            if (fp2) { fCep2=fp2.cep; fRua2=fp2.logradouro; fNum2=fp2.numero; fMun2=fp2.municipio; fEst2=fp2.estado; }
+            else {
+                var cp2 = parseCepInput(d.input || '');
+                if (cp2) { fCep2=cp2.cepFmt; fNum2=cp2.numero||''; }
+                var cu2 = extractCityUF(d.found||'');
+                if (cu2) { fMun2=cu2.cidade; fEst2=cu2.uf; }
+            }
+            fBairro2 = d.bairro || '';
             lines.push(
-                d.num + ';"' + d.input + '";"' + d.found + '";' +
+                d.num + ';"' + fCep2 + '";"' + fRua2 + '";"' + fNum2 + '";"' + fBairro2 + '";"' + fMun2 + '";"' + fEst2 + '";"' + d.found + '";' +
                 (d.lat !== null ? d.lat.toFixed(6) : '') + ';' +
                 (d.lon !== null ? d.lon.toFixed(6) : '') + ';' +
                 (d.status === 'ok' ? 'OK' : 'FALHOU')
@@ -1031,7 +1137,7 @@ function buildOverpassPoint(pt, street, numero, cepData) {
     if (numero) display += ', ' + numero;
     if (cepData.bairro) display += ', ' + cepData.bairro;
     display += ', ' + cepData.cidade + ' - ' + cepData.uf + ', Brasil';
-    return { lat: pt.lat, lon: pt.lon, display: display };
+    return { lat: pt.lat, lon: pt.lon, display: display, bairro: cepData.bairro || '' };
 }
 
 // Seleciona o resultado mais próximo de um ponto de referência
@@ -1292,6 +1398,12 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
 
         var cepData = await lookupCEP(cep.cep);
 
+        // Helper: injeta bairro do ViaCEP em qualquer ponto retornado
+        function addBairro(pt) {
+            if (pt && cepData && cepData.bairro) pt.bairro = cepData.bairro;
+            return pt;
+        }
+
         if (!cepData) {
             rLog('warn', 'ViaCEP: CEP nao encontrado. Ativando Fallback em Cascata v22...');
 
@@ -1342,7 +1454,7 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
                     }
                     if (fbBest2) {
                         rLog('ok', '[Fallback v22] ACEITO → ' + fbBest2.display_name);
-                        return resultToPoint(fbBest2);
+                        return addBairro(resultToPoint(fbBest2));
                     }
                 }
 
@@ -1356,11 +1468,11 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
                         var lrDist = haversineKm(fb2Anchor.lat, fb2Anchor.lon, lastResortCentroid.lat, lastResortCentroid.lon);
                         if (lrDist < 40) {
                             rLog('ok', '[Fallback v23] Centróide de ' + fb2Anchor.city + ' aceito: lat=' + lastResortCentroid.lat.toFixed(4) + ' lon=' + lastResortCentroid.lon.toFixed(4));
-                            return {
+                            return addBairro({
                                 lat: lastResortCentroid.lat, lon: lastResortCentroid.lon,
                                 display: cep.cepFmt + (cep.numero ? ', ' + cep.numero : '')
                                          + ' (' + fb2Anchor.city + ' — CEP sem cadastro postal)'
-                            };
+                            });
                         }
                         rLog('warn', '[Fallback v23] Centróide de ' + fb2Anchor.city + ' a ' + lrDist.toFixed(1) + 'km — fora do raio, descartado');
                     }
@@ -1460,7 +1572,7 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
                     var ovDistAnchor = haversineKm(anchor.lat, anchor.lon, ovResult.lat, ovResult.lon);
                     if (ovDistAnchor <= MAX_DIST_FROM_CITY_KM) {
                         rLog('ok', '✅ Overpass ACEITO (' + ovDistAnchor.toFixed(1) + 'km da âncora)');
-                        return ovResult;
+                        return addBairro(ovResult);
                     } else {
                         rLog('warn', 'Overpass a ' + ovDistAnchor.toFixed(0) + 'km da âncora — rejeitado');
                     }
@@ -1511,7 +1623,7 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
                     // ★ v17: VALIDAÇÃO CRUZADA — checa se a cidade bate com os Correios
                     var validacao = validarContraCorreios(candidato, cepData);
                     if (validacao.valido) {
-                        return candidato;
+                        return addBairro(candidato);
                     }
                     // Cidade errada! Tenta o próximo válido
                     rLog('warn', 'Resultado #1 rejeitado pela validação. Testando outros...');
@@ -1519,7 +1631,7 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
                         var cand2 = resultToPoint(validos[vi].r);
                         var val2 = validarContraCorreios(cand2, cepData);
                         if (val2.valido) {
-                            return cand2;
+                            return addBairro(cand2);
                         }
                     }
                     rLog('warn', 'Nenhum resultado desta query passou na validação Correios');
@@ -1554,7 +1666,7 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
                             var bVal = validarContraCorreios(bPt, cepData);
                             if (bVal.valido) {
                                 rLog('ok', '✅ Bounded ACEITO');
-                                return bPt;
+                                return addBairro(bPt);
                             }
                         }
                     }
@@ -1571,13 +1683,13 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
             rLog('warn', 'Usando CENTRÓIDE de ' + cepData.cidade + '/' + cepData.uf);
             var displayFb = cepData.logradouro ? (cepData.logradouro + (cep.numero ? ', ' + cep.numero : '')) : '';
             displayFb += (displayFb ? ', ' : '') + (cepData.bairro || '') + ', ' + cepData.cidade + ' - ' + cepData.uf + ' (centróide — CEP ' + cep.cepFmt + ')';
-            return { lat: centroid.lat, lon: centroid.lon, display: displayFb };
+            return { lat: centroid.lat, lon: centroid.lon, display: displayFb, bairro: cepData.bairro || '' };
         }
         // Só usa postalAnchor se ele NÃO foi descartado pela cross-validação
         if (postalAnchor) {
             rLog('warn', 'Usando postalAnchor (validado): ' + postalAnchor.display);
             var displayFb2 = cepData.cidade + ' - ' + cepData.uf + ', Brasil (postalcode — CEP ' + cep.cepFmt + ')';
-            return { lat: postalAnchor.lat, lon: postalAnchor.lon, display: displayFb2 };
+            return { lat: postalAnchor.lat, lon: postalAnchor.lon, display: displayFb2, bairro: cepData.bairro || '' };
         }
 
         throw new Error('CEP ' + cep.cepFmt + ' não geocodificável em ' + cepData.cidade + '/' + cepData.uf);
@@ -2158,7 +2270,13 @@ async function calcTollsReal(geometry, routeRefs, routeNames, legNum) {
 // ============================================
 async function planRoute() {
     var originAddr = document.getElementById('originInput').value.trim();
-    var stopAddrsRaw = getStopAddresses();
+    var stopObjs = getStopAddresses(); // [{addr, display}]
+    var stopAddrsRaw = stopObjs.map(function(x){ return x.addr; });
+    // Mapa addr → display enriquecido para lookup no loop
+    var stopDisplayMap = {};
+    for (var sd = 0; sd < stopObjs.length; sd++) {
+        stopDisplayMap[stopObjs[sd].addr] = stopObjs[sd].display;
+    }
     var resultDiv = document.getElementById('resultArea');
     var btn = document.getElementById('calculateBtn');
     var doCircuito = document.getElementById('circuitoCheck').checked;
@@ -2214,7 +2332,7 @@ async function planRoute() {
         // ORIGEM
         resultDiv.innerHTML = '<p>⏳ Geocodificando origem...</p>';
         var orig = await smartGeocode(originAddr, null, null, null, resultDiv);
-        points.push({ lat: orig.lat, lon: orig.lon, display: orig.display, label: 'Origem', input: originAddr });
+        points.push({ lat: orig.lat, lon: orig.lon, display: orig.display, label: 'Origem', input: originAddr, bairro: orig.bairro || '' });
         rFlush();
 
         // PARADAS
@@ -2222,7 +2340,9 @@ async function planRoute() {
             resultDiv.innerHTML = '<p>⏳ Geocodificando parada ' + (i+1) + '/' + stopAddrs.length + '...</p>';
             var prev = points[points.length-1];
             var pt = await smartGeocode(stopAddrs[i], prev.lat, prev.lon, prev.label, resultDiv);
-            points.push({ lat: pt.lat, lon: pt.lon, display: pt.display, label: 'Parada #' + (i+1), input: stopAddrs[i] });
+            // Usa o display enriquecido do formato completo (se disponível) para a tabela de relatório
+            var stopDisplayInput = stopDisplayMap[stopAddrs[i]] || stopAddrs[i];
+            points.push({ lat: pt.lat, lon: pt.lon, display: pt.display, label: 'Parada #' + (i+1), input: stopDisplayInput, bairro: pt.bairro || '' });
             rFlush();
         }
 
