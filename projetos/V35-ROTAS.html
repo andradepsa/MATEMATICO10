@@ -381,7 +381,10 @@ function normalizeFullAddressFormat(line) {
     }
 
     return {
-        cleaned:    cepFmt + ', ' + numero,
+        // ★ v34: cleaned preserva o endereço completo (antes era só CEP+nº, agora sem API postal precisa da rua)
+        cleaned:    cepFmt + ', ' + logradouro + ', ' + numero
+                    + (bairro ? ', ' + bairro : '')
+                    + ', ' + municipio + ', ' + estado + ', Brasil',
         display:    logradouro + ', ' + numero
                     + (bairro ? ', ' + bairro : '')
                     + ', ' + municipio + ' - ' + estado + ', Brasil (CEP ' + cepFmt + ')',
@@ -1419,6 +1422,20 @@ function validarContraCorreios(point, cepData) {
 
     var cidadeOk = dNorm.indexOf(cidadeN) !== -1;
     var ufOk = dNorm.indexOf(ufN) !== -1;
+
+    // ★ v34: Nominatim retorna "São Paulo" mas cepData.uf pode ser "SP"
+    // Aceita tanto a sigla quanto o nome completo do estado
+    if (!ufOk) {
+        var UF_NAMES = {AC:'acre',AL:'alagoas',AP:'amapa',AM:'amazonas',BA:'bahia',CE:'ceara',DF:'distrito federal',ES:'espirito santo',GO:'goias',MA:'maranhao',MT:'mato grosso',MS:'mato grosso do sul',MG:'minas gerais',PA:'para',PB:'paraiba',PR:'parana',PE:'pernambuco',PI:'piaui',RJ:'rio de janeiro',RN:'rio grande do norte',RS:'rio grande do sul',RO:'rondonia',RR:'roraima',SC:'santa catarina',SP:'sao paulo',SE:'sergipe',TO:'tocantins'};
+        var ufFull = UF_NAMES[cepData.uf.toUpperCase()];
+        if (ufFull && dNorm.indexOf(ufFull) !== -1) ufOk = true;
+        // Também tenta o inverso: cepData.uf pode ser "São Paulo" e display ter "SP"
+        if (!ufOk) {
+            for (var sigla in UF_NAMES) {
+                if (norm(cepData.uf) === UF_NAMES[sigla] && dNorm.indexOf(norm(sigla)) !== -1) { ufOk = true; break; }
+            }
+        }
+    }
 
     // Log detalhado da comparação
     rLog('step', '══ VALIDAÇÃO CRUZADA: Correios vs Geocodificador ══');
