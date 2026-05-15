@@ -116,7 +116,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v15 — Âncora postalcode + trava Haversine + dedupe de entrada</strong></p>
+            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v16 — Blindagem ViaCEP + viewbox permanente + trava Haversine 50km</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -1048,7 +1048,7 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
     var cep = parseCepInput(input);
 
     if (cep) {
-        // ═══════ MODO CEP ═══════
+        // ═══════ MODO CEP — BLINDADO VIA VIACEP ═══════
         rLog('step', 'GEOCODIFICAÇÃO (CEP): "' + input + '"');
         rLog('ok', 'CEP detectado: ' + cep.cepFmt + (cep.numero ? ' | Número: ' + cep.numero : ' | SEM NÚMERO'));
 
@@ -1059,83 +1059,104 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
             return await geocodeAsAddress(input, refLat, refLon, refLabel);
         }
 
-        // ★ v15: âncora primária = postalcode no Nominatim; secundária = centróide da cidade do ViaCEP
-        // NUNCA usa a parada anterior como âncora em modo CEP (causava bug histórico Ribeirão↔Rio Preto)
+        // ★ v16: ÂNCORA OBRIGATÓRIA — sem âncora = sem geocodificação
+        // Prioridade: postalcode no Nominatim > centróide da cidade ViaCEP
         var postalAnchor = await nominatimByPostalcode(cep.cep);
         var centroid = await getCityCentroid(cepData.cidade, cepData.uf);
         var anchor = postalAnchor || centroid;
+
         if (postalAnchor) rLog('ok', 'Âncora: postalcode ' + cep.cepFmt);
         else if (centroid) rLog('ok', 'Âncora: centróide de ' + cepData.cidade + '/' + cepData.uf);
-        else rLog('err', 'SEM âncora geográfica para ' + cep.cepFmt + ' — fallback puro a Nominatim (alto risco)');
+        else {
+            rLog('err', 'SEM âncora para ' + cep.cepFmt + ' — usando centróide genérico de ' + cepData.cidade);
+            // Última cartada: tenta geocodificar a cidade como texto puro
+            var fallbackResults = await nominatimSearch(cepData.cidade + ', ' + cepData.uf + ', Brasil', null);
+            if (fallbackResults.length > 0) {
+                anchor = { lat: parseFloat(fallbackResults[0].lat), lon: parseFloat(fallbackResults[0].lon) };
+                rLog('ok', 'Âncora recuperada via busca textual: ' + fallbackResults[0].display_name);
+            }
+        }
 
+        if (!anchor) {
+            rLog('err', 'IMPOSSÍVEL ancorar CEP ' + cep.cepFmt + ' — abortando para evitar falso positivo');
+            throw new Error('CEP ' + cep.cepFmt + ': cidade "' + cepData.cidade + '" não encontrada no mapa');
+        }
+
+        // ★ v16: VIEWBOX SEMPRE ATIVO em modo CEP (nunca null!)
+        // Raio de 0.5° (~55km) centrado na âncora — garante que Nominatim
+        // NUNCA devolve resultados de outros estados
+        var vb = (anchor.lon-0.5).toFixed(4)+','+(anchor.lat-0.5).toFixed(4)+','+(anchor.lon+0.5).toFixed(4)+','+(anchor.lat+0.5).toFixed(4);
+
+        // ★ v16: QUERIES BLINDADAS — sempre inclui cidade+UF para evitar
+        // que o número solto (ex: "66") vire endereço em outra cidade
         var queries = [];
-        if (cepData.logradouro) {
-            var parts1 = [cepData.logradouro];
-            if (cep.numero) parts1.push(cep.numero);
-            if (cepData.bairro) parts1.push(cepData.bairro);
-            parts1.push(cepData.cidade);
-            parts1.push(cepData.uf);
-            queries.push(parts1.join(', '));
-        }
-        if (cepData.logradouro) queries.push(cepData.logradouro + ', ' + cepData.cidade + ', ' + cepData.uf);
-        if (cepData.logradouro && cep.numero) queries.push(cepData.logradouro + ', ' + cep.numero + ', ' + cepData.cidade + ', ' + cepData.uf + ', Brasil');
-        if (cepData.bairro) queries.push(cepData.bairro + ', ' + cepData.cidade + ', ' + cepData.uf);
-        if (cepData.logradouro) queries.push(cepData.logradouro + ', ' + cepData.cidade + ', Brasil');
-        queries.push(cepData.cidade + ', ' + cepData.uf);
+        var temLogradouro = cepData.logradouro && cepData.logradouro.length > 2;
+        var temBairro = cepData.bairro && cepData.bairro.length > 2;
+        var cidadeUf = cepData.cidade + ', ' + cepData.uf + ', Brasil';
 
-        // Viewbox AO REDOR DA ÂNCORA (postalcode > centróide)
-        var vb = null;
-        if (anchor) {
-            vb = (anchor.lon-1.0).toFixed(4)+','+(anchor.lat-1.0).toFixed(4)+','+(anchor.lon+1.0).toFixed(4)+','+(anchor.lat+1.0).toFixed(4);
+        if (temLogradouro) {
+            // CEP específico (tem rua) — queries com logradouro + cidade
+            if (cep.numero) {
+                queries.push(cepData.logradouro + ', ' + cep.numero + ', ' + (temBairro ? cepData.bairro + ', ' : '') + cidadeUf);
+            }
+            queries.push(cepData.logradouro + ', ' + (temBairro ? cepData.bairro + ', ' : '') + cidadeUf);
+            queries.push(cepData.logradouro + ', ' + cidadeUf);
+        } else {
+            // CEP genérico (sem rua) — NÃO inclui o número pois não tem rua pra ancorar
+            // O número solto causava falsos positivos (ex: "100" → Cotia)
+            rLog('warn', 'CEP genérico (sem logradouro) — número ' + (cep.numero || '?') + ' será ignorado na busca');
+            if (temBairro) {
+                queries.push(cepData.bairro + ', ' + cidadeUf);
+            }
         }
+        // Última query: cidade + UF (sempre presente como fallback)
+        queries.push(cidadeUf);
 
-        var MAX_DIST_FROM_CITY_KM = 80; // raio máximo aceitável da cidade-alvo
+        rLog('info', 'ViaCEP → ' + (temLogradouro ? cepData.logradouro : '(sem rua)') + ' | ' + (temBairro ? cepData.bairro : '(sem bairro)') + ' | ' + cepData.cidade + '/' + cepData.uf);
+
+        var MAX_DIST_FROM_CITY_KM = 50; // ★ v16: raio reduzido de 80→50km (metropolitano)
 
         for (var q = 0; q < queries.length; q++) {
             rLog('info', 'Tentativa ' + (q+1) + '/' + queries.length + ': "' + queries[q] + '"');
             if (statusDiv) statusDiv.innerHTML = '<p>⏳ Geocodificando: "' + escHtml(queries[q]) + '"...</p>';
 
-            var vbAtual = (q >= queries.length - 2) ? null : vb;
-            var results = await nominatimSearch(queries[q], vbAtual);
+            // ★ v16: viewbox SEMPRE ativo — nunca null em modo CEP
+            var results = await nominatimSearch(queries[q], vb);
 
             if (results.length > 0) {
-                if (anchor) {
-                    // Filtra: só aceita resultados dentro de MAX_DIST_FROM_CITY_KM da âncora
-                    var validos = [];
-                    for (var ri = 0; ri < results.length; ri++) {
-                        var d = haversineKm(anchor.lat, anchor.lon, parseFloat(results[ri].lat), parseFloat(results[ri].lon));
-                        var marker = d <= MAX_DIST_FROM_CITY_KM ? ' ✓' : ' ✗ (fora do raio ' + MAX_DIST_FROM_CITY_KM + 'km)';
-                        rLog(d <= MAX_DIST_FROM_CITY_KM ? 'ok' : 'warn',
-                            '#' + (ri+1) + ': ' + d.toFixed(2) + 'km da âncora' + marker + ' → ' + results[ri].display_name);
-                        if (d <= MAX_DIST_FROM_CITY_KM) validos.push({ r: results[ri], d: d });
-                    }
-                    if (validos.length > 0) {
-                        validos.sort(function(a,b){ return a.d - b.d; });
-                        rLog('ok', 'ESCOLHIDO: ' + validos[0].r.display_name);
-                        return resultToPoint(validos[0].r);
-                    }
-                    rLog('warn', 'Todos os resultados fora do raio da âncora — tentando próxima query');
-                } else {
-                    logAllResults(results);
-                    rLog('ok', 'ESCOLHIDO #1: ' + results[0].display_name);
-                    return resultToPoint(results[0]);
+                // Filtra: só aceita resultados dentro de MAX_DIST_FROM_CITY_KM da âncora
+                var validos = [];
+                for (var ri = 0; ri < results.length; ri++) {
+                    var d = haversineKm(anchor.lat, anchor.lon, parseFloat(results[ri].lat), parseFloat(results[ri].lon));
+                    var marker = d <= MAX_DIST_FROM_CITY_KM ? ' ✓' : ' ✗ (fora do raio ' + MAX_DIST_FROM_CITY_KM + 'km)';
+                    rLog(d <= MAX_DIST_FROM_CITY_KM ? 'ok' : 'warn',
+                        '#' + (ri+1) + ': ' + d.toFixed(2) + 'km da âncora' + marker + ' → ' + results[ri].display_name);
+                    if (d <= MAX_DIST_FROM_CITY_KM) validos.push({ r: results[ri], d: d });
                 }
+                if (validos.length > 0) {
+                    validos.sort(function(a,b){ return a.d - b.d; });
+                    rLog('ok', 'ESCOLHIDO: ' + validos[0].r.display_name);
+                    return resultToPoint(validos[0].r);
+                }
+                rLog('warn', 'Todos os resultados fora do raio da âncora — tentando próxima query');
             } else {
                 rLog('warn', 'Nenhum resultado para essa query.');
             }
         }
 
-        // ★ v15: Última cartada — devolve a âncora (postalcode ou centróide), NUNCA a parada anterior
+        // ★ v16: Última cartada — devolve a âncora (postalcode ou centróide)
+        // NUNCA devolve resultado sem validação Haversine
         if (postalAnchor) {
-            rLog('warn', 'Nenhum endereço preciso encontrado — usando âncora postalcode (' + cep.cepFmt + ')');
-            return { lat: postalAnchor.lat, lon: postalAnchor.lon, display: cepData.cidade + ' - ' + cepData.uf + ' (CEP ' + cep.cepFmt + ')' };
+            rLog('warn', 'Nenhum endereço preciso — usando âncora postalcode (' + cep.cepFmt + ')');
+            var displayFb = cepData.logradouro ? (cepData.logradouro + (cep.numero ? ', ' + cep.numero : '')) : '';
+            displayFb += (displayFb ? ', ' : '') + (cepData.bairro || '') + ', ' + cepData.cidade + ' - ' + cepData.uf + ' (CEP ' + cep.cepFmt + ')';
+            return { lat: postalAnchor.lat, lon: postalAnchor.lon, display: displayFb };
         }
         if (centroid) {
-            rLog('warn', 'Nenhum endereço preciso encontrado — usando CENTRÓIDE da cidade como ponto');
-            return { lat: centroid.lat, lon: centroid.lon, display: cepData.cidade + ' - ' + cepData.uf + ', Brasil (centróide)' };
+            rLog('warn', 'Nenhum endereço preciso — usando CENTRÓIDE de ' + cepData.cidade);
+            return { lat: centroid.lat, lon: centroid.lon, display: cepData.cidade + ' - ' + cepData.uf + ', Brasil (centróide — CEP ' + cep.cepFmt + ')' };
         }
 
-        rLog('err', 'CEP ' + cep.cepFmt + ' não pôde ser ancorado em ' + cepData.cidade + '/' + cepData.uf);
         throw new Error('CEP ' + cep.cepFmt + ' não geocodificável em ' + cepData.cidade + '/' + cepData.uf);
 
     } else {
