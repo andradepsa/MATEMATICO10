@@ -67,7 +67,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v16 — Âncora postalcode + pedágios 100% locais (radial &lt; 50ms)</strong></p>
+            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v15 — Âncora postalcode + trava Haversine + dedupe de entrada</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -77,7 +77,8 @@
                 <code>01310100, 1000</code> CEP sem traço + número<br>
                 <code>01310-100 nº 1000</code> CEP + nº + número<br>
                 <code>01310-100</code> só o CEP (sem número)<br>
-                <code>Av. Paulista, 1000, São Paulo</code> endereço normal
+                <code>Av. Paulista, 1000, São Paulo</code> endereço normal<br><br>
+                💡 <strong>Dica de Produtividade:</strong> Você pode copiar uma coluna inteira do Excel e colar no primeiro campo de parada para adicionar todos os endereços de uma vez!
             </div>
 
             <div class="origin-box">
@@ -93,14 +94,14 @@
                 <input type="checkbox" id="circuitoCheck" style="width:16px;height:16px;accent-color:#2c7da0;">
                 🔄 Fechar circuito (retornar à origem)
             </label>
-            <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:0.88rem;color:#334155;cursor:pointer;">
-                <input type="checkbox" id="pedagioCheck" checked style="width:16px;height:16px;accent-color:#2c7da0;">
-                🎫 Calcular pedágios reais (banco local)
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:0.88rem;color:#334155;cursor:pointer;">
+                <input type="checkbox" id="otimizarCheck" style="width:16px;height:16px;accent-color:#2c7da0;">
+                🔀 Otimizar sequência das paradas (Rota mais rápida)
             </label>
-            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
-                <button id="btnUpdateTolls" type="button" onclick="updateTollDBFromOSM()" style="flex:1;padding:8px 10px;background:#0ea5e9;color:white;border:none;border-radius:8px;font-size:0.78rem;font-weight:600;cursor:pointer;">📥 Atualizar banco BR</button>
-                <span id="tollDbStatus" style="font-size:0.72rem;color:#64748b;flex:1;">…</span>
-            </div>
+            <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;font-size:0.88rem;color:#334155;cursor:pointer;">
+                <input type="checkbox" id="pedagioCheck" checked style="width:16px;height:16px;accent-color:#2c7da0;">
+                🎫 Habilitar verificação de pedágios na rota
+            </label>
 
             <div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:10px;padding:10px;margin-bottom:12px;">
                 <label style="display:block;font-weight:600;color:#1e2f4e;font-size:0.82rem;margin-bottom:4px;">🚚 Veículo (categoria tarifária ABCR)</label>
@@ -129,6 +130,17 @@
     </div>
 
     <div class="report-section">
+        <button class="report-toggle" id="addressReportToggle" onclick="toggleAddressReport()">
+            <span>🗺️ Relatório de Endereços Reconhecidos</span>
+            <span class="arrow">▶</span>
+        </button>
+        <div class="report-content" id="addressReportContent">
+            <button class="copy-btn" onclick="copyAddressReport()">📋 Copiar Endereços</button>
+            <div class="report-block" id="addressReportBlock">Nenhum cálculo realizado ainda.</div>
+        </div>
+    </div>
+
+    <div class="report-section" style="border-top: none;">
         <button class="report-toggle" id="reportToggle" onclick="toggleReport()">
             <span>🔬 Relatório Técnico (para verificação por IA)</span>
             <span class="arrow">▶</span>
@@ -138,7 +150,7 @@
             <div class="report-block" id="reportBlock">Nenhum cálculo realizado ainda.</div>
         </div>
     </div>
-    <div class="attribution">ESRI World Imagery | OSRM | Nominatim | Photon | OpenStreetMap | ViaCEP</div>
+    <div class="attribution">ESRI World Imagery | OSRM | Nominatim | Photon | OpenCage | LocationIQ | TomTom | OpenStreetMap | ViaCEP</div>
 </div>
 
 <script>
@@ -154,9 +166,74 @@ var previewLayer = L.featureGroup().addTo(map);
 var LEG_COLORS = ['#e63946','#2a9d8f','#e9c46a','#264653','#f4a261','#6a4c93','#1982c4','#ff595e','#8ac926','#ff924c'];
 
 // ============================================
+// API KEYS — GEOCODIFICAÇÃO FALLBACK
+// Cole suas chaves gratuitas aqui:
+//   OpenCage:   https://opencagedata.com/users/sign_up  (2500/dia)
+//   LocationIQ: https://locationiq.com/register         (5000/dia)
+//   TomTom:     https://developer.tomtom.com/signup      (2500/dia)
+// ============================================
+var OPENCAGE_KEY   = '';   // ex: '6f1234abcdef7890...'
+var LOCATIONIQ_KEY = '';   // ex: 'pk.abc123def456...'
+var TOMTOM_KEY     = '';   // ex: 'AbCdEf123456...'
+
+// ============================================
 // PARADAS
 // ============================================
 var stopCount = 0;
+async function applyViacepHygiene(lineStr) {
+    var cInfo = parseCepInput(lineStr);
+    if (!cInfo || !cInfo.cep) return lineStr; // fallback if no CEP
+    try {
+        var data = await lookupCEP(cInfo.cep);
+        if (data && data.logradouro) {
+            var parts = [data.logradouro];
+            if (cInfo.numero) parts.push(cInfo.numero);
+            if (data.bairro) parts.push(data.bairro);
+            parts.push(data.cidade);
+            parts.push(data.uf);
+            parts.push("Brasil");
+            return parts.join(', ');
+        }
+    } catch(e) {
+        // ignore errors and fallback to original
+    }
+    return lineStr; // fallback if viaCEP fails or doesn't have details
+}
+
+async function handleStopPaste(e) {
+    var clipboardData = e.clipboardData || window.clipboardData;
+    if (!clipboardData) return;
+    var pastedText = clipboardData.getData('text');
+    if (!pastedText) return;
+
+    var lines = pastedText.split(/\r?\n/).map(function(s){return s.trim();}).filter(Boolean);
+    if (lines.length > 1) {
+        e.preventDefault(); // Impede que cole tudo na mesma linha
+        this.value = 'Higienizando CEPs...'; // Feedback visual rápido
+        
+        var pinKey = this.id === 'originInput' ? 'origin' : this.parentElement.id;
+        
+        // Aplica a Blindagem via ViaCEP para cada linha (sequencial para não bugar a UI)
+        this.value = await applyViacepHygiene(lines[0]);
+        previewSinglePin(this.id, pinKey);
+        
+        // Adiciona os demais em novas caixas automaticamente já higienizados
+        for (var i = 1; i < lines.length; i++) {
+            var higienizado = await applyViacepHygiene(lines[i]);
+            addStop(higienizado);
+        }
+    } else if (lines.length === 1) {
+        // Higieniza também se a pessoa colar 1 CEP só
+        e.preventDefault();
+        var higienizado = await applyViacepHygiene(lines[0]);
+        var startPos = this.selectionStart;
+        var endPos = this.selectionEnd;
+        this.value = this.value.substring(0, startPos) + higienizado + this.value.substring(endPos);
+        var pinKey2 = this.id === 'originInput' ? 'origin' : this.parentElement.id;
+        previewSinglePin(this.id, pinKey2);
+    }
+}
+
 function addStop(value) {
     stopCount++;
     var uid = stopCount; // UID imutável para o DOM element
@@ -169,7 +246,17 @@ function addStop(value) {
         '<input type="text" id="stopInput-' + uid + '" placeholder="CEP+número ou endereço" value="' + (value || '') + '" onblur="previewSinglePin(\'stopInput-' + uid + '\',\'stop-' + uid + '\')">' +
         '<button class="stop-remove" onclick="removeStop(' + uid + ')" title="Remover">×</button>';
     document.getElementById('stopsList').appendChild(div);
+    
+    // Associa o evento de multi-paste
+    var inputEl = document.getElementById('stopInput-' + uid);
+    inputEl.addEventListener('paste', handleStopPaste);
+    
     renumberStops(); // atualiza rótulos visuais
+    
+    // Triggers geocode prévia instantânea se injetado valor (batch paste)
+    if (value) {
+        previewSinglePin('stopInput-' + uid, 'stop-' + uid);
+    }
 }
 function removeStop(uid) {
     var el = document.getElementById('stop-' + uid);
@@ -193,7 +280,10 @@ function getStopAddresses() {
 }
 
 // Exemplos
-document.getElementById('originInput').value = '01310-100, 1000';
+var originInputEl = document.getElementById('originInput');
+originInputEl.value = '01310-100, 1000';
+originInputEl.addEventListener('paste', handleStopPaste);
+
 addStop('01305-100, 500');
 addStop('Praça da Sé, São Paulo, SP');
 
@@ -217,6 +307,21 @@ function rLog(type, text) {
 }
 function rFlush() { document.getElementById('reportBlock').innerHTML = reportLines.join('\n'); }
 function escHtml(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function toggleAddressReport() {
+    document.getElementById('addressReportToggle').classList.toggle('open');
+    document.getElementById('addressReportContent').classList.toggle('visible');
+}
+function copyAddressReport() {
+    var text = window._addressReportText || 'Nenhum relatório gerado.';
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(function(){ alert('Endereços copiados!'); });
+    } else {
+        var ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+        alert('Endereços copiados!');
+    }
+}
 function toggleReport() {
     document.getElementById('reportToggle').classList.toggle('open');
     document.getElementById('reportContent').classList.toggle('visible');
@@ -249,16 +354,20 @@ function sleep(ms) { return new Promise(function(r){ setTimeout(r, ms); }); }
 // Timestamp do último request ao Nominatim (para rate limit global)
 var lastNominatimTime = 0;
 
-// Garante 1.2s entre requests ao Nominatim
-async function waitNominatim() {
-    var now = Date.now();
-    var elapsed = now - lastNominatimTime;
-    if (elapsed < 1200) {
-        var wait = 1200 - elapsed;
-        rLog('dim', 'Aguardando ' + wait + 'ms (rate limit Nominatim)...');
-        await sleep(wait);
-    }
-    lastNominatimTime = Date.now();
+// Garante 10s entre requests ao Nominatim (Thread-safe)
+var _nominatimPromise = Promise.resolve();
+function waitNominatim() {
+    _nominatimPromise = _nominatimPromise.then(async function() {
+        var now = Date.now();
+        var elapsed = now - lastNominatimTime;
+        if (elapsed < 2000) {
+            var wait = 2000 - elapsed;
+            rLog('dim', 'Aguardando ' + wait + 'ms (rate limit Nominatim)...');
+            await sleep(wait);
+        }
+        lastNominatimTime = Date.now();
+    });
+    return _nominatimPromise;
 }
 
 // Fetch com retry automático (para 429, timeout, rede)
@@ -268,8 +377,8 @@ async function fetchRetry(url, options, label, maxRetries) {
         try {
             var resp = await fetch(url, options);
             if (resp.status === 429) {
-                rLog('warn', label + ' → 429 Rate Limit (tentativa ' + attempt + '/' + maxRetries + '). Aguardando 3s...');
-                await sleep(3000);
+                rLog('warn', label + ' → 429 Rate Limit (tentativa ' + attempt + '/' + maxRetries + '). Aguardando 2s...');
+                await sleep(2000);
                 lastNominatimTime = Date.now();
                 continue;
             }
@@ -294,22 +403,47 @@ async function fetchRetry(url, options, label, maxRetries) {
 function parseCepInput(input) {
     var s = input.trim();
 
-    // Remove prefixos: "CEP:", "CEP", "cep"
-    s = s.replace(/^cep\s*:?\s*/i, '');
+    // 1. Extração robusta do CEP (5+3 ou 4+3 digitos pra cobrir zero à esquerda omitido no Excel)
+    var matchCEP = s.match(/(?:cep\s*:?\s*)?\b(\d{5})-?(\d{3})\b/i);
+    if (!matchCEP) matchCEP = s.match(/(?:cep\s*:?\s*)?\b(\d{4})-?(\d{3})\b/i);
+    
+    if (!matchCEP) return null; // Não achou nenhum padrão de CEP
 
-    // Padrão 1: CEP + número → "01310-100, 1000" / "01310100 1000" / "01310-100 nº 1000" / "01310-100 n 1000"
-    var m = s.match(/^(\d{5})-?(\d{3})\s*[,;.\s]+\s*(?:n[º°]?\s*)?(\d+.*)$/i);
-    if (m) {
-        return { cep: m[1]+m[2], cepFmt: m[1]+'-'+m[2], numero: m[3].trim() };
+    var cepLimpo = matchCEP[1] + matchCEP[2];
+    if (cepLimpo.length === 7) cepLimpo = '0' + cepLimpo;
+    
+    var cepFmt = cepLimpo.substring(0, 5) + '-' + cepLimpo.substring(5);
+
+    // 2. Extração do Número (se houver, logo após ou antes do CEP)
+    var restoDepois = s.substring(matchCEP.index + matchCEP[0].length);
+    var restoAntes = s.substring(0, matchCEP.index);
+    
+    var numero = null;
+    var sobraLimpaDepois = restoDepois;
+    var sobraLimpaAntes = restoAntes;
+    
+    // Tenta encontrar o número logo APÓS o CEP (ex: "01310-100, 1000")
+    var matchDepois = restoDepois.match(/^[,;.\s-]*?(?:n[º°a-z]?\s*)?(\d+[a-zA-Z]*)\b/i);
+    if (matchDepois) {
+        numero = matchDepois[1];
+        sobraLimpaDepois = restoDepois.substring(matchDepois[0].length);
+    } else {
+        // Tenta encontrar o número logo ANTES do CEP (ex: "1000, 01310-100")
+        var matchAntes = restoAntes.match(/(?:^|.*\s+|\b)(?:n[º°a-z]?\s*)?(\d+[a-zA-Z]*)[,;.\s-]*$/i);
+        if (matchAntes) {
+            numero = matchAntes[1];
+            sobraLimpaAntes = restoAntes.substring(0, matchAntes.index);
+        }
     }
 
-    // Padrão 2: só CEP sem número → "01310-100" / "01310100"
-    var m2 = s.match(/^(\d{5})-?(\d{3})$/);
-    if (m2) {
-        return { cep: m2[1]+m2[2], cepFmt: m2[1]+'-'+m2[2], numero: null };
+    // Se existe muito texto extra além do CEP e número (ex: endereço digitado por extenso)
+    // Devolvemos NULL para que o sistema use geocodeAsAddress (busca completa por texto)
+    var sobraTotal = (sobraLimpaAntes + ' ' + sobraLimpaDepois).trim().replace(/^[,\-;\s]+|[,\-;\s]+$/g, '');
+    if (sobraTotal.length > 5 && !sobraTotal.match(/^cep/i)) {
+        return null;
     }
 
-    return null;
+    return { cep: cepLimpo, cepFmt: cepFmt, numero: numero };
 }
 
 // ============================================
@@ -342,55 +476,84 @@ async function lookupCEP(cep) {
 // ============================================
 // GEOCODIFICAÇÃO (Nominatim + Photon fallback)
 // ============================================
-async function nominatimSearch(query, viewboxStr) {
+// FUNÇÃO CORRIGIDA DE GEOCODIFICAÇÃO COM VALIDAÇÃO ESTREITA DE CEP
+async function buscarCoordenadasComFiltroEstrito(enderecoInput, cepForcado = null, viewboxStr = null) {
     await waitNominatim();
+    // 1. Extrai o número do CEP digitado pelo usuário (com ou sem traço)
+    const regexCep = /\b\d{5}-?\d{3}\b/;
+    const matchCep = enderecoInput.match(regexCep);
+    const cepObtido = cepForcado ? cepForcado.replace('-', '') : (matchCep ? matchCep[0].replace('-', '') : null);
 
-    var results = [];
+    // 2. Monta a URL de busca restringindo os resultados estritamente ao Brasil
+    var urlBusca = 'https://nominatim.openstreetmap.org/search?q=' + encodeURIComponent(enderecoInput) + '&format=json&countrycodes=br&addressdetails=1&limit=5';
+    if (viewboxStr) urlBusca += '&viewbox=' + encodeURIComponent(viewboxStr) + '&bounded=1';
 
-    // 1) Nominatim primeiro: mais estável para browser e aceita countrycodes/viewbox.
-    var nUrl = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=br&q='
-        + encodeURIComponent(query);
-    if (viewboxStr) nUrl += '&viewbox=' + encodeURIComponent(viewboxStr) + '&bounded=0';
-    rLog('dim', 'Nominatim: ' + nUrl);
-
+    let resultados = null;
     try {
-        var nResp = await fetchRetry(nUrl, {}, 'Nominatim', 2);
-        var nData = await nResp.json();
-        for (var ni = 0; ni < nData.length; ni++) {
-            results.push({
-                lat: nData[ni].lat,
-                lon: nData[ni].lon,
-                display_name: nData[ni].display_name
+        rLog('dim', 'Nominatim Filtro Estrito: ' + urlBusca);
+        // Não usar header User-Agent via fetch no browser, pois gera erro OPTIONS (CORS) em algumas APIs
+        // A Nominatim aceita requisições do browser caso respeitem o rate limit (waitNominatim já faz isso).
+        const resposta = await fetchRetry(urlBusca, {}, 'Nominatim F. Estrito', 2);
+        resultados = await resposta.json();
+    } catch (erro) {
+        rLog('warn', "Erro na validação do endereço (fetch) Nominatim: " + erro.message);
+    }
+
+    if (resultados && resultados.length > 0) {
+        // 3. Se o usuário digitou um CEP, filtramos os resultados para garantir o 'Strict Match'
+        if (cepObtido) {
+            // Varre os resultados da API procurando onde o código postal bate exatamente
+            const resultadoValido = resultados.find(function(item) {
+                // Permite se não tiver postcode (pois muitos locais no OSM não têm) 
+                // OU se tiver, TEM QUE bater com o fornecido.
+                if (!item.address || !item.address.postcode) return true; 
+                const cepRetornado = item.address.postcode.replace(/\D/g, '');
+                return cepRetornado.indexOf(cepObtido) !== -1;
+            });
+
+            // Se a API retornar um ponto em outra cidade com CEP diferente, rejeita o resultado
+            if (!resultadoValido) {
+                rLog('warn', `Bloqueio de Falso Positivo: API tentou retornar local em outra região para o CEP ${cepObtido}`);
+                // Devolve vazio para que caia no Photon / próxima query
+            } else {
+                return [{
+                    lat: parseFloat(resultadoValido.lat),
+                    lon: parseFloat(resultadoValido.lon),
+                    display_name: resultadoValido.display_name,
+                    address: resultadoValido.address
+                }];
+            }
+        } else {
+            // Caso seja uma busca por texto puro sem CEP (ex: 'Av. Paulista, 1000'), retorna todos
+            return resultados.map(function(r) {
+                return {
+                    lat: parseFloat(r.lat),
+                    lon: parseFloat(r.lon),
+                    display_name: r.display_name,
+                    address: r.address
+                };
             });
         }
-        rLog('info', 'Nominatim retornou ' + results.length + ' resultado(s)');
-        if (results.length > 0) return results;
-    } catch (eNominatim) {
-        rLog('warn', 'Nominatim falhou: ' + eNominatim.message);
     }
-
-    // 2) Photon fallback: NÃO usar lang=pt; Photon só aceita default/de/en/fr e devolve HTTP 400 com pt.
-    var pUrl = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(query) + '&limit=5';
-    if (viewboxStr) {
-        var vp = viewboxStr.split(',');
-        var bLon = (parseFloat(vp[0]) + parseFloat(vp[2])) / 2;
-        var bLat = (parseFloat(vp[1]) + parseFloat(vp[3])) / 2;
-        pUrl += '&lat=' + bLat.toFixed(4) + '&lon=' + bLon.toFixed(4);
-    } else {
-        pUrl += '&lat=-23.5505&lon=-46.6333';
-    }
-    rLog('dim', 'Photon: ' + pUrl);
+    // Se Nominatim falhou ou não achou...
+    rLog('dim', 'Tentando fallback via Photon para: ' + enderecoInput);
+    var pUrl = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(enderecoInput) + '&limit=5';
+    // Removemos a lat/lon bias para fazer uma busca mais nacional caso o endereço seja obscuro
+    rLog('dim', 'Photon URL: ' + pUrl);
 
     try {
         var pResp = await fetchRetry(pUrl, {}, 'Photon', 2);
         var pData = await pResp.json();
+        var photonResults = [];
         if (pData.features) {
             for (var i = 0; i < pData.features.length; i++) {
                 var f = pData.features[i];
                 var p = f.properties || {};
                 var coords = f.geometry && f.geometry.coordinates;
                 if (!coords) continue;
-                if (p.countrycode && p.countrycode.toLowerCase() !== 'br') continue;
+                
+                // Validação de país menos estrita para fallback
+                if (p.countrycode && p.countrycode.toLowerCase() !== 'br' && p.countrycode.toLowerCase() !== 'brazil') continue;
 
                 var parts = [];
                 if (p.name && p.name !== p.street) parts.push(p.name);
@@ -400,20 +563,150 @@ async function nominatimSearch(query, viewboxStr) {
                 if (p.city) parts.push(p.city);
                 if (p.state) parts.push(p.state);
                 if (p.country) parts.push(p.country);
-                results.push({
+                
+                // Validação de CEP no Photon (se disponível)
+                if (cepObtido) {
+                    const cepRetornado = p.postcode ? p.postcode.replace(/\D/g, '') : '';
+                    if (cepRetornado && cepRetornado.indexOf(cepObtido) === -1) {
+                         continue; // Pula se tem CEP mas é diferente
+                    }
+                }
+
+                photonResults.push({
                     lat: coords[1].toString(),
                     lon: coords[0].toString(),
                     display_name: parts.filter(Boolean).join(', ') || (coords[1] + ', ' + coords[0])
                 });
             }
         }
-        rLog('info', 'Photon retornou ' + results.length + ' resultado(s) (Brasil)');
-        return results;
+        
+        if (photonResults.length > 0) {
+            return cepObtido ? [photonResults[0]] : photonResults;
+        }
+        
     } catch (ePhoton) {
         rLog('warn', 'Photon falhou: ' + ePhoton.message);
-        return [];
     }
+    
+    // ── FALLBACK 3: Nominatim sem viewbox (busca nacional) ──
+    rLog('dim', 'Tentando fallback alternativo 3 para: ' + enderecoInput);
+    try {
+        await waitNominatim();
+        var urlNac = 'https://nominatim.openstreetmap.org/search?q=' + encodeURIComponent(enderecoInput) + '&format=json&countrycodes=br&limit=3';
+        var rNac = await fetchRetry(urlNac, {}, 'Fallback-3', 1);
+        var dNac = await rNac.json();
+        if (dNac && dNac.length > 0) {
+            return dNac.map(function(r) {
+                return { lat: parseFloat(r.lat), lon: parseFloat(r.lon), display_name: r.display_name, address: r.address };
+            });
+        }
+    } catch (eNac) { rLog('warn', 'Fallback 3 (Nominatim nacional) falhou: ' + eNac.message); }
+
+    // ── FALLBACK 4: Nominatim DE mirror ──
+    rLog('dim', 'Tentando fallback alternativo 4 para: ' + enderecoInput);
+    try {
+        await waitNominatim();
+        var urlDE = 'https://nominatim.openstreetmap.de/search?q=' + encodeURIComponent(enderecoInput) + '&format=json&countrycodes=br&limit=3';
+        var rDE = await fetchRetry(urlDE, {}, 'Fallback-4', 1);
+        var dDE = await rDE.json();
+        if (dDE && dDE.length > 0) {
+            return dDE.map(function(r) {
+                return { lat: parseFloat(r.lat), lon: parseFloat(r.lon), display_name: r.display_name, address: r.address };
+            });
+        }
+    } catch (eDE) { rLog('warn', 'Fallback 4 (Nominatim DE) falhou: ' + eDE.message); }
+
+    // ── FALLBACK 5: OpenCage (base multi-fonte, 2500/dia grátis) ──
+    if (OPENCAGE_KEY) {
+        rLog('dim', 'Tentando fallback 5 (OpenCage) para: ' + enderecoInput);
+        try {
+            var urlOC = 'https://api.opencagedata.com/geocode/v1/json?q=' + encodeURIComponent(enderecoInput) + '&countrycode=br&limit=5&no_annotations=1&key=' + OPENCAGE_KEY;
+            rLog('dim', 'OpenCage URL: ' + urlOC.replace(OPENCAGE_KEY, '***'));
+            var rOC = await fetchRetry(urlOC, {}, 'OpenCage', 2);
+            var dOC = await rOC.json();
+            if (dOC && dOC.results && dOC.results.length > 0) {
+                var ocResults = dOC.results.filter(function(r) {
+                    return r.components && r.components.country_code === 'br';
+                });
+                if (ocResults.length > 0) {
+                    rLog('ok', 'OpenCage encontrou ' + ocResults.length + ' resultado(s)');
+                    return ocResults.map(function(r) {
+                        return {
+                            lat: parseFloat(r.geometry.lat),
+                            lon: parseFloat(r.geometry.lng),
+                            display_name: r.formatted,
+                            address: r.components
+                        };
+                    });
+                }
+            }
+        } catch (eOC) { rLog('warn', 'Fallback 5 (OpenCage) falhou: ' + eOC.message); }
+    }
+
+    // ── FALLBACK 6: LocationIQ (base OSM melhorada, 5000/dia grátis) ──
+    if (LOCATIONIQ_KEY) {
+        rLog('dim', 'Tentando fallback 6 (LocationIQ) para: ' + enderecoInput);
+        try {
+            var urlLIQ = 'https://us1.locationiq.com/v1/search?q=' + encodeURIComponent(enderecoInput) + '&key=' + LOCATIONIQ_KEY + '&format=json&countrycodes=br&limit=5&addressdetails=1';
+            rLog('dim', 'LocationIQ URL: ' + urlLIQ.replace(LOCATIONIQ_KEY, '***'));
+            var rLIQ = await fetchRetry(urlLIQ, {}, 'LocationIQ', 2);
+            var dLIQ = await rLIQ.json();
+            if (dLIQ && dLIQ.length > 0) {
+                rLog('ok', 'LocationIQ encontrou ' + dLIQ.length + ' resultado(s)');
+                return dLIQ.map(function(r) {
+                    return {
+                        lat: parseFloat(r.lat),
+                        lon: parseFloat(r.lon),
+                        display_name: r.display_name,
+                        address: r.address
+                    };
+                });
+            }
+        } catch (eLIQ) { rLog('warn', 'Fallback 6 (LocationIQ) falhou: ' + eLIQ.message); }
+    }
+
+    // ── FALLBACK 7: TomTom (base proprietária, 2500/dia grátis) ──
+    if (TOMTOM_KEY) {
+        rLog('dim', 'Tentando fallback 7 (TomTom) para: ' + enderecoInput);
+        try {
+            var urlTT = 'https://api.tomtom.com/search/2/geocode/' + encodeURIComponent(enderecoInput) + '.json?key=' + TOMTOM_KEY + '&countrySet=BR&limit=5';
+            rLog('dim', 'TomTom URL: ' + urlTT.replace(TOMTOM_KEY, '***'));
+            var rTT = await fetchRetry(urlTT, {}, 'TomTom', 2);
+            var dTT = await rTT.json();
+            if (dTT && dTT.results && dTT.results.length > 0) {
+                rLog('ok', 'TomTom encontrou ' + dTT.results.length + ' resultado(s)');
+                return dTT.results.map(function(r) {
+                    var pos = r.position || {};
+                    var addr = r.address || {};
+                    var parts = [addr.streetName, addr.streetNumber, addr.municipalitySubdivision, addr.municipality, addr.countrySubdivision, addr.country].filter(Boolean);
+                    return {
+                        lat: parseFloat(pos.lat),
+                        lon: parseFloat(pos.lon),
+                        display_name: r.address ? r.address.freeformAddress || parts.join(', ') : parts.join(', '),
+                        address: addr
+                    };
+                });
+            }
+        } catch (eTT) { rLog('warn', 'Fallback 7 (TomTom) falhou: ' + eTT.message); }
+    }
+
+    // Se nenhum fallback deu resultado, loga quais APIs estavam desativadas
+    var apisOff = [];
+    if (!OPENCAGE_KEY)   apisOff.push('OpenCage');
+    if (!LOCATIONIQ_KEY) apisOff.push('LocationIQ');
+    if (!TOMTOM_KEY)     apisOff.push('TomTom');
+    if (apisOff.length > 0) {
+        rLog('warn', 'APIs desativadas (sem key): ' + apisOff.join(', ') + ' — configure no topo do script para mais cobertura');
+    }
+
+    return [];
 }
+
+async function nominatimSearch(query, viewboxStr, cepForcado = null) {
+    // Redireciona para o novo pipeline seguro
+    return await buscarCoordenadasComFiltroEstrito(query, cepForcado, viewboxStr);
+}
+
 
 // ============================================
 // GEOCODIFICAÇÃO VIA OVERPASS (primária — não é bloqueada por extensões)
@@ -575,28 +868,35 @@ var postalAnchorCache = {};
 
 // ★ v15: Busca por CEP usando o parâmetro nativo postalcode= do Nominatim
 // (mais confiável que pesquisa textual; dá uma âncora geográfica garantida)
-async function nominatimByPostalcode(cepDigits) {
-    if (!cepDigits) return null;
-    if (postalAnchorCache[cepDigits] !== undefined) return postalAnchorCache[cepDigits];
+async function buscarCoordenadasNominatim(cep) {
+    if (!cep) return null;
+    if (postalAnchorCache[cep] !== undefined) return postalAnchorCache[cep];
     await waitNominatim();
-    var url = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=3&countrycodes=br&country=brazil&postalcode='
-        + encodeURIComponent(cepDigits);
-    rLog('dim', 'Nominatim postalcode: ' + url);
     try {
-        var resp = await fetchRetry(url, {}, 'Nominatim/postalcode', 2);
-        var data = await resp.json();
+        const cepLimpo = cep.replace(/\D/g, ''); // Remove hifens e espaços
+        // Usar postalcode e country força a API a buscar a cidade real do CEP
+        const url = `https://nominatim.openstreetmap.org/search?postalcode=${cepLimpo}&country=brazil&format=json&limit=1&nocache=${Date.now()}`;
+        
+        rLog('dim', 'Nominatim postalcode: ' + url);
+        const response = await fetchRetry(url, {}, 'Nominatim postalcode', 2);
+        const data = await response.json();
+
         if (data && data.length > 0) {
-            var pt = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), display: data[0].display_name };
-            postalAnchorCache[cepDigits] = pt;
-            rLog('ok', 'Postalcode âncora ' + cepDigits + ': ' + pt.lat.toFixed(4) + ', ' + pt.lon.toFixed(4));
+            var pt = {
+                lat: parseFloat(data[0].lat),
+                lon: parseFloat(data[0].lon),
+                display: data[0].display_name
+            };
+            postalAnchorCache[cep] = pt;
+            rLog('ok', 'Postalcode âncora ' + cep + ': ' + pt.lat.toFixed(4) + ', ' + pt.lon.toFixed(4));
             return pt;
         }
-        rLog('warn', 'Postalcode ' + cepDigits + ': sem resultado');
-        postalAnchorCache[cepDigits] = null;
+        rLog('warn', 'Postalcode ' + cep + ': sem resultado');
+        postalAnchorCache[cep] = null;
         return null;
-    } catch(e) {
-        rLog('warn', 'Postalcode ' + cepDigits + ' falhou: ' + e.message);
-        postalAnchorCache[cepDigits] = null;
+    } catch (error) {
+        rLog('warn', 'Erro ao geocodificar CEP: ' + error.message);
+        postalAnchorCache[cep] = null;
         return null;
     }
 }
@@ -658,7 +958,7 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
 
         // ★ v15: âncora primária = postalcode no Nominatim; secundária = centróide da cidade do ViaCEP
         // NUNCA usa a parada anterior como âncora em modo CEP (causava bug histórico Ribeirão↔Rio Preto)
-        var postalAnchor = await nominatimByPostalcode(cep.cep);
+        var postalAnchor = await buscarCoordenadasNominatim(cep.cep);
         var centroid = await getCityCentroid(cepData.cidade, cepData.uf);
         var anchor = postalAnchor || centroid;
         if (postalAnchor) rLog('ok', 'Âncora: postalcode ' + cep.cepFmt);
@@ -693,7 +993,7 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
             if (statusDiv) statusDiv.innerHTML = '<p>⏳ Geocodificando: "' + escHtml(queries[q]) + '"...</p>';
 
             var vbAtual = (q >= queries.length - 2) ? null : vb;
-            var results = await nominatimSearch(queries[q], vbAtual);
+            var results = await nominatimSearch(queries[q], vbAtual, cep.cepFmt);
 
             if (results.length > 0) {
                 if (anchor) {
@@ -991,194 +1291,6 @@ var TOLL_DB = [
 // o Overpass devolve a praça mas sem 'charge:BRL'. Valores ANTT/ARTESP 2025.
 var TOLL_FALLBACK_PRICE = 12.00;
 
-// ============================================
-// AUTO-HIDRATAÇÃO + DOWNLOADER CHUNKED DO OSM
-// ============================================
-// 1) Boot: tenta ler localStorage (cache) → senão tenta /toll-db-br.json
-//    (snapshot embutido). 2) Botão "Atualizar banco BR" baixa do Overpass
-//    em 6 chunks regionais (rate-limit + retry + fallback de servidor) e
-//    salva no localStorage. Nunca derruba o TOLL_DB curado em caso de erro.
-var TOLL_DB_BUILTIN_LEN = -1; // preenchido na 1ª hidratação (depois do concat nacional abaixo)
-var TOLL_LS_KEY = 'toll_db_br_v1';
-var TOLL_OVERPASS_SERVERS = [
-    'https://overpass-api.de/api/interpreter',
-    'https://overpass.kumi.systems/api/interpreter',
-    'https://maps.mail.ru/osm/tools/overpass/api/interpreter'
-];
-// 6 chunks regionais — cada um < ~12° lat × 12° lon, dentro do limite Overpass
-var TOLL_BR_CHUNKS = [
-    { id: 'N',    bbox: [-10.0, -74.0,   5.5, -50.0] },
-    { id: 'NE',   bbox: [-18.0, -50.0,  -2.0, -34.0] },
-    { id: 'CO',   bbox: [-24.0, -62.0, -10.0, -50.0] },
-    { id: 'SE-N', bbox: [-22.0, -52.0, -14.0, -38.0] },
-    { id: 'SE-S', bbox: [-26.0, -52.0, -22.0, -38.0] },
-    { id: 'S',    bbox: [-34.0, -58.0, -26.0, -47.0] }
-];
-
-function setTollStatus(msg, color) {
-    var el = document.getElementById('tollDbStatus');
-    if (el) { el.textContent = msg; el.style.color = color || '#64748b'; }
-}
-
-function _tollSleep(ms) { return new Promise(function(r){ setTimeout(r, ms); }); }
-
-function _parseChargeBRL(tags) {
-    var c = tags && tags.charge;
-    if (!c) return null;
-    var m = String(c).replace(',', '.').match(/(\d+\.?\d*)/);
-    if (!m) return null;
-    var n = parseFloat(m[1]);
-    return (isFinite(n) && n > 0) ? n : null;
-}
-
-function _normalizeOsmToll(el) {
-    var lat = el.lat != null ? el.lat : (el.center ? el.center.lat : null);
-    var lon = el.lon != null ? el.lon : (el.center ? el.center.lon : null);
-    if (lat == null || lon == null) return null;
-    var t = el.tags || {};
-    var isGantry = t.highway === 'toll_gantry';
-    var road = (t.ref ? String(t.ref).split(';')[0].trim() : null) || t.operator || 'desconhecida';
-    var name = t.name || (t.operator ? 'Pç. ' + t.operator : 'Pedágio ' + road);
-    return {
-        name: name,
-        lat: +lat.toFixed(5),
-        lon: +lon.toFixed(5),
-        price: _parseChargeBRL(t),
-        road: road,
-        radiusKm: isGantry ? 1.5 : 0.6
-    };
-}
-
-async function _fetchOverpassChunkBR(bbox) {
-    var query = '[out:json][timeout:90];('
-        + 'node["barrier"="toll_booth"]('+bbox.join(',')+');'
-        + 'way["barrier"="toll_booth"]('+bbox.join(',')+');'
-        + 'node["highway"="toll_gantry"]('+bbox.join(',')+');'
-        + 'way["highway"="toll_gantry"]('+bbox.join(',')+');'
-        + ');out tags center;';
-    var lastErr = null;
-    for (var s = 0; s < TOLL_OVERPASS_SERVERS.length; s++) {
-        var url = TOLL_OVERPASS_SERVERS[s];
-        try {
-            var resp = await fetch(url, {
-                method: 'POST',
-                body: 'data=' + encodeURIComponent(query),
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
-            });
-            if (!resp.ok) {
-                lastErr = new Error('HTTP ' + resp.status);
-                if (resp.status === 429) await _tollSleep(6000);
-                continue;
-            }
-            return await resp.json();
-        } catch (e) { lastErr = e; }
-    }
-    throw lastErr || new Error('todos os servidores Overpass falharam');
-}
-
-async function updateTollDBFromOSM() {
-    var btn = document.getElementById('btnUpdateTolls');
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ Baixando…'; }
-    var dedup = new Map();
-    var totalChunks = TOLL_BR_CHUNKS.length;
-    var okChunks = 0;
-    try {
-        for (var i = 0; i < TOLL_BR_CHUNKS.length; i++) {
-            var c = TOLL_BR_CHUNKS[i];
-            setTollStatus('Chunk ' + (i+1) + '/' + totalChunks + ' (' + c.id + ')…', '#0ea5e9');
-            try {
-                var data = await _fetchOverpassChunkBR(c.bbox);
-                var added = 0;
-                (data.elements || []).forEach(function(el) {
-                    var n = _normalizeOsmToll(el);
-                    if (!n) return;
-                    var k = n.lat.toFixed(4) + '|' + n.lon.toFixed(4);
-                    if (!dedup.has(k)) { dedup.set(k, n); added++; }
-                });
-                okChunks++;
-                console.log('[toll-db] chunk', c.id, 'OK +'+added+' praças');
-            } catch (eChunk) {
-                console.warn('[toll-db] chunk', c.id, 'FALHOU:', eChunk.message);
-            }
-            // rate-limit Overpass público
-            if (i < TOLL_BR_CHUNKS.length - 1) await _tollSleep(1500);
-        }
-        if (okChunks === 0) throw new Error('nenhum chunk respondeu');
-        var arr = Array.from(dedup.values());
-        var payload = { ts: Date.now(), tolls: arr };
-        try { localStorage.setItem(TOLL_LS_KEY, JSON.stringify(payload)); } catch(_) {}
-        _hydrateTollDB(arr, 'OSM atualizado');
-        setTollStatus('✅ ' + arr.length + ' praças (' + okChunks + '/' + totalChunks + ' chunks) — ' + new Date().toLocaleString('pt-BR'), '#16a34a');
-    } catch (e) {
-        setTollStatus('❌ ' + e.message + ' — banco curado mantido', '#dc2626');
-    } finally {
-        if (btn) { btn.disabled = false; btn.textContent = '📥 Atualizar banco BR'; }
-    }
-}
-
-function _hydrateTollDB(arr, source) {
-    if (!Array.isArray(arr) || arr.length === 0) return;
-    if (TOLL_DB_BUILTIN_LEN < 0) TOLL_DB_BUILTIN_LEN = TOLL_DB.length;
-    // Mescla: começa com o curado (preços confiáveis), adiciona OSM sem
-    // sobrescrever entradas existentes que já têm preço.
-    var byKey = new Map();
-    for (var i = 0; i < TOLL_DB_BUILTIN_LEN && i < TOLL_DB.length; i++) {
-        var d = TOLL_DB[i];
-        byKey.set(d.lat.toFixed(3) + '|' + d.lon.toFixed(3), d);
-    }
-    for (var i = 0; i < TOLL_DB_BUILTIN_LEN && i < TOLL_DB.length; i++) {
-        var d = TOLL_DB[i];
-        byKey.set(d.lat.toFixed(3) + '|' + d.lon.toFixed(3), d);
-    }
-    for (var j = 0; j < arr.length; j++) {
-        var e = arr[j];
-        var k = e.lat.toFixed(3) + '|' + e.lon.toFixed(3);
-        if (!byKey.has(k)) byKey.set(k, e);
-    }
-    TOLL_DB = Array.from(byKey.values());
-    console.log('[toll-db] hidratado de ' + source + ' → ' + TOLL_DB.length + ' praças (curadas: ' + TOLL_DB_BUILTIN_LEN + ')');
-}
-
-async function _bootTollDB() {
-    if (TOLL_DB_BUILTIN_LEN < 0) TOLL_DB_BUILTIN_LEN = TOLL_DB.length;
-    setTollStatus('curado: ' + TOLL_DB_BUILTIN_LEN + ' praças', '#64748b');
-    // 1) cache local
-    try {
-        var raw = localStorage.getItem(TOLL_LS_KEY);
-        if (raw) {
-            var p = JSON.parse(raw);
-            if (p && Array.isArray(p.tolls) && p.tolls.length > 0) {
-                _hydrateTollDB(p.tolls, 'cache localStorage');
-                var dt = new Date(p.ts || Date.now());
-                setTollStatus('✅ ' + TOLL_DB.length + ' praças (cache ' + dt.toLocaleDateString('pt-BR') + ')', '#16a34a');
-                return;
-            }
-        }
-    } catch(_) {}
-    // 2) snapshot embutido
-    try {
-        var resp = await fetch('toll-db-br.json', { cache: 'no-cache' });
-        if (resp.ok) {
-            var arr = await resp.json();
-            if (Array.isArray(arr) && arr.length > 0) {
-                _hydrateTollDB(arr, 'toll-db-br.json');
-                setTollStatus('✅ ' + TOLL_DB.length + ' praças (snapshot)', '#16a34a');
-                return;
-            }
-        }
-    } catch(_) {}
-    setTollStatus('⚠️ usando só banco curado (' + TOLL_DB_BUILTIN_LEN + ') — clique "Atualizar"', '#d97706');
-}
-
-// dispara o boot logo que carregar
-if (typeof window !== 'undefined') {
-    if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', _bootTollDB);
-    } else {
-        _bootTollDB();
-    }
-}
-
 // Ampliação nacional: praças principais nas rodovias mais movimentadas.
 // Não pretende ser exaustiva — cobre os corredores onde o OSM costuma falhar.
 TOLL_DB = TOLL_DB.concat([
@@ -1285,9 +1397,6 @@ var OVERPASS_SERVERS = [
 
 function sleep(ms) { return new Promise(function(r){ setTimeout(r, ms); }); }
 
-// Constrói chunks da rota: bbox de no máx ~1.5° (≈170 km) com sobreposição
-// para garantir que praças na fronteira de dois chunks sejam pegas pelo
-// menos uma vez. Esta é a CORREÇÃO PRINCIPAL do bug de omissão massiva.
 function buildRouteChunks(coords, maxSpanDeg) {
     var chunks = [];
     if (!coords || coords.length === 0) return chunks;
@@ -1313,19 +1422,16 @@ function buildRouteChunks(coords, maxSpanDeg) {
 }
 
 async function fetchOverpassChunk(bbox, legNum, chunkIdx) {
-    // Filtro RELAXADO: aceita toll_booth (com ou sem toll=yes) e toll_gantry.
-    // Muitas praças OSM no Brasil (PR, SC, MS, MG) NÃO têm toll=yes — esse era
-    // o segundo motivo da omissão massiva.
+    // 1. Otimize a string da query (remover ways-pai).
     var query = '[out:json][timeout:60];'
         + '('
         + 'node["barrier"="toll_booth"]('+bbox+');'
         + 'way["barrier"="toll_booth"]('+bbox+');'
         + 'node["highway"="toll_gantry"]('+bbox+');'
         + 'way["highway"="toll_gantry"]('+bbox+');'
-        + ')->.tolls;'
-        + '.tolls out tags center;'
-        + 'way(bn.tolls)["highway"]->.tollroads;'
-        + '.tollroads out body;';
+        + ');'
+        + 'out tags center;';
+        
     for (var s = 0; s < OVERPASS_SERVERS.length; s++) {
         try {
             rLog('dim', '  ↳ Trecho #'+legNum+' chunk '+chunkIdx+' → srv '+(s+1)+'/'+OVERPASS_SERVERS.length);
@@ -1347,48 +1453,100 @@ async function fetchOverpassChunk(bbox, legNum, chunkIdx) {
     return null;
 }
 
-// ============================================
-// v16 — CÁLCULO DE PEDÁGIOS 100% LOCAL (RADIAL)
-// Sem Overpass em runtime. Varre TOLL_DB contra a geometria OSRM em
-// memória. Tempo: < 50 ms até para rotas de 50 paradas.
-// Para popular TOLL_DB com todos os pedágios federais do Brasil, rode:
-//   node scripts/fetch-br-tolls.mjs
-// e cole a saída no array TOLL_DB no topo deste arquivo.
-// ============================================
 async function calcTollsReal(geometry, routeRefs, routeNames, legNum) {
-    var coords = (geometry && geometry.coordinates) || [];
-    if (coords.length === 0) {
-        rLog('warn', 'Trecho #'+legNum+': geometria vazia, sem pedágios.');
+    var coords = geometry.coordinates; // [lon, lat]
+    if (!coords || coords.length === 0) return applyTollDB([], coords || []);
+
+    // 1. Reduza levemente o tamanho do chunk em buildRouteChunks.
+    var chunks = buildRouteChunks(coords, 0.8);
+    rLog('dim', 'Trecho #'+legNum+': '+coords.length+' pontos → '+chunks.length+' chunk(s) Overpass');
+
+    var merged = { elements: [] };
+    var anyOk = false;
+    for (var ci = 0; ci < chunks.length; ci++) {
+        var c = chunks[ci];
+        var buf = 0.05; // ≈5,5 km de folga em cada lado
+        var bbox = (c.minLat-buf).toFixed(5)+','+(c.minLon-buf).toFixed(5)+','+(c.maxLat+buf).toFixed(5)+','+(c.maxLon+buf).toFixed(5);
+        var data = await fetchOverpassChunk(bbox, legNum, (ci+1)+'/'+chunks.length);
+        if (data && data.elements) { merged.elements = merged.elements.concat(data.elements); anyOk = true; }
+        if (ci < chunks.length - 1) await sleep(1100);
+    }
+    if (!anyOk) {
+        rLog('warn', 'Todos os chunks Overpass falharam no trecho #'+legNum+' — usando só TOLL_DB nacional');
+        return applyTollDB([], coords);
+    }
+    var data = merged;
+    try {
+        var RAW_THRESHOLD_KM = 0.30; // 3. Aumente o RAW_THRESHOLD_KM para 0.25 km ou 0.30 km
+        
+        var raw = [];
+        for (var i = 0; i < data.elements.length; i++) {
+            var el = data.elements[i];
+            var isTollBooth = el.tags && el.tags['barrier'] === 'toll_booth';
+            var isTollGantry = el.tags && el.tags['highway'] === 'toll_gantry';
+            var isTollNode  = (el.type === 'node') && (isTollBooth || isTollGantry);
+            var isTollWay   = (el.type === 'way')  && (isTollBooth || isTollGantry);
+            if (!isTollNode && !isTollWay) continue;
+
+            var elLat = el.lat !== undefined ? el.lat : (el.center ? el.center.lat : null);
+            var elLon = el.lon !== undefined ? el.lon : (el.center ? el.center.lon : null);
+            if (elLat === null || elLon === null) continue;
+
+            // Filtro geométrico relaxado -> remove strict topological checks per instruction #2
+            if (!isNearRoute(elLat, elLon, coords, RAW_THRESHOLD_KM)) continue;
+
+            var price    = parseTollCharge(el.tags || {});
+            var name     = (el.tags && (el.tags['name'] || el.tags['operator'] || el.tags['ref'])) || 'Praça';
+            var isGantry = (el.tags && el.tags['highway'] === 'toll_gantry');
+            raw.push({ name: name, price: price, lat: elLat, lon: elLon, gantry: isGantry });
+        }
+
+        var DEDUP_BOOTH_KM   = 0.5;
+        var DEDUP_GANTRY_KM  = 2.0;
+        var clusters = [];
+        for (var i = 0; i < raw.length; i++) {
+            var assigned = false;
+            var dedupR = raw[i].gantry ? DEDUP_GANTRY_KM : DEDUP_BOOTH_KM;
+            for (var c = 0; c < clusters.length; c++) {
+                if (haversineKm(raw[i].lat, raw[i].lon, clusters[c].lat, clusters[c].lon) < dedupR) {
+                    clusters[c].members.push(raw[i]);
+                    var n = clusters[c].members.length;
+                    clusters[c].lat = (clusters[c].lat * (n-1) + raw[i].lat) / n;
+                    clusters[c].lon = (clusters[c].lon * (n-1) + raw[i].lon) / n;
+                    if (clusters[c].price === null && raw[i].price !== null) {
+                        clusters[c].price = raw[i].price;
+                        clusters[c].name  = raw[i].name;
+                    } else if (raw[i].price !== null && clusters[c].price !== null && raw[i].price > clusters[c].price) {
+                        clusters[c].price = raw[i].price;
+                        clusters[c].name  = raw[i].name;
+                    }
+                    assigned = true;
+                    break;
+                }
+            }
+            if (!assigned) {
+                clusters.push({ lat: raw[i].lat, lon: raw[i].lon, name: raw[i].name, price: raw[i].price, gantry: raw[i].gantry, members: [raw[i]] });
+            }
+        }
+
+        var tolls = [];
+        for (var c = 0; c < clusters.length; c++) {
+            var cl = clusters[c];
+            var dupes = cl.members.length;
+            rLog('ok', '  Pedágio: "'+cl.name+'" preço='+(cl.price !== null ? 'R$ '+cl.price.toFixed(2) : 'n/d')
+                +' lat='+cl.lat.toFixed(7)+' lon='+cl.lon.toFixed(7)
+                +(cl.gantry ? ' [Free Flow]' : '')
+                +(dupes > 1 ? ' ['+dupes+' nós agrupados]' : ''));
+            tolls.push({ name: cl.name, price: cl.price, lat: cl.lat, lon: cl.lon });
+        }
+        rLog('info', '  Total após deduplicação OSM: '+tolls.length+' praça(s) ('+raw.length+' nós brutos → '+tolls.length+' físicas)');
+        var reconciled = applyTollDB(tolls, coords);
+        rLog('info', '  Total final (após banco próprio): '+reconciled.length+' praça(s)');
+        return reconciled;
+    } catch(e) {
+        rLog('warn', 'Overpass parse error trecho #'+legNum+': '+e.message);
         return [];
     }
-
-    var t0 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-    var encontrados = new Map(); // dedupe por lat,lon
-
-    for (var j = 0; j < TOLL_DB.length; j++) {
-        var db = TOLL_DB[j];
-        var raio = (typeof db.radiusKm === 'number' && db.radiusKm > 0) ? db.radiusKm : 0.6;
-        if (!isNearRoute(db.lat, db.lon, coords, raio)) continue;
-
-        var chave = db.road + '|' + db.lat.toFixed(5) + '|' + db.lon.toFixed(5);
-        if (encontrados.has(chave)) continue;
-
-        encontrados.set(chave, {
-            name: db.name,
-            price: (typeof db.price === 'number') ? db.price : null,
-            lat: db.lat,
-            lon: db.lon,
-            road: db.road
-        });
-        rLog('ok', '  ↳ Pedágio na rota: "'+db.name+'" R$ '+
-            (typeof db.price === 'number' ? db.price.toFixed(2) : 'n/d')+
-            ' ('+db.road+')');
-    }
-
-    var tolls = Array.from(encontrados.values());
-    var t1 = (typeof performance !== 'undefined' && performance.now) ? performance.now() : Date.now();
-    rLog('info', '  Trecho #'+legNum+': '+tolls.length+' pedágio(s) cruzados localmente em '+(t1-t0).toFixed(1)+' ms (TOLL_DB='+TOLL_DB.length+' praças)');
-    return tolls;
 }
 
 // ============================================
@@ -1431,7 +1589,8 @@ async function planRoute() {
     routeLayer.clearLayers();
     previewLayer.clearLayers();
     previewPinCache = {};
-    lastNominatimTime = 0;
+    previewQueue = []; // Zera a fila de preview base para evitar conflito
+    // REMOVIDO: lastNominatimTime = 0; para forçar o respeito ao rate limit global
 
     rLog('step', 'INÍCIO — ' + (stopAddrs.length+1) + ' pontos' + (doCircuito ? ' + retorno à origem' : ''));
     rLog('info', 'Data/hora: ' + new Date().toLocaleString('pt-BR'));
@@ -1444,18 +1603,82 @@ async function planRoute() {
         var points = [];
 
         // ORIGEM
-        resultDiv.innerHTML = '<p>⏳ Geocodificando origem...</p>';
+        resultDiv.innerHTML = '<p>⏳ Geocodificando origem (Pausa de segurança)...</p>';
+        await sleep(2000); // 2s hard delay inicial
         var orig = await smartGeocode(originAddr, null, null, null, resultDiv);
         points.push({ lat: orig.lat, lon: orig.lon, display: orig.display, label: 'Origem', input: originAddr });
         rFlush();
 
         // PARADAS
         for (var i = 0; i < stopAddrs.length; i++) {
-            resultDiv.innerHTML = '<p>⏳ Geocodificando parada ' + (i+1) + '/' + stopAddrs.length + '...</p>';
+            resultDiv.innerHTML = '<p>⏳ Geocodificando parada ' + (i+1) + '/' + stopAddrs.length + ' (Pausa de segurança 2s)...</p>';
+            await sleep(2000); // 2s hard delay por endereço para evitar ban do IP
             var prev = points[points.length-1];
             var pt = await smartGeocode(stopAddrs[i], prev.lat, prev.lon, prev.label, resultDiv);
             points.push({ lat: pt.lat, lon: pt.lon, display: pt.display, label: 'Parada #' + (i+1), input: stopAddrs[i] });
             rFlush();
+        }
+
+        // OTIMIZAÇÃO GLOBAL: 2-Opt Algoritmo (Evita ziguezague / Bate-volta)
+        var doOtimizar = document.getElementById('otimizarCheck') && document.getElementById('otimizarCheck').checked;
+        if (doOtimizar && points.length > 2) {
+            rLog('step', '🔀 OTIMIZAÇÃO: Calculando melhor sequência global (Matriz + 2-Opt)...');
+            
+            var origem = points[0];
+            var intermediarias = points.slice(1);
+            
+            // Inicia com Nearest Neighbor como base rápida, depois refina com 2-Opt
+            var rota = [];
+            var unvisited = intermediarias.map(function(_,i){return i;});
+            var currPt = origem;
+            while(unvisited.length > 0) {
+                var bestD = Infinity, bestI = -1;
+                for (var u = 0; u < unvisited.length; u++) {
+                    var pt = intermediarias[unvisited[u]];
+                    var dist = haversineKm(currPt.lat, currPt.lon, pt.lat, pt.lon);
+                    if (dist < bestD) { bestD = dist; bestI = u; }
+                }
+                var nextIdx = unvisited.splice(bestI, 1)[0];
+                rota.push(nextIdx);
+                currPt = intermediarias[nextIdx];
+            }
+
+            // Loop de refinação global (Algoritmo 2-Opt)
+            var melhorou = true;
+            while (melhorou) {
+                melhorou = false;
+                for (var i = 0; i < rota.length - 1; i++) {
+                    for (var j = i + 1; j < rota.length; j++) {
+                        
+                        var nA = (i === 0) ? origem : intermediarias[rota[i - 1]];
+                        var nB = intermediarias[rota[i]];
+                        var nC = intermediarias[rota[j]];
+                        // Se não for circuito, não considera nó de contorno final como origem
+                        var nD = (j === rota.length - 1) ? (doCircuito ? origem : null) : intermediarias[rota[j + 1]];
+
+                        var distAtual = haversineKm(nA.lat, nA.lon, nB.lat, nB.lon);
+                        if (nD) distAtual += haversineKm(nC.lat, nC.lon, nD.lat, nD.lon);
+
+                        var distInvertida = haversineKm(nA.lat, nA.lon, nC.lat, nC.lon);
+                        if (nD) distInvertida += haversineKm(nB.lat, nB.lon, nD.lat, nD.lon);
+
+                        // Se a inversão encurtar o trajeto, desfaz o ziguezague mudando a rota
+                        if (distInvertida < distAtual - 0.001) { 
+                            var trechoInvertido = rota.slice(i, j + 1).reverse();
+                            rota.splice.apply(rota, [i, j - i + 1].concat(trechoInvertido));
+                            melhorou = true;
+                        }
+                    }
+                }
+            }
+
+            var resultadoFinal = [origem];
+            for (var idx = 0; idx < rota.length; idx++) {
+                var p = intermediarias[rota[idx]];
+                p.label = 'Parada #' + (idx + 1) + ' (Otimizada)';
+                resultadoFinal.push(p);
+            }
+            points = resultadoFinal;
         }
 
         // CIRCUITO: adiciona origem como ponto final
@@ -1477,6 +1700,20 @@ async function planRoute() {
         }
         if (deduped.length !== points.length) rLog('ok', 'Após dedupe: '+deduped.length+' pontos efetivos');
         points = deduped;
+
+        // Populate Address Report
+        var addressHtml = [];
+        var addressText = [];
+        for (var pi = 0; pi < points.length; pi++) {
+            var isRetorno = doCircuito && pi === points.length-1;
+            var role = (pi === 0) ? '📍 Origem' : (isRetorno ? '🏁 Origem (retorno)' : '🛑 Parada ' + pi);
+            var isOptimized = points[pi].label.indexOf('(Otimizada)') > -1;
+            role += isOptimized ? ' (Otimizada)' : '';
+            addressHtml.push('<b>' + role + ':</b><br><span>Digitado:</span> ' + escHtml(points[pi].input || '') + '<br><span style="color:#16a34a;font-weight:600;">Encontrado:</span> ' + escHtml(points[pi].display));
+            addressText.push(role + ':\nDigitado: ' + (points[pi].input || '') + '\nEncontrado: ' + points[pi].display + '\n');
+        }
+        document.getElementById('addressReportBlock').innerHTML = addressHtml.join('<hr style="border:top:1px solid #e2e8f0;margin:10px 0;">');
+        window._addressReportText = addressText.join('\n');
 
         // ROTAS + PEDÁGIOS
         var legs = [], totalDist = 0, totalDur = 0, totalTolls = [], totalTollCost = 0;
