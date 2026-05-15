@@ -500,39 +500,65 @@ async function buscarCoordenadasComFiltroEstrito(enderecoInput, cepForcado = nul
     }
 
     if (resultados && resultados.length > 0) {
-        // 3. Se o usuário digitou um CEP, filtramos os resultados para garantir o 'Strict Match'
+        // Converte resultados para formato padronizado
+        var resultadosPadrao = resultados.map(function(r) {
+            return {
+                lat: parseFloat(r.lat),
+                lon: parseFloat(r.lon),
+                display_name: r.display_name,
+                address: r.address
+            };
+        });
+
         if (cepObtido) {
-            // Varre os resultados da API procurando onde o código postal bate exatamente
-            const resultadoValido = resultados.find(function(item) {
-                // Permite se não tiver postcode (pois muitos locais no OSM não têm) 
-                // OU se tiver, TEM QUE bater com o fornecido.
-                if (!item.address || !item.address.postcode) return true; 
-                const cepRetornado = item.address.postcode.replace(/\D/g, '');
+            // ★ VALIDAÇÃO HÍBRIDA: CEP textual + Haversine geográfico
+            // 1º) Tenta match exato de CEP (mais preciso)
+            var matchExato = resultadosPadrao.find(function(item) {
+                if (!item.address || !item.address.postcode) return false;
+                var cepRetornado = item.address.postcode.replace(/\D/g, '');
                 return cepRetornado.indexOf(cepObtido) !== -1;
             });
+            if (matchExato) {
+                rLog('ok', 'CEP match exato: ' + matchExato.display_name);
+                return [matchExato];
+            }
 
-            // Se a API retornar um ponto em outra cidade com CEP diferente, rejeita o resultado
-            if (!resultadoValido) {
-                rLog('warn', `Bloqueio de Falso Positivo: API tentou retornar local em outra região para o CEP ${cepObtido}`);
-                // Devolve vazio para que caia no Photon / próxima query
+            // 2º) Aceita resultado SEM postcode (OSM frequentemente não traz CEP)
+            var semPostcode = resultadosPadrao.find(function(item) {
+                return !item.address || !item.address.postcode;
+            });
+            if (semPostcode) {
+                rLog('ok', 'Aceito sem postcode (OSM não retornou CEP): ' + semPostcode.display_name);
+                return [semPostcode];
+            }
+
+            // 3º) TRAVA HAVERSINE: CEP retornado é diferente, mas se o ponto estiver
+            //     dentro de 50km do centro do viewbox (âncora da cidade), aceita.
+            //     Isso resolve CEPs gerais (ex: 09400-000) e buscas nominais.
+            if (viewboxStr) {
+                var vbParts = viewboxStr.split(',').map(Number);
+                var vbCenterLon = (vbParts[0] + vbParts[2]) / 2;
+                var vbCenterLat = (vbParts[1] + vbParts[3]) / 2;
+                var melhor = null, melhorDist = Infinity;
+                for (var ri = 0; ri < resultadosPadrao.length; ri++) {
+                    var d = haversineKm(vbCenterLat, vbCenterLon, resultadosPadrao[ri].lat, resultadosPadrao[ri].lon);
+                    if (d < melhorDist) { melhorDist = d; melhor = resultadosPadrao[ri]; }
+                }
+                if (melhor && melhorDist <= 50) {
+                    var cepRet = (melhor.address && melhor.address.postcode) ? melhor.address.postcode : '?';
+                    rLog('warn', 'CEP difere (' + cepObtido + ' vs ' + cepRet + ') mas ponto a ' + melhorDist.toFixed(1) + 'km da âncora — ACEITO (trava Haversine ≤50km)');
+                    return [melhor];
+                } else if (melhor) {
+                    rLog('warn', 'Bloqueio Haversine: ponto a ' + melhorDist.toFixed(1) + 'km da âncora (>50km) — falso positivo real');
+                }
             } else {
-                return [{
-                    lat: parseFloat(resultadoValido.lat),
-                    lon: parseFloat(resultadoValido.lon),
-                    display_name: resultadoValido.display_name,
-                    address: resultadoValido.address
-                }];
+                // Sem viewbox: aceita o primeiro resultado (última cartada)
+                rLog('warn', 'CEP difere mas sem viewbox para validar — aceitando resultado #1');
+                return [resultadosPadrao[0]];
             }
         } else {
-            // Caso seja uma busca por texto puro sem CEP (ex: 'Av. Paulista, 1000'), retorna todos
-            return resultados.map(function(r) {
-                return {
-                    lat: parseFloat(r.lat),
-                    lon: parseFloat(r.lon),
-                    display_name: r.display_name,
-                    address: r.address
-                };
-            });
+            // Busca por texto puro sem CEP: retorna todos
+            return resultadosPadrao;
         }
     }
     // Se Nominatim falhou ou não achou...
@@ -564,11 +590,12 @@ async function buscarCoordenadasComFiltroEstrito(enderecoInput, cepForcado = nul
                 if (p.state) parts.push(p.state);
                 if (p.country) parts.push(p.country);
                 
-                // Validação de CEP no Photon (se disponível)
+                // Validação de CEP no Photon: apenas avisa, NÃO descarta
+                // (a trava Haversine a jusante cuida de falsos positivos reais)
                 if (cepObtido) {
                     const cepRetornado = p.postcode ? p.postcode.replace(/\D/g, '') : '';
                     if (cepRetornado && cepRetornado.indexOf(cepObtido) === -1) {
-                         continue; // Pula se tem CEP mas é diferente
+                         rLog('dim', 'Photon: CEP difere (' + cepObtido + ' vs ' + cepRetornado + ') — aceito para validação Haversine');
                     }
                 }
 
