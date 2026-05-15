@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora Multi-Paradas para Entregas — v24</title>
+    <title>Calculadora Multi-Paradas para Entregas — v25</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -116,7 +116,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v24 — Suporte a formato completo: CEP, Rua, Número, Município, Estado, Brasil + tabela de endereços enriquecida</strong></p>
+            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v25 — Trava de similaridade de logradouro (Levenshtein): bloqueia POI com mesmo número em rua diferente</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -1167,6 +1167,83 @@ function resultToPoint(r) {
 }
 
 // ============================================
+// ★ v25: TRAVA DE SIMILARIDADE DE LOGRADOURO (String Distance)
+// Impede que o geocodificador aceite um resultado cuja rua seja
+// completamente diferente da rua digitada/ViaCEP.
+// Ex: usuário pediu "Rua Amador Bueno" → rejeita "Rua Direita"
+// ============================================
+
+// Normaliza string para comparação: minúsculas, sem acento, sem tipo de logradouro
+function normStreet(s) {
+    if (!s) return '';
+    return s.toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // remove acentos
+        .replace(/\b(rua|avenida|av|alameda|al|travessa|tv|praca|estrada|estr|rodovia|rod|largo|viela|beco|r)\b\.?\s*/g, '')
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+// Distância de Levenshtein simples entre duas strings curtas
+function levenshtein(a, b) {
+    if (a === b) return 0;
+    if (a.length === 0) return b.length;
+    if (b.length === 0) return a.length;
+    var m = a.length, n = b.length;
+    var dp = [];
+    for (var i = 0; i <= m; i++) { dp[i] = [i]; }
+    for (var j = 0; j <= n; j++) { dp[0][j] = j; }
+    for (var i = 1; i <= m; i++) {
+        for (var j = 1; j <= n; j++) {
+            dp[i][j] = a[i-1] === b[j-1]
+                ? dp[i-1][j-1]
+                : 1 + Math.min(dp[i-1][j], dp[i][j-1], dp[i-1][j-1]);
+        }
+    }
+    return dp[m][n];
+}
+
+// Retorna similaridade 0..1 (1 = idênticas)
+function streetSimilarity(a, b) {
+    a = normStreet(a); b = normStreet(b);
+    if (!a || !b) return 1; // sem informação → não bloqueia
+    // Substring direta (uma contém a outra) → muito similar
+    if (a.indexOf(b) !== -1 || b.indexOf(a) !== -1) return 1;
+    // Levenshtein normalizado
+    var maxLen = Math.max(a.length, b.length);
+    if (maxLen === 0) return 1;
+    return 1 - levenshtein(a, b) / maxLen;
+}
+
+// Extrai o nome da rua de um display_name do geocodificador
+// Ex: "Drogasil, 64-66, Rua Direita, Centro, ..." → "Rua Direita"
+function extractStreetFromDisplay(display) {
+    if (!display) return '';
+    // Tenta padrões de logradouro
+    var m = display.match(/\b(rua|avenida|av\.?|alameda|al\.?|travessa|estrada|rodovia|largo|viela|beco)\s+[^,]+/i);
+    if (m) return m[0];
+    // Fallback: 2º ou 3º campo após vírgula (onde Nominatim coloca a rua)
+    var parts = display.split(',');
+    if (parts.length >= 3) return parts[1].trim() + ' ' + parts[2].trim();
+    if (parts.length >= 2) return parts[1].trim();
+    return display;
+}
+
+// Verifica se um resultado do geocodificador é compatível com o logradouro esperado
+// Retorna { ok: bool, sim: float, motivo: string }
+function validarLogradouro(displayName, logradouroEsperado) {
+    if (!logradouroEsperado || logradouroEsperado.length < 3) return { ok: true, sim: 1, motivo: 'sem logradouro esperado' };
+    var streetFound = extractStreetFromDisplay(displayName);
+    var sim = streetSimilarity(logradouroEsperado, streetFound);
+    // Limiar: 0.45 — permite variações ortográficas mas bloqueia ruas completamente diferentes
+    var ok = sim >= 0.45;
+    return { ok: ok, sim: sim, motivo: ok
+        ? ('✅ logradouro OK (sim=' + sim.toFixed(2) + '): "' + normStreet(logradouroEsperado) + '" ≈ "' + normStreet(streetFound) + '"')
+        : ('❌ logradouro DIVERGENTE (sim=' + sim.toFixed(2) + '): esperado "' + normStreet(logradouroEsperado) + '" ≠ encontrado "' + normStreet(streetFound) + '"')
+    };
+}
+
+// ============================================
 // CENTRÓIDE DE CIDADE (cache) — base para escolher resultado correto
 // em rotas longas. ANTES o sistema usava a parada anterior como referência,
 // o que fazia com que "São José do Rio Preto" fosse geocodificado para uma
@@ -1570,11 +1647,15 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
                 if (ovResult) {
                     var ovValidacao = validarContraCorreios(ovResult, cepData);
                     var ovDistAnchor = haversineKm(anchor.lat, anchor.lon, ovResult.lat, ovResult.lon);
-                    if (ovDistAnchor <= MAX_DIST_FROM_CITY_KM) {
+                    // ★ v25: trava de logradouro no Overpass também
+                    var ovStrCheck = validarLogradouro(ovResult.display, cepData.logradouro);
+                    rLog('info', 'Overpass: ' + ovStrCheck.motivo);
+                    if (ovDistAnchor <= MAX_DIST_FROM_CITY_KM && ovStrCheck.ok) {
                         rLog('ok', '✅ Overpass ACEITO (' + ovDistAnchor.toFixed(1) + 'km da âncora)');
                         return addBairro(ovResult);
                     } else {
-                        rLog('warn', 'Overpass a ' + ovDistAnchor.toFixed(0) + 'km da âncora — rejeitado');
+                        if (!ovStrCheck.ok) rLog('warn', 'Overpass REJEITADO: logradouro divergente');
+                        else rLog('warn', 'Overpass a ' + ovDistAnchor.toFixed(0) + 'km da âncora — rejeitado');
                     }
                 }
             } catch(eOv) {
@@ -1606,14 +1687,22 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
             var results = await nominatimSearch(queries[q], vb);
 
             if (results.length > 0) {
-                // Filtra por distância da âncora
+                // Filtra por distância da âncora + ★v25 trava de similaridade de logradouro
                 var validos = [];
                 for (var ri = 0; ri < results.length; ri++) {
                     var d = haversineKm(anchor.lat, anchor.lon, parseFloat(results[ri].lat), parseFloat(results[ri].lon));
                     var marker = d <= MAX_DIST_FROM_CITY_KM ? ' ✓' : ' ✗ (fora)';
-                    rLog(d <= MAX_DIST_FROM_CITY_KM ? 'ok' : 'warn',
-                        '#' + (ri+1) + ': ' + d.toFixed(2) + 'km' + marker + ' → ' + results[ri].display_name);
-                    if (d <= MAX_DIST_FROM_CITY_KM) validos.push({ r: results[ri], d: d });
+                    // ★ v25: trava de logradouro — aplica só quando ViaCEP retornou rua e a query usa rua
+                    var strCheck = { ok: true, motivo: 'sem logradouro para checar' };
+                    if (temLogradouro && q < queries.length - 1) { // última query é só cidadeUf → não aplica
+                        strCheck = validarLogradouro(results[ri].display_name, cepData.logradouro);
+                    }
+                    var strTag = strCheck.ok ? '' : ' ✗ STR';
+                    rLog(d <= MAX_DIST_FROM_CITY_KM && strCheck.ok ? 'ok' : 'warn',
+                        '#' + (ri+1) + ': ' + d.toFixed(2) + 'km' + marker + strTag + ' → ' + results[ri].display_name);
+                    if (strCheck.ok) rLog('dim', '   ' + strCheck.motivo);
+                    else             rLog('warn', '   ' + strCheck.motivo);
+                    if (d <= MAX_DIST_FROM_CITY_KM && strCheck.ok) validos.push({ r: results[ri], d: d });
                 }
 
                 if (validos.length > 0) {
@@ -1661,7 +1750,11 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
                     for (var bi = 0; bi < bData.length; bi++) {
                         var bPt = { lat: parseFloat(bData[bi].lat), lon: parseFloat(bData[bi].lon), display: bData[bi].display_name };
                         var bDist = haversineKm(anchor.lat, anchor.lon, bPt.lat, bPt.lon);
-                        rLog('info', 'Bounded #' + (bi+1) + ': ' + bDist.toFixed(1) + 'km → ' + bPt.display);
+                        // ★ v25: trava de logradouro também na tentativa 3
+                        var bStrCheck = temLogradouro ? validarLogradouro(bPt.display, cepData.logradouro) : { ok: true, motivo: '' };
+                        var bTag = bStrCheck.ok ? '' : ' ✗ STR';
+                        rLog('info', 'Bounded #' + (bi+1) + ': ' + bDist.toFixed(1) + 'km' + bTag + ' → ' + bPt.display);
+                        if (!bStrCheck.ok) { rLog('warn', '   ' + bStrCheck.motivo); continue; }
                         if (bDist <= MAX_DIST_FROM_CITY_KM) {
                             var bVal = validarContraCorreios(bPt, cepData);
                             if (bVal.valido) {
