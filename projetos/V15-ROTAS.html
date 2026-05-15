@@ -81,6 +81,31 @@
         .paste-cancel:hover { background: #e2e8f0; }
         .paste-clear-btn { background: #fef2f2; color: #dc2626; border: 1px solid #fca5a5 !important; font-size: 0.78rem !important; padding: 6px 10px !important; flex: 0.5 !important; }
         .attribution { padding: 12px; text-align: center; font-size: 0.72rem; color: #64748b; border-top: 1px solid #e2e8f0; }
+        .addr-report { padding: 20px 30px; border-top: 2px solid #e2e8f0; }
+        .addr-toggle { background: #ecfdf5; border: 1px solid #6ee7b7; padding: 12px 20px; border-radius: 12px; cursor: pointer; width: 100%; text-align: left; font-size: 0.95rem; font-weight: 600; color: #065f46; display: flex; justify-content: space-between; align-items: center; }
+        .addr-toggle:hover { background: #d1fae5; }
+        .addr-toggle .arrow { transition: transform 0.2s; }
+        .addr-toggle.open .arrow { transform: rotate(90deg); }
+        .addr-content { display: none; margin-top: 15px; }
+        .addr-content.visible { display: block; }
+        .addr-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin-bottom: 10px; }
+        .addr-table th { background: #1e2f4e; color: white; padding: 8px 10px; text-align: left; font-weight: 600; }
+        .addr-table th:first-child { border-radius: 8px 0 0 0; }
+        .addr-table th:last-child { border-radius: 0 8px 0 0; }
+        .addr-table td { padding: 8px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
+        .addr-table tr:nth-child(even) { background: #f8fafc; }
+        .addr-table tr:hover { background: #eff6ff; }
+        .addr-table .addr-status { text-align: center; font-size: 1rem; }
+        .addr-table .addr-input { color: #475569; font-size: 0.78rem; }
+        .addr-table .addr-found { color: #16a34a; font-weight: 600; }
+        .addr-table .addr-coords { color: #64748b; font-size: 0.72rem; font-family: 'Cascadia Code','Consolas', monospace; }
+        .addr-summary { display: flex; gap: 16px; margin-bottom: 12px; flex-wrap: wrap; }
+        .addr-summary-item { background: #f0fdf4; border: 1px solid #86efac; border-radius: 10px; padding: 8px 14px; font-size: 0.85rem; font-weight: 600; color: #065f46; }
+        .addr-summary-item.warn { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
+        .addr-summary-item.err { background: #fef2f2; border-color: #fca5a5; color: #991b1b; }
+        .addr-copy-btns { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+        .addr-copy-btns button { background: #334155; color: #e2e8f0; border: 1px solid #475569; padding: 6px 14px; border-radius: 8px; cursor: pointer; font-size: 0.78rem; }
+        .addr-copy-btns button:hover { background: #475569; }
         @media (max-width: 768px) {
             .sidebar { border-right: none; border-bottom: 1px solid #e2e8f0; max-width: 100%; max-height: none; }
             .map-area { height: 400px; }
@@ -171,6 +196,23 @@
             </div>
         </div>
         <div id="map" class="map-area"></div>
+    </div>
+
+    <div class="addr-report" id="addrReportSection" style="display:none;">
+        <button class="addr-toggle" id="addrToggle" onclick="toggleAddrReport()">
+            <span>🗺️ Relatório de Endereços Reconhecidos</span>
+            <span class="arrow">▶</span>
+        </button>
+        <div class="addr-content" id="addrContent">
+            <div class="addr-summary" id="addrSummary"></div>
+            <div class="addr-copy-btns">
+                <button onclick="copyAddrReport('full')">📋 Copiar Relatório Completo</button>
+                <button onclick="copyAddrReport('found')">📍 Copiar Só Encontrados</button>
+                <button onclick="copyAddrReport('coords')">🌐 Copiar com Coordenadas</button>
+                <button onclick="copyAddrReport('csv')">📊 Copiar CSV</button>
+            </div>
+            <div id="addrTableContainer"></div>
+        </div>
     </div>
 
     <div class="report-section">
@@ -436,6 +478,161 @@ function copyReport() {
         ta.value = text; document.body.appendChild(ta); ta.select();
         document.execCommand('copy'); document.body.removeChild(ta);
         alert('Relatório copiado!');
+    }
+}
+
+// ============================================
+// RELATÓRIO DE ENDEREÇOS RECONHECIDOS
+// ============================================
+var _addrReportData = []; // Armazena dados para cópia
+
+function toggleAddrReport() {
+    document.getElementById('addrToggle').classList.toggle('open');
+    document.getElementById('addrContent').classList.toggle('visible');
+}
+
+function buildAddrReport(points, failedStops) {
+    failedStops = failedStops || [];
+    _addrReportData = [];
+
+    var section = document.getElementById('addrReportSection');
+    section.style.display = 'block';
+
+    var totalOk = 0, totalFail = failedStops.length;
+
+    // Monta dados
+    for (var i = 0; i < points.length; i++) {
+        var p = points[i];
+        var isOrigin = (i === 0);
+        var isRetorno = (p.label === 'Origem (retorno)');
+        if (isRetorno) continue; // não repete retorno
+
+        var role = isOrigin ? '📍 Origem' : ('🏁 #' + i);
+        _addrReportData.push({
+            num: isOrigin ? 0 : i,
+            role: role,
+            input: p.input || '',
+            found: p.display || '',
+            lat: p.lat,
+            lon: p.lon,
+            status: 'ok'
+        });
+        totalOk++;
+    }
+
+    // Adiciona os que falharam
+    for (var f = 0; f < failedStops.length; f++) {
+        _addrReportData.push({
+            num: failedStops[f].num || '?',
+            role: '❌ #' + (failedStops[f].num || '?'),
+            input: failedStops[f].addr || '',
+            found: failedStops[f].err || 'Não encontrado',
+            lat: null,
+            lon: null,
+            status: 'fail'
+        });
+    }
+
+    // Ordena por número
+    _addrReportData.sort(function(a, b) { return a.num - b.num; });
+
+    // Summary
+    var summaryHtml = '<div class="addr-summary-item">' + totalOk + ' endereço(s) encontrado(s)</div>';
+    if (totalFail > 0) {
+        summaryHtml += '<div class="addr-summary-item err">' + totalFail + ' não encontrado(s)</div>';
+    }
+    summaryHtml += '<div class="addr-summary-item warn">Total: ' + (totalOk + totalFail) + ' entrada(s)</div>';
+    document.getElementById('addrSummary').innerHTML = summaryHtml;
+
+    // Tabela
+    var html = '<table class="addr-table">';
+    html += '<tr><th>#</th><th>Digitado</th><th>Encontrado</th><th>Coordenadas</th><th>✓</th></tr>';
+
+    for (var r = 0; r < _addrReportData.length; r++) {
+        var d = _addrReportData[r];
+        var statusIcon = d.status === 'ok' ? '✅' : '❌';
+        var rowStyle = d.status === 'fail' ? ' style="background:#fef2f2;"' : '';
+        var coordStr = d.lat !== null ? d.lat.toFixed(6) + ', ' + d.lon.toFixed(6) : '—';
+        var foundClass = d.status === 'ok' ? 'addr-found' : 'preview-err';
+
+        html += '<tr' + rowStyle + '>';
+        html += '<td style="font-weight:700;white-space:nowrap;">' + d.role + '</td>';
+        html += '<td class="addr-input">' + escHtml(d.input) + '</td>';
+        html += '<td class="' + foundClass + '">' + escHtml(d.found) + '</td>';
+        html += '<td class="addr-coords">' + coordStr + '</td>';
+        html += '<td class="addr-status">' + statusIcon + '</td>';
+        html += '</tr>';
+    }
+    html += '</table>';
+
+    document.getElementById('addrTableContainer').innerHTML = html;
+
+    // Auto-abre o relatório
+    if (!document.getElementById('addrToggle').classList.contains('open')) {
+        toggleAddrReport();
+    }
+}
+
+function copyAddrReport(format) {
+    var lines = [];
+    var data = _addrReportData;
+
+    if (format === 'csv') {
+        lines.push('#;Digitado;Encontrado;Latitude;Longitude;Status');
+        for (var i = 0; i < data.length; i++) {
+            var d = data[i];
+            lines.push(
+                d.num + ';"' + d.input + '";"' + d.found + '";' +
+                (d.lat !== null ? d.lat.toFixed(6) : '') + ';' +
+                (d.lon !== null ? d.lon.toFixed(6) : '') + ';' +
+                (d.status === 'ok' ? 'OK' : 'FALHOU')
+            );
+        }
+    } else if (format === 'coords') {
+        lines.push('=== ENDEREÇOS COM COORDENADAS ===');
+        for (var i = 0; i < data.length; i++) {
+            var d = data[i];
+            if (d.status !== 'ok') continue;
+            lines.push(d.role + ': ' + d.found);
+            lines.push('   → ' + d.lat.toFixed(6) + ', ' + d.lon.toFixed(6));
+            lines.push('   → Google Maps: https://www.google.com/maps?q=' + d.lat.toFixed(6) + ',' + d.lon.toFixed(6));
+            lines.push('');
+        }
+    } else if (format === 'found') {
+        for (var i = 0; i < data.length; i++) {
+            if (data[i].status === 'ok') lines.push(data[i].found);
+        }
+    } else {
+        // full
+        lines.push('═══════════════════════════════════════════');
+        lines.push('  RELATÓRIO DE ENDEREÇOS RECONHECIDOS');
+        lines.push('  Gerado em: ' + new Date().toLocaleString('pt-BR'));
+        lines.push('═══════════════════════════════════════════');
+        lines.push('');
+        var ok = data.filter(function(d){ return d.status === 'ok'; }).length;
+        var fail = data.filter(function(d){ return d.status === 'fail'; }).length;
+        lines.push('✅ Encontrados: ' + ok + '  |  ❌ Não encontrados: ' + fail + '  |  Total: ' + (ok+fail));
+        lines.push('');
+        for (var i = 0; i < data.length; i++) {
+            var d = data[i];
+            var icon = d.status === 'ok' ? '✅' : '❌';
+            lines.push(icon + ' ' + d.role);
+            lines.push('   Digitado:    ' + d.input);
+            lines.push('   Encontrado:  ' + (d.status === 'ok' ? d.found : d.found));
+            if (d.lat !== null) lines.push('   Coordenadas: ' + d.lat.toFixed(6) + ', ' + d.lon.toFixed(6));
+            lines.push('');
+        }
+        lines.push('═══════════════════════════════════════════');
+    }
+
+    var text = lines.join('\n');
+    if (navigator.clipboard) {
+        navigator.clipboard.writeText(text).then(function(){ alert('Relatório de endereços copiado!'); });
+    } else {
+        var ta = document.createElement('textarea');
+        ta.value = text; document.body.appendChild(ta); ta.select();
+        document.execCommand('copy'); document.body.removeChild(ta);
+        alert('Relatório de endereços copiado!');
     }
 }
 
@@ -1550,6 +1747,12 @@ async function planRoute() {
     btn.textContent = 'Calculando...';
     rClear();
     routeLayer.clearLayers();
+    // Esconde relatório de endereços do cálculo anterior
+    document.getElementById('addrReportSection').style.display = 'none';
+    if (document.getElementById('addrToggle').classList.contains('open')) {
+        document.getElementById('addrToggle').classList.remove('open');
+        document.getElementById('addrContent').classList.remove('visible');
+    }
     previewLayer.clearLayers();
     previewPinCache = {};
     lastNominatimTime = 0;
@@ -1583,6 +1786,9 @@ async function planRoute() {
         if (doCircuito) {
             points.push({ lat: points[0].lat, lon: points[0].lon, display: points[0].display, label: 'Origem (retorno)', input: originAddr });
         }
+
+        // ── Gera Relatório de Endereços Reconhecidos ──
+        buildAddrReport(points);
 
         // ── Dedupe de paradas consecutivas idênticas por coordenada ──
         var deduped = [points[0]];
