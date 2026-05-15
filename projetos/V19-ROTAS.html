@@ -189,6 +189,20 @@
                 <input type="number" id="fuelPrice" value="6.19" step="0.01" min="0" style="width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;font-size:0.85rem;">
             </div>
 
+            <!-- Config API Keys — Triple Geocode -->
+            <details style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:10px;margin-bottom:12px;font-size:0.82rem;">
+                <summary style="font-weight:700;color:#0369a1;cursor:pointer;">🔑 Chaves de API (Geocodificação Tripla)</summary>
+                <div style="margin-top:8px;">
+                    <label style="display:block;color:#1e2f4e;font-weight:600;margin-bottom:3px;">Google Maps Geocoding API Key <span style="font-weight:400;color:#64748b;">(opcional — Fonte C premium)</span></label>
+                    <input type="password" id="gmKeyInput" placeholder="Cole sua chave aqui (AIza...)" style="width:100%;padding:7px 9px;border:1px solid #7dd3fc;border-radius:7px;font-size:0.82rem;margin-bottom:6px;">
+                    <p style="color:#64748b;font-size:0.75rem;line-height:1.4;margin:0;">
+                        Sem chave: usa <strong>Photon (Komoot)</strong> como Fonte C — gratuito.<br>
+                        Com chave Google: precisão máxima nas 3 fontes.<br>
+                        <a href="https://developers.google.com/maps/documentation/geocoding/get-api-key" target="_blank" style="color:#0369a1;">Como obter chave gratuita &#8599;</a>
+                    </p>
+                </div>
+            </details>
+
             <button class="calc-btn" id="calculateBtn" onclick="planRoute()">Calcular Rota Completa</button>
 
             <div class="result-box" id="resultArea">
@@ -1078,6 +1092,111 @@ function validarContraCorreios(point, cepData) {
     }
 
     return { valido: cidadeOk, cidadeOk: cidadeOk, ufOk: ufOk };
+}
+
+// ============================================
+// FONTE C: PHOTON DIRETO (motor independente do Nominatim)
+// ============================================
+async function photonDirectSearch(query, anchorLat, anchorLon) {
+    var pUrl = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(query)
+        + '&limit=5&lat=' + anchorLat.toFixed(4) + '&lon=' + anchorLon.toFixed(4);
+    rLog('dim', 'Photon/C: ' + pUrl);
+    try {
+        var pResp = await fetchRetry(pUrl, {}, 'Photon/C', 2);
+        var pData = await pResp.json();
+        var results = [];
+        if (pData.features) {
+            for (var i = 0; i < pData.features.length; i++) {
+                var f = pData.features[i];
+                var p = f.properties || {};
+                if (p.countrycode && p.countrycode.toLowerCase() !== 'br') continue;
+                var coords = f.geometry && f.geometry.coordinates;
+                if (!coords) continue;
+                var parts = [];
+                if (p.street) parts.push(p.street);
+                if (p.housenumber) parts.push(p.housenumber);
+                if (p.district) parts.push(p.district);
+                if (p.city) parts.push(p.city);
+                if (p.state) parts.push(p.state);
+                results.push({ lat: coords[1], lon: coords[0], display: parts.filter(Boolean).join(', ') || (coords[1] + ',' + coords[0]) });
+            }
+        }
+        rLog('info', 'Photon/C: ' + results.length + ' resultado(s)');
+        return results;
+    } catch(e) {
+        rLog('warn', 'Photon/C falhou: ' + e.message);
+        return [];
+    }
+}
+
+// ============================================
+// FONTE C PREMIUM: GOOGLE MAPS GEOCODING API
+// ============================================
+async function googleMapsGeocode(query, apiKey) {
+    var url = 'https://maps.googleapis.com/maps/api/geocode/json?address='
+        + encodeURIComponent(query) + '&region=br&key=' + encodeURIComponent(apiKey);
+    rLog('dim', 'GoogleMaps/C: ' + url.replace(encodeURIComponent(apiKey), '***'));
+    try {
+        var resp = await fetchRetry(url, {}, 'GoogleMaps', 2);
+        var data = await resp.json();
+        if (data.status !== 'OK') {
+            rLog('warn', 'Google Maps status: ' + data.status);
+            return [];
+        }
+        var res = data.results.map(function(r) {
+            return { lat: r.geometry.location.lat, lon: r.geometry.location.lng, display: r.formatted_address };
+        });
+        rLog('info', 'Google Maps/C: ' + res.length + ' resultado(s)');
+        return res;
+    } catch(e) {
+        rLog('warn', 'Google Maps falhou: ' + e.message);
+        return [];
+    }
+}
+
+// ============================================
+// VOTAÇÃO POR CONSENSO (TRIPLE GEOCODE — v19)
+// Três fontes independentes votam: ganha quem tiver mais
+// concordâncias (resultados dentro de THRESHOLD_KM entre si).
+// Desempate: validado pelo ViaCEP → mais próximo da âncora.
+// ============================================
+function consensusVote(candidates, anchor, cepData) {
+    if (!candidates || candidates.length === 0) return null;
+    var THRESHOLD_KM = 5;
+
+    rLog('step', '════ 🗳️  VOTAÇÃO POR CONSENSO (' + candidates.length + ' fontes) ════');
+
+    for (var i = 0; i < candidates.length; i++) {
+        var c = candidates[i];
+        var votos = 0, concorda = [];
+        for (var j = 0; j < candidates.length; j++) {
+            if (i === j) continue;
+            var d = haversineKm(c.lat, c.lon, candidates[j].lat, candidates[j].lon);
+            if (d <= THRESHOLD_KM) { votos++; concorda.push(candidates[j].source + '(' + d.toFixed(2) + 'km)'); }
+        }
+        c.votos  = votos;
+        c.concorda = concorda;
+        c.distAnchor = anchor ? haversineKm(anchor.lat, anchor.lon, c.lat, c.lon) : 9999;
+        rLog(c.validated ? 'ok' : 'warn',
+            '  ' + (c.source + '          ').substring(0,12)
+            + ' lat=' + c.lat.toFixed(5) + ' lon=' + c.lon.toFixed(5)
+            + ' | ViaCEP=' + (c.validated ? '✅' : '❌')
+            + ' | anchor=' + c.distAnchor.toFixed(1) + 'km'
+            + ' | VOTOS=' + votos
+            + (concorda.length ? ' (concorda: ' + concorda.join(', ') + ')' : ' ← ISOLADA')
+        );
+    }
+
+    // Ordena: mais votos → validado pelo ViaCEP → mais próximo da âncora
+    candidates.sort(function(a, b) {
+        if (b.votos !== a.votos) return b.votos - a.votos;
+        if ((b.validated ? 1 : 0) !== (a.validated ? 1 : 0)) return (b.validated ? 1 : 0) - (a.validated ? 1 : 0);
+        return (a.distAnchor || 9999) - (b.distAnchor || 9999);
+    });
+
+    var w = candidates[0];
+    rLog('ok', '🏆 ELEITO: ' + w.source + ' | votos=' + w.votos + ' | ViaCEP=' + (w.validated ? '✅' : '❌') + ' | ' + w.display);
+    return w;
 }
 
 // ============================================
