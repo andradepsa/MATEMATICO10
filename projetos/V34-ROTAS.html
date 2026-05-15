@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora Multi-Paradas para Entregas — v33</title>
+    <title>Calculadora Multi-Paradas para Entregas — v34</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -119,7 +119,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v33 — ViaCEP removido · OpenCEP primário · Validação usa rua DIGITADA · Trava anti-duplicata · TSP NN+2-opt</strong></p>
+            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v34 — Apenas Nominatim · Rua do usuário NUNCA substituída · Trava anti-duplicata · TSP NN+2-opt</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -248,7 +248,7 @@
             <div class="report-block" id="reportBlock">Nenhum cálculo realizado ainda.</div>
         </div>
     </div>
-    <div class="attribution">ESRI World Imagery | OSRM | Nominatim/OSM | OpenCEP | BrasilAPI | OpenStreetMap</div>
+    <div class="attribution">ESRI World Imagery | OSRM | Nominatim/OSM | OpenStreetMap</div>
 </div>
 
 <script>
@@ -899,13 +899,13 @@ function parseCepInput(input) {
 }
 
 // ============================================
-// VIACEP — ★ v33: REMOVIDO como fonte primária (substituído por OpenCEP)
-// Função mantida apenas para referência. Não é mais chamada.
+// ★ v34: APIs POSTAIS REMOVIDAS DO PIPELINE
+// Funções abaixo mantidas como código morto para referência.
+// O pipeline agora usa APENAS Nominatim + input do usuário.
 // ============================================
-async function lookupCEP(cep) {
-    // ★ v33: redireciona para OpenCEP
-    return await lookupCEPOpenCEP(cep);
-}
+// async function lookupCEP(cep) — REMOVIDA (era ViaCEP)
+// async function lookupCEPBrasilAPI(cep) — REMOVIDA
+// async function lookupCEPOpenCEP(cep) — REMOVIDA
 
 // ============================================
 // BRASILAPI — Fonte postal secundária (v22)
@@ -1343,9 +1343,18 @@ async function nominatimByPostalcode(cepDigits) {
         var resp = await fetchRetry(url, {}, 'Nominatim/postalcode', 2);
         var data = await resp.json();
         if (data && data.length > 0) {
-            var pt = { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon), display: data[0].display_name };
+            var addr = data[0].address || {};
+            var pt = {
+                lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon),
+                display: data[0].display_name,
+                // ★ v34: extrai cidade/UF/bairro do addressdetails
+                city: addr.city || addr.town || addr.municipality || addr.village || '',
+                uf: addr.state || '',
+                bairro: addr.suburb || addr.neighbourhood || '',
+                road: addr.road || addr.pedestrian || ''
+            };
             postalAnchorCache[cepDigits] = pt;
-            rLog('ok', 'Postalcode âncora ' + cepDigits + ': ' + pt.lat.toFixed(4) + ', ' + pt.lon.toFixed(4));
+            rLog('ok', 'Postalcode âncora ' + cepDigits + ': ' + pt.lat.toFixed(4) + ', ' + pt.lon.toFixed(4) + (pt.city ? ' | ' + pt.city + '/' + pt.uf : ''));
             return pt;
         }
         rLog('warn', 'Postalcode ' + cepDigits + ': sem resultado');
@@ -1396,8 +1405,8 @@ function extractCityUF(address) {
 }
 
 // ============================================
-// ★ v17: VALIDAÇÃO CRUZADA CONTRA CORREIOS
-// Compara o resultado do geocodificador com os dados oficiais do OpenCEP/BrasilAPI.
+// ★ v17: VALIDAÇÃO CRUZADA
+// Compara o resultado do geocodificador com os dados do input/Nominatim.
 // Se cidade ou UF não bater, o resultado é REJEITADO e vai pras APIs de reserva.
 // ============================================
 function validarContraCorreios(point, cepData) {
@@ -1413,7 +1422,7 @@ function validarContraCorreios(point, cepData) {
 
     // Log detalhado da comparação
     rLog('step', '══ VALIDAÇÃO CRUZADA: Correios vs Geocodificador ══');
-    rLog('info', '📮 CORREIOS (OpenCEP):');
+    rLog('info', '📮 DADOS DE REFERÊNCIA:');
     rLog('val',  '   Logradouro: ' + (cepData.logradouro || '(genérico)'));
     rLog('val',  '   Bairro:     ' + (cepData.bairro || '(genérico)'));
     rLog('val',  '   Cidade:     ' + cepData.cidade);
@@ -1603,47 +1612,62 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
         rLog('step', 'GEOCODIFICAÇÃO (CEP): "' + input + '"');
         rLog('ok', 'CEP detectado: ' + cep.cepFmt + (cep.numero ? ' | Número: ' + cep.numero : ' | SEM NÚMERO'));
 
-        // ★ v33: OpenCEP como fonte primária (ViaCEP removido — causava substituição de rua)
-        var cepData = await lookupCEPOpenCEP(cep.cep);
+        // ★ v34: APENAS NOMINATIM — OpenCEP/BrasilAPI removidos do pipeline.
+        // cepData é construído do INPUT do usuário (formato completo) ou do Nominatim postalcode.
+        var cepData = null;
 
-        // Helper: injeta bairro do OpenCEP em qualquer ponto retornado
+        if (fullFmtCheck && fullFmtCheck.municipio) {
+            // CASO 1: Usuário digitou formato completo → cepData direto do input
+            cepData = {
+                logradouro: fullFmtCheck.logradouro || '',
+                bairro: fullFmtCheck.bairro || '',
+                cidade: fullFmtCheck.municipio,
+                uf: fullFmtCheck.estado || 'SP'
+            };
+            rLog('ok', '★ v34: cepData do INPUT do usuário (sem API postal):');
+            rLog('val', '  logradouro: "' + cepData.logradouro + '"');
+            rLog('val', '  bairro: "' + cepData.bairro + '"');
+            rLog('val', '  cidade: ' + cepData.cidade + ' | UF: ' + cepData.uf);
+        } else {
+            // CASO 2: Só CEP + número → Nominatim postalcode extrai cidade/UF
+            rLog('step', '★ v34: CEP sem endereço completo — extraindo cidade via Nominatim postalcode');
+            var postalInfo = await nominatimByPostalcode(cep.cep);
+            if (postalInfo && postalInfo.city) {
+                cepData = {
+                    logradouro: postalInfo.road || '',
+                    bairro: postalInfo.bairro || '',
+                    cidade: postalInfo.city,
+                    uf: postalInfo.uf || 'SP'
+                };
+                rLog('ok', '★ v34: cepData do Nominatim postalcode:');
+                rLog('val', '  cidade: ' + cepData.cidade + ' | UF: ' + cepData.uf);
+            }
+        }
+
+        // Helper: injeta bairro em qualquer ponto retornado
         function addBairro(pt) {
             if (pt && cepData && cepData.bairro) pt.bairro = cepData.bairro;
             return pt;
         }
 
         if (!cepData) {
-            rLog('warn', 'OpenCEP: CEP nao encontrado. Tentando BrasilAPI...');
-
-            // Fallback: BrasilAPI (base de dados postal independente)
-            cepData = await lookupCEPBrasilAPI(cep.cep);
-            if (cepData) {
-                rLog('ok', 'BrasilAPI resgatou o CEP! Continuando fluxo normal com dados postais...');
-            }
-        }
-
-        if (!cepData) {
-            // ★ v27 FALLBACK ENDEREÇO COMPLETO: CEP inválido/inexistente, mas o usuário
-            // forneceu logradouro + cidade + estado no formato completo → usa esses dados
-            // diretamente no geocodificador, ignorando o CEP errado.
-            // Ex: "99999-000, Rua das Flores, 50, Campinas, SP, Brasil" → geocodifica
-            //     "Rua das Flores, 50, Campinas, SP, Brasil" via Nominatim/Google.
+            // Sem dados postais — tenta geocodificação direta se tiver endereço no input
             if (fullFmtCheck && fullFmtCheck.logradouro && fullFmtCheck.municipio && fullFmtCheck.estado) {
-                rLog('warn', '★ v27 FALLBACK ENDEREÇO: CEP ' + cep.cepFmt + ' inválido — logradouro+cidade disponíveis no input, tentando geocodificação direta');
+                rLog('warn', '★ v34 FALLBACK: Nominatim postalcode falhou — tentando geocodificação direta pelo endereço');
                 var fbAddr = fullFmtCheck.logradouro
                     + (fullFmtCheck.numero ? ', ' + fullFmtCheck.numero : '')
                     + ', ' + fullFmtCheck.municipio
                     + ', ' + fullFmtCheck.estado
                     + ', Brasil';
-                rLog('val', '   Query fallback: "' + fbAddr + '"');
+                rLog('val', '   Query: "' + fbAddr + '"');
                 try {
                     var fbResult = await geocodeAsAddress(fbAddr, null, null, null);
                     if (fbResult) {
-                        rLog('ok', '★ v27 FALLBACK ENDEREÇO ACEITO: ' + fbResult.display);
+                        rLog('ok', '★ v34 FALLBACK ACEITO: ' + fbResult.display);
                         return fbResult;
                     }
                 } catch(eFbAddr) {
-                    rLog('warn', '   Fallback por endereço falhou: ' + eFbAddr.message + ' — continuando com ancoragem sub-regional...');
+                    rLog('warn', '   Fallback falhou: ' + eFbAddr.message);
                 }
             }
 
@@ -1735,14 +1759,14 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
                 rLog('err', '🚨 POSTALCODE ERRADO! Nominatim postalcode a ' + divergencia.toFixed(0) + 'km de ' + cepData.cidade + '/' + cepData.uf);
                 rLog('err', '   Postalcode: ' + postalAnchor.lat.toFixed(4) + ',' + postalAnchor.lon.toFixed(4) + ' → ' + (postalAnchor.display||'?'));
                 rLog('err', '   Centróide:  ' + centroid.lat.toFixed(4) + ',' + centroid.lon.toFixed(4) + ' → ' + cepData.cidade);
-                rLog('err', '   → Postalcode DESCARTADO. Usando centróide OpenCEP.');
+                rLog('err', '   → Postalcode DESCARTADO. Usando centróide da cidade.');
                 postalAnchor = null; // DESCARTA
             } else {
                 rLog('ok', 'Postalcode validado: ' + divergencia.toFixed(1) + 'km do centróide ✓');
             }
         }
 
-        // ★ v17: Âncora = centróide tem prioridade absoluta (vem do OpenCEP = Correios)
+        // ★ v34: Âncora = centróide da cidade (via Nominatim)
         var anchor = centroid || postalAnchor;
 
         if (!anchor) {
@@ -1764,7 +1788,7 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
         var temLogradouro = cepData.logradouro && cepData.logradouro.length > 2;
         var temBairro = cepData.bairro && cepData.bairro.length > 2;
         var cidadeUf = cepData.cidade + ', ' + cepData.uf + ', Brasil';
-        rLog('info', '📮 OpenCEP → ' + (temLogradouro ? cepData.logradouro : '(sem rua)') + ' | ' + (temBairro ? cepData.bairro : '(sem bairro)') + ' | ' + cepData.cidade + '/' + cepData.uf);
+        rLog('info', '📮 Dados → ' + (temLogradouro ? cepData.logradouro : '(sem rua)') + ' | ' + (temBairro ? cepData.bairro : '(sem bairro)') + ' | ' + cepData.cidade + '/' + cepData.uf);
 
         // ★ v18: RMSP LOCK — CEPs 01000-09999 pertencem à Região Metropolitana de SP.
         // Força sufixo RMSP em todas as queries Nominatim para fechar o perímetro de busca
@@ -1792,15 +1816,8 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
         // ════════════════════════════════════════════
 
         // ── TENTATIVA 1: OVERPASS (busca DENTRO do limite administrativo da cidade) ──
-        // ★ v31: se o usuário digitou a rua (fullFmtCheck.logradouro), usa ela em vez da
-        // rua do OpenCEP — evita que CEPs com logradouro cadastrado errado puxem rua errada.
-        if (fullFmtCheck && fullFmtCheck.logradouro && cepData) {
-            var cepDataParaOverpass = Object.assign({}, cepData);
-            cepDataParaOverpass.logradouro = fullFmtCheck.logradouro;
-            rLog('ok', '★ v31: Overpass usará rua do usuário: "' + fullFmtCheck.logradouro + '" (OpenCEP tinha: "' + (cepData.logradouro||'(vazio)') + '")');
-        } else {
-            var cepDataParaOverpass = cepData;
-        }
+        // ★ v34: cepData.logradouro já vem do input do usuário (não mais de API postal)
+        var cepDataParaOverpass = cepData;
         if (temLogradouro || (fullFmtCheck && fullFmtCheck.logradouro)) {
             rLog('step', '🔍 TENTATIVA 1/3: Overpass (dentro de ' + cepData.cidade + ')');
             if (statusDiv) statusDiv.innerHTML = '<p>⏳ Overpass: buscando dentro de ' + escHtml(cepData.cidade) + '...</p>';
@@ -1809,10 +1826,8 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
                 if (ovResult) {
                     var ovValidacao = validarContraCorreios(ovResult, cepData);
                     var ovDistAnchor = haversineKm(anchor.lat, anchor.lon, ovResult.lat, ovResult.lon);
-                    // ★ v25: trava de logradouro no Overpass também
-                    // ★ v32: prioriza rua do usuário na validação
-                    var _ovLogRef = (fullFmtCheck && fullFmtCheck.logradouro) ? fullFmtCheck.logradouro : cepData.logradouro;
-                    var ovStrCheck = validarLogradouro(ovResult.display, _ovLogRef);
+                    // ★ v34: valida contra logradouro do usuário
+                    var ovStrCheck = validarLogradouro(ovResult.display, cepData.logradouro);
                     rLog('info', 'Overpass: ' + ovStrCheck.motivo);
                     if (ovDistAnchor <= MAX_DIST_FROM_CITY_KM && ovStrCheck.ok) {
                         rLog('ok', '✅ Overpass ACEITO (' + ovDistAnchor.toFixed(1) + 'km da âncora)');
@@ -1831,36 +1846,22 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
         rLog('step', '🔍 TENTATIVA 2/3: Nominatim blindado (viewbox 0.3° + cidade obrigatória)');
         var queries = [];
 
-        // ★ v31: PRIORIDADE MÁXIMA — rua digitada pelo usuário precede a rua do OpenCEP.
-        // Escape automático de bairro: tenta COM bairro, depois SEM, para absorver
-        // divergências de grafia entre o input e a base OSM (ex: "Jardim roncaglia" vs "Jardim Roncáglia").
-        if (fullFmtCheck && fullFmtCheck.logradouro) {
-            var uRua    = fullFmtCheck.logradouro;
-            var uNum    = fullFmtCheck.numero || cep.numero || '';
-            var uBairro = fullFmtCheck.bairro || (temBairro ? cepData.bairro : '');
-            rLog('ok', '★ v31: Rua do usuário com prioridade: "' + uRua + '"' + (uBairro ? ' | Bairro: "' + uBairro + '"' : ''));
-            // T1: rua digitada + numero + bairro + cidade
-            if (uNum && uBairro) queries.push(uRua + ', ' + uNum + ', ' + uBairro + ', ' + cidadeUf);
-            // T2: rua digitada + numero + cidade (ESCAPE sem bairro)
-            if (uNum)            queries.push(uRua + ', ' + uNum + ', ' + cidadeUf);
-            // T3: rua digitada + bairro + cidade (sem numero)
-            if (uBairro)         queries.push(uRua + ', ' + uBairro + ', ' + cidadeUf);
-            // T4: rua digitada + cidade apenas
-                                 queries.push(uRua + ', ' + cidadeUf);
-        }
-
-        // ★ v32: guarda quantas queries vieram do input do usuário (antes das queries OpenCEP)
-        var _userQueryCount = queries.length;
-
-        // Queries usando logradouro OpenCEP (como fallback se rua do usuário falhar)
+        // ★ v34: TODAS as queries usam dados do usuário (não há mais API postal para substituir)
         if (temLogradouro) {
-            if (cep.numero) {
-                queries.push(cepData.logradouro + ', ' + cep.numero + ', ' + (temBairro ? cepData.bairro + ', ' : '') + cidadeUf);
-            }
-            queries.push(cepData.logradouro + ', ' + (temBairro ? cepData.bairro + ', ' : '') + cidadeUf);
-            queries.push(cepData.logradouro + ', ' + cidadeUf);
+            var uRua    = cepData.logradouro;
+            var uNum    = cep.numero || '';
+            var uBairro = cepData.bairro || '';
+            rLog('ok', '★ v34: Rua do usuário: "' + uRua + '"' + (uBairro ? ' | Bairro: "' + uBairro + '"' : ''));
+            // T1: rua + numero + bairro + cidade
+            if (uNum && uBairro) queries.push(uRua + ', ' + uNum + ', ' + uBairro + ', ' + cidadeUf);
+            // T2: rua + numero + cidade
+            if (uNum)            queries.push(uRua + ', ' + uNum + ', ' + cidadeUf);
+            // T3: rua + bairro + cidade
+            if (uBairro)         queries.push(uRua + ', ' + uBairro + ', ' + cidadeUf);
+            // T4: rua + cidade
+                                 queries.push(uRua + ', ' + cidadeUf);
         } else {
-            rLog('warn', 'CEP genérico (sem logradouro) — número ignorado na busca');
+            rLog('warn', 'Sem logradouro — buscando só por bairro/cidade');
             if (temBairro) {
                 queries.push(cepData.bairro + ', ' + cidadeUf);
             }
@@ -1882,16 +1883,10 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
                 for (var ri = 0; ri < results.length; ri++) {
                     var d = haversineKm(anchor.lat, anchor.lon, parseFloat(results[ri].lat), parseFloat(results[ri].lon));
                     var marker = d <= MAX_DIST_FROM_CITY_KM ? ' ✓' : ' ✗ (fora)';
-                    // ★ v25: trava de logradouro — aplica só quando ViaCEP retornou rua e a query usa rua
-                    // ★ v32: para queries do usuário, valida contra a rua DIGITADA (não a do ViaCEP)
+                    // ★ v34: valida contra o logradouro do usuário (não há mais API postal)
                     var strCheck = { ok: true, motivo: 'sem logradouro para checar' };
-                    if (q < queries.length - 1) { // última query é só cidadeUf → não aplica
-                        var _logRef = (q < _userQueryCount && fullFmtCheck && fullFmtCheck.logradouro)
-                            ? fullFmtCheck.logradouro
-                            : (temLogradouro ? cepData.logradouro : null);
-                        if (_logRef) {
-                            strCheck = validarLogradouro(results[ri].display_name, _logRef);
-                        }
+                    if (temLogradouro && q < queries.length - 1) { // última query é só cidadeUf → não aplica
+                        strCheck = validarLogradouro(results[ri].display_name, cepData.logradouro);
                     }
                     // ★ v26: City Strict Match — usa campo estruturado _city do resultado
                     var cityCheck = cidadeCompativel(results[ri], cepData.cidade);
@@ -1931,8 +1926,8 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
 
         // ── TENTATIVA 3: NOMINATIM bounded=1 (FORÇADO dentro do viewbox) ──
         rLog('step', '🔍 TENTATIVA 3/3: Nominatim bounded=1 (forçado dentro do viewbox)');
-        // ★ v31: prioriza rua digitada pelo usuário também na tentativa forçada
-        var _boundedRua = (fullFmtCheck && fullFmtCheck.logradouro) ? fullFmtCheck.logradouro : (cepData.logradouro || '');
+        // ★ v34: usa logradouro do usuário (cepData.logradouro já é do input)
+        var _boundedRua = cepData.logradouro || '';
         if (_boundedRua) {
             var boundedQuery = _boundedRua + ', ' + cidadeUf;
             rLog('info', 'Query forçada: "' + boundedQuery + '" com bounded=1');
@@ -1958,10 +1953,8 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
                             _city: bCityField, _street: bAddr.road || bAddr.pedestrian || ''
                         };
                         var bDist = haversineKm(anchor.lat, anchor.lon, bPt.lat, bPt.lon);
-                        // ★ v25: trava de logradouro
-                        // ★ v32: prioriza rua do usuário na validação
-                        var _bLogRef = (fullFmtCheck && fullFmtCheck.logradouro) ? fullFmtCheck.logradouro : cepData.logradouro;
-                        var bStrCheck = _bLogRef ? validarLogradouro(bPt.display, _bLogRef) : { ok: true, motivo: '' };
+                        // ★ v34: valida contra logradouro do usuário
+                        var bStrCheck = temLogradouro ? validarLogradouro(bPt.display, cepData.logradouro) : { ok: true, motivo: '' };
                         // ★ v26: City Strict Match
                         var bCityCheck = cidadeCompativel(bPt, cepData.cidade);
                         var bTag = (!bStrCheck.ok ? ' ✗ STR' : '') + (!bCityCheck.ok ? ' ✗ CITY' : '');
@@ -2993,8 +2986,11 @@ async function planRoute() {
                 var cepA = parseCepInput(points[i].input || '');
                 var cepB = parseCepInput(points[i+1].input || '');
                 if (cepA && cepB) {
-                    var ca = await lookupCEPOpenCEP(cepA.cep);
-                    var cb = await lookupCEPOpenCEP(cepB.cep);
+                    // ★ v34: usa Nominatim postalcode em vez de OpenCEP
+                    var paA = await nominatimByPostalcode(cepA.cep);
+                    var paB = await nominatimByPostalcode(cepB.cep);
+                    var ca = paA && paA.city ? { cidade: paA.city, uf: paA.uf || 'SP' } : null;
+                    var cb = paB && paB.city ? { cidade: paB.city, uf: paB.uf || 'SP' } : null;
                     if (ca && cb && (ca.cidade !== cb.cidade || ca.uf !== cb.uf)) {
                         var ctA = await getCityCentroid(ca.cidade, ca.uf);
                         var ctB = await getCityCentroid(cb.cidade, cb.uf);
