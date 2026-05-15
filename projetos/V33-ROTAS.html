@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora Multi-Paradas para Entregas — v31</title>
+    <title>Calculadora Multi-Paradas para Entregas — v33</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -95,6 +95,9 @@
         .addr-table td { padding: 8px 10px; border-bottom: 1px solid #e2e8f0; vertical-align: top; }
         .addr-table tr:nth-child(even) { background: #f8fafc; }
         .addr-table tr:hover { background: #eff6ff; }
+        .addr-table tr.addr-dup-row { background: #fefce8; }
+        .addr-table tr.addr-dup-row:hover { background: #fef9c3; }
+        .addr-dup-badge { background: #f59e0b; color: white; padding: 2px 6px; border-radius: 6px; font-size: 0.72rem; font-weight: 700; white-space: nowrap; }
         .addr-table .addr-status { text-align: center; font-size: 1rem; }
         .addr-table .addr-input { color: #475569; font-size: 0.78rem; }
         .addr-table .addr-found { color: #16a34a; font-weight: 600; }
@@ -116,7 +119,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v31 — Rua do Usuário: prioridade máxima sobre ViaCEP · Escape automático de Bairro (3 tentativas) · TSP NN+2-opt</strong></p>
+            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v33 — ViaCEP removido · OpenCEP primário · Validação usa rua DIGITADA · Trava anti-duplicata · TSP NN+2-opt</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -245,7 +248,7 @@
             <div class="report-block" id="reportBlock">Nenhum cálculo realizado ainda.</div>
         </div>
     </div>
-    <div class="attribution">ESRI World Imagery | OSRM | Nominatim/OSM | OpenCEP | BrasilAPI | ViaCEP | OpenStreetMap</div>
+    <div class="attribution">ESRI World Imagery | OSRM | Nominatim/OSM | OpenCEP | BrasilAPI | OpenStreetMap</div>
 </div>
 
 <script>
@@ -646,10 +649,39 @@ function buildAddrReport(points, failedStops) {
     // Ordena por número
     _addrReportData.sort(function(a, b) { return a.num - b.num; });
 
+    // ★ v32: DETECÇÃO DE COORDENADAS DUPLICADAS (< 50m entre pares)
+    var dupGroups = {}; // key = "lat,lon" arredondado → array de indices
+    var dupCount = 0;
+    for (var di = 0; di < _addrReportData.length; di++) {
+        if (_addrReportData[di].lat === null) continue;
+        var found = false;
+        for (var dj = 0; dj < di; dj++) {
+            if (_addrReportData[dj].lat === null) continue;
+            var ddist = Math.sqrt(
+                Math.pow((_addrReportData[di].lat - _addrReportData[dj].lat) * 111320, 2) +
+                Math.pow((_addrReportData[di].lon - _addrReportData[dj].lon) * 111320 * Math.cos(_addrReportData[di].lat * Math.PI / 180), 2)
+            );
+            if (ddist < 50) { // menos de 50 metros
+                _addrReportData[di].dupWarning = true;
+                _addrReportData[dj].dupWarning = true;
+                if (!found) dupCount++;
+                found = true;
+            }
+        }
+    }
+    // Conta total de pontos com warning
+    var totalDup = 0;
+    for (var dw = 0; dw < _addrReportData.length; dw++) {
+        if (_addrReportData[dw].dupWarning) totalDup++;
+    }
+
     // Summary
     var summaryHtml = '<div class="addr-summary-item">' + totalOk + ' endereço(s) encontrado(s)</div>';
     if (totalFail > 0) {
         summaryHtml += '<div class="addr-summary-item err">' + totalFail + ' não encontrado(s)</div>';
+    }
+    if (totalDup > 0) {
+        summaryHtml += '<div class="addr-summary-item" style="color:#d97706;font-weight:700;">⚠️ ' + totalDup + ' ponto(s) com coordenadas duplicadas — possível erro de geocodificação</div>';
     }
     summaryHtml += '<div class="addr-summary-item warn">Total: ' + (totalOk + totalFail) + ' entrada(s)</div>';
     document.getElementById('addrSummary').innerHTML = summaryHtml;
@@ -660,10 +692,11 @@ function buildAddrReport(points, failedStops) {
 
     for (var r = 0; r < _addrReportData.length; r++) {
         var d = _addrReportData[r];
-        var statusIcon = d.status === 'ok' ? '✅' : '❌';
-        var rowStyle = d.status === 'fail' ? ' style="background:#fef2f2;"' : '';
+        var statusIcon = d.status === 'ok' ? (d.dupWarning ? '⚠️' : '✅') : '❌';
+        var rowStyle = d.status === 'fail' ? ' style="background:#fef2f2;"' : (d.dupWarning ? ' class="addr-dup-row"' : '');
         var coordStr = d.lat !== null ? d.lat.toFixed(6) + ', ' + d.lon.toFixed(6) : '—';
         var foundClass = d.status === 'ok' ? 'addr-found' : 'preview-err';
+        var dupBadge = d.dupWarning ? ' <span class="addr-dup-badge">COORDS DUPLICADAS</span>' : '';
 
         // Tenta parsear campos do input (formato completo ou CEP+número)
         var fCep = '', fRua = '', fNum = '', fBairro = '', fMun = '', fEst = '';
@@ -685,7 +718,7 @@ function buildAddrReport(points, failedStops) {
             var cuP = extractCityUF(d.found || '');
             if (cuP) { fMun = cuP.cidade; fEst = cuP.uf; }
         }
-        // Bairro: vem do ViaCEP (via point.bairro) ou do input se disponível
+        // Bairro: vem do OpenCEP (via point.bairro) ou do input se disponível
         fBairro = d.bairro || '';
 
         html += '<tr' + rowStyle + '>';
@@ -696,7 +729,7 @@ function buildAddrReport(points, failedStops) {
         html += '<td class="addr-input">' + escHtml(fBairro) + '</td>';
         html += '<td class="addr-input">' + escHtml(fMun) + '</td>';
         html += '<td class="addr-input" style="white-space:nowrap;">' + escHtml(fEst) + '</td>';
-        html += '<td class="' + foundClass + '">' + escHtml(d.found) + '</td>';
+        html += '<td class="' + foundClass + '">' + escHtml(d.found) + dupBadge + '</td>';
         html += '<td class="addr-coords">' + coordStr + '</td>';
         html += '<td class="addr-status">' + statusIcon + '</td>';
         html += '</tr>';
@@ -733,7 +766,7 @@ function copyAddrReport(format) {
                 d.num + ';"' + fCep2 + '";"' + fRua2 + '";"' + fNum2 + '";"' + fBairro2 + '";"' + fMun2 + '";"' + fEst2 + '";"' + d.found + '";' +
                 (d.lat !== null ? d.lat.toFixed(6) : '') + ';' +
                 (d.lon !== null ? d.lon.toFixed(6) : '') + ';' +
-                (d.status === 'ok' ? 'OK' : 'FALHOU')
+                (d.status === 'ok' ? 'OK' : 'FALHOU') + (d.dupWarning ? ';COORDS_DUPLICADAS' : '')
             );
         }
     } else if (format === 'coords') {
@@ -759,15 +792,17 @@ function copyAddrReport(format) {
         lines.push('');
         var ok = data.filter(function(d){ return d.status === 'ok'; }).length;
         var fail = data.filter(function(d){ return d.status === 'fail'; }).length;
-        lines.push('✅ Encontrados: ' + ok + '  |  ❌ Não encontrados: ' + fail + '  |  Total: ' + (ok+fail));
+        var dup = data.filter(function(d){ return d.dupWarning; }).length;
+        lines.push('✅ Encontrados: ' + ok + '  |  ❌ Não encontrados: ' + fail + (dup > 0 ? '  |  ⚠️ Coords duplicadas: ' + dup : '') + '  |  Total: ' + (ok+fail));
         lines.push('');
         for (var i = 0; i < data.length; i++) {
             var d = data[i];
-            var icon = d.status === 'ok' ? '✅' : '❌';
+            var icon = d.status === 'ok' ? (d.dupWarning ? '⚠️' : '✅') : '❌';
             lines.push(icon + ' ' + d.role);
             lines.push('   Digitado:    ' + d.input);
             lines.push('   Encontrado:  ' + (d.status === 'ok' ? d.found : d.found));
             if (d.lat !== null) lines.push('   Coordenadas: ' + d.lat.toFixed(6) + ', ' + d.lon.toFixed(6));
+            if (d.dupWarning) lines.push('   ⚠️ COORDENADAS DUPLICADAS — possível erro de geocodificação');
             lines.push('');
         }
         lines.push('═══════════════════════════════════════════');
@@ -864,30 +899,12 @@ function parseCepInput(input) {
 }
 
 // ============================================
-// VIACEP
+// VIACEP — ★ v33: REMOVIDO como fonte primária (substituído por OpenCEP)
+// Função mantida apenas para referência. Não é mais chamada.
 // ============================================
 async function lookupCEP(cep) {
-    var url = 'https://viacep.com.br/ws/' + cep + '/json/';
-    rLog('dim', 'ViaCEP: ' + url);
-
-    var resp = await fetchRetry(url, {}, 'ViaCEP', 3);
-    var data = await resp.json();
-
-    if (data.erro) {
-        rLog('err', 'ViaCEP: CEP ' + cep + ' NÃO EXISTE!');
-        return null;
-    }
-
-    rLog('ok', 'ViaCEP OK:');
-    rLog('val', '  logradouro: "' + (data.logradouro||'') + '"');
-    rLog('val', '  bairro: "' + (data.bairro||'') + '"');
-    rLog('val', '  cidade: ' + data.localidade + ' | UF: ' + data.uf);
-    return {
-        logradouro: data.logradouro || '',
-        bairro: data.bairro || '',
-        cidade: data.localidade || '',
-        uf: data.uf || ''
-    };
+    // ★ v33: redireciona para OpenCEP
+    return await lookupCEPOpenCEP(cep);
 }
 
 // ============================================
@@ -1380,7 +1397,7 @@ function extractCityUF(address) {
 
 // ============================================
 // ★ v17: VALIDAÇÃO CRUZADA CONTRA CORREIOS
-// Compara o resultado do geocodificador com os dados oficiais do ViaCEP.
+// Compara o resultado do geocodificador com os dados oficiais do OpenCEP/BrasilAPI.
 // Se cidade ou UF não bater, o resultado é REJEITADO e vai pras APIs de reserva.
 // ============================================
 function validarContraCorreios(point, cepData) {
@@ -1396,7 +1413,7 @@ function validarContraCorreios(point, cepData) {
 
     // Log detalhado da comparação
     rLog('step', '══ VALIDAÇÃO CRUZADA: Correios vs Geocodificador ══');
-    rLog('info', '📮 CORREIOS (ViaCEP):');
+    rLog('info', '📮 CORREIOS (OpenCEP):');
     rLog('val',  '   Logradouro: ' + (cepData.logradouro || '(genérico)'));
     rLog('val',  '   Bairro:     ' + (cepData.bairro || '(genérico)'));
     rLog('val',  '   Cidade:     ' + cepData.cidade);
@@ -1586,31 +1603,22 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
         rLog('step', 'GEOCODIFICAÇÃO (CEP): "' + input + '"');
         rLog('ok', 'CEP detectado: ' + cep.cepFmt + (cep.numero ? ' | Número: ' + cep.numero : ' | SEM NÚMERO'));
 
-        var cepData = await lookupCEP(cep.cep);
+        // ★ v33: OpenCEP como fonte primária (ViaCEP removido — causava substituição de rua)
+        var cepData = await lookupCEPOpenCEP(cep.cep);
 
-        // Helper: injeta bairro do ViaCEP em qualquer ponto retornado
+        // Helper: injeta bairro do OpenCEP em qualquer ponto retornado
         function addBairro(pt) {
             if (pt && cepData && cepData.bairro) pt.bairro = cepData.bairro;
             return pt;
         }
 
         if (!cepData) {
-            rLog('warn', 'ViaCEP: CEP nao encontrado. Ativando Fallback em Cascata v26...');
+            rLog('warn', 'OpenCEP: CEP nao encontrado. Tentando BrasilAPI...');
 
-            // ★ v22: CASCATA POSTAL — tenta fontes adicionais antes de qualquer geocodificacao cega
-            // Etapa A: BrasilAPI (base de dados postal independente, cobre CEPs que o ViaCEP nao tem)
+            // Fallback: BrasilAPI (base de dados postal independente)
             cepData = await lookupCEPBrasilAPI(cep.cep);
             if (cepData) {
                 rLog('ok', 'BrasilAPI resgatou o CEP! Continuando fluxo normal com dados postais...');
-                // Injeta no fluxo normal (cai no bloco abaixo como se ViaCEP tivesse respondido)
-            }
-
-            // ★ v26: Etapa B: OpenCEP (3ª fonte 100% brasileira)
-            if (!cepData) {
-                cepData = await lookupCEPOpenCEP(cep.cep);
-                if (cepData) {
-                    rLog('ok', 'OpenCEP resgatou o CEP! Continuando fluxo normal com dados postais...');
-                }
             }
         }
 
@@ -1714,7 +1722,7 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
             return await geocodeAsAddress(input, refLat, refLon, refLabel);
         }
 
-        // ★ v17: ÂNCORA = CENTRÓIDE DA CIDADE VIACEP (fonte primária confiável)
+        // ★ v17: ÂNCORA = CENTRÓIDE DA CIDADE OpenCEP (fonte primária confiável)
         // O postalAnchor do Nominatim NÃO é mais confiado cegamente.
         var centroid = await getCityCentroid(cepData.cidade, cepData.uf);
         var postalAnchor = await nominatimByPostalcode(cep.cep);
@@ -1727,14 +1735,14 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
                 rLog('err', '🚨 POSTALCODE ERRADO! Nominatim postalcode a ' + divergencia.toFixed(0) + 'km de ' + cepData.cidade + '/' + cepData.uf);
                 rLog('err', '   Postalcode: ' + postalAnchor.lat.toFixed(4) + ',' + postalAnchor.lon.toFixed(4) + ' → ' + (postalAnchor.display||'?'));
                 rLog('err', '   Centróide:  ' + centroid.lat.toFixed(4) + ',' + centroid.lon.toFixed(4) + ' → ' + cepData.cidade);
-                rLog('err', '   → Postalcode DESCARTADO. Usando centróide ViaCEP.');
+                rLog('err', '   → Postalcode DESCARTADO. Usando centróide OpenCEP.');
                 postalAnchor = null; // DESCARTA
             } else {
                 rLog('ok', 'Postalcode validado: ' + divergencia.toFixed(1) + 'km do centróide ✓');
             }
         }
 
-        // ★ v17: Âncora = centróide tem prioridade absoluta (vem do ViaCEP = Correios)
+        // ★ v17: Âncora = centróide tem prioridade absoluta (vem do OpenCEP = Correios)
         var anchor = centroid || postalAnchor;
 
         if (!anchor) {
@@ -1756,7 +1764,7 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
         var temLogradouro = cepData.logradouro && cepData.logradouro.length > 2;
         var temBairro = cepData.bairro && cepData.bairro.length > 2;
         var cidadeUf = cepData.cidade + ', ' + cepData.uf + ', Brasil';
-        rLog('info', '📮 ViaCEP → ' + (temLogradouro ? cepData.logradouro : '(sem rua)') + ' | ' + (temBairro ? cepData.bairro : '(sem bairro)') + ' | ' + cepData.cidade + '/' + cepData.uf);
+        rLog('info', '📮 OpenCEP → ' + (temLogradouro ? cepData.logradouro : '(sem rua)') + ' | ' + (temBairro ? cepData.bairro : '(sem bairro)') + ' | ' + cepData.cidade + '/' + cepData.uf);
 
         // ★ v18: RMSP LOCK — CEPs 01000-09999 pertencem à Região Metropolitana de SP.
         // Força sufixo RMSP em todas as queries Nominatim para fechar o perímetro de busca
@@ -1785,11 +1793,11 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
 
         // ── TENTATIVA 1: OVERPASS (busca DENTRO do limite administrativo da cidade) ──
         // ★ v31: se o usuário digitou a rua (fullFmtCheck.logradouro), usa ela em vez da
-        // rua do ViaCEP — evita que CEPs com logradouro cadastrado errado puxem rua errada.
+        // rua do OpenCEP — evita que CEPs com logradouro cadastrado errado puxem rua errada.
         if (fullFmtCheck && fullFmtCheck.logradouro && cepData) {
             var cepDataParaOverpass = Object.assign({}, cepData);
             cepDataParaOverpass.logradouro = fullFmtCheck.logradouro;
-            rLog('ok', '★ v31: Overpass usará rua do usuário: "' + fullFmtCheck.logradouro + '" (ViaCEP tinha: "' + (cepData.logradouro||'(vazio)') + '")');
+            rLog('ok', '★ v31: Overpass usará rua do usuário: "' + fullFmtCheck.logradouro + '" (OpenCEP tinha: "' + (cepData.logradouro||'(vazio)') + '")');
         } else {
             var cepDataParaOverpass = cepData;
         }
@@ -1802,7 +1810,9 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
                     var ovValidacao = validarContraCorreios(ovResult, cepData);
                     var ovDistAnchor = haversineKm(anchor.lat, anchor.lon, ovResult.lat, ovResult.lon);
                     // ★ v25: trava de logradouro no Overpass também
-                    var ovStrCheck = validarLogradouro(ovResult.display, cepData.logradouro);
+                    // ★ v32: prioriza rua do usuário na validação
+                    var _ovLogRef = (fullFmtCheck && fullFmtCheck.logradouro) ? fullFmtCheck.logradouro : cepData.logradouro;
+                    var ovStrCheck = validarLogradouro(ovResult.display, _ovLogRef);
                     rLog('info', 'Overpass: ' + ovStrCheck.motivo);
                     if (ovDistAnchor <= MAX_DIST_FROM_CITY_KM && ovStrCheck.ok) {
                         rLog('ok', '✅ Overpass ACEITO (' + ovDistAnchor.toFixed(1) + 'km da âncora)');
@@ -1821,7 +1831,7 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
         rLog('step', '🔍 TENTATIVA 2/3: Nominatim blindado (viewbox 0.3° + cidade obrigatória)');
         var queries = [];
 
-        // ★ v31: PRIORIDADE MÁXIMA — rua digitada pelo usuário precede a rua do ViaCEP.
+        // ★ v31: PRIORIDADE MÁXIMA — rua digitada pelo usuário precede a rua do OpenCEP.
         // Escape automático de bairro: tenta COM bairro, depois SEM, para absorver
         // divergências de grafia entre o input e a base OSM (ex: "Jardim roncaglia" vs "Jardim Roncáglia").
         if (fullFmtCheck && fullFmtCheck.logradouro) {
@@ -1839,7 +1849,10 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
                                  queries.push(uRua + ', ' + cidadeUf);
         }
 
-        // Queries originais usando logradouro ViaCEP (como fallback se rua do usuário falhar)
+        // ★ v32: guarda quantas queries vieram do input do usuário (antes das queries OpenCEP)
+        var _userQueryCount = queries.length;
+
+        // Queries usando logradouro OpenCEP (como fallback se rua do usuário falhar)
         if (temLogradouro) {
             if (cep.numero) {
                 queries.push(cepData.logradouro + ', ' + cep.numero + ', ' + (temBairro ? cepData.bairro + ', ' : '') + cidadeUf);
@@ -1870,9 +1883,15 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
                     var d = haversineKm(anchor.lat, anchor.lon, parseFloat(results[ri].lat), parseFloat(results[ri].lon));
                     var marker = d <= MAX_DIST_FROM_CITY_KM ? ' ✓' : ' ✗ (fora)';
                     // ★ v25: trava de logradouro — aplica só quando ViaCEP retornou rua e a query usa rua
+                    // ★ v32: para queries do usuário, valida contra a rua DIGITADA (não a do ViaCEP)
                     var strCheck = { ok: true, motivo: 'sem logradouro para checar' };
-                    if (temLogradouro && q < queries.length - 1) { // última query é só cidadeUf → não aplica
-                        strCheck = validarLogradouro(results[ri].display_name, cepData.logradouro);
+                    if (q < queries.length - 1) { // última query é só cidadeUf → não aplica
+                        var _logRef = (q < _userQueryCount && fullFmtCheck && fullFmtCheck.logradouro)
+                            ? fullFmtCheck.logradouro
+                            : (temLogradouro ? cepData.logradouro : null);
+                        if (_logRef) {
+                            strCheck = validarLogradouro(results[ri].display_name, _logRef);
+                        }
                     }
                     // ★ v26: City Strict Match — usa campo estruturado _city do resultado
                     var cityCheck = cidadeCompativel(results[ri], cepData.cidade);
@@ -1940,7 +1959,9 @@ async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
                         };
                         var bDist = haversineKm(anchor.lat, anchor.lon, bPt.lat, bPt.lon);
                         // ★ v25: trava de logradouro
-                        var bStrCheck = temLogradouro ? validarLogradouro(bPt.display, cepData.logradouro) : { ok: true, motivo: '' };
+                        // ★ v32: prioriza rua do usuário na validação
+                        var _bLogRef = (fullFmtCheck && fullFmtCheck.logradouro) ? fullFmtCheck.logradouro : cepData.logradouro;
+                        var bStrCheck = _bLogRef ? validarLogradouro(bPt.display, _bLogRef) : { ok: true, motivo: '' };
                         // ★ v26: City Strict Match
                         var bCityCheck = cidadeCompativel(bPt, cepData.cidade);
                         var bTag = (!bStrCheck.ok ? ' ✗ STR' : '') + (!bCityCheck.ok ? ' ✗ CITY' : '');
@@ -2876,6 +2897,32 @@ async function planRoute() {
         // ── Gera Relatório de Endereços Reconhecidos ──
         buildAddrReport(points, failedStops);
 
+        // ★ v32: ALERTA DE COORDENADAS DUPLICADAS — compara todos os pares (< 50m)
+        var _dupAlerts = [];
+        for (var da = 0; da < points.length; da++) {
+            for (var db = da + 1; db < points.length; db++) {
+                if (points[da].label === 'Origem (retorno)' || points[db].label === 'Origem (retorno)') continue;
+                var _ddm = Math.sqrt(
+                    Math.pow((points[da].lat - points[db].lat) * 111320, 2) +
+                    Math.pow((points[da].lon - points[db].lon) * 111320 * Math.cos(points[da].lat * Math.PI / 180), 2)
+                );
+                if (_ddm < 50) {
+                    _dupAlerts.push({ a: points[da].label, b: points[db].label, dist: _ddm });
+                }
+            }
+        }
+        if (_dupAlerts.length > 0) {
+            rLog('warn', '════════════════════════════════');
+            rLog('err', '⚠️ COORDENADAS DUPLICADAS DETECTADAS (' + _dupAlerts.length + ' par(es)):');
+            for (var dx = 0; dx < _dupAlerts.length; dx++) {
+                rLog('err', '  • ' + _dupAlerts[dx].a + ' ≡ ' + _dupAlerts[dx].b + ' (' + _dupAlerts[dx].dist.toFixed(0) + 'm de distância)');
+            }
+            rLog('warn', '  Causa provável: rua não encontrada no mapa → centróide da cidade.');
+            rLog('warn', '  Verifique a grafia dos endereços ou use Google Maps API.');
+            rLog('warn', '════════════════════════════════');
+            rFlush();
+        }
+
         // ── Dedupe de paradas consecutivas idênticas por coordenada ──
         var deduped = [points[0]];
         for (var di = 1; di < points.length; di++) {
@@ -2946,8 +2993,8 @@ async function planRoute() {
                 var cepA = parseCepInput(points[i].input || '');
                 var cepB = parseCepInput(points[i+1].input || '');
                 if (cepA && cepB) {
-                    var ca = await lookupCEP(cepA.cep);
-                    var cb = await lookupCEP(cepB.cep);
+                    var ca = await lookupCEPOpenCEP(cepA.cep);
+                    var cb = await lookupCEPOpenCEP(cepB.cep);
                     if (ca && cb && (ca.cidade !== cb.cidade || ca.uf !== cb.uf)) {
                         var ctA = await getCityCentroid(ca.cidade, ca.uf);
                         var ctB = await getCityCentroid(cb.cidade, cb.uf);
