@@ -1538,7 +1538,7 @@ function cidadeCompativel(resultado, cidadeEsperada) {
         motivo: '❌ CITY MISMATCH (sim=' + sim.toFixed(2) + '): esperado "' + cidadeEsperada + '" mas geocodificador retornou "' + cidadeRes + '" — BLOQUEADO'
     };
 }
-async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
+async function _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv) {
     // ★ v26 FIX (BUG RAIZ #4): detecta formato completo "CEP, Rua, Nº, Cidade, UF[, Brasil]"
     // digitado diretamente no campo — converte para "CEP, numero" antes de qualquer parsing.
     // ANTES: esse formato ia para geocodeAsAddress() sem proteção de cidade → bug Guarulhos.
@@ -1587,6 +1587,30 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
         }
 
         if (!cepData) {
+            // ★ v27 FALLBACK ENDEREÇO COMPLETO: CEP inválido/inexistente, mas o usuário
+            // forneceu logradouro + cidade + estado no formato completo → usa esses dados
+            // diretamente no geocodificador, ignorando o CEP errado.
+            // Ex: "99999-000, Rua das Flores, 50, Campinas, SP, Brasil" → geocodifica
+            //     "Rua das Flores, 50, Campinas, SP, Brasil" via Nominatim/Google.
+            if (fullFmtCheck && fullFmtCheck.logradouro && fullFmtCheck.municipio && fullFmtCheck.estado) {
+                rLog('warn', '★ v27 FALLBACK ENDEREÇO: CEP ' + cep.cepFmt + ' inválido — logradouro+cidade disponíveis no input, tentando geocodificação direta');
+                var fbAddr = fullFmtCheck.logradouro
+                    + (fullFmtCheck.numero ? ', ' + fullFmtCheck.numero : '')
+                    + ', ' + fullFmtCheck.municipio
+                    + ', ' + fullFmtCheck.estado
+                    + ', Brasil';
+                rLog('val', '   Query fallback: "' + fbAddr + '"');
+                try {
+                    var fbResult = await geocodeAsAddress(fbAddr, null, null, null);
+                    if (fbResult) {
+                        rLog('ok', '★ v27 FALLBACK ENDEREÇO ACEITO: ' + fbResult.display);
+                        return fbResult;
+                    }
+                } catch(eFbAddr) {
+                    rLog('warn', '   Fallback por endereço falhou: ' + eFbAddr.message + ' — continuando com ancoragem sub-regional...');
+                }
+            }
+
             // Etapa B: nenhuma fonte postal conhece o CEP
             // Geocodificacao ainda proibida de receber string crua CEP+numero
             rLog('warn', 'Nenhuma fonte postal conhece o CEP ' + cep.cepFmt + '. Ancoragem sub-regional...');
@@ -1891,10 +1915,68 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
             return { lat: postalAnchor.lat, lon: postalAnchor.lon, display: displayFb2, bairro: cepData.bairro || '' };
         }
 
+        // ★ v27: Antes de desistir, se temos o formato completo (logradouro+cidade+estado),
+        // tenta geocodificar diretamente por endereço — ignora o CEP e usa os dados textuais.
+        if (fullFmtCheck && fullFmtCheck.logradouro && fullFmtCheck.municipio) {
+            rLog('warn', '★ v27 FALLBACK FINAL: Overpass/Nominatim exauriram opções. Tentando geocodificação por logradouro+cidade...');
+            var fbAddr2 = fullFmtCheck.logradouro
+                + (fullFmtCheck.numero ? ', ' + fullFmtCheck.numero : '')
+                + ', ' + fullFmtCheck.municipio
+                + ', ' + fullFmtCheck.estado
+                + ', Brasil';
+            rLog('val', '   Query: "' + fbAddr2 + '"');
+            try {
+                var fbResult2 = await geocodeAsAddress(fbAddr2, null, null, null);
+                if (fbResult2) {
+                    rLog('ok', '★ v27 FALLBACK FINAL ACEITO: ' + fbResult2.display);
+                    if (cepData && cepData.bairro) fbResult2.bairro = cepData.bairro;
+                    return fbResult2;
+                }
+            } catch(eFbAddr2) {
+                rLog('warn', '   Fallback final por endereço também falhou: ' + eFbAddr2.message);
+            }
+        }
+
         throw new Error('CEP ' + cep.cepFmt + ' não geocodificável em ' + cepData.cidade + '/' + cepData.uf);
 
     } else {
         return await geocodeAsAddress(input, refLat, refLon, refLabel);
+    }
+}
+
+// ★ v27 — Wrapper público com cache de resultado + dedup de in-flight
+// Garante que o mesmo endereço NUNCA dispara duas requisições simultâneas ou
+// consecutivas (elimina o loop duplo da Origem que gastava 42 s desnecessários).
+async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
+    var _ck = (input || '').trim().toLowerCase();
+
+    // 1. Cache hit: resultado já disponível desta sessão de cálculo
+    if (_geocodeCache[_ck]) {
+        rLog('ok', '★ v27 CACHE: "' + (input||'').trim() + '" já geocodificado — resultado reutilizado (0 req extras)');
+        return _geocodeCache[_ck];
+    }
+
+    // 2. In-flight dedup: mesma geocodificação já em andamento — espera a Promise existente
+    if (_geocodeInflight[_ck]) {
+        rLog('ok', '★ v27 DEDUP: "' + (input||'').trim() + '" em andamento — aguardando resultado em vez de duplicar');
+        return await _geocodeInflight[_ck];
+    }
+
+    // 3. Nova geocodificação: executa e armazena Promise para dedup simultâneo
+    var _pResolve, _pReject;
+    var _p = new Promise(function(res, rej) { _pResolve = res; _pReject = rej; });
+    _geocodeInflight[_ck] = _p;
+
+    try {
+        var _result = await _smartGeocodeImpl(input, refLat, refLon, refLabel, statusDiv);
+        _geocodeCache[_ck] = _result;    // armazena para próxima chamada
+        _pResolve(_result);              // libera qualquer waiters do dedup
+        return _result;
+    } catch(e) {
+        _pReject(e);
+        throw e;
+    } finally {
+        delete _geocodeInflight[_ck];    // limpa referência in-flight
     }
 }
 
@@ -2026,6 +2108,9 @@ async function calcOSRM(from, to, legNum) {
 var previewPinCache = {}; // inputId → {addr, lat, lon}
 var previewBusy = false;
 var previewQueue = [];
+// ★ v27 — Anti-loop-duplo: cache de resultados e dedup de requisições em andamento
+var _geocodeCache   = {}; // addr_normalizado → resultado já resolvido
+var _geocodeInflight = {}; // addr_normalizado → Promise em execução
 
 async function previewSinglePin(inputId, pinKey) {
     var input = document.getElementById(inputId);
@@ -2515,6 +2600,11 @@ async function planRoute() {
     btn.disabled = true;
     btn.textContent = 'Calculando...';
     rClear();
+    // ★ v27: Cancela geocodificações de preview pendentes e reinicia o cache —
+    // impede que o onblur do campo Origem enfileire uma geocodificação paralela
+    // que antes causava o loop duplo (~42 s extras por ponto de partida).
+    previewQueue = [];
+    _geocodeCache = {};
     routeLayer.clearLayers();
     // Esconde relatório de endereços do cálculo anterior
     document.getElementById('addrReportSection').style.display = 'none';
@@ -2542,15 +2632,41 @@ async function planRoute() {
         points.push({ lat: orig.lat, lon: orig.lon, display: orig.display, label: 'Origem', input: originAddr, bairro: orig.bairro || '' });
         rFlush();
 
-        // PARADAS
+        // PARADAS — ★ v27: try/catch por parada (CEP inexistente não trava o cálculo inteiro)
+        var failedStops = []; // paradas que não puderam ser geocodificadas
+        var stopSeq = 0;      // contador de paradas bem-sucedidas (para label correto)
         for (var i = 0; i < stopAddrs.length; i++) {
             resultDiv.innerHTML = '<p>⏳ Geocodificando parada ' + (i+1) + '/' + stopAddrs.length + '...</p>';
             var prev = points[points.length-1];
-            var pt = await smartGeocode(stopAddrs[i], prev.lat, prev.lon, prev.label, resultDiv);
-            // Usa o display enriquecido do formato completo (se disponível) para a tabela de relatório
-            var stopDisplayInput = stopDisplayMap[stopAddrs[i]] || stopAddrs[i];
-            points.push({ lat: pt.lat, lon: pt.lon, display: pt.display, label: 'Parada #' + (i+1), input: stopDisplayInput, bairro: pt.bairro || '' });
+            try {
+                var pt = await smartGeocode(stopAddrs[i], prev.lat, prev.lon, prev.label, resultDiv);
+                stopSeq++;
+                // Usa o display enriquecido do formato completo (se disponível) para a tabela de relatório
+                var stopDisplayInput = stopDisplayMap[stopAddrs[i]] || stopAddrs[i];
+                points.push({ lat: pt.lat, lon: pt.lon, display: pt.display, label: 'Parada #' + stopSeq, input: stopDisplayInput, bairro: pt.bairro || '' });
+            } catch (eStop) {
+                // ★ v27: Parada falhou — registra, avisa no log e continua para a próxima
+                rLog('err', '⚠️ PARADA #' + (i+1) + ' IGNORADA: "' + stopAddrs[i] + '" — ' + eStop.message);
+                rLog('warn', '   Causa: CEP inexistente ou endereço não encontrado em nenhuma base postal/geográfica.');
+                rLog('warn', '   O cálculo continua com as demais paradas.');
+                failedStops.push({ num: i + 1, addr: stopAddrs[i], err: eStop.message });
+            }
             rFlush();
+        }
+
+        // Verifica se sobrou pelo menos 1 parada após as falhas
+        if (points.length < 2) {
+            throw new Error('Nenhuma parada pôde ser geocodificada. Verifique os endereços informados.\n' +
+                failedStops.map(function(f){ return '• Parada #' + f.num + ': ' + f.addr + ' — ' + f.err; }).join('\n'));
+        }
+        if (failedStops.length > 0) {
+            rLog('warn', '════════════════════════════════');
+            rLog('warn', failedStops.length + ' parada(s) ignorada(s) por falha de geocodificação:');
+            for (var fi = 0; fi < failedStops.length; fi++) {
+                rLog('err', '  • Parada #' + failedStops[fi].num + ': "' + failedStops[fi].addr + '"');
+            }
+            rLog('warn', 'Rota calculada com ' + (points.length - 1) + ' parada(s) válida(s).');
+            rLog('warn', '════════════════════════════════');
         }
 
         // CIRCUITO: adiciona origem como ponto final
@@ -2559,7 +2675,7 @@ async function planRoute() {
         }
 
         // ── Gera Relatório de Endereços Reconhecidos ──
-        buildAddrReport(points);
+        buildAddrReport(points, failedStops);
 
         // ── Dedupe de paradas consecutivas idênticas por coordenada ──
         var deduped = [points[0]];
@@ -2712,6 +2828,15 @@ async function planRoute() {
 
         // RESULTADO VISUAL
         var html = '<p style="color:#16a34a;font-weight:bold;">✅ ' + legs.length + ' trecho(s) calculado(s)!</p>';
+        // ★ v27: aviso de paradas ignoradas por falha de geocodificação
+        if (failedStops.length > 0) {
+            html += '<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:10px;padding:10px;margin:8px 0;">' +
+                '<p style="color:#dc2626;font-weight:bold;margin-bottom:4px;">⚠️ ' + failedStops.length + ' parada(s) ignorada(s) — CEP não encontrado em nenhuma base:</p>';
+            for (var fi2 = 0; fi2 < failedStops.length; fi2++) {
+                html += '<p style="color:#991b1b;font-size:0.82rem;margin:2px 0;">• Parada #' + failedStops[fi2].num + ': <code>' + failedStops[fi2].addr + '</code></p>';
+            }
+            html += '<p style="color:#64748b;font-size:0.75rem;margin-top:4px;">O restante da rota foi calculado normalmente.</p></div>';
+        }
         for (var i = 0; i < legs.length; i++) {
             var c = LEG_COLORS[i % LEG_COLORS.length];
             var fromLabel = points[i].label;
