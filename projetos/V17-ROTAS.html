@@ -116,7 +116,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v17 — Cross-validação âncora + Overpass primário + viewbox 0.3°</strong></p>
+            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v18 — RMSP Lock: CEPs 01000-09999 forçados para Região Metropolitana de SP</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -1142,8 +1142,23 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
         var cidadeUf = cepData.cidade + ', ' + cepData.uf + ', Brasil';
         rLog('info', '📮 ViaCEP → ' + (temLogradouro ? cepData.logradouro : '(sem rua)') + ' | ' + (temBairro ? cepData.bairro : '(sem bairro)') + ' | ' + cepData.cidade + '/' + cepData.uf);
 
+        // ★ v18: RMSP LOCK — CEPs 01000-09999 pertencem à Região Metropolitana de SP.
+        // Força sufixo RMSP em todas as queries Nominatim para fechar o perímetro de busca
+        // e eliminar colisões com logradouros homônimos fora da RMSP (ex: Várzea Paulista, Galeão/RJ).
+        var cepPrefixNum = parseInt(cep.cep.substring(0, 5), 10);
+        var isRmspCep = (cepPrefixNum >= 1000 && cepPrefixNum <= 9999);
+        if (isRmspCep) {
+            cidadeUf = cepData.cidade + ', SP, Região Metropolitana de São Paulo, Brasil';
+            rLog('ok', '🔒 RMSP LOCK ativo — CEP ' + cep.cepFmt + ' (faixa 01000-09999). cidadeUf forçado para: "' + cidadeUf + '"');
+        }
+
         // ★ v17: VIEWBOX reduzido para 0.3° (~33km) centrado na ÂNCORA VALIDADA
         var vb = (anchor.lon-0.3).toFixed(4)+','+(anchor.lat-0.3).toFixed(4)+','+(anchor.lon+0.3).toFixed(4)+','+(anchor.lat+0.3).toFixed(4);
+        // ★ v18: RMSP LOCK — sobrescreve viewbox com bounding box da RMSP completa quando CEP 01000-09999
+        if (isRmspCep) {
+            vb = '-47.70,-24.00,-45.80,-22.80';
+            rLog('ok', '🔒 RMSP viewbox forçado: ' + vb + ' (~RMSP completa)');
+        }
         var MAX_DIST_FROM_CITY_KM = 50;
 
         // ════════════════════════════════════════════
