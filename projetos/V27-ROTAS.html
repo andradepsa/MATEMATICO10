@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora Multi-Paradas para Entregas — v25</title>
+    <title>Calculadora Multi-Paradas para Entregas — v26</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -116,7 +116,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v25 — Trava de similaridade de logradouro (Levenshtein): bloqueia POI com mesmo número em rua diferente</strong></p>
+            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v26 — 100% Brasileiro: ViaCEP + BrasilAPI + OpenCEP · Overpass OSM · Photon eliminado · City-lock em todos os geocodificadores</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -195,7 +195,7 @@
                     <label style="display:block;color:#1e2f4e;font-weight:600;margin-bottom:3px;">Google Maps Geocoding API Key <span style="font-weight:400;color:#64748b;">(opcional — Fonte C premium)</span></label>
                     <input type="password" id="gmKeyInput" placeholder="Cole sua chave aqui (AIza...)" style="width:100%;padding:7px 9px;border:1px solid #7dd3fc;border-radius:7px;font-size:0.82rem;margin-bottom:6px;">
                     <p style="color:#64748b;font-size:0.75rem;line-height:1.4;margin:0;">
-                        Sem chave: usa <strong>Photon (Komoot)</strong> como Fonte C — gratuito.<br>
+                        Sem chave: usa <strong>Nominatim (OSM Brasil)</strong> como Fonte C — gratuito.<br>
                         Com chave Google: precisão máxima nas 3 fontes.<br>
                         <a href="https://developers.google.com/maps/documentation/geocoding/get-api-key" target="_blank" style="color:#0369a1;">Como obter chave gratuita &#8599;</a>
                     </p>
@@ -238,7 +238,7 @@
             <div class="report-block" id="reportBlock">Nenhum cálculo realizado ainda.</div>
         </div>
     </div>
-    <div class="attribution">ESRI World Imagery | OSRM | Nominatim | Photon | OpenStreetMap | ViaCEP</div>
+    <div class="attribution">ESRI World Imagery | OSRM | Nominatim/OSM | OpenCEP | BrasilAPI | ViaCEP | OpenStreetMap</div>
 </div>
 
 <script>
@@ -893,7 +893,37 @@ async function lookupCEPBrasilAPI(cep) {
 }
 
 // ============================================
-// TABELA DE ANCORAS SUB-REGIONAIS por faixa de CEP (v22)
+// OPENCEP — Fonte postal terciária (v26)
+// API 100% brasileira, gratuita, sem chave.
+// Cobre CEPs não cadastrados no ViaCEP/BrasilAPI.
+// ============================================
+async function lookupCEPOpenCEP(cep) {
+    var url = 'https://opencep.com/v1/' + cep + '.json';
+    rLog('dim', 'OpenCEP: ' + url);
+    try {
+        var resp = await fetchRetry(url, {}, 'OpenCEP', 2);
+        var data = await resp.json();
+        if (!data || data.erro || !data.localidade) {
+            rLog('warn', 'OpenCEP: CEP ' + cep + ' não encontrado');
+            return null;
+        }
+        rLog('ok', 'OpenCEP OK:');
+        rLog('val', '  logradouro: "' + (data.logradouro||'') + '"');
+        rLog('val', '  bairro: "' + (data.bairro||'') + '"');
+        rLog('val', '  cidade: ' + data.localidade + ' | UF: ' + data.uf);
+        return {
+            logradouro: data.logradouro || '',
+            bairro: data.bairro || '',
+            cidade: data.localidade || '',
+            uf: data.uf || ''
+        };
+    } catch(e) {
+        rLog('warn', 'OpenCEP falhou: ' + e.message);
+        return null;
+    }
+}
+
+
 // Evita que CEPs do Alto Tiete sejam ancorados no centro da Se
 // ============================================
 // ★ v23: campo 'city' adicionado — usado no getCityCentroid do ultimo recurso
@@ -943,28 +973,42 @@ function getSpSubRegionAnchor(cepDigits) {
 }
 
 // ============================================
-// GEOCODIFICAÇÃO (Nominatim + Photon fallback)
+// GEOCODIFICAÇÃO (Nominatim — 100% brasileiro, sem Photon)
+// ★ v26: _city extraído dos addressdetails estruturados do Nominatim.
+//        Photon eliminado — era a raiz do bug de município vizinho.
+//        Fallback: segunda chamada Nominatim com query simplificada.
 // ============================================
 async function nominatimSearch(query, viewboxStr) {
     await waitNominatim();
 
     var results = [];
 
-    // 1) Nominatim primeiro: mais estável para browser e aceita countrycodes/viewbox.
+    // Helper: converte resultado Nominatim em objeto normalizado com _city
+    function parseNominatimResult(item) {
+        var addr = item.address || {};
+        return {
+            lat: item.lat,
+            lon: item.lon,
+            display_name: item.display_name,
+            // ★ v26 FIX: extrai cidade dos campos estruturados do Nominatim (addressdetails=1)
+            // Garante que cidadeCompativel() tenha o campo para comparar
+            _city:   addr.city || addr.town || addr.municipality || addr.village || addr.suburb || '',
+            _state:  addr.state || '',
+            _street: addr.road || addr.pedestrian || addr.path || ''
+        };
+    }
+
+    // ── TENTATIVA 1: Nominatim com query completa ──
     var nUrl = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=br&q='
         + encodeURIComponent(query);
     if (viewboxStr) nUrl += '&viewbox=' + encodeURIComponent(viewboxStr) + '&bounded=0';
-    rLog('dim', 'Nominatim: ' + nUrl);
+    rLog('dim', 'Nominatim (1/2): ' + nUrl);
 
     try {
         var nResp = await fetchRetry(nUrl, {}, 'Nominatim', 2);
         var nData = await nResp.json();
         for (var ni = 0; ni < nData.length; ni++) {
-            results.push({
-                lat: nData[ni].lat,
-                lon: nData[ni].lon,
-                display_name: nData[ni].display_name
-            });
+            results.push(parseNominatimResult(nData[ni]));
         }
         rLog('info', 'Nominatim retornou ' + results.length + ' resultado(s)');
         if (results.length > 0) return results;
@@ -972,53 +1016,31 @@ async function nominatimSearch(query, viewboxStr) {
         rLog('warn', 'Nominatim falhou: ' + eNominatim.message);
     }
 
-    // 2) Photon fallback: NÃO usar lang=pt; Photon só aceita default/de/en/fr e devolve HTTP 400 com pt.
-    var pUrl = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(query) + '&limit=5';
-    if (viewboxStr) {
-        var vp = viewboxStr.split(',');
-        var bLon = (parseFloat(vp[0]) + parseFloat(vp[2])) / 2;
-        var bLat = (parseFloat(vp[1]) + parseFloat(vp[3])) / 2;
-        pUrl += '&lat=' + bLat.toFixed(4) + '&lon=' + bLon.toFixed(4);
-    } else {
-        pUrl += '&lat=-23.5505&lon=-46.6333';
-    }
-    rLog('dim', 'Photon: ' + pUrl);
-
-    try {
-        var pResp = await fetchRetry(pUrl, {}, 'Photon', 2);
-        var pData = await pResp.json();
-        if (pData.features) {
-            for (var i = 0; i < pData.features.length; i++) {
-                var f = pData.features[i];
-                var p = f.properties || {};
-                var coords = f.geometry && f.geometry.coordinates;
-                if (!coords) continue;
-                if (p.countrycode && p.countrycode.toLowerCase() !== 'br') continue;
-
-                var parts = [];
-                if (p.name && p.name !== p.street) parts.push(p.name);
-                if (p.housenumber) parts.push(p.housenumber);
-                if (p.street) parts.push(p.street);
-                if (p.district) parts.push(p.district);
-                if (p.city) parts.push(p.city);
-                if (p.state) parts.push(p.state);
-                if (p.country) parts.push(p.country);
-                results.push({
-                    lat: coords[1].toString(),
-                    lon: coords[0].toString(),
-                    display_name: parts.filter(Boolean).join(', ') || (coords[1] + ', ' + coords[0]),
-                    _city: p.city || p.municipality || '',          // ★ v26: City Strict Match
-                    _state: p.state || '',
-                    _street: p.street || p.name || ''
-                });
+    // ── TENTATIVA 2: Nominatim com query simplificada (remove "Região Metropolitana" e termos extras) ──
+    // Isso aumenta a chance de acerto para CEPs cujo logradouro tem grafia diferente no OSM
+    var querySimplificada = query
+        .replace(/,\s*Região Metropolitana de [^,]+/i, '')
+        .replace(/,\s*Brasil\s*$/i, '')
+        .trim();
+    if (querySimplificada !== query) {
+        rLog('dim', 'Nominatim (2/2) simplificado: ' + querySimplificada);
+        await waitNominatim();
+        try {
+            var nUrl2 = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=br&q='
+                + encodeURIComponent(querySimplificada);
+            if (viewboxStr) nUrl2 += '&viewbox=' + encodeURIComponent(viewboxStr) + '&bounded=0';
+            var nResp2 = await fetchRetry(nUrl2, {}, 'Nominatim2', 2);
+            var nData2 = await nResp2.json();
+            for (var ni2 = 0; ni2 < nData2.length; ni2++) {
+                results.push(parseNominatimResult(nData2[ni2]));
             }
+            rLog('info', 'Nominatim simplificado retornou ' + results.length + ' resultado(s)');
+        } catch (eNom2) {
+            rLog('warn', 'Nominatim simplificado falhou: ' + eNom2.message);
         }
-        rLog('info', 'Photon retornou ' + results.length + ' resultado(s) (Brasil)');
-        return results;
-    } catch (ePhoton) {
-        rLog('warn', 'Photon falhou: ' + ePhoton.message);
-        return [];
     }
+
+    return results;
 }
 
 // ============================================
@@ -1361,36 +1383,47 @@ function validarContraCorreios(point, cepData) {
 }
 
 // ============================================
-// FONTE C: PHOTON DIRETO (motor independente do Nominatim)
+// FONTE C: NOMINATIM DIRETO com âncora (substitui Photon v26)
+// Motor 100% compatível com endereçamento brasileiro.
+// Usa lat/lon de referência para bias geográfico — igual ao que
+// o Photon fazia, mas sem sair do Brasil e sem erros de município vizinho.
 // ============================================
 async function photonDirectSearch(query, anchorLat, anchorLon) {
-    var pUrl = 'https://photon.komoot.io/api/?q=' + encodeURIComponent(query)
-        + '&limit=5&lat=' + anchorLat.toFixed(4) + '&lon=' + anchorLon.toFixed(4);
-    rLog('dim', 'Photon/C: ' + pUrl);
+    // ★ v26: Photon eliminado. Usa Nominatim com bias de posição e
+    // countrycodes=br para garantir resultados dentro do Brasil.
+    var nUrl = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=br&q='
+        + encodeURIComponent(query);
+    // Cria viewbox de 2° (~220km) centrado na âncora para direcionar a busca
+    var vb = (anchorLon - 1.0).toFixed(4) + ',' + (anchorLat - 1.0).toFixed(4)
+           + ',' + (anchorLon + 1.0).toFixed(4) + ',' + (anchorLat + 1.0).toFixed(4);
+    nUrl += '&viewbox=' + encodeURIComponent(vb) + '&bounded=0';
+    rLog('dim', 'FonteC/Nominatim: ' + nUrl);
     try {
-        var pResp = await fetchRetry(pUrl, {}, 'Photon/C', 2);
-        var pData = await pResp.json();
+        await waitNominatim();
+        var resp = await fetchRetry(nUrl, {}, 'FonteC/Nominatim', 2);
+        var data = await resp.json();
         var results = [];
-        if (pData.features) {
-            for (var i = 0; i < pData.features.length; i++) {
-                var f = pData.features[i];
-                var p = f.properties || {};
-                if (p.countrycode && p.countrycode.toLowerCase() !== 'br') continue;
-                var coords = f.geometry && f.geometry.coordinates;
-                if (!coords) continue;
-                var parts = [];
-                if (p.street) parts.push(p.street);
-                if (p.housenumber) parts.push(p.housenumber);
-                if (p.district) parts.push(p.district);
-                if (p.city) parts.push(p.city);
-                if (p.state) parts.push(p.state);
-                results.push({ lat: coords[1], lon: coords[0], display: parts.filter(Boolean).join(', ') || (coords[1] + ',' + coords[0]) });
-            }
+        for (var i = 0; i < data.length; i++) {
+            var item = data[i];
+            var addr = item.address || {};
+            var parts = [];
+            if (addr.road || addr.pedestrian) parts.push(addr.road || addr.pedestrian);
+            if (addr.house_number) parts.push(addr.house_number);
+            if (addr.suburb || addr.neighbourhood) parts.push(addr.suburb || addr.neighbourhood);
+            if (addr.city || addr.town || addr.municipality) parts.push(addr.city || addr.town || addr.municipality);
+            if (addr.state) parts.push(addr.state);
+            results.push({
+                lat: item.lat,
+                lon: item.lon,
+                display: parts.filter(Boolean).join(', ') || item.display_name,
+                _city:   addr.city || addr.town || addr.municipality || addr.village || '',
+                _street: addr.road || addr.pedestrian || ''
+            });
         }
-        rLog('info', 'Photon/C: ' + results.length + ' resultado(s)');
+        rLog('info', 'FonteC/Nominatim: ' + results.length + ' resultado(s)');
         return results;
     } catch(e) {
-        rLog('warn', 'Photon/C falhou: ' + e.message);
+        rLog('warn', 'FonteC/Nominatim falhou: ' + e.message);
         return [];
     }
 }
@@ -1466,11 +1499,11 @@ function consensusVote(candidates, anchor, cepData) {
 }
 
 // ============================================
-// ★ v26: CITY STRICT MATCH
-// Se o resultado do Photon tiver campo estruturado _city,
-// compara com a cidade esperada (ViaCEP). Bloqueia homônimos
-// em municípios vizinhos (ex: "Rua Amador Bueno, Guarulhos"
-// quando o usuário pediu "São Paulo").
+// ★ v26: CITY STRICT MATCH (aplicado a TODOS os geocodificadores)
+// Compara o campo _city do resultado com a cidade esperada (ViaCEP/input).
+// Bloqueia ruas homônimas em municípios vizinhos — era o bug raiz que
+// confundia "Rua Amador Bueno, São Paulo" com "Rua Amador Bueno, Guarulhos".
+// Antes aplicado só ao Photon (que foi eliminado). Agora aplicado a tudo.
 // ============================================
 function norm(s) {
     return (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim();
@@ -1479,7 +1512,7 @@ function norm(s) {
 function cidadeCompativel(resultado, cidadeEsperada) {
     if (!cidadeEsperada) return { ok: true, motivo: 'sem cidade esperada' };
     var cidadeRes = resultado._city || '';
-    if (!cidadeRes) return { ok: true, motivo: 'Photon sem campo city — não bloqueia' };
+    if (!cidadeRes) return { ok: true, motivo: 'geocodificador sem campo city estruturado — não bloqueia' };
 
     var nEsp = norm(cidadeEsperada);
     var nRes = norm(cidadeRes);
@@ -1495,10 +1528,22 @@ function cidadeCompativel(resultado, cidadeEsperada) {
     }
     return {
         ok: false,
-        motivo: '❌ CITY MISMATCH (sim=' + sim.toFixed(2) + '): esperado "' + cidadeEsperada + '" mas Photon retornou "' + cidadeRes + '" — BLOQUEADO'
+        motivo: '❌ CITY MISMATCH (sim=' + sim.toFixed(2) + '): esperado "' + cidadeEsperada + '" mas geocodificador retornou "' + cidadeRes + '" — BLOQUEADO'
     };
 }
 async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
+    // ★ v26 FIX (BUG RAIZ #4): detecta formato completo "CEP, Rua, Nº, Cidade, UF[, Brasil]"
+    // digitado diretamente no campo — converte para "CEP, numero" antes de qualquer parsing.
+    // ANTES: esse formato ia para geocodeAsAddress() sem proteção de cidade → bug Guarulhos.
+    // AGORA: detecta aqui e passa pelo caminho CEP seguro (ViaCEP + Overpass dentro da cidade certa).
+    var fullFmtCheck = normalizeFullAddressFormat(input.trim());
+    if (fullFmtCheck) {
+        rLog('ok', '★ v26: Formato completo detectado em smartGeocode → convertendo para CEP+número');
+        rLog('val', '   "' + input.trim() + '"');
+        rLog('val', '   → "' + fullFmtCheck.cleaned + '" (CEP: ' + fullFmtCheck.cep + ' | nº: ' + fullFmtCheck.numero + ' | cidade: ' + fullFmtCheck.municipio + ')');
+        input = fullFmtCheck.cleaned;
+    }
+
     var cep = parseCepInput(input);
 
     if (cep) {
@@ -1515,7 +1560,7 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
         }
 
         if (!cepData) {
-            rLog('warn', 'ViaCEP: CEP nao encontrado. Ativando Fallback em Cascata v22...');
+            rLog('warn', 'ViaCEP: CEP nao encontrado. Ativando Fallback em Cascata v26...');
 
             // ★ v22: CASCATA POSTAL — tenta fontes adicionais antes de qualquer geocodificacao cega
             // Etapa A: BrasilAPI (base de dados postal independente, cobre CEPs que o ViaCEP nao tem)
@@ -1523,6 +1568,14 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
             if (cepData) {
                 rLog('ok', 'BrasilAPI resgatou o CEP! Continuando fluxo normal com dados postais...');
                 // Injeta no fluxo normal (cai no bloco abaixo como se ViaCEP tivesse respondido)
+            }
+
+            // ★ v26: Etapa B: OpenCEP (3ª fonte 100% brasileira)
+            if (!cepData) {
+                cepData = await lookupCEPOpenCEP(cep.cep);
+                if (cepData) {
+                    rLog('ok', 'OpenCEP resgatou o CEP! Continuando fluxo normal com dados postais...');
+                }
             }
         }
 
@@ -1730,7 +1783,7 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
                     if (temLogradouro && q < queries.length - 1) { // última query é só cidadeUf → não aplica
                         strCheck = validarLogradouro(results[ri].display_name, cepData.logradouro);
                     }
-                    // ★ v26: City Strict Match — usa campo estruturado _city do Photon
+                    // ★ v26: City Strict Match — usa campo estruturado _city do resultado
                     var cityCheck = cidadeCompativel(results[ri], cepData.cidade);
                     var strTag = (!strCheck.ok ? ' ✗ STR' : '') + (!cityCheck.ok ? ' ✗ CITY' : '');
                     rLog(d <= MAX_DIST_FROM_CITY_KM && strCheck.ok && cityCheck.ok ? 'ok' : 'warn',
@@ -1869,8 +1922,16 @@ async function geocodeAsAddress(address, refLat, refLon, refLabel) {
         var validos = [];
         for (var i = 0; i < results.length; i++) {
             var d = haversineKm(anchor.lat, anchor.lon, parseFloat(results[i].lat), parseFloat(results[i].lon));
-            rLog(d <= MAX_KM ? 'ok' : 'warn', '#' + (i+1) + ': ' + d.toFixed(2) + 'km da âncora → ' + results[i].display_name);
-            if (d <= MAX_KM) validos.push({ r: results[i], d: d });
+            // ★ v26 FIX (BUG RAIZ #5): aplica city-lock aqui também.
+            // ANTES: geocodeAsAddress só filtrava por distância (80km) — Guarulhos passava porque
+            // ficava a ~9.85km do centróide de SP. AGORA: city-lock rejeita qualquer município
+            // diferente do que o usuário digitou.
+            var cityOk = cu ? cidadeCompativel(results[i], cu.cidade) : { ok: true, motivo: 'sem cidade no input' };
+            var tag = (d <= MAX_KM ? '' : ' ✗ DIST') + (!cityOk.ok ? ' ✗ CITY' : '');
+            rLog(d <= MAX_KM && cityOk.ok ? 'ok' : 'warn',
+                '#' + (i+1) + ': ' + d.toFixed(2) + 'km da âncora' + tag + ' → ' + results[i].display_name);
+            if (!cityOk.ok) rLog('warn', '   ' + cityOk.motivo);
+            if (d <= MAX_KM && cityOk.ok) validos.push({ r: results[i], d: d });
         }
         if (validos.length > 0) {
             validos.sort(function(a,b){ return a.d - b.d; });
@@ -2610,7 +2671,6 @@ async function planRoute() {
         rLog('ok', 'Pedágios: ' + totalTolls.length + ' praças (' + tollsComPreco + ' c/ preço OSM, ' + tollsSemPreco + ' s/ preço) — multiplicador eixos x' + axleMult);
         rLog('ok', 'Combustível: ' + litros.toFixed(2) + ' L × R$ ' + fuelPrice.toFixed(2) + ' = R$ ' + custoKm.toFixed(2) + ' (' + kmL + ' km/L)');
         rLog('ok', 'Custo pedágios: R$ ' + totalTollCost.toFixed(2));
-        rLog('ok', 'CUSTO TOTAL: R$ ' + custoTotal.toFixed(2));
         rLog('ok', 'CUSTO TOTAL: R$ ' + custoTotal.toFixed(2));
         rLog('step', 'FIM DO RELATÓRIO');
         rFlush();
