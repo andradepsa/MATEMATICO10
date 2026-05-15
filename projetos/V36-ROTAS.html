@@ -2999,19 +2999,38 @@ async function planRoute() {
             rFlush();
         }
 
-        // ── Dedupe de paradas consecutivas idênticas por coordenada ──
-        var deduped = [points[0]];
-        for (var di = 1; di < points.length; di++) {
-            var prevP = deduped[deduped.length-1];
-            var curP  = points[di];
-            var sameCoord = (Math.abs(prevP.lat - curP.lat) < 1e-5 && Math.abs(prevP.lon - curP.lon) < 1e-5);
-            if (sameCoord) {
-                rLog('warn', 'Parada redundante removida: "'+curP.label+'" ≡ "'+prevP.label+'" (mesmas coordenadas)');
-                continue;
+        // ── ★ v36: DEDUP GEOGRÁFICO COM AGRUPAMENTO DE VOLUMES ──
+        // Agrupa paradas dentro de 50m — 1 ponto na rota, N volumes registrados.
+        // Substitui o dedup ingênuo por consecutividade.
+        var DEDUP_METROS = 50;
+        var deduped = [];
+        // ignora o último ponto se for retorno à origem (será re-adicionado depois)
+        var _retornoFinal = (doCircuito && points[points.length-1].label === 'Origem (retorno)') ? points[points.length-1] : null;
+        var _pts = _retornoFinal ? points.slice(0, points.length-1) : points.slice();
+        for (var di = 0; di < _pts.length; di++) {
+            var curP = _pts[di];
+            var found = false;
+            for (var dj = 0; dj < deduped.length; dj++) {
+                var distM = haversineKm(curP.lat, curP.lon, deduped[dj].lat, deduped[dj].lon) * 1000;
+                if (distM <= DEDUP_METROS) {
+                    // Mesmo local: agrega como volume
+                    deduped[dj].volumes = deduped[dj].volumes || [{ input: deduped[dj].input, display: deduped[dj].display }];
+                    deduped[dj].volumes.push({ input: curP.input, display: curP.display });
+                    rLog('warn', '★ v36 AGRUPADO: "' + curP.label + '" (' + curP.input + ') → mesma localização que "' + deduped[dj].label + '" (' + distM.toFixed(0) + 'm) — volume ' + deduped[dj].volumes.length);
+                    found = true;
+                    break;
+                }
             }
-            deduped.push(curP);
+            if (!found) deduped.push(curP);
         }
-        if (deduped.length !== points.length) rLog('ok', 'Após dedupe: '+deduped.length+' pontos efetivos');
+        var totalVolumes = 0;
+        for (var dv = 0; dv < deduped.length; dv++) totalVolumes += deduped[dv].volumes ? deduped[dv].volumes.length : 1;
+        if (deduped.length < _pts.length) {
+            rLog('ok', '★ v36 DEDUP GEO: ' + _pts.length + ' endereços → ' + deduped.length + ' paradas únicas (' + totalVolumes + ' volumes totais)');
+            // Renumera rótulos após agrupamento
+            for (var dr = 1; dr < deduped.length; dr++) deduped[dr].label = 'Parada #' + dr;
+        }
+        if (_retornoFinal) deduped.push(_retornoFinal);
         points = deduped;
 
         // ── ★ v30: TSP — REORDENA PARADAS POR COORDENADAS ──
@@ -3148,7 +3167,8 @@ async function planRoute() {
         for (var i = 0; i < points.length; i++) {
             var isRetorno = doCircuito && i === points.length-1;
             var role = i === 0 ? '📍 ORIGEM' : (isRetorno ? '🔄 RETORNO ORIGEM' : '🏁 PARADA #' + i);
-            rLog('ok', role + ': ' + points[i].display);
+            var _volInfo = points[i].volumes && points[i].volumes.length > 1 ? ' [📦 ' + points[i].volumes.length + ' entregas]' : '';
+            rLog('ok', role + ': ' + points[i].display + _volInfo);
             rLog('val', '  lat=' + points[i].lat + ', lon=' + points[i].lon);
             if (i > 0) {
                 var lg = legs[i-1];
@@ -3180,7 +3200,19 @@ async function planRoute() {
                 var pt = points[i+1];
                 L.marker([pt.lat, pt.lon], {
                     icon: L.divIcon({ className:'', html:'<div style="background:'+color+';color:white;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px;border:2px solid white;">'+(i+1)+'</div>', iconSize:[26,26], iconAnchor:[13,13] })
-                }).addTo(routeLayer).bindPopup('<b>Parada #'+(i+1)+'</b><br>'+pt.display+'<br>'+legs[i].distanceKm+'km | '+formatTime(legs[i].durationMin)+'<br>🎫 '+legs[i].tolls.length+' pedágios');
+                }).addTo(routeLayer).bindPopup(function(){
+                    var _pop = '<b>Parada #'+(i+1)+'</b>';
+                    if (pt.volumes && pt.volumes.length > 1) {
+                        _pop += ' <span style="background:#f59e0b;color:white;padding:1px 6px;border-radius:10px;font-size:0.78rem;">📦 '+pt.volumes.length+' entregas</span>';
+                        _pop += '<br><small style="color:#64748b;">';
+                        for (var _vi=0; _vi<pt.volumes.length; _vi++) _pop += (_vi+1)+'. '+pt.volumes[_vi].input+'<br>';
+                        _pop += '</small>';
+                    } else {
+                        _pop += '<br>'+pt.display;
+                    }
+                    _pop += '<br>'+legs[i].distanceKm+'km | '+formatTime(legs[i].durationMin)+'<br>🎫 '+legs[i].tolls.length+' pedágios';
+                    return _pop;
+                }());
             }
 
             // Marcadores de pedágios no mapa
@@ -3211,8 +3243,14 @@ async function planRoute() {
             var tollStr = legs[i].tolls.length === 0
                 ? '🎫 Sem pedágios'
                 : '🎫 '+legs[i].tolls.length+' pedágio(s)' + (legs[i].tollCost > 0 ? ' — R$ '+legs[i].tollCost.toFixed(2).replace('.',',') : (legs[i].tollsNoPrice > 0 ? ' (preço p/consultar)' : ''));
+            var _toVols = points[i+1] && points[i+1].volumes;
+            var _volTag = _toVols && _toVols.length > 1
+                ? '<p style="color:#d97706;font-size:0.78rem;margin:2px 0;">📦 ' + _toVols.length + ' entregas neste local: ' +
+                    _toVols.map(function(v,vi){ return (vi+1)+'. '+v.input; }).join(' · ') + '</p>'
+                : '';
             html += '<div class="leg-detail"><div class="leg-title"><span style="color:'+c+';">●</span> '+fromLabel+' → '+toLabel+'</div>' +
                 '<p>📏 '+legs[i].distanceKm+' km | 📐 '+legs[i].haversine+' km reta | ⏱️ '+formatTime(legs[i].durationMin)+'</p>' +
+                _volTag +
                 '<p>'+tollStr+'</p></div>';
         }
         var tollNote = tollsSemPreco > 0 ? '<p style="font-size:0.75rem;color:#64748b;margin-top:4px;">⚠️ '+tollsSemPreco+' praça(s) sem preço no OSM — valor parcial</p>' : '';
