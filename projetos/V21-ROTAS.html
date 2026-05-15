@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora Multi-Paradas para Entregas — v21</title>
+    <title>Calculadora Multi-Paradas para Entregas — v23</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -116,7 +116,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v21 — Fallback Blindado: CEP inválido no ViaCEP nunca mais causa deriva para outra cidade/estado</strong></p>
+            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v23 — Âncoras sub-regionais granulares + getCityCentroid no último recurso (sem coordenada duplicada)</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -757,6 +757,86 @@ async function lookupCEP(cep) {
 }
 
 // ============================================
+// BRASILAPI — Fonte postal secundária (v22)
+// Cobre CEPs que o ViaCEP não conhece (base de dados diferente)
+// ============================================
+async function lookupCEPBrasilAPI(cep) {
+    var url = 'https://brasilapi.com.br/api/cep/v2/' + cep;
+    rLog('dim', 'BrasilAPI: ' + url);
+    try {
+        var resp = await fetchRetry(url, {}, 'BrasilAPI', 2);
+        var data = await resp.json();
+        if (data.message || data.type === 'service_error' || data.errors) {
+            rLog('warn', 'BrasilAPI: CEP ' + cep + ' nao encontrado');
+            return null;
+        }
+        rLog('ok', 'BrasilAPI OK:');
+        rLog('val', '  logradouro: "' + (data.street||'') + '"');
+        rLog('val', '  bairro: "' + (data.neighborhood||'') + '"');
+        rLog('val', '  cidade: ' + (data.city||'') + ' | UF: ' + (data.state||''));
+        return {
+            logradouro: data.street || '',
+            bairro: data.neighborhood || '',
+            cidade: data.city || '',
+            uf: data.state || ''
+        };
+    } catch(e) {
+        rLog('warn', 'BrasilAPI falhou: ' + e.message);
+        return null;
+    }
+}
+
+// ============================================
+// TABELA DE ANCORAS SUB-REGIONAIS por faixa de CEP (v22)
+// Evita que CEPs do Alto Tiete sejam ancorados no centro da Se
+// ============================================
+// ★ v23: campo 'city' adicionado — usado no getCityCentroid do ultimo recurso
+// Faixas mais granulares dentro do Alto Tiete para evitar dois CEPs distintos
+// receberem a mesma coordenada fixa quando ambas as APIs postais falham.
+var SP_CEP_ANCHOR_TABLE = [
+    // Mogi das Cruzes (CEPs 08700-08799)
+    { min: 8770000, max: 8799999, lat: -23.5279, lon: -46.1855, label: 'Mogi das Cruzes (leste)', city: 'Mogi das Cruzes' },
+    { min: 8700000, max: 8769999, lat: -23.5237, lon: -46.1976, label: 'Mogi das Cruzes',         city: 'Mogi das Cruzes' },
+    // Suzano (CEPs 08600-08699)
+    { min: 8650000, max: 8699999, lat: -23.5416, lon: -46.2694, label: 'Suzano (leste)',           city: 'Suzano' },
+    { min: 8600000, max: 8649999, lat: -23.5236, lon: -46.3014, label: 'Suzano',                   city: 'Suzano' },
+    // Alto Tiete central: Itaquaquecetuba, Poa, Ferraz (CEPs 08500-08599, faixas separadas)
+    { min: 8560000, max: 8599999, lat: -23.4877, lon: -46.3454, label: 'Itaquaquecetuba',          city: 'Itaquaquecetuba' },
+    { min: 8530000, max: 8559999, lat: -23.5270, lon: -46.3440, label: 'Poa',                      city: 'Poa' },
+    { min: 8500000, max: 8529999, lat: -23.5411, lon: -46.3701, label: 'Ferraz de Vasconcelos',    city: 'Ferraz de Vasconcelos' },
+    // Zona Leste SP (CEPs 08400-08499)
+    { min: 8450000, max: 8499999, lat: -23.5530, lon: -46.4150, label: 'Guaianazes',               city: 'Guaianazes' },
+    { min: 8400000, max: 8449999, lat: -23.5380, lon: -46.4003, label: 'Itaquera',                 city: 'Itaquera' },
+    // Zona Leste SP — Itaquera / Sao Mateus (CEPs 08200-08399)
+    { min: 8300000, max: 8399999, lat: -23.5700, lon: -46.4200, label: 'Sao Mateus',               city: 'Sao Mateus' },
+    { min: 8200000, max: 8299999, lat: -23.5350, lon: -46.4550, label: 'Itaquera',                 city: 'Itaquera' },
+    // Zona Leste SP — Sao Miguel / Itaim Paulista (CEPs 08100-08199)
+    { min: 8150000, max: 8199999, lat: -23.4760, lon: -46.4320, label: 'Itaim Paulista',           city: 'Itaim Paulista' },
+    { min: 8100000, max: 8149999, lat: -23.5050, lon: -46.4780, label: 'Sao Miguel Paulista',      city: 'Sao Miguel Paulista' },
+    // Zona Leste SP — Penha / Ermelino (CEPs 08000-08099)
+    { min: 8050000, max: 8099999, lat: -23.5050, lon: -46.4920, label: 'Ermelino Matarazzo',       city: 'Ermelino Matarazzo' },
+    { min: 8000000, max: 8049999, lat: -23.5200, lon: -46.5100, label: 'Penha',                    city: 'Penha' },
+    // Norte SP / Grande SP
+    { min: 7000000, max: 7999999, lat: -23.4700, lon: -46.6200, label: 'Norte SP',                 city: 'Guarulhos' },
+    // ABCD
+    { min: 6000000, max: 6999999, lat: -23.6600, lon: -46.5300, label: 'ABCD',                     city: 'Santo Andre' },
+    // Centro / Oeste / Sul SP (tudo mais)
+    { min: 1000000, max: 5999999, lat: -23.5505, lon: -46.6333, label: 'RMSP centro/oeste/sul SP', city: 'Sao Paulo' }
+];
+
+function getSpSubRegionAnchor(cepDigits) {
+    var n = parseInt(cepDigits, 10);
+    for (var i = 0; i < SP_CEP_ANCHOR_TABLE.length; i++) {
+        var r = SP_CEP_ANCHOR_TABLE[i];
+        if (n >= r.min && n <= r.max) {
+            rLog('ok', 'Sub-ancora SP: ' + r.label + ' lat=' + r.lat + ' lon=' + r.lon);
+            return { lat: r.lat, lon: r.lon, display: r.label };
+        }
+    }
+    return null;
+}
+
+// ============================================
 // GEOCODIFICAÇÃO (Nominatim + Photon fallback)
 // ============================================
 async function nominatimSearch(query, viewboxStr) {
@@ -1213,63 +1293,90 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
         var cepData = await lookupCEP(cep.cep);
 
         if (!cepData) {
-            rLog('warn', 'CEP inválido no ViaCEP. Ativando Fallback Blindado v21...');
+            rLog('warn', 'ViaCEP: CEP nao encontrado. Ativando Fallback em Cascata v22...');
 
-            // ★ v21: FALLBACK BLINDADO — nunca envia string crua CEP+número ao Nominatim.
-            // Causa do bug histórico: "08143-110, 66" → Nominatim lia o "66" solto
-            // e retornava "Av. Vinte de Janeiro, 66 — Galeão/RJ", quebrando o circuito todo.
+            // ★ v22: CASCATA POSTAL — tenta fontes adicionais antes de qualquer geocodificacao cega
+            // Etapa A: BrasilAPI (base de dados postal independente, cobre CEPs que o ViaCEP nao tem)
+            cepData = await lookupCEPBrasilAPI(cep.cep);
+            if (cepData) {
+                rLog('ok', 'BrasilAPI resgatou o CEP! Continuando fluxo normal com dados postais...');
+                // Injeta no fluxo normal (cai no bloco abaixo como se ViaCEP tivesse respondido)
+            }
+        }
 
-            // 1. Tenta âncora via Nominatim postalcode (pode ter o CEP mesmo sem ViaCEP)
-            var fbAnchor = await nominatimByPostalcode(cep.cep);
+        if (!cepData) {
+            // Etapa B: nenhuma fonte postal conhece o CEP
+            // Geocodificacao ainda proibida de receber string crua CEP+numero
+            rLog('warn', 'Nenhuma fonte postal conhece o CEP ' + cep.cepFmt + '. Ancoragem sub-regional...');
 
-            // 2. Se postalcode falhou, inferir região pelo prefixo do CEP
-            if (!fbAnchor) {
-                var cepInt = parseInt(cep.cep, 10);
-                // Faixa 01000000–09999999 = todo o estado de São Paulo (RMSP + interior próximo)
-                if (cepInt >= 1000000 && cepInt <= 9999999) {
-                    fbAnchor = { lat: -23.5505, lon: -46.6333, display: 'São Paulo, SP (RMSP âncora)' };
-                    rLog('warn', 'RMSP LOCK: CEP ' + cep.cepFmt + ' na faixa SP → âncora RMSP forçada');
-                }
+            // B1. Nominatim postalcode (ultimo recurso de dados postais)
+            var fb2Anchor = await nominatimByPostalcode(cep.cep);
+
+            // B2. Se falhou: tabela de ancoras sub-regionais por faixa de CEP (muito mais precisa que RMSP unico)
+            if (!fb2Anchor) {
+                fb2Anchor = getSpSubRegionAnchor(cep.cep);
             }
 
-            if (fbAnchor) {
-                var fbVb = (fbAnchor.lon - 0.5).toFixed(4) + ',' + (fbAnchor.lat - 0.5).toFixed(4)
-                         + ',' + (fbAnchor.lon + 0.5).toFixed(4) + ',' + (fbAnchor.lat + 0.5).toFixed(4);
+            if (fb2Anchor) {
+                // Viewbox tight de 0.35 graus ao redor da ancora sub-regional (~38km raio)
+                // Isso barra Cubatao (40km do centro RMSP, mas fora do viewport do Alto Tiete)
+                var fbVb2 = (fb2Anchor.lon - 0.35).toFixed(4) + ',' + (fb2Anchor.lat - 0.35).toFixed(4)
+                          + ',' + (fb2Anchor.lon + 0.35).toFixed(4) + ',' + (fb2Anchor.lat + 0.35).toFixed(4);
 
-                // 3. Monta query limpa: CEP primeiro (como texto de busca), número por último
-                //    Isso evita que o Nominatim confunda o número com endereço no RJ
-                var cleanQuery = cep.numero
-                    ? cep.cepFmt + ' ' + cep.numero + ', São Paulo, SP, Brasil'
-                    : cep.cepFmt + ', São Paulo, SP, Brasil';
-                rLog('warn', '[Fallback Blindado] Query segura: "' + cleanQuery + '"');
+                // Monta query usando apenas a cidade/regiao inferida da ancora — sem o CEP numerico
+                var regionLabel = fb2Anchor.display || 'Sao Paulo, SP';
+                var cleanQuery2 = cep.numero
+                    ? cep.cepFmt + ', ' + regionLabel + ', Brasil'
+                    : cep.cepFmt + ', ' + regionLabel + ', Brasil';
+                rLog('warn', '[Fallback v22] Query sub-regional: "' + cleanQuery2 + '" | ancora: ' + regionLabel);
 
-                var fbRes = await nominatimSearch(cleanQuery, fbVb);
-                if (fbRes.length > 0) {
-                    var fbBest = null, fbBestDist = Infinity;
-                    for (var fbi = 0; fbi < fbRes.length; fbi++) {
-                        var fbd = haversineKm(fbAnchor.lat, fbAnchor.lon,
-                                              parseFloat(fbRes[fbi].lat), parseFloat(fbRes[fbi].lon));
-                        rLog(fbd < 80 ? 'ok' : 'warn',
-                            'FB #' + (fbi+1) + ': ' + fbd.toFixed(1) + 'km → ' + fbRes[fbi].display_name);
-                        if (fbd < 80 && fbd < fbBestDist) { fbBestDist = fbd; fbBest = fbRes[fbi]; }
+                var fbRes2 = await nominatimSearch(cleanQuery2, fbVb2);
+                if (fbRes2.length > 0) {
+                    var fbBest2 = null, fbBestDist2 = Infinity;
+                    for (var fbi2 = 0; fbi2 < fbRes2.length; fbi2++) {
+                        var fbd2 = haversineKm(fb2Anchor.lat, fb2Anchor.lon,
+                                               parseFloat(fbRes2[fbi2].lat), parseFloat(fbRes2[fbi2].lon));
+                        rLog(fbd2 < 40 ? 'ok' : 'warn',
+                            'FBv22 #' + (fbi2+1) + ': ' + fbd2.toFixed(1) + 'km → ' + fbRes2[fbi2].display_name);
+                        if (fbd2 < 40 && fbd2 < fbBestDist2) { fbBestDist2 = fbd2; fbBest2 = fbRes2[fbi2]; }
                     }
-                    if (fbBest) {
-                        rLog('ok', '[Fallback Blindado] ACEITO → ' + fbBest.display_name);
-                        return resultToPoint(fbBest);
+                    if (fbBest2) {
+                        rLog('ok', '[Fallback v22] ACEITO → ' + fbBest2.display_name);
+                        return resultToPoint(fbBest2);
                     }
                 }
 
-                // 4. Query não retornou nada útil → centróide regional com aviso claro
-                rLog('warn', '[Fallback Blindado] Sem resultado — usando âncora regional (baixa precisão)');
+                // Nenhum resultado dentro de 40km da ancora sub-regional
+                // ★ v23: antes de retornar coordenada fixa, tenta getCityCentroid com a cidade
+                // primaria da faixa — evita que dois CEPs da mesma faixa compartilhem ponto identico
+                if (fb2Anchor.city) {
+                    rLog('warn', '[Fallback v23] Tentando centróide real de: ' + fb2Anchor.city);
+                    var lastResortCentroid = await getCityCentroid(fb2Anchor.city, 'SP');
+                    if (lastResortCentroid) {
+                        var lrDist = haversineKm(fb2Anchor.lat, fb2Anchor.lon, lastResortCentroid.lat, lastResortCentroid.lon);
+                        if (lrDist < 40) {
+                            rLog('ok', '[Fallback v23] Centróide de ' + fb2Anchor.city + ' aceito: lat=' + lastResortCentroid.lat.toFixed(4) + ' lon=' + lastResortCentroid.lon.toFixed(4));
+                            return {
+                                lat: lastResortCentroid.lat, lon: lastResortCentroid.lon,
+                                display: cep.cepFmt + (cep.numero ? ', ' + cep.numero : '')
+                                         + ' (' + fb2Anchor.city + ' — CEP sem cadastro postal)'
+                            };
+                        }
+                        rLog('warn', '[Fallback v23] Centróide de ' + fb2Anchor.city + ' a ' + lrDist.toFixed(1) + 'km — fora do raio, descartado');
+                    }
+                }
+
+                // Absoluto ultimo recurso: coordenada fixa da ancora sub-regional
+                rLog('warn', '[Fallback v23] Usando ancora sub-regional fixa (' + (fb2Anchor.label||'SP') + ')');
                 return {
-                    lat: fbAnchor.lat, lon: fbAnchor.lon,
+                    lat: fb2Anchor.lat, lon: fb2Anchor.lon,
                     display: cep.cepFmt + (cep.numero ? ', ' + cep.numero : '')
-                             + ' (CEP inválido — localização aproximada SP)'
+                             + ' (CEP desconhecido — aprox. ' + (fb2Anchor.city || fb2Anchor.label || 'SP') + ')'
                 };
             }
 
-            // 5. CEP fora da faixa SP e sem âncora → tenta como endereço genérico
-            rLog('warn', 'Sem âncora regional detectada — tentando como endereço normal');
+            // B3. CEP fora de qualquer faixa mapeada → tenta geocodificar como endereco livre
+            rLog('warn', 'CEP fora de faixa mapeada — tentando como endereco normal');
             return await geocodeAsAddress(input, refLat, refLon, refLabel);
         }
 
