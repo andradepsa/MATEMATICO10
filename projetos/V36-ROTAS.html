@@ -2923,6 +2923,9 @@ async function planRoute() {
         // PARADAS — ★ v27: try/catch por parada (CEP inexistente não trava o cálculo inteiro)
         var failedStops = []; // paradas que não puderam ser geocodificadas
         var stopSeq = 0;      // contador de paradas bem-sucedidas (para label correto)
+        // ★ v36: pausa aleatória 2-5s entre paradas para não travar Nominatim/Overpass
+        var _pauseMin = 2000, _pauseMax = 5000;
+        if (stopAddrs.length > 1) rLog('info', '★ v36: pausa aleatória ' + (_pauseMin/1000) + '-' + (_pauseMax/1000) + 's entre paradas (anti-bloqueio API)');
         for (var i = 0; i < stopAddrs.length; i++) {
             resultDiv.innerHTML = '<p>⏳ Geocodificando parada ' + (i+1) + '/' + stopAddrs.length + '...</p>';
             var prev = points[points.length-1];
@@ -2940,6 +2943,11 @@ async function planRoute() {
                 failedStops.push({ num: i + 1, addr: stopAddrs[i], err: eStop.message });
             }
             rFlush();
+            if (i < stopAddrs.length - 1) {
+                var _p = Math.floor(Math.random() * (_pauseMax - _pauseMin + 1)) + _pauseMin;
+                rLog('dim', 'Pausa anti-bloqueio: ' + _p + 'ms antes da próxima parada...');
+                await sleep(_p);
+            }
         }
 
         // Verifica se sobrou pelo menos 1 parada após as falhas
