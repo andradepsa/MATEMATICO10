@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora Multi-Paradas para Entregas — v34</title>
+    <title>Calculadora Multi-Paradas para Entregas — v35</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -119,7 +119,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v34 — Apenas Nominatim · Rua do usuário NUNCA substituída · Trava anti-duplicata · TSP NN+2-opt</strong></p>
+            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v35 — Overpass fallback p/ endereços sem CEP · Apenas Nominatim · Rua do usuário NUNCA substituída · Trava anti-duplicata · TSP NN+2-opt</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -2073,6 +2073,38 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
     }
 }
 
+// ★ v35: expande abreviações de logradouro para melhorar match no Overpass
+function expandAbreviacoes(s) {
+    return (s || '')
+        .replace(/^Av\.\s*/i,   'Avenida ')
+        .replace(/^R\.\s*/i,    'Rua ')
+        .replace(/^Trav\.\s*/i, 'Travessa ')
+        .replace(/^Al\.\s*/i,   'Alameda ')
+        .replace(/^Est\.\s*/i,  'Estrada ')
+        .replace(/^Pça\.\s*/i,  'Praça ');
+}
+
+// ★ v35: extrai logradouro/numero/bairro de endereço livre (sem CEP)
+// Ex: "Av. Adão Focesi, 35, Jardim do Lago, Campinas, SP, Brasil"
+//   → { logradouro: "Avenida Adão Focesi", numero: "35", bairro: "Jardim do Lago" }
+function parseFreestyleAddress(address) {
+    var parts = address.split(',').map(function(p){ return p.trim(); });
+    if (parts.length < 2) return null;
+    var logradouro = expandAbreviacoes(parts[0]);
+    var numero = null;
+    var bairro = '';
+    if (parts.length >= 2 && /^\d+/.test(parts[1])) {
+        numero = parts[1];
+        if (parts.length >= 4) bairro = parts[2]; // bairro vem depois do número
+    } else {
+        // sem número: segundo campo pode ser bairro
+        bairro = parts[1];
+    }
+    // Garante que bairro não seja cidade/UF (2 letras maiúsculas = sigla de estado)
+    if (/^[A-Z]{2}$/.test(bairro)) bairro = '';
+    return { logradouro: logradouro, numero: numero, bairro: bairro };
+}
+
 async function geocodeAsAddress(address, refLat, refLon, refLabel) {
     rLog('step', 'GEOCODIFICAÇÃO (endereço): "' + address + '"');
 
@@ -2097,7 +2129,33 @@ async function geocodeAsAddress(address, refLat, refLon, refLabel) {
         rLog('warn', 'Sem resultados com viewbox; tentando busca nacional');
         results = await nominatimSearch(address, null);
     }
-    if (results.length === 0) throw new Error('Endereço não encontrado: "' + address + '"');
+    if (results.length === 0) {
+        // ★ v35: Overpass fallback — Nominatim não conhece a rua, tenta Overpass dentro da cidade
+        if (cu) {
+            rLog('warn', '★ v35: Nominatim zerou — tentando Overpass dentro de ' + cu.cidade + '/' + cu.uf);
+            var parsedFree = parseFreestyleAddress(address);
+            if (parsedFree && parsedFree.logradouro) {
+                var synCepData = {
+                    logradouro: parsedFree.logradouro,
+                    bairro:     parsedFree.bairro || '',
+                    cidade:     cu.cidade,
+                    uf:         cu.uf
+                };
+                rLog('val', '   logradouro: "' + synCepData.logradouro + '" | numero: ' + (parsedFree.numero || '—') + ' | bairro: "' + synCepData.bairro + '" | cidade: ' + synCepData.cidade);
+                try {
+                    var ovFb = await overpassGeocodeFromCEP(synCepData, parsedFree.numero || null, null);
+                    if (ovFb) {
+                        rLog('ok', '✅ v35 Overpass fallback ACEITO: ' + ovFb.display);
+                        return ovFb;
+                    }
+                    rLog('warn', 'v35 Overpass fallback sem resultado.');
+                } catch(eOvFb) {
+                    rLog('warn', 'v35 Overpass fallback falhou: ' + eOvFb.message);
+                }
+            }
+        }
+        throw new Error('Endereço não encontrado: "' + address + '"');
+    }
 
     if (anchor) {
         var MAX_KM = 80;
