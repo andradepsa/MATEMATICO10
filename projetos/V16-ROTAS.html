@@ -116,7 +116,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v16 — Blindagem ViaCEP + viewbox permanente + trava Haversine 50km</strong></p>
+            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v17 — Cross-validação âncora + Overpass primário + viewbox 0.3°</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -1042,13 +1042,52 @@ function extractCityUF(address) {
 }
 
 // ============================================
+// ★ v17: VALIDAÇÃO CRUZADA CONTRA CORREIOS
+// Compara o resultado do geocodificador com os dados oficiais do ViaCEP.
+// Se cidade ou UF não bater, o resultado é REJEITADO e vai pras APIs de reserva.
+// ============================================
+function validarContraCorreios(point, cepData) {
+    var display = (point.display || '').toLowerCase();
+    // Normaliza acentos para comparação tolerante
+    function norm(s) { return (s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''); }
+    var dNorm = norm(point.display || '');
+    var cidadeN = norm(cepData.cidade);
+    var ufN = norm(cepData.uf);
+
+    var cidadeOk = dNorm.indexOf(cidadeN) !== -1;
+    var ufOk = dNorm.indexOf(ufN) !== -1;
+
+    // Log detalhado da comparação
+    rLog('step', '══ VALIDAÇÃO CRUZADA: Correios vs Geocodificador ══');
+    rLog('info', '📮 CORREIOS (ViaCEP):');
+    rLog('val',  '   Logradouro: ' + (cepData.logradouro || '(genérico)'));
+    rLog('val',  '   Bairro:     ' + (cepData.bairro || '(genérico)'));
+    rLog('val',  '   Cidade:     ' + cepData.cidade);
+    rLog('val',  '   UF:         ' + cepData.uf);
+    rLog('info', '🗺️  GEOCODIFICADOR retornou:');
+    rLog('val',  '   ' + (point.display || '?'));
+    rLog('val',  '   Coordenadas: ' + point.lat.toFixed(6) + ', ' + point.lon.toFixed(6));
+
+    if (cidadeOk && ufOk) {
+        rLog('ok', '✅ VALIDAÇÃO OK — Cidade e UF BATEM com os Correios');
+    } else {
+        rLog('err', '❌ VALIDAÇÃO FALHOU!');
+        if (!cidadeOk) rLog('err', '   Cidade esperada: "' + cepData.cidade + '" — NÃO encontrada no resultado');
+        if (!ufOk)     rLog('err', '   UF esperada: "' + cepData.uf + '" — NÃO encontrada no resultado');
+        rLog('err', '   → Resultado REJEITADO. Disparando APIs de reserva...');
+    }
+
+    return { valido: cidadeOk, cidadeOk: cidadeOk, ufOk: ufOk };
+}
+
+// ============================================
 // GEOCODIFICAÇÃO PRINCIPAL
 // ============================================
 async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
     var cep = parseCepInput(input);
 
     if (cep) {
-        // ═══════ MODO CEP — BLINDADO VIA VIACEP ═══════
+        // ═══════ MODO CEP — v17: VALIDAÇÃO CRUZADA CORREIOS ═══════
         rLog('step', 'GEOCODIFICAÇÃO (CEP): "' + input + '"');
         rLog('ok', 'CEP detectado: ' + cep.cepFmt + (cep.numero ? ' | Número: ' + cep.numero : ' | SEM NÚMERO'));
 
@@ -1059,102 +1098,189 @@ async function smartGeocode(input, refLat, refLon, refLabel, statusDiv) {
             return await geocodeAsAddress(input, refLat, refLon, refLabel);
         }
 
-        // ★ v16: ÂNCORA OBRIGATÓRIA — sem âncora = sem geocodificação
-        // Prioridade: postalcode no Nominatim > centróide da cidade ViaCEP
-        var postalAnchor = await nominatimByPostalcode(cep.cep);
+        // ★ v17: ÂNCORA = CENTRÓIDE DA CIDADE VIACEP (fonte primária confiável)
+        // O postalAnchor do Nominatim NÃO é mais confiado cegamente.
         var centroid = await getCityCentroid(cepData.cidade, cepData.uf);
-        var anchor = postalAnchor || centroid;
+        var postalAnchor = await nominatimByPostalcode(cep.cep);
 
-        if (postalAnchor) rLog('ok', 'Âncora: postalcode ' + cep.cepFmt);
-        else if (centroid) rLog('ok', 'Âncora: centróide de ' + cepData.cidade + '/' + cepData.uf);
-        else {
-            rLog('err', 'SEM âncora para ' + cep.cepFmt + ' — usando centróide genérico de ' + cepData.cidade);
-            // Última cartada: tenta geocodificar a cidade como texto puro
+        // ★ v17: CROSS-VALIDAÇÃO — se postalAnchor diverge >60km do centróide da cidade,
+        // ele está ERRADO (ex: CEP 08143-110 retorna Galeão/RJ). Descarta.
+        if (postalAnchor && centroid) {
+            var divergencia = haversineKm(postalAnchor.lat, postalAnchor.lon, centroid.lat, centroid.lon);
+            if (divergencia > 60) {
+                rLog('err', '🚨 POSTALCODE ERRADO! Nominatim postalcode a ' + divergencia.toFixed(0) + 'km de ' + cepData.cidade + '/' + cepData.uf);
+                rLog('err', '   Postalcode: ' + postalAnchor.lat.toFixed(4) + ',' + postalAnchor.lon.toFixed(4) + ' → ' + (postalAnchor.display||'?'));
+                rLog('err', '   Centróide:  ' + centroid.lat.toFixed(4) + ',' + centroid.lon.toFixed(4) + ' → ' + cepData.cidade);
+                rLog('err', '   → Postalcode DESCARTADO. Usando centróide ViaCEP.');
+                postalAnchor = null; // DESCARTA
+            } else {
+                rLog('ok', 'Postalcode validado: ' + divergencia.toFixed(1) + 'km do centróide ✓');
+            }
+        }
+
+        // ★ v17: Âncora = centróide tem prioridade absoluta (vem do ViaCEP = Correios)
+        var anchor = centroid || postalAnchor;
+
+        if (!anchor) {
+            rLog('warn', 'SEM âncora para ' + cep.cepFmt + ' — buscando centróide textual');
             var fallbackResults = await nominatimSearch(cepData.cidade + ', ' + cepData.uf + ', Brasil', null);
             if (fallbackResults.length > 0) {
                 anchor = { lat: parseFloat(fallbackResults[0].lat), lon: parseFloat(fallbackResults[0].lon) };
-                rLog('ok', 'Âncora recuperada via busca textual: ' + fallbackResults[0].display_name);
+                rLog('ok', 'Âncora recuperada: ' + fallbackResults[0].display_name);
             }
         }
 
         if (!anchor) {
-            rLog('err', 'IMPOSSÍVEL ancorar CEP ' + cep.cepFmt + ' — abortando para evitar falso positivo');
+            rLog('err', 'IMPOSSÍVEL ancorar CEP ' + cep.cepFmt);
             throw new Error('CEP ' + cep.cepFmt + ': cidade "' + cepData.cidade + '" não encontrada no mapa');
         }
 
-        // ★ v16: VIEWBOX SEMPRE ATIVO em modo CEP (nunca null!)
-        // Raio de 0.5° (~55km) centrado na âncora — garante que Nominatim
-        // NUNCA devolve resultados de outros estados
-        var vb = (anchor.lon-0.5).toFixed(4)+','+(anchor.lat-0.5).toFixed(4)+','+(anchor.lon+0.5).toFixed(4)+','+(anchor.lat+0.5).toFixed(4);
+        rLog('ok', 'ÂNCORA FINAL: ' + anchor.lat.toFixed(4) + ', ' + anchor.lon.toFixed(4) + ' (' + cepData.cidade + '/' + cepData.uf + ')');
 
-        // ★ v16: QUERIES BLINDADAS — sempre inclui cidade+UF para evitar
-        // que o número solto (ex: "66") vire endereço em outra cidade
-        var queries = [];
         var temLogradouro = cepData.logradouro && cepData.logradouro.length > 2;
         var temBairro = cepData.bairro && cepData.bairro.length > 2;
         var cidadeUf = cepData.cidade + ', ' + cepData.uf + ', Brasil';
+        rLog('info', '📮 ViaCEP → ' + (temLogradouro ? cepData.logradouro : '(sem rua)') + ' | ' + (temBairro ? cepData.bairro : '(sem bairro)') + ' | ' + cepData.cidade + '/' + cepData.uf);
 
+        // ★ v17: VIEWBOX reduzido para 0.3° (~33km) centrado na ÂNCORA VALIDADA
+        var vb = (anchor.lon-0.3).toFixed(4)+','+(anchor.lat-0.3).toFixed(4)+','+(anchor.lon+0.3).toFixed(4)+','+(anchor.lat+0.3).toFixed(4);
+        var MAX_DIST_FROM_CITY_KM = 50;
+
+        // ════════════════════════════════════════════
+        // CADEIA DE TENTATIVAS COM VALIDAÇÃO CRUZADA
+        // Cada resultado é validado contra os Correios.
+        // Se falhar, passa pra próxima API de reserva.
+        // ════════════════════════════════════════════
+
+        // ── TENTATIVA 1: OVERPASS (busca DENTRO do limite administrativo da cidade) ──
         if (temLogradouro) {
-            // CEP específico (tem rua) — queries com logradouro + cidade
+            rLog('step', '🔍 TENTATIVA 1/3: Overpass (dentro de ' + cepData.cidade + ')');
+            if (statusDiv) statusDiv.innerHTML = '<p>⏳ Overpass: buscando dentro de ' + escHtml(cepData.cidade) + '...</p>';
+            try {
+                var ovResult = await overpassGeocodeFromCEP(cepData, cep.numero, statusDiv);
+                if (ovResult) {
+                    var ovValidacao = validarContraCorreios(ovResult, cepData);
+                    var ovDistAnchor = haversineKm(anchor.lat, anchor.lon, ovResult.lat, ovResult.lon);
+                    if (ovDistAnchor <= MAX_DIST_FROM_CITY_KM) {
+                        rLog('ok', '✅ Overpass ACEITO (' + ovDistAnchor.toFixed(1) + 'km da âncora)');
+                        return ovResult;
+                    } else {
+                        rLog('warn', 'Overpass a ' + ovDistAnchor.toFixed(0) + 'km da âncora — rejeitado');
+                    }
+                }
+            } catch(eOv) {
+                rLog('warn', 'Overpass falhou: ' + eOv.message);
+            }
+        }
+
+        // ── TENTATIVA 2: NOMINATIM com queries blindadas + viewbox + validação ──
+        rLog('step', '🔍 TENTATIVA 2/3: Nominatim blindado (viewbox 0.3° + cidade obrigatória)');
+        var queries = [];
+        if (temLogradouro) {
             if (cep.numero) {
                 queries.push(cepData.logradouro + ', ' + cep.numero + ', ' + (temBairro ? cepData.bairro + ', ' : '') + cidadeUf);
             }
             queries.push(cepData.logradouro + ', ' + (temBairro ? cepData.bairro + ', ' : '') + cidadeUf);
             queries.push(cepData.logradouro + ', ' + cidadeUf);
         } else {
-            // CEP genérico (sem rua) — NÃO inclui o número pois não tem rua pra ancorar
-            // O número solto causava falsos positivos (ex: "100" → Cotia)
-            rLog('warn', 'CEP genérico (sem logradouro) — número ' + (cep.numero || '?') + ' será ignorado na busca');
+            rLog('warn', 'CEP genérico (sem logradouro) — número ignorado na busca');
             if (temBairro) {
                 queries.push(cepData.bairro + ', ' + cidadeUf);
             }
         }
-        // Última query: cidade + UF (sempre presente como fallback)
         queries.push(cidadeUf);
 
-        rLog('info', 'ViaCEP → ' + (temLogradouro ? cepData.logradouro : '(sem rua)') + ' | ' + (temBairro ? cepData.bairro : '(sem bairro)') + ' | ' + cepData.cidade + '/' + cepData.uf);
-
-        var MAX_DIST_FROM_CITY_KM = 50; // ★ v16: raio reduzido de 80→50km (metropolitano)
-
         for (var q = 0; q < queries.length; q++) {
-            rLog('info', 'Tentativa ' + (q+1) + '/' + queries.length + ': "' + queries[q] + '"');
-            if (statusDiv) statusDiv.innerHTML = '<p>⏳ Geocodificando: "' + escHtml(queries[q]) + '"...</p>';
+            rLog('info', 'Query ' + (q+1) + '/' + queries.length + ': "' + queries[q] + '"');
+            if (statusDiv) statusDiv.innerHTML = '<p>⏳ Nominatim: "' + escHtml(queries[q]) + '"...</p>';
 
-            // ★ v16: viewbox SEMPRE ativo — nunca null em modo CEP
             var results = await nominatimSearch(queries[q], vb);
 
             if (results.length > 0) {
-                // Filtra: só aceita resultados dentro de MAX_DIST_FROM_CITY_KM da âncora
+                // Filtra por distância da âncora
                 var validos = [];
                 for (var ri = 0; ri < results.length; ri++) {
                     var d = haversineKm(anchor.lat, anchor.lon, parseFloat(results[ri].lat), parseFloat(results[ri].lon));
-                    var marker = d <= MAX_DIST_FROM_CITY_KM ? ' ✓' : ' ✗ (fora do raio ' + MAX_DIST_FROM_CITY_KM + 'km)';
+                    var marker = d <= MAX_DIST_FROM_CITY_KM ? ' ✓' : ' ✗ (fora)';
                     rLog(d <= MAX_DIST_FROM_CITY_KM ? 'ok' : 'warn',
-                        '#' + (ri+1) + ': ' + d.toFixed(2) + 'km da âncora' + marker + ' → ' + results[ri].display_name);
+                        '#' + (ri+1) + ': ' + d.toFixed(2) + 'km' + marker + ' → ' + results[ri].display_name);
                     if (d <= MAX_DIST_FROM_CITY_KM) validos.push({ r: results[ri], d: d });
                 }
+
                 if (validos.length > 0) {
                     validos.sort(function(a,b){ return a.d - b.d; });
-                    rLog('ok', 'ESCOLHIDO: ' + validos[0].r.display_name);
-                    return resultToPoint(validos[0].r);
+                    var candidato = resultToPoint(validos[0].r);
+
+                    // ★ v17: VALIDAÇÃO CRUZADA — checa se a cidade bate com os Correios
+                    var validacao = validarContraCorreios(candidato, cepData);
+                    if (validacao.valido) {
+                        return candidato;
+                    }
+                    // Cidade errada! Tenta o próximo válido
+                    rLog('warn', 'Resultado #1 rejeitado pela validação. Testando outros...');
+                    for (var vi = 1; vi < validos.length; vi++) {
+                        var cand2 = resultToPoint(validos[vi].r);
+                        var val2 = validarContraCorreios(cand2, cepData);
+                        if (val2.valido) {
+                            return cand2;
+                        }
+                    }
+                    rLog('warn', 'Nenhum resultado desta query passou na validação Correios');
                 }
-                rLog('warn', 'Todos os resultados fora do raio da âncora — tentando próxima query');
             } else {
                 rLog('warn', 'Nenhum resultado para essa query.');
             }
         }
 
-        // ★ v16: Última cartada — devolve a âncora (postalcode ou centróide)
-        // NUNCA devolve resultado sem validação Haversine
-        if (postalAnchor) {
-            rLog('warn', 'Nenhum endereço preciso — usando âncora postalcode (' + cep.cepFmt + ')');
-            var displayFb = cepData.logradouro ? (cepData.logradouro + (cep.numero ? ', ' + cep.numero : '')) : '';
-            displayFb += (displayFb ? ', ' : '') + (cepData.bairro || '') + ', ' + cepData.cidade + ' - ' + cepData.uf + ' (CEP ' + cep.cepFmt + ')';
-            return { lat: postalAnchor.lat, lon: postalAnchor.lon, display: displayFb };
+        // ── TENTATIVA 3: NOMINATIM bounded=1 (FORÇADO dentro do viewbox) ──
+        rLog('step', '🔍 TENTATIVA 3/3: Nominatim bounded=1 (forçado dentro do viewbox)');
+        if (temLogradouro) {
+            var boundedQuery = cepData.logradouro + ', ' + cidadeUf;
+            rLog('info', 'Query forçada: "' + boundedQuery + '" com bounded=1');
+            if (statusDiv) statusDiv.innerHTML = '<p>⏳ Nominatim forçado...</p>';
+
+            // Faz busca direta com bounded=1 via URL customizada
+            try {
+                await waitNominatim();
+                var bUrl = 'https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=5&countrycodes=br&q='
+                    + encodeURIComponent(boundedQuery)
+                    + '&viewbox=' + encodeURIComponent(vb) + '&bounded=1';
+                rLog('dim', 'Nominatim bounded=1: ' + bUrl);
+                var bResp = await fetchRetry(bUrl, {}, 'Nominatim/bounded', 2);
+                var bData = await bResp.json();
+                if (bData.length > 0) {
+                    for (var bi = 0; bi < bData.length; bi++) {
+                        var bPt = { lat: parseFloat(bData[bi].lat), lon: parseFloat(bData[bi].lon), display: bData[bi].display_name };
+                        var bDist = haversineKm(anchor.lat, anchor.lon, bPt.lat, bPt.lon);
+                        rLog('info', 'Bounded #' + (bi+1) + ': ' + bDist.toFixed(1) + 'km → ' + bPt.display);
+                        if (bDist <= MAX_DIST_FROM_CITY_KM) {
+                            var bVal = validarContraCorreios(bPt, cepData);
+                            if (bVal.valido) {
+                                rLog('ok', '✅ Bounded ACEITO');
+                                return bPt;
+                            }
+                        }
+                    }
+                }
+                rLog('warn', 'Bounded=1 sem resultado válido.');
+            } catch(eBounded) {
+                rLog('warn', 'Bounded falhou: ' + eBounded.message);
+            }
         }
+
+        // ── FALLBACK FINAL: usa o centróide da cidade (nunca o postalAnchor descartado) ──
+        rLog('step', '⚠️ FALLBACK: Nenhuma API retornou resultado validado pelos Correios');
         if (centroid) {
-            rLog('warn', 'Nenhum endereço preciso — usando CENTRÓIDE de ' + cepData.cidade);
-            return { lat: centroid.lat, lon: centroid.lon, display: cepData.cidade + ' - ' + cepData.uf + ', Brasil (centróide — CEP ' + cep.cepFmt + ')' };
+            rLog('warn', 'Usando CENTRÓIDE de ' + cepData.cidade + '/' + cepData.uf);
+            var displayFb = cepData.logradouro ? (cepData.logradouro + (cep.numero ? ', ' + cep.numero : '')) : '';
+            displayFb += (displayFb ? ', ' : '') + (cepData.bairro || '') + ', ' + cepData.cidade + ' - ' + cepData.uf + ' (centróide — CEP ' + cep.cepFmt + ')';
+            return { lat: centroid.lat, lon: centroid.lon, display: displayFb };
+        }
+        // Só usa postalAnchor se ele NÃO foi descartado pela cross-validação
+        if (postalAnchor) {
+            rLog('warn', 'Usando postalAnchor (validado): ' + postalAnchor.display);
+            var displayFb2 = cepData.cidade + ' - ' + cepData.uf + ', Brasil (postalcode — CEP ' + cep.cepFmt + ')';
+            return { lat: postalAnchor.lat, lon: postalAnchor.lon, display: displayFb2 };
         }
 
         throw new Error('CEP ' + cep.cepFmt + ' não geocodificável em ' + cepData.cidade + '/' + cepData.uf);
