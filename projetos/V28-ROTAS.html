@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Calculadora Multi-Paradas para Entregas — v26</title>
+    <title>Calculadora Multi-Paradas para Entregas — v27</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
@@ -116,7 +116,7 @@
 <div class="container">
     <div class="header">
         <h1>📦 Calculadora Multi-Paradas para Entregas</h1>
-            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v26 — 100% Brasileiro: ViaCEP + BrasilAPI + OpenCEP · Overpass OSM · Photon eliminado · City-lock em todos os geocodificadores</strong></p>
+            <p>CEP+número OU endereço completo — quantas paradas quiser &nbsp;·&nbsp; <strong style="color:#7dd3fc;">v27 — Municipal Lock: Overpass restrito ao admin_level=8 do município · viewbox city-anchored · tabela CEP Itaquaquecetuba corrigida</strong></p>
     </div>
     <div class="content">
         <div class="sidebar">
@@ -1093,21 +1093,28 @@ async function overpassGeocodeFromCEP(cepData, numero, statusDiv) {
     if (!street) return null;
 
     rLog('step', 'GEOCODIFICAÇÃO (Overpass): "' + street + (numero ? ', ' + numero : '') + '" em ' + city);
-    if (statusDiv) statusDiv.innerHTML = '<p>⏳ Geocodificando via Overpass...</p>';
+    if (statusDiv) statusDiv.innerHTML = '<p>⏳ Overpass: buscando dentro de ' + city + '...</p>';
 
     var eStreet = ovEscape(street);
     var eCity   = ovEscape(city);
 
+    // ★ v27 MUNICIPAL LOCK: admin_level="8" restringe a busca ao município exato.
+    // ANTES: area["name"="São Paulo"]["boundary"="administrative"] podia casar com o
+    // ESTADO de SP (admin_level=4), colocando pontos em Santo André, Santos, etc.
+    // AGORA: admin_level="8" = limite político do município. Apenas o perímetro urbano.
+    // Obs: alguns municípios menores usam admin_level=7 — usamos regex [78] para cobrir os dois.
+    var areaFilter = '["name"="' + eCity + '"]["boundary"="administrative"]["admin_level"~"^[78]$"]';
+
     // Tentativa 1: addr:housenumber exato (nó ou way)
     if (numero) {
         var q1 = '[out:json][timeout:12];'
-            + 'area["name"="' + eCity + '"]["boundary"="administrative"]->.city;'
+            + 'area' + areaFilter + '->.city;'
             + '('
             + 'node["addr:street"~"' + eStreet + '",i]["addr:housenumber"="' + numero + '"](area.city);'
             + 'way["addr:street"~"' + eStreet + '",i]["addr:housenumber"="' + numero + '"](area.city);'
             + ');'
             + 'out center;';
-        rLog('dim', 'Overpass tentativa 1: addr:housenumber=' + numero);
+        rLog('dim', 'Overpass tentativa 1: addr:housenumber=' + numero + ' (admin_level=[78])');
         var r1 = await runOverpassGeoQuery(q1);
         if (r1) {
             rLog('ok', 'Overpass: endereço exato! lat=' + r1.lat.toFixed(6) + ' lon=' + r1.lon.toFixed(6));
@@ -1116,12 +1123,12 @@ async function overpassGeocodeFromCEP(cepData, numero, statusDiv) {
         rLog('warn', 'Overpass: nenhum nó addr:housenumber=' + numero);
     }
 
-    // Tentativa 2: centróide da via (highway)
+    // Tentativa 2: centróide da via (highway) — nome exato
     var q2 = '[out:json][timeout:12];'
-        + 'area["name"="' + eCity + '"]["boundary"="administrative"]->.city;'
+        + 'area' + areaFilter + '->.city;'
         + 'way["name"~"^' + eStreet + '$",i]["highway"](area.city);'
         + 'out center;';
-    rLog('dim', 'Overpass tentativa 2: centróide via');
+    rLog('dim', 'Overpass tentativa 2: centróide via exata (admin_level=[78])');
     var r2 = await runOverpassGeoQuery(q2);
     if (r2) {
         rLog('ok', 'Overpass: centróide encontrado (aprox.) lat=' + r2.lat.toFixed(6) + ' lon=' + r2.lon.toFixed(6));
@@ -1129,12 +1136,12 @@ async function overpassGeocodeFromCEP(cepData, numero, statusDiv) {
     }
     rLog('warn', 'Overpass tentativa 2 sem resultado.');
 
-    // Tentativa 3: via com busca parcial (sem ^ e $)
+    // Tentativa 3: via com busca parcial (sem ^ e $) — ainda dentro do município
     var q3 = '[out:json][timeout:12];'
-        + 'area["name"="' + eCity + '"]["boundary"="administrative"]->.city;'
+        + 'area' + areaFilter + '->.city;'
         + 'way["name"~"' + eStreet + '",i]["highway"](area.city);'
         + 'out center;';
-    rLog('dim', 'Overpass tentativa 3: busca parcial de nome');
+    rLog('dim', 'Overpass tentativa 3: busca parcial de nome (admin_level=[78])');
     var r3 = await runOverpassGeoQuery(q3);
     if (r3) {
         rLog('ok', 'Overpass: via parcial encontrada lat=' + r3.lat.toFixed(6) + ' lon=' + r3.lon.toFixed(6));
