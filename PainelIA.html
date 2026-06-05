@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CODEX | Central de Comando IA</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&family=Fira+Code:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0a0a0b; color: #e4e4e7; }
+        .glass { background: rgba(23, 23, 26, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255, 255, 255, 0.1); }
+        .code-font { font-family: 'Fira Code', monospace; }
+        .gradient-text { background: linear-gradient(45deg, #3b82f6, #8b5cf6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        textarea { resize: none; }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+    <div class="max-w-5xl mx-auto">
+        <!-- Header -->
+        <header class="flex justify-between items-center mb-8">
+            <div>
+                <h1 class="text-3xl font-bold gradient-text">CODEX ENGINE</h1>
+                <p class="text-gray-400 text-sm">Orquestrador de Inteligência Distribuída</p>
+            </div>
+            <button onclick="toggleSettings()" class="p-2 rounded-full glass hover:bg-gray-700 transition-all">
+                ⚙️ Configurações
+            </button>
+        </header>
+
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Painel de Controle -->
+            <div class="lg:col-span-1 space-y-6">
+                <div class="glass p-6 rounded-2xl">
+                    <h2 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                        <span>🚀</span> Seleção de Motor
+                    </h2>
+                    <div class="space-y-3">
+                        <label class="flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-white/5 transition-all border border-transparent" id="btn-gemini">
+                            <input type="radio" name="ai_engine" value="gemini" checked class="w-4 h-4 accent-blue-500">
+                            <span class="font-medium">Google Gemini (Rodízio)</span>
+                        </label>
+                        <label class="flex items-center gap-3 p-3 rounded-xl cursor-pointer hover:bg-white/5 transition-all border border-transparent" id="btn-xai">
+                            <input type="radio" name="ai_engine" value="xai" class="w-4 h-4 accent-purple-500">
+                            <span class="font-medium">xAI Grok (Peso Pesado)</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="glass p-6 rounded-2xl">
+                    <h2 class="text-lg font-semibold mb-4">📊 Status do Sistema</h2>
+                    <div class="text-sm space-y-2 text-gray-400">
+                        <div class="flex justify-between"><span>Latência:</span> <span id="latency" class="text-green-400">Ocioso</span></div>
+                        <div class="flex justify-between"><span>Chave Ativa:</span> <span id="active-key" class="text-blue-400">Nenhuma</span></div>
+                        <div class="flex justify-between"><span>Modo:</span> <span class="text-purple-400">Turbo Agent</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Área de Chat -->
+            <div class="lg:col-span-2 space-y-4">
+                <div id="chat-container" class="glass h-[500px] rounded-2xl p-6 overflow-y-auto space-y-4 flex flex-col">
+                    <div class="bg-white/5 p-4 rounded-2xl self-start max-w-[80%]">
+                        <p class="text-xs font-bold mb-1 text-purple-400">CODEX ENGINE</p>
+                        <p class="text-sm text-gray-300">Bem-vindo ao Núcleo Codex. Insira seu prompt e eu utilizarei a IA selecionada para gerar a resposta.</p>
+                    </div>
+                </div>
+
+                <div class="glass p-4 rounded-2xl flex gap-4">
+                    <textarea id="prompt" rows="2" class="flex-1 bg-transparent border-none outline-none text-white placeholder-gray-500 p-2" placeholder="Digite sua demanda técnica..."></textarea>
+                    <button onclick="executeAI()" id="send-btn" class="bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-xl font-bold transition-all flex items-center gap-2">
+                        GERAR <span>⚡</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Configurações -->
+    <div id="settings-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm hidden items-center justify-center z-50">
+        <div class="glass p-8 rounded-3xl w-full max-w-lg mx-4">
+            <h2 class="text-2xl font-bold mb-6">Configurações de API</h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm text-gray-400 mb-2">Chaves Gemini (uma por linha)</label>
+                    <textarea id="gemini-keys" rows="5" class="w-full bg-black/50 border border-white/10 rounded-xl p-3 code-font text-sm text-white" placeholder="AIza..."></textarea>
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-400 mb-2">Chave xAI (Grok)</label>
+                    <input id="xai-key" type="text" class="w-full bg-black/50 border border-white/10 rounded-xl p-3 code-font text-sm text-white" placeholder="xai-...">
+                </div>
+                <div class="flex justify-end gap-3 mt-6">
+                    <button onclick="toggleSettings()" class="px-4 py-2 rounded-xl text-gray-400 hover:bg-white/10">Cancelar</button>
+                    <button onclick="saveConfig()" class="bg-blue-600 px-6 py-2 rounded-xl font-bold hover:bg-blue-500">Salvar Configurações</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let config = { gemini_keys: [], xai_key: "" };
+        let geminiIndex = 0;
+
+        function toggleSettings() {
+            const modal = document.getElementById('settings-modal');
+            modal.classList.toggle('hidden');
+            modal.classList.toggle('flex');
+        }
+
+        function saveConfig() {
+            const gKeys = document.getElementById('gemini-keys').value.split('\n').filter(k => k.trim());
+            const xKey = document.getElementById('xai-key').value.trim();
+            config = { gemini_keys: gKeys, xai_key: xKey };
+            localStorage.setItem('codex_config', JSON.stringify(config));
+            toggleSettings();
+            alert('Configurações salvas com sucesso!');
+        }
+
+        function loadConfig() {
+            const stored = localStorage.getItem('codex_config');
+            if (stored) {
+                config = JSON.parse(stored);
+                document.getElementById('gemini-keys').value = config.gemini_keys.join('\n');
+                document.getElementById('xai-key').value = config.xai_key;
+            }
+        }
+
+        // Permite enviar com Enter (Shift+Enter = nova linha)
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('prompt').addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    executeAI();
+                }
+            });
+        });
+
+        async function executeAI() {
+            const promptEl = document.getElementById('prompt');
+            const prompt = promptEl.value.trim();
+            const engine = document.querySelector('input[name="ai_engine"]:checked').value;
+            const btn = document.getElementById('send-btn');
+            if (!prompt) return;
+
+            appendMessage('user', prompt);
+            promptEl.value = '';
+            btn.disabled = true;
+            btn.innerHTML = 'PROCESSANDO... ⏳';
+            document.getElementById('latency').innerText = '...';
+
+            const startTime = Date.now();
+
+            try {
+                let responseText = '';
+                if (engine === 'gemini') {
+                    responseText = await callGemini(prompt);
+                } else {
+                    responseText = await callXAI(prompt);
+                }
+                appendMessage('ai', responseText);
+            } catch (e) {
+                appendMessage('ai', '⚠️ Erro crítico na conexão: ' + e.message);
+            }
+
+            const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+            document.getElementById('latency').innerText = duration + 's';
+            btn.disabled = false;
+            btn.innerHTML = 'GERAR ⚡';
+        }
+
+        async function callGemini(prompt) {
+            if (config.gemini_keys.length === 0) return '⚠️ Erro: Nenhuma chave Gemini configurada. Abra as Configurações.';
+
+            // Rodízio entre chaves
+            const totalKeys = config.gemini_keys.length;
+            for (let attempt = 0; attempt < totalKeys; attempt++) {
+                const idx = geminiIndex % totalKeys;
+                geminiIndex = (geminiIndex + 1) % totalKeys;
+                const key = config.gemini_keys[idx].trim();
+                document.getElementById('active-key').innerText = `Gemini ${idx + 1}/${totalKeys}`;
+
+                try {
+                    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${key}`;
+                    const res = await fetch(url, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                    });
+                    if (!res.ok) {
+                        const err = await res.json();
+                        console.warn(`Chave Gemini ${idx + 1} retornou erro ${res.status}:`, err);
+                        continue;
+                    }
+                    const data = await res.json();
+                    return data.candidates[0].content.parts[0].text;
+                } catch (e) {
+                    console.warn(`Chave Gemini ${idx + 1} falhou:`, e.message);
+                }
+            }
+            document.getElementById('active-key').innerText = 'Esgotado';
+            return '⚠️ Todas as chaves Gemini estão com cota esgotada ou inválidas.';
+        }
+
+        async function callXAI(prompt) {
+            if (!config.xai_key) return '⚠️ Erro: Nenhuma chave xAI configurada. Abra as Configurações.';
+            document.getElementById('active-key').innerText = 'xAI Grok';
+
+            try {
+                const res = await fetch('https://api.x.ai/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${config.xai_key.trim()}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        model: 'grok-beta',
+                        messages: [{ role: 'user', content: prompt }]
+                    })
+                });
+                if (!res.ok) {
+                    const err = await res.json();
+                    return `⚠️ Erro xAI (${res.status}): ${err.error?.message || JSON.stringify(err)}`;
+                }
+                const data = await res.json();
+                return data.choices[0].message.content;
+            } catch (e) {
+                return '⚠️ Erro na conexão com a xAI: ' + e.message;
+            }
+        }
+
+        function appendMessage(role, text) {
+            const container = document.getElementById('chat-container');
+            const div = document.createElement('div');
+            const isUser = role === 'user';
+            div.className = isUser
+                ? 'bg-blue-600/20 p-4 rounded-2xl self-end max-w-[80%] text-right'
+                : 'bg-white/5 p-4 rounded-2xl self-start max-w-[80%]';
+            div.innerHTML = `
+                <p class="text-xs font-bold mb-1 ${isUser ? 'text-blue-400' : 'text-purple-400'}">
+                    ${isUser ? 'VOCÊ' : 'CODEX ENGINE'}
+                </p>
+                <p class="text-sm text-gray-200 whitespace-pre-wrap">${escapeHtml(text)}</p>
+            `;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            return text
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        window.onload = loadConfig;
+    </script>
+</body>
+</html>
