@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Resolvedor Matemático — Matemático 10</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500&amp;display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0F1420;
+    --panel: #161D2E;
+    --border: #2A3348;
+    --text: #E8EAF0;
+    --muted: #8A93A8;
+    --accent: #F2A93B;
+    --accent-dim: rgba(242, 169, 59, 0.2);
+    --erro: #E8607A;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background-color: var(--bg);
+    background-image:
+      linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+    background-size: 32px 32px;
+    background-position: -1px -1px;
+    color: var(--text);
+    font-family: 'IBM Plex Sans', sans-serif;
+    min-height: 100vh;
+    padding: 56px 24px 96px;
+  }
+
+  .pagina { max-width: 720px; margin: 0 auto; }
+
+  header { margin-bottom: 36px; }
+
+  .eyebrow {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 13px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 12px;
+  }
+
+  h1 {
+    font-family: 'Fraunces', serif;
+    font-size: 40px;
+    font-weight: 600;
+    margin: 0 0 12px;
+    line-height: 1.15;
+  }
+
+  .subtitulo {
+    color: var(--muted);
+    font-size: 16px;
+    line-height: 1.5;
+    margin: 0;
+    max-width: 54ch;
+  }
+
+  #formulario { display: flex; gap: 10px; margin-bottom: 16px; }
+
+  #entrada {
+    flex: 1;
+    min-width: 0;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 16px 18px;
+    color: var(--text);
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 16px;
+    outline: none;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  #entrada:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-dim); }
+  #entrada::placeholder { color: var(--muted); }
+
+  #botao {
+    background: var(--accent);
+    color: #1a1305;
+    border: none;
+    border-radius: 10px;
+    padding: 0 26px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 500;
+    font-size: 16px;
+    cursor: pointer;
+    transition: filter 0.15s ease, transform 0.1s ease;
+  }
+
+  #botao:hover { filter: brightness(1.08); }
+  #botao:active { transform: translateY(1px); }
+  #botao:disabled { opacity: 0.55; cursor: default; }
+
+  .exemplos { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 36px; }
+
+  .chip {
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 999px;
+    padding: 7px 14px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, color 0.15s ease;
+  }
+
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+
+  #status {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 14px;
+    color: var(--muted);
+    min-height: 20px;
+    margin-bottom: 8px;
+  }
+
+  #status.carregando::after {
+    content: '';
+    display: inline-block;
+    width: 6px; height: 6px;
+    margin-left: 8px;
+    background: var(--accent);
+    border-radius: 50%;
+    animation: pulsar 1s ease-in-out infinite;
+  }
+
+  @keyframes pulsar { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+
+  .pod-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 14px;
+    animation: surgir 0.25s ease;
+  }
+
+  @keyframes surgir { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  .pod-titulo {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 10px;
+  }
+
+  .pod-texto {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 15px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0 0 8px;
+    color: var(--text);
+  }
+
+  .pod-imagem { max-width: 100%; border-radius: 6px; margin-top: 6px; background: #fff; padding: 8px; }
+
+  .aviso, .erro {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--erro);
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin-bottom: 14px;
+  }
+
+  .assuncoes {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 12.5px;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+
+  .sugestoes p { margin: 0 0 8px; color: var(--muted); }
+  .sugestoes ul { margin: 0; padding-left: 20px; }
+  .sugestoes li { font-family: 'IBM Plex Mono', monospace; font-size: 14px; margin-bottom: 4px; cursor: pointer; color: var(--accent); }
+  .sugestoes li:hover { text-decoration: underline; }
+
+  .rodape {
+    margin-top: 48px;
+    font-size: 12.5px;
+    color: var(--muted);
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+    line-height: 1.6;
+  }
+
+  @media (max-width: 560px) {
+    h1 { font-size: 30px; }
+    #formulario { flex-direction: column; }
+    #botao { padding: 14px; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+  <div class="pagina">
+    <header>
+      <p class="eyebrow">Matemático 10</p>
+      <h1>Resolvedor Matemático</h1>
+      <p class="subtitulo">Digite qualquer problema — álgebra, cálculo, matrizes, estatística, geometria — e veja a interpretação e o resultado, via Wolfram|Alpha.</p>
+    </header>
+
+    <form id="formulario">
+      <input type="text" id="entrada" placeholder="ex.: integral de x² · sin(x)" autocomplete="off" autofocus>
+      <button type="submit" id="botao">Resolver</button>
+    </form>
+
+    <div class="exemplos">
+      <button type="button" class="chip" data-exemplo="solve x^2 - 4 = 0">resolver x²-4=0</button>
+      <button type="button" class="chip" data-exemplo="integrate x^2 sin(x)">integral de x²sin(x)</button>
+      <button type="button" class="chip" data-exemplo="derivative of ln(x^2+1)">derivada de ln(x²+1)</button>
+      <button type="button" class="chip" data-exemplo="eigenvalues of [[2,1],[1,2]]">autovalores</button>
+      <button type="button" class="chip" data-exemplo="plot sin(x) from -pi to pi">gráfico de sin(x)</button>
+    </div>
+
+    <div id="status"></div>
+    <div id="resultados"></div>
+
+    <p class="rodape">
+      Cálculos via Wolfram|Alpha Full Results API. As consultas passam por um proxy público
+      para contornar CORS — se uma consulta falhar, a página tenta automaticamente outro proxy;
+      se todos falharem, tente de novo em instantes.
+    </p>
+  </div>
+
+  <script>
+    const APP_ID = "2WL3GL8QA9";
+
+    // Proxies públicos usados em cascata para contornar o bloqueio de CORS da Wolfram|Alpha.
+    // Se um falhar (fora do ar, limite de requisições etc.), o próximo é tentado automaticamente.
+    const PROXIES = [
+      url => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+      url => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`,
+      url => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+    ];
+
+    const formulario = document.getElementById('formulario');
+    const entrada = document.getElementById('entrada');
+    const botao = document.getElementById('botao');
+    const statusEl = document.getElementById('status');
+    const resultados = document.getElementById('resultados');
+
+    document.querySelectorAll('.chip').forEach(chip => {
+      chip.addEventListener('click', () => {
+        entrada.value = chip.dataset.exemplo;
+        formulario.requestSubmit();
+      });
+    });
+
+    formulario.addEventListener('submit', ev => {
+      ev.preventDefault();
+      const pergunta = entrada.value.trim();
+      if (pergunta) resolver(pergunta);
+    });
+
+    async function resolver(pergunta) {
+      botao.disabled = true;
+      statusEl.textContent = `Consultando: ${pergunta}`;
+      statusEl.classList.add('carregando');
+      limpar(resultados);
+
+      try {
+        const resultado = await consultarWolfram(pergunta);
+        renderizarResultado(resultado);
+      } catch (err) {
+        mostrarErro(`Não foi possível consultar a Wolfram|Alpha (${err.message}). Tente novamente em instantes.`);
+      } finally {
+        statusEl.classList.remove('carregando');
+        statusEl.textContent = '';
+        botao.disabled = false;
+      }
+    }
+
+    async function consultarWolfram(pergunta) {
+      const urlWolfram = `https://api.wolframalpha.com/v2/query?input=${encodeURIComponent(pergunta)}&appid=${APP_ID}&format=plaintext,image&output=JSON&podtimeout=15`;
+
+      let ultimoErro = null;
+      for (const montarProxy of PROXIES) {
+        try {
+          const resp = await buscarComTimeout(montarProxy(urlWolfram), 20000);
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const dados = await resp.json();
+          if (!dados || !dados.queryresult) throw new Error('resposta inesperada do proxy');
+          return dados.queryresult;
+        } catch (err) {
+          ultimoErro = err;
+        }
+      }
+      throw new Error(ultimoErro ? ultimoErro.message : 'todos os proxies falharam');
+    }
+
+    function buscarComTimeout(url, ms) {
+      const controlador = new AbortController();
+      const id = setTimeout(() => controlador.abort(), ms);
+      return fetch(url, { signal: controlador.signal }).finally(() => clearTimeout(id));
+    }
+
+    function limpar(el) { while (el.firstChild) el.removeChild(el.firstChild); }
+
+    function mostrarErro(texto) {
+      const div = document.createElement('div');
+      div.className = 'erro';
+      div.textContent = texto;
+      resultados.appendChild(div);
+    }
+
+    function extrairAssuncoes(resultado) {
+      const assumptions = resultado.assumptions;
+      if (!assumptions) return [];
+      const lista = Array.isArray(assumptions) ? assumptions : [assumptions];
+      return lista
+        .filter(a => a && a.word)
+        .map(a => `'${a.word}' (${a.type || 'interpretação'})`);
+    }
+
+    function renderizarResultado(resultado) {
+      if (resultado.error && typeof resultado.error === 'object') {
+        mostrarErro(`Erro da API (código ${resultado.error.code}): ${resultado.error.msg}`);
+        return;
+      }
+
+      if (!resultado.success) {
+        const aviso = document.createElement('div');
+        aviso.className = 'aviso';
+        aviso.textContent = 'Não consegui interpretar essa pergunta. Tente reformular (de preferência em inglês): "solve x^2-4=0", "integrate x^2", "derivative of sin(x)".';
+        resultados.appendChild(aviso);
+
+        const dym = resultado.didyoumeans;
+        if (dym) {
+          const lista = Array.isArray(dym) ? dym : [dym];
+          const bloco = document.createElement('div');
+          bloco.className = 'sugestoes';
+          const titulo = document.createElement('p');
+          titulo.textContent = 'Você quis dizer:';
+          bloco.appendChild(titulo);
+          const ul = document.createElement('ul');
+          lista.forEach(item => {
+            const valor = typeof item === 'object' ? item.val : item;
+            if (!valor) return;
+            const li = document.createElement('li');
+            li.textContent = valor;
+            li.addEventListener('click', () => {
+              entrada.value = valor;
+              formulario.requestSubmit();
+            });
+            ul.appendChild(li);
+          });
+          bloco.appendChild(ul);
+          resultados.appendChild(bloco);
+        }
+        return;
+      }
+
+      const assuncoes = extrairAssuncoes(resultado);
+      if (assuncoes.length) {
+        const bloco = document.createElement('div');
+        bloco.className = 'assuncoes';
+        bloco.textContent = `Suposições: ${assuncoes.join(', ')}`;
+        resultados.appendChild(bloco);
+      }
+
+      const pods = resultado.pods || [];
+      if (pods.length === 0) {
+        mostrarErro('A consulta teve sucesso, mas não retornou nenhum resultado.');
+        return;
+      }
+
+      pods.forEach(pod => {
+        const card = document.createElement('div');
+        card.className = 'pod-card';
+
+        const titulo = document.createElement('div');
+        titulo.className = 'pod-titulo';
+        titulo.textContent = pod.title || 'Resultado';
+        card.appendChild(titulo);
+
+        (pod.subpods || []).forEach(subpod => {
+          if (subpod.plaintext) {
+            const texto = document.createElement('div');
+            texto.className = 'pod-texto';
+            texto.textContent = subpod.plaintext;
+            card.appendChild(texto);
+          }
+          if (subpod.img && subpod.img.src) {
+            const img = document.createElement('img');
+            img.src = subpod.img.src.replace(/^http:\/\//, 'https://');
+            img.alt = pod.title || '';
+            img.className = 'pod-imagem';
+            img.loading = 'lazy';
+            card.appendChild(img);
+          }
+        });
+
+        resultados.appendChild(card);
+      });
+    }
+  </script>
+</body>
+</html>
