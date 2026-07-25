@@ -114,6 +114,7 @@ body {
 .nice-scroll::-webkit-scrollbar-thumb { background: #2a3349; border-radius: 8px; }
 #root { min-height: 100vh; }
 </style>
+<base target="_blank">
 </head>
 <body>
 <div id="root"></div>
@@ -1002,18 +1003,29 @@ function useGame() {
       }));
       return true;
     },
-    grantXp: amt => setGameState(s => ({
-      xp: s.xp + amt
-    })),
-    grantGems: amt => setGameState(s => ({
-      gems: s.gems + amt
-    })),
+    grantXp: amt => setGameState(s => {
+      const newXp = s.xp + amt;
+      const newLeague = computeLeague(computeRankScore({
+        questionsAnswered: s.questionsAnswered,
+        videosWatched: s.videosWatched,
+        minutesWatched: s.minutesWatched
+      }));
+      return { xp: newXp, league: newLeague };
+    }),
+    grantGems: amt => setGameState(s => {
+      const newGems = s.gems + amt;
+      const newLeague = computeLeague(computeRankScore({
+        questionsAnswered: s.questionsAnswered,
+        videosWatched: s.videosWatched,
+        minutesWatched: s.minutesWatched
+      }));
+      return { gems: newGems, league: newLeague };
+    }),
     finishLesson: (lessonId, correct, total) => {
       setGameState(s => {
         const accuracy = correct / total;
         const stars = accuracy >= 0.9 ? 3 : accuracy >= 0.6 ? 2 : 1;
         const prevStars = s.completedLessons[lessonId] || 0;
-        const isFirstTime = prevStars === 0;
         const newCompleted = {
           ...s.completedLessons,
           [lessonId]: Math.max(prevStars, stars)
@@ -1032,9 +1044,11 @@ function useGame() {
           minutesWatched: s.minutesWatched
         }));
         return {
+          xp: s.xp,
+          gems: s.gems,
           completedLessons: newCompleted,
-          lessonsDone: s.lessonsDone + (isFirstTime ? 1 : 0),
-          perfectLessons: s.perfectLessons + (stars === 3 && isFirstTime ? 1 : 0),
+          lessonsDone: s.lessonsDone + 1,
+          perfectLessons: s.perfectLessons + (stars === 3 ? 1 : 0),
           streak: newStreak,
           lastActiveDate: tk,
           hearts,
@@ -1987,8 +2001,10 @@ function LessonScreen() {
     }, "💎 Reabastecer vidas (30)"), /*#__PURE__*/React.createElement("button", {
       className: "btn-gold px-6 py-3",
       onClick: () => {
+        if (isFinishingRef.current) return;
+        isFinishingRef.current = true;
         if (totalRef.current > 0) {
-          actions.finishLesson("session-" + Date.now(), correctRef.current, totalRef.current);
+          actions.finishLesson(subject.id, correctRef.current, totalRef.current);
           navActions.endSession({
             subjectId: subject.id,
             subjectName: subject.name,
@@ -2011,7 +2027,7 @@ function LessonScreen() {
   if (!q) return null;
   const isCorrect = selected === q.correta;
   const handleCheck = () => {
-    if (selected === null) return;
+    if (checked || selected === null) return;
     setChecked(true);
     totalRef.current += 1;
     setSessionTotal(x => x + 1);
@@ -2040,9 +2056,12 @@ function LessonScreen() {
     setSelected(null);
     setChecked(false);
   };
+  const isFinishingRef = useRef(false);
   const handleExit = () => {
+    if (isFinishingRef.current) return;
+    isFinishingRef.current = true;
     if (totalRef.current > 0) {
-      actions.finishLesson("session-" + Date.now(), correctRef.current, totalRef.current);
+      actions.finishLesson(subject.id, correctRef.current, totalRef.current);
       navActions.endSession({
         subjectId: subject.id,
         subjectName: subject.name,
@@ -2398,7 +2417,11 @@ function VideoScreen() {
   const [playing, setPlaying] = useState(null);
   const [watched, setWatched] = useState(new Set());
   const [invalidIds, setInvalidIds] = useState(new Set());
-  const allVideos = useMemo(() => window.__M10_DATA__.videos || [], [dataLoaded]);
+  const EXCLUDED_VIDEO_TITLES = [
+  "Matemáquinas Vol.2 - Ta Ta Ta Ta - Ritmos no Viver",
+  "Matemáquinas (Versão com Texto) - Um Ensaio de Antonio Miguel e Carlos Mathias"
+];
+const allVideos = useMemo(() => (window.__M10_DATA__.videos || []).filter(v => !EXCLUDED_VIDEO_TITLES.includes(v.title)), [dataLoaded]);
   useEffect(() => {
     const t = setTimeout(() => {
       setDebounced(query);
