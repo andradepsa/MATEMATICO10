@@ -119,16 +119,10 @@ body {
 <body>
 <div id="root"></div>
 
-<!-- ===== INLINED JSON DATA (injected by build script) ===== -->
 <script>
-// Loader assíncrono dos dados.
-// As questões (6 disciplinas) vêm do GitHub: projetos/B/{nome}.json
-// Os vídeos vêm do VídeosK10.html no GitHub — extraídos client-side
-// com a mesma regex do build (sem precisar de videos.json separado).
 window.__M10_DATA__ = { matematica: [], fisica: [], historia: [], geografia: [], biologia: [], gerais: [], videos: [] };
 window.__M10_DATA_LOADED__ = false;
 
-// Extrai vídeos do HTML do VídeosK10.html (mesma lógica do build script)
 function parseVideosFromHtml(html) {
   const re = /<a\s+href="https:\/\/www\.youtube\.com\/watch\?v=([A-Za-z0-9_-]{6,})"[^>]*>([^<]+)<\/a>(?:\s*\(([^)]*)\))?/g;
   const seen = new Map();
@@ -144,7 +138,6 @@ window.__M10_DATA_PROMISE__ = (async () => {
   const GITHUB_BASE = "https://raw.githubusercontent.com/andradepsa/MATEMATICO10/main/projetos/B/";
   const VIDEOS_URL = "https://raw.githubusercontent.com/andradepsa/MATEMATICO10/main/V%C3%ADdeosK10.html";
 
-  // Carrega os 6 JSONs de questões em paralelo
   const remoteFiles = ["matematica", "fisica", "historia", "geografia", "biologia", "gerais"];
   await Promise.all(remoteFiles.map(async (name) => {
     try {
@@ -153,7 +146,6 @@ window.__M10_DATA_PROMISE__ = (async () => {
     } catch (e) { console.warn("Falha ao carregar " + name + ".json:", e.message); }
   }));
 
-  // Carrega o VídeosK10.html e extrai os vídeos (sem precisar de videos.json)
   try {
     const r = await fetch(VIDEOS_URL);
     if (r.ok) {
@@ -182,7 +174,6 @@ const {
 } = React;
 const h = React.createElement;
 
-// Hook: espera os JSONs carregarem via fetch()
 function useDataLoaded() {
   const [loaded, setLoaded] = useState(window.__M10_DATA_LOADED__ || false);
   useEffect(() => {
@@ -194,9 +185,6 @@ function useDataLoaded() {
   return loaded;
 }
 
-// ============================================================
-// MATH HELPERS + GENERATORS (MODELOS)
-// ============================================================
 function ri(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
@@ -490,9 +478,6 @@ function generateQuestions(subjectId, count) {
   return shuffle(bank).slice(0, count).map(toQuestion);
 }
 
-// ============================================================
-// QUIZ DATA (subjects)
-// ============================================================
 const SUBJECTS = [{
   id: "mat",
   name: "Matemática",
@@ -551,9 +536,6 @@ const SUBJECTS = [{
 const getSubject = id => SUBJECTS.find(s => s.id === id);
 const QUIZ_BATCH = 10;
 
-// ============================================================
-// RESOURCES DATA
-// ============================================================
 const RESOURCE_CATEGORIES = [{
   id: "destaques",
   name: "Destaques",
@@ -835,9 +817,6 @@ const ALL_RESOURCES = RESOURCE_CATEGORIES.flatMap(c => c.items.map(i => ({
   categoryIcon: c.icon
 })));
 
-// ============================================================
-// GAME STORE (localStorage)
-// ============================================================
 const LEAGUES = ["Bronze", "Prata", "Ouro", "Safira", "Rubi", "Diamante", "Lendário"];
 const LEAGUE_THRESHOLDS = [0, 200, 500, 900, 1400, 2000, 2800];
 const LEAGUE_STYLE = {
@@ -971,7 +950,6 @@ function saveState(s) {
   } catch (e) {}
 }
 
-// Simple store with subscribe
 let _gameState = loadState();
 const _listeners = new Set();
 function setGameState(updater) {
@@ -1083,9 +1061,6 @@ function useGame() {
   return [s, actions];
 }
 
-// ============================================================
-// NAV STORE
-// ============================================================
 let _nav = {
   screen: "learn",
   activeSubject: "mat",
@@ -1135,9 +1110,6 @@ function useNav() {
   return [n, actions];
 }
 
-// ============================================================
-// ACHIEVEMENTS
-// ============================================================
 const ACHIEVEMENTS = [{
   id: "first",
   title: "Primeiros Passos",
@@ -1248,9 +1220,6 @@ const ACHIEVEMENTS = [{
   check: s => s.questionsAnswered >= 500
 }];
 
-// ============================================================
-// MASCOT
-// ============================================================
 function Mascot({
   size = 120,
   mood = "happy",
@@ -1377,9 +1346,6 @@ function Mascot({
   }));
 }
 
-// ============================================================
-// TOP BAR
-// ============================================================
 function TopBar() {
   const [s] = useGame();
   const {
@@ -1467,9 +1433,6 @@ function TopBar() {
   }, "Nv ", mounted ? level : 1)))));
 }
 
-// ============================================================
-// SIDE NAV
-// ============================================================
 function SideNav() {
   const [n, actions] = useNav();
   const items = [{
@@ -1544,9 +1507,6 @@ function SideNav() {
   }, it.label)))));
 }
 
-// ============================================================
-// LEARN SCREEN (Dashboard)
-// ============================================================
 function LearnScreen() {
   const [s] = useGame();
   const [n, actions] = useNav();
@@ -1900,9 +1860,6 @@ function LearnScreen() {
   }, "quiz, vídeos, livros, cursos e ferramentas"), ". 100% gratuito. 🚀")));
 }
 
-// ============================================================
-// LESSON SCREEN
-// ============================================================
 function LessonScreen() {
   const [s, actions] = useGame();
   const [n, navActions] = useNav();
@@ -1914,16 +1871,19 @@ function LessonScreen() {
   const [checked, setChecked] = useState(false);
   const [wrongFlash, setWrongFlash] = useState(false);
   const [loading, setLoading] = useState(true);
-  const correctRef = useRef(0),
-    totalRef = useRef(0),
-    xpRef = useRef(0),
-    gemsRef = useRef(0),
-    bestStreakRef = useRef(0),
-    curStreakRef = useRef(0);
+  // Todos os useRef declarados no topo, ANTES de qualquer retorno condicional
+  const correctRef = useRef(0);
+  const totalRef = useRef(0);
+  const xpRef = useRef(0);
+  const gemsRef = useRef(0);
+  const bestStreakRef = useRef(0);
+  const curStreakRef = useRef(0);
+  const isFinishingRef = useRef(false); // <-- Única alteração: movido para cá
   const [sessionCorrect, setSessionCorrect] = useState(0);
   const [sessionTotal, setSessionTotal] = useState(0);
+
   useEffect(() => {
-    if (!dataLoaded) return; // espera os JSONs carregarem
+    if (!dataLoaded) return;
     setLoading(true);
     setPool([]);
     setIdx(0);
@@ -1943,13 +1903,16 @@ function LessonScreen() {
       setLoading(false);
     }, 50);
   }, [n.activeSubject, dataLoaded]);
+
   const q = pool[idx];
+
   useEffect(() => {
     if (pool.length > 0 && idx >= pool.length - 3) {
       const more = generateQuestions(n.activeSubject, QUIZ_BATCH);
       setPool(prev => [...prev, ...more]);
     }
   }, [idx, pool.length, n.activeSubject]);
+
   if (!subject) return null;
   if (loading && pool.length === 0) {
     return /*#__PURE__*/React.createElement("div", {
@@ -1975,6 +1938,7 @@ function LessonScreen() {
       }
     }, "Misturando geradores + banco JSON"));
   }
+
   if (s.hearts <= 0 && !checked) {
     return /*#__PURE__*/React.createElement("div", {
       className: "min-h-[70vh] flex flex-col items-center justify-center px-6 text-center"
@@ -2024,7 +1988,9 @@ function LessonScreen() {
       onClick: navActions.goLearn
     }, "Sair sem salvar")));
   }
+
   if (!q) return null;
+
   const isCorrect = selected === q.correta;
   const handleCheck = () => {
     if (checked || selected === null) return;
@@ -2051,12 +2017,13 @@ function LessonScreen() {
       setTimeout(() => setWrongFlash(false), 400);
     }
   };
+
   const handleNext = () => {
     setIdx(i => i + 1);
     setSelected(null);
     setChecked(false);
   };
-  const isFinishingRef = useRef(false);
+
   const handleExit = () => {
     if (isFinishingRef.current) return;
     isFinishingRef.current = true;
@@ -2076,7 +2043,9 @@ function LessonScreen() {
       navActions.goLearn();
     }
   };
+
   const accuracy = totalRef.current > 0 ? Math.round(correctRef.current / totalRef.current * 100) : 0;
+
   return /*#__PURE__*/React.createElement("div", {
     className: "min-h-screen flex flex-col" + (wrongFlash ? " animate-shake" : "")
   }, /*#__PURE__*/React.createElement("div", {
@@ -2260,9 +2229,6 @@ function LessonScreen() {
   }, "Verificar")))));
 }
 
-// ============================================================
-// RESULT SCREEN
-// ============================================================
 function ResultScreen() {
   const [n, actions] = useNav();
   const r = n.sessionResult;
@@ -2398,9 +2364,6 @@ function ResultScreen() {
   }, "🏠 Voltar ao início")))));
 }
 
-// ============================================================
-// VIDEO SCREEN
-// ============================================================
 const PAGE_SIZE = 12;
 function VideoScreen() {
   const [s, actions] = useGame();
@@ -2418,10 +2381,11 @@ function VideoScreen() {
   const [watched, setWatched] = useState(new Set());
   const [invalidIds, setInvalidIds] = useState(new Set());
   const EXCLUDED_VIDEO_TITLES = [
-  "Matemáquinas Vol.2 - Ta Ta Ta Ta - Ritmos no Viver",
-  "Matemáquinas (Versão com Texto) - Um Ensaio de Antonio Miguel e Carlos Mathias"
-];
-const allVideos = useMemo(() => (window.__M10_DATA__.videos || []).filter(v => !EXCLUDED_VIDEO_TITLES.includes(v.title)), [dataLoaded]);
+    "Matemáquinas Vol.2 - Ta Ta Ta Ta - Ritmos no Viver",
+    "Matemáquinas (Versão com Texto) - Um Ensaio de Antonio Miguel e Carlos Mathias"
+  ];
+  const allVideos = useMemo(() => (window.__M10_DATA__.videos || []).filter(v => !EXCLUDED_VIDEO_TITLES.includes(v.title)), [dataLoaded]);
+
   useEffect(() => {
     const t = setTimeout(() => {
       setDebounced(query);
@@ -2429,6 +2393,7 @@ const allVideos = useMemo(() => (window.__M10_DATA__.videos || []).filter(v => !
     }, 350);
     return () => clearTimeout(t);
   }, [query]);
+
   useEffect(() => {
     if (!dataLoaded) return;
     setLoading(true);
@@ -2448,6 +2413,7 @@ const allVideos = useMemo(() => (window.__M10_DATA__.videos || []).filter(v => !
       setLoading(false);
     }, 50);
   }, [debounced, allVideos, dataLoaded]);
+
   const loadMore = useCallback(() => {
     if (loadingMore || page >= totalPages) return;
     setLoadingMore(true);
@@ -2464,22 +2430,22 @@ const allVideos = useMemo(() => (window.__M10_DATA__.videos || []).filter(v => !
       setLoadingMore(false);
     }, 50);
   }, [loadingMore, page, totalPages, debounced, allVideos]);
+
   const onPlay = useCallback(v => {
     setPlaying(v);
     if (!watched.has(v.id)) {
       setWatched(prev => new Set(prev).add(v.id));
-      // Conta 1 minuto por vídeo assistido (não a duração total — isso
-      // evita inflate do ranking: antes um vídeo de 139 min somava 139
-      // min mesmo se o usuário só abriu e fechou).
       actions.watchVideo(1);
     }
   }, [watched, actions]);
+
   useEffect(() => {
     if (n.pendingVideo) {
       onPlay(n.pendingVideo);
       navActions.clearPendingVideo();
     }
   }, [n.pendingVideo, onPlay, navActions]);
+
   useEffect(() => {
     if (!playing) return;
     const onKey = e => {
@@ -2488,9 +2454,11 @@ const allVideos = useMemo(() => (window.__M10_DATA__.videos || []).filter(v => !
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [playing]);
+
   const markInvalid = id => setInvalidIds(prev => prev.has(id) ? prev : new Set(prev).add(id));
   const hasMore = page < totalPages;
   const visibleItems = items.filter(v => !invalidIds.has(v.id));
+
   return /*#__PURE__*/React.createElement("div", {
     className: "px-3 sm:px-6 pb-24 lg:pb-12 max-w-5xl mx-auto"
   }, /*#__PURE__*/React.createElement("section", {
@@ -2646,16 +2614,10 @@ const allVideos = useMemo(() => (window.__M10_DATA__.videos || []).filter(v => !
   }));
 }
 
-// ============================================================
-// VIDEO PLAYER MODAL — fiel ao openModal() do VídeosK10.html original
-//   videoFrame.src = embed/ID?autoplay=1&rel=0
-//   <iframe allowfullscreen allow="autoplay"></iframe>
-// ============================================================
 function VideoPlayerModal({
   video,
   onClose
 }) {
-  // Esc para fechar
   useEffect(() => {
     const onKey = e => {
       if (e.key === "Escape") onClose();
@@ -2725,9 +2687,7 @@ function VideoPlayerModal({
     }
   }, "Ver no YouTube ↗"))));
 }
-// ============================================================
-// RESOURCES SCREEN
-// ============================================================
+
 function ResourcesScreen() {
   const [query, setQuery] = useState("");
   const [activeCat, setActiveCat] = useState("all");
@@ -2868,9 +2828,6 @@ function ResourcesScreen() {
   }, ALL_RESOURCES.length, " recursos"), " gratuitos! 🎉")));
 }
 
-// ============================================================
-// LEAGUE SCREEN
-// ============================================================
 function LeagueScreen() {
   const [s] = useGame();
   const [n, actions] = useNav();
@@ -3193,9 +3150,6 @@ function LeagueScreen() {
   }, "minutos assistidos"), ". Quanto mais você aprende, mais sobe! 🏆")));
 }
 
-// ============================================================
-// ACHIEVEMENTS SCREEN
-// ============================================================
 function AchievementsScreen() {
   const [s] = useGame();
   const [n, actions] = useNav();
@@ -3308,9 +3262,6 @@ function AchievementsScreen() {
   }, "Conquistas refletem sua dedicação. Cada sessão te aproxima de uma nova medalha! 🎖️")));
 }
 
-// ============================================================
-// PROFILE SCREEN
-// ============================================================
 function ProfileScreen() {
   const [s, actions] = useGame();
   const [n, navActions] = useNav();
@@ -3547,9 +3498,6 @@ function ProfileScreen() {
   }, "Matemático10 • Plataforma Integrada • 100% gratuito"));
 }
 
-// ============================================================
-// APP (Router)
-// ============================================================
 function App() {
   const [n] = useNav();
   if (n.screen === "lesson") return /*#__PURE__*/React.createElement(LessonScreen, null);
