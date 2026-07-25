@@ -120,21 +120,51 @@ body {
 
 <!-- ===== INLINED JSON DATA (injected by build script) ===== -->
 <script>
-// Loader assíncrono dos JSONs (arquivos SEPARADOS ao lado do HTML, como no original)
+// Loader assíncrono dos dados.
+// As questões (6 disciplinas) vêm do GitHub: projetos/B/{nome}.json
+// Os vídeos vêm do VídeosK10.html no GitHub — extraídos client-side
+// com a mesma regex do build (sem precisar de videos.json separado).
 window.__M10_DATA__ = { matematica: [], fisica: [], historia: [], geografia: [], biologia: [], gerais: [], videos: [] };
 window.__M10_DATA_LOADED__ = false;
+
+// Extrai vídeos do HTML do VídeosK10.html (mesma lógica do build script)
+function parseVideosFromHtml(html) {
+  const re = /<a\s+href="https:\/\/www\.youtube\.com\/watch\?v=([A-Za-z0-9_-]{6,})"[^>]*>([^<]+)<\/a>(?:\s*\(([^)]*)\))?/g;
+  const seen = new Map();
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const id = m[1], title = m[2].trim(), dur = (m[3] || "—").trim();
+    if (!seen.has(id)) seen.set(id, { id, title, dur });
+  }
+  return Array.from(seen.values());
+}
+
 window.__M10_DATA_PROMISE__ = (async () => {
-  const files = ["matematica", "fisica", "historia", "geografia", "biologia", "gerais", "videos"];
-  await Promise.all(files.map(async (name) => {
+  const GITHUB_BASE = "https://raw.githubusercontent.com/andradepsa/MATEMATICO10/main/projetos/B/";
+  const VIDEOS_URL = "https://raw.githubusercontent.com/andradepsa/MATEMATICO10/main/V%C3%ADdeosK10.html";
+
+  // Carrega os 6 JSONs de questões em paralelo
+  const remoteFiles = ["matematica", "fisica", "historia", "geografia", "biologia", "gerais"];
+  await Promise.all(remoteFiles.map(async (name) => {
     try {
-      const r = await fetch(name + ".json");
+      const r = await fetch(GITHUB_BASE + name + ".json");
       if (r.ok) window.__M10_DATA__[name] = await r.json();
     } catch (e) { console.warn("Falha ao carregar " + name + ".json:", e.message); }
   }));
+
+  // Carrega o VídeosK10.html e extrai os vídeos (sem precisar de videos.json)
+  try {
+    const r = await fetch(VIDEOS_URL);
+    if (r.ok) {
+      const html = await r.text();
+      window.__M10_DATA__.videos = parseVideosFromHtml(html);
+      console.log("✓ " + window.__M10_DATA__.videos.length + " vídeos extraídos do VídeosK10.html");
+    }
+  } catch (e) { console.warn("Falha ao carregar vídeos:", e.message); }
+
   window.__M10_DATA_LOADED__ = true;
-  // Dispara evento para os componentes saberem que os dados chegaram
   window.dispatchEvent(new Event("m10-data-loaded"));
-  console.log("✓ JSONs carregados:", Object.keys(window.__M10_DATA__).map(k => k + ":" + (window.__M10_DATA__[k] || []).length).join(", "));
+  console.log("✓ Dados carregados:", Object.keys(window.__M10_DATA__).map(k => k + ":" + (window.__M10_DATA__[k] || []).length).join(", "));
 })();
 </script>
 
@@ -2415,8 +2445,10 @@ function VideoScreen() {
     setPlaying(v);
     if (!watched.has(v.id)) {
       setWatched(prev => new Set(prev).add(v.id));
-      const minutes = parseDurationToMinutes(v.dur);
-      actions.watchVideo(minutes);
+      // Conta 1 minuto por vídeo assistido (não a duração total — isso
+      // evita inflate do ranking: antes um vídeo de 139 min somava 139
+      // min mesmo se o usuário só abriu e fechou).
+      actions.watchVideo(1);
     }
   }, [watched, actions]);
   useEffect(() => {
