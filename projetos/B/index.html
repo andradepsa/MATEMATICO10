@@ -117,7 +117,8 @@ html.light {
   --sb-thumb-hover: #a8b4cd;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-html { scroll-behavior: smooth; }
+html { scroll-behavior: smooth; overflow-x: hidden; overflow-x: clip; }
+body { overflow-x: hidden; overflow-x: clip; }
 body {
   background: var(--background);
   color: var(--foreground);
@@ -306,6 +307,22 @@ html[data-dys="1"] body { font-family: 'Comic Sans MS', 'Trebuchet MS', Verdana,
 html[data-dys="1"] body p, html[data-dys="1"] body li, html[data-dys="1"] body button { letter-spacing: 0.04em; }
 @media (prefers-reduced-motion: reduce) { .confetti-piece { display: none; } .flame-hot { animation: none; } }
 @media print { .confetti-piece { display: none !important; } }
+/* ===== M10 v4.1 FIX: chips do Modo Professor nunca sobrepõem (CSS próprio, sem depender do CDN) ===== */
+.mprof-chips { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.mprof-chips button { flex: 0 0 auto; white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; transition: transform 0.12s ease; }
+.mprof-chips button:active { transform: scale(0.96); }
+.mprof-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (min-width: 640px) { .mprof-row { grid-template-columns: 1fr 1fr 1fr; } }
+.mprof-row .mprof-gerar-cell { grid-column: span 2; }
+@media (min-width: 640px) { .mprof-row .mprof-gerar-cell { grid-column: span 1; } }
+/* v4.1 FIX 2: Ctrl+P sem folha gerada → imprime o próprio app legível em P&B (antes: página em branco) */
+@media print {
+  body.print-app-self #root { display: block !important; }
+  body.print-app-self .print-sheet { display: none !important; }
+  body.print-app-self, body.print-app-self * { color: #000 !important; background: transparent !important; box-shadow: none !important; text-shadow: none !important; }
+  body.print-app-self nav, body.print-app-self footer, body.print-app-self .confetti-piece, body.print-app-self [class*="backdrop-blur"] { display: none !important; }
+  body.print-app-self main { padding: 0 !important; }
+}
 </style>
 <base target="_blank">
 </head>
@@ -313,6 +330,16 @@ html[data-dys="1"] body p, html[data-dys="1"] body li, html[data-dys="1"] body b
 <noscript><div style="padding:24px;text-align:center;font-family:sans-serif;background:#0b0e17;color:#eaeef5;min-height:60vh"><h1 style="color:#f5a623">Matemático10</h1><p>O Matemático10 precisa de JavaScript para funcionar. 📘</p><p style="font-size:14px;opacity:.7">Ative o JavaScript nas configurações do seu navegador e recarregue a página.</p></div></noscript>
 <div id="root"></div>
 <script>
+/* v4.1 FIX: Ctrl+P sem lista/certificado gerado imprime o app em P&B em vez de página em branco */
+(function(){
+  try {
+    window.addEventListener("beforeprint", function () {
+      if (!document.querySelector(".print-sheet")) document.body.classList.add("print-app-self");
+      else document.body.classList.remove("print-app-self");
+    });
+    window.addEventListener("afterprint", function () { document.body.classList.remove("print-app-self"); });
+  } catch (e) {}
+})();
 /* PWA: manifest injetado em runtime (funciona em arquivo único) */
 (function(){
   try {
@@ -7251,7 +7278,7 @@ function ProfessorScreen() {
     placeholder: "Seu nome",
     "aria-label": "Nome do professor para o cabeçalho"
   })))), /*#__PURE__*/React.createElement("div", {
-    className: "rounded-2xl border p-4 mb-5 grid sm:grid-cols-2 lg:grid-cols-4 gap-4",
+    className: "rounded-2xl border p-4 mb-5 grid gap-4",
     style: {
       background: "var(--card)",
       borderColor: "var(--border)"
@@ -7261,12 +7288,17 @@ function ProfessorScreen() {
     style: {
       color: "var(--muted-foreground)"
     }
-  }, "Matéria"), /*#__PURE__*/React.createElement("div", {
-    className: "flex gap-1"
+  }, "Matéria ", /*#__PURE__*/React.createElement("span", {
+    style: {
+      textTransform: "none",
+      letterSpacing: "0.04em"
+    }
+  }, `(${MATERIAS_PROF.length} disponíveis — toque para escolher)`)), /*#__PURE__*/React.createElement("div", {
+    className: "mprof-chips"
   }, MATERIAS_PROF.map(m => /*#__PURE__*/React.createElement("button", {
     key: m.id,
     onClick: () => setMateria(m.id),
-    className: "flex-1 py-2 rounded-lg font-mono text-[10px] font-bold border",
+    className: "px-3 py-2 rounded-lg font-mono text-[11px] font-bold border",
     style: materia === m.id ? {
       background: "var(--gold)",
       borderColor: "var(--gold)",
@@ -7275,18 +7307,21 @@ function ProfessorScreen() {
       borderColor: "var(--border)",
       color: "var(--muted-foreground)"
     },
-    "aria-pressed": materia === m.id
-  }, m.nome)))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+    "aria-pressed": materia === m.id,
+    title: "Gerar listas de " + m.nome
+  }, m.nome)))), /*#__PURE__*/React.createElement("div", {
+    className: "mprof-row"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
     className: "font-mono text-[10px] uppercase tracking-widest mb-2",
     style: {
       color: "var(--muted-foreground)"
     }
   }, "Quantidade"), /*#__PURE__*/React.createElement("div", {
-    className: "flex gap-1"
+    className: "mprof-chips"
   }, [5, 10, 15, 20].map(n => /*#__PURE__*/React.createElement("button", {
     key: n,
     onClick: () => setQty(n),
-    className: "flex-1 py-2 rounded-lg font-mono text-xs font-bold border",
+    className: "px-3 py-2 rounded-lg font-mono text-xs font-bold border",
     style: qty === n ? {
       background: "var(--gold)",
       borderColor: "var(--gold)",
@@ -7294,18 +7329,19 @@ function ProfessorScreen() {
     } : {
       borderColor: "var(--border)",
       color: "var(--muted-foreground)"
-    }
+    },
+    "aria-pressed": qty === n
   }, n)))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
     className: "font-mono text-[10px] uppercase tracking-widest mb-2",
     style: {
       color: "var(--muted-foreground)"
     }
   }, "Dificuldade"), /*#__PURE__*/React.createElement("div", {
-    className: "flex gap-1"
+    className: "mprof-chips"
   }, [1, 2, 3].map(n => /*#__PURE__*/React.createElement("button", {
     key: n,
     onClick: () => setDiff(n),
-    className: "flex-1 py-2 rounded-lg font-mono text-xs font-bold border",
+    className: "px-3 py-2 rounded-lg font-mono text-xs font-bold border",
     style: diff === n ? {
       background: "var(--gold)",
       borderColor: "var(--gold)",
@@ -7313,13 +7349,14 @@ function ProfessorScreen() {
     } : {
       borderColor: "var(--border)",
       color: "var(--muted-foreground)"
-    }
+    },
+    "aria-pressed": diff === n
   }, DIFF_LABELS[n])))), /*#__PURE__*/React.createElement("div", {
-    className: "flex items-end"
+    className: "mprof-gerar-cell flex items-end"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: gerar,
     className: "btn-gold w-full py-3 text-sm uppercase tracking-wide"
-  }, "✨ Gerar nova lista"))), sheet && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+  }, "✨ Gerar nova lista")))), sheet && /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "flex gap-2 mb-4"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => window.print(),
@@ -7354,7 +7391,7 @@ function ProfessorScreen() {
     className: "ps-gab"
   }, /*#__PURE__*/React.createElement("h1", null, "Gabarito"), /*#__PURE__*/React.createElement("ol", null, sheet.gab.map(g => /*#__PURE__*/React.createElement("li", {
     key: g.i
-  }, `${g.i}. (${g.alt}) ${g.resp}`))))), document.body), sheet && !sheet.printing && /*#__PURE__*/React.createElement("div", {
+  }, `${g.i}. (${g.alt}) ${g.resp}`))))), document.body), sheet && /*#__PURE__*/React.createElement("div", {
     className: "rounded-2xl border p-4",
     style: {
       background: "var(--card)",
@@ -7391,7 +7428,7 @@ function ProfessorScreen() {
     style: {
       color: "var(--muted-foreground)"
     }
-  }, "Configure acima e clique em Gerar")));
+  }, "Escolha a matéria, a quantidade e a dificuldade acima e clique em ✨ Gerar nova lista. A prévia aparece aqui embaixo — aí é só usar 🖨️ Imprimir / Salvar PDF (ou Ctrl+P) e o gabarito sai em página separada. Gere a lista antes de imprimir!")));
 }
 
 /* ===== M10 v2: Sobre ===== */
@@ -9786,7 +9823,7 @@ function App() {
     id: "m10-install-slot",
     className: "inline-flex"
   }), /*#__PURE__*/React.createElement("div", {
-    className: "flex items-center justify-center gap-4 mt-2"
+    className: "flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 mt-2 px-3"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => setNav(() => ({ screen: "sobre" })),
     className: "text-[10px] font-bold uppercase tracking-widest hover:underline",
