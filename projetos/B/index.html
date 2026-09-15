@@ -6,6 +6,9 @@
 <meta name="description" content="Central de Estudos — questões de 12 matérias com vídeos, simples e direto.">
 <meta name="theme-color" content="#0b0e17">
 <title>Central de Estudos</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 :root {
@@ -67,6 +70,19 @@ button { font: inherit; cursor: pointer; }
   font-size: 14px; color: var(--muted); position: relative; z-index: 2; font-weight: 600;
 }
 #streak b { color: var(--text); font-size: 16px; }
+
+/* ===== REVISAR ERROS (prioridade nº1 pedagógica) ===== */
+#revisarbox {
+  display: none; width: 100%; border: none; border-radius: 20px; color: #fff;
+  padding: 16px 118px 16px 20px; text-align: left; position: relative; overflow: hidden;
+  box-shadow: 0 6px 16px rgba(0,0,0,.4); margin-bottom: 14px;
+  background: linear-gradient(135deg, #ff5a47, #d63a28);
+}
+#revisarbox:active { transform: scale(.97); }
+#revisarbox .cl { display: block; font-size: 12.5px; font-weight: 800; opacity: .9; letter-spacing: .3px; }
+#revisarbox .ct { display: block; font-size: 19px; font-weight: 800; margin-top: 2px; line-height: 1.25; }
+#revisarbox .ce { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); font-size: 30px; }
+#revisarbox .ca { position: absolute; right: 62px; top: 50%; transform: translateY(-50%); font-size: 14px; font-weight: 800; background: rgba(255,255,255,.25); padding: 5px 11px; border-radius: 99px; }
 
 /* ===== CONTINUAR (prioridade nº1) ===== */
 #continuarbox {
@@ -197,6 +213,7 @@ footer { text-align: center; color: #9aa8c4; font-size: 12px; padding: 18px 0 4p
   <div id="home">
     <div class="hero"><h1>📚 Central de Estudos</h1><p>12 matérias · 95 mil questões · grátis</p></div>
     <div id="streak"></div>
+    <button id="revisarbox" style="display:none"><span class="cl">🔁 REVISAR ERROS</span><span class="ct"></span><span class="ca">▶</span><span class="ce">🔁</span></button>
     <button id="continuarbox" style="display:none"><span class="cl">CONTINUAR DE ONDE PAROU</span><span class="ct"></span><span class="ca">▶</span><span class="ce"></span></button>
     <div id="grid"></div>
     <div id="recwrap">
@@ -1806,6 +1823,32 @@ var RECURSOS_MAIS = [
 
 var sessao = null;
 
+/* ---------- banco de erros (modo revisão: repetição espaçada) ---------- */
+function loadER() {
+  try { return JSON.parse(localStorage.getItem("ce10erros") || "[]"); }
+  catch (e) { return []; }
+}
+function saveER(lista) { try { localStorage.setItem("ce10erros", JSON.stringify(lista.slice(-120))); } catch (e) {} }
+function registrarErro(q, subj) {
+  var erros = loadER();
+  /* sobe a questão na fila se já errou antes (repetição espaçada simples) */
+  var i = erros.findIndex(function (e) { return e.q.pergunta === q.pergunta; });
+  if (i >= 0) {
+    erros[i].n = (erros[i].n || 1) + 1;
+    erros[i].ts = Date.now();
+    var item = erros.splice(i, 1)[0];
+    erros.push(item);
+  } else {
+    erros.push({ q: q, sub: subj.id, n: 1, ts: Date.now() });
+  }
+  saveER(erros);
+}
+function registrarAcertoNaRevisao(q) {
+  var erros = loadER();
+  var i = erros.findIndex(function (e) { return e.q.pergunta === q.pergunta; });
+  if (i >= 0) { erros.splice(i, 1); saveER(erros); }
+}
+
 /* ---------- validador relaxado p/ bancos (perguntas ENEM longas) ---------- */
 function validarBanco(q) {
   if (!q || typeof q !== "object") return false;
@@ -1991,6 +2034,14 @@ function show(id) {
 function renderHome() {
   var st = loadST();
   renderStreak(st);
+  /* botão REVISAR ERROS (prioridade pedagógica nº1) */
+  var erros = loadER();
+  var rb = document.getElementById("revisarbox");
+  if (erros.length) {
+    rb.style.display = "block";
+    rb.querySelector(".ct").textContent = erros.length + (erros.length === 1 ? " questão para dominar" : " questões para dominar");
+    rb.onclick = iniciarRevisao;
+  } else { rb.style.display = "none"; }
   /* botão CONTINUAR (última matéria) */
   var last = lerUltima();
   var cb = document.getElementById("continuarbox");
@@ -2036,21 +2087,33 @@ function renderHome() {
 
 function renderStreak(st) {
   var el = document.getElementById("streak");
+  var erros = loadER().length;
   el.innerHTML = "🔥 <b>" + (st.n || 0) + "</b> dia" + (st.n === 1 ? "" : "s") + " seguidos" +
-    " · ✅ <b>" + st.ac + "</b> acertos de <b>" + st.to + "</b>";
+    " · ✅ <b>" + st.ac + "</b> acertos de <b>" + st.to + "</b>" +
+    (erros ? " · <b style=\"color:var(--gold-hi)\">" + erros + "</b> para revisar" : "");
 }
 
 function iniciar(subj) {
   var qs = gerarSessao(subj);
   if (!qs.length) return;
   salvarUltima(subj);
-  sessao = { subj: subj, qs: qs, i: 0, acertos: 0 };
+  sessao = { subj: subj, qs: qs, i: 0, acertos: 0, revisao: false };
+  show("quiz"); renderQ();
+}
+
+function iniciarRevisao() {
+  var erros = loadER();
+  if (!erros.length) return;
+  var qs = erros.map(function (e) { return e.q; });
+  var subjId = erros[0].sub;
+  var subj = SUBJECTS.find(function (s) { return s.id === subjId; }) || SUBJECTS[0];
+  sessao = { subj: subj, qs: shuffle(qs).slice(0, 10), i: 0, acertos: 0, revisao: true };
   show("quiz"); renderQ();
 }
 
 function renderQ() {
   var q = sessao.qs[sessao.i];
-  document.querySelector("#qmeta .t").textContent = sessao.subj.emoji + " " + sessao.subj.name;
+  document.querySelector("#qmeta .t").textContent = (sessao.revisao ? "🔁 Revisão · " : "") + sessao.subj.emoji + " " + sessao.subj.name;
   document.querySelector("#qmeta .m").textContent = "Questão " + (sessao.i + 1) + " de " + sessao.qs.length;
   document.getElementById("barfill").style.width = (sessao.i / sessao.qs.length * 100) + "%";
   document.getElementById("pergunta").textContent = q.pergunta;
@@ -2071,6 +2134,9 @@ function responder(idx) {
   var opts = document.querySelectorAll(".opt");
   var ok = idx === q.correta;
   if (ok) sessao.acertos++;
+  /* alimenta o banco de erros (só em modo normal; na revisão, acerto remove da fila) */
+  if (sessao.revisao) { if (ok) registrarAcertoNaRevisao(q); }
+  else if (!ok) registrarErro(q, sessao.subj);
   opts.forEach(function (b, i) {
     b.disabled = true;
     if (i === q.correta) b.classList.add("ok");
@@ -2152,6 +2218,14 @@ document.getElementById("recbtn2").onclick = function () {
 renderHome();
 baixarBancos();
 carregarVideos();
+
+/* ---------- PWA: service worker + atalho ?revisao=1 ---------- */
+if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+  navigator.serviceWorker.register('sw.js').catch(function () {});
+}
+if (new URLSearchParams(location.search).get('revisao') === '1') {
+  setTimeout(function () { if (loadER().length) iniciarRevisao(); }, 300);
+}
 
 </script>
 </body>
