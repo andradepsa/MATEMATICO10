@@ -199,10 +199,92 @@
     line-height: 1.6;
   }
 
+  .nav-topo {
+    display: flex;
+    gap: 12px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 6px 14px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border);
+    transition: all 0.2s;
+  }
+  .nav-link:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  #btnYtCalc {
+    background: #c4302b;
+    color: #ffffff;
+    border: none;
+    border-radius: 10px;
+    padding: 0 20px;
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 600;
+    font-size: 15px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity 0.15s ease, transform 0.1s ease;
+  }
+  #btnYtCalc:hover { filter: brightness(1.1); transform: translateY(-1px); }
+  .learn-video-card {
+    background: var(--panel);
+    border: 1px solid rgba(242, 169, 59, 0.3);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-top: 20px;
+  }
+  .learn-video-title {
+    font-family: 'IBM Plex Sans', sans-serif;
+    font-weight: 600;
+    font-size: 15px;
+    color: var(--accent);
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .learn-video-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .learn-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 9px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.15s ease;
+  }
+  .learn-btn.k10 {
+    background: rgba(242, 169, 59, 0.15);
+    color: var(--accent);
+    border: 1px solid rgba(242, 169, 59, 0.3);
+  }
+  .learn-btn.k10:hover { background: rgba(242, 169, 59, 0.25); }
+  .learn-btn.yt {
+    background: #c4302b;
+    color: #fff;
+  }
+  .learn-btn.yt:hover { opacity: 0.9; }
+
   @media (max-width: 560px) {
     h1 { font-size: 30px; }
     #formulario { flex-direction: column; }
-    #botao { padding: 14px; }
+    #botao, #btnYtCalc { padding: 14px; }
   }
 
   @media (prefers-reduced-motion: reduce) {
@@ -212,6 +294,11 @@
 </head>
 <body>
   <div class="pagina">
+    <nav class="nav-topo">
+      <a href="../B/index.html" class="nav-link">← Central de Estudos</a>
+      <a href="../../V%C3%ADdeosK10.html" class="nav-link">🎬 Videoteca (48k)</a>
+      <a href="../../index.html" class="nav-link">🏠 Início</a>
+    </nav>
     <header>
       <p class="eyebrow">Matemático 10</p>
       <h1>Resolvedor Matemático</h1>
@@ -221,6 +308,7 @@
     <form id="formulario">
       <input type="text" id="entrada" placeholder="ex.: integral de x² · sin(x)" autocomplete="off" autofocus>
       <button type="submit" id="botao">Resolver</button>
+      <button type="button" id="btnYtCalc" title="Pesquisar resolução deste termo diretamente no YouTube sem API">YouTube ↗</button>
     </form>
 
     <div class="exemplos">
@@ -255,8 +343,16 @@
     const formulario = document.getElementById('formulario');
     const entrada = document.getElementById('entrada');
     const botao = document.getElementById('botao');
+    const btnYtCalc = document.getElementById('btnYtCalc');
     const statusEl = document.getElementById('status');
     const resultados = document.getElementById('resultados');
+
+    if (btnYtCalc) {
+      btnYtCalc.addEventListener('click', () => {
+        const pergunta = entrada.value.trim() || 'matematica';
+        window.open('https://www.youtube.com/results?search_query=' + encodeURIComponent('matematica ' + pergunta), '_blank', 'noopener,noreferrer');
+      });
+    }
 
     document.querySelectorAll('.chip').forEach(chip => {
       chip.addEventListener('click', () => {
@@ -411,6 +507,25 @@
 
         resultados.appendChild(card);
       });
+
+      // Bloco de ampliação do conhecimento em vídeo (Videoteca K10 + YouTube Zero-API)
+      const termo = (entrada.value || '').trim();
+      if (termo) {
+        const learnCard = document.createElement('div');
+        learnCard.className = 'learn-video-card';
+        learnCard.innerHTML = `
+          <div class="learn-video-title">🎬 Aprofunde seus estudos em Videoaula</div>
+          <div class="learn-video-actions">
+            <a href="../../V%C3%ADdeosK10.html?q=${encodeURIComponent(termo)}" target="_blank" class="learn-btn k10">
+              <span>📚 Buscar "${termo.slice(0, 30)}" na Videoteca K10 (48k)</span>
+            </a>
+            <a href="https://www.youtube.com/results?search_query=${encodeURIComponent('matematica ' + termo)}" target="_blank" rel="noopener noreferrer" class="learn-btn yt">
+              <span>🔍 Ver resolução no YouTube (Zero API) ↗</span>
+            </a>
+          </div>
+        `;
+        resultados.appendChild(learnCard);
+      }
     }
   </script>
 </body>

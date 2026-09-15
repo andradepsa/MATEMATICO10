@@ -310,6 +310,72 @@ h1 { color: #eaeef5 !important; margin-top: 26px !important; }
 .info { background-color: rgba(245,166,35,0.12) !important; color: #ffc857 !important; border-left-color: #f5a623 !important; }
 .empty-state { color: #8b99b5 !important; }
 
+.search-input-wrap {
+  display: flex;
+  gap: 8px;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 0 16px;
+  align-items: center;
+}
+#btnSearchYtDirect {
+  background: #c4302b;
+  color: #ffffff !important;
+  border: none;
+  font-weight: 700;
+  font-size: 13.5px;
+  padding: 14px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.2s, transform 0.1s;
+  box-shadow: 0 2px 8px rgba(196,48,43,0.35);
+}
+#btnSearchYtDirect:hover {
+  opacity: 0.92;
+  transform: translateY(-1px);
+}
+.quick-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: center;
+  max-width: 720px;
+  margin: 10px auto 0;
+  padding: 0 16px;
+}
+.tag-chip {
+  background: #121827;
+  color: #8b99b5;
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+.tag-chip:hover, .tag-chip.active {
+  background: rgba(245,166,35,0.15);
+  color: #f5a623;
+  border-color: #f5a623;
+}
+.empty-yt-btn {
+  display: inline-block;
+  margin-top: 14px;
+  background: #c4302b;
+  color: #ffffff !important;
+  text-decoration: none;
+  font-weight: 700;
+  padding: 10px 20px;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(196,48,43,0.4);
+  transition: opacity 0.2s;
+}
+.empty-yt-btn:hover {
+  opacity: 0.92;
+}
+
 </style>
 </head>
 <body>
@@ -319,26 +385,34 @@ h1 { color: #eaeef5 !important; margin-top: 26px !important; }
   
 
 <div style="text-align:center;">
-  <a href="https://www.matematico10.com.br/projetos/B/" class="logo-link" style="display:inline-block;">
-    
+  <a href="projetos/B/index.html" class="logo-link" style="display:inline-block; text-decoration:none;">
     <img src="https://i.ibb.co/DNQv5x8/Simbolo-Matem-tico-10-removebg-preview.png" 
-         style="width:80px; height:auto;">
-    
-    <div style="margin-top:8px; font-weight:bold;">
-      Volte Central de Estudos
+         style="width:80px; height:auto;" alt="Central de Estudos">
+    <div style="margin-top:8px; font-weight:bold; color:#f5a623;">
+      ← Voltar para Central de Estudos
     </div>
-
   </a>
 </div>
 
-<p>
-
-  <!-- Adicionando contador de vídeos abaixo do título -->
+  <!-- Contador de vídeos -->
   <div id="videoCount">Carregando vídeos...</div>
   
-  
   <div class="search-container">
-    <input type="text" id="searchInput" placeholder="Buscar vídeos...">
+    <div class="search-input-wrap">
+      <input type="text" id="searchInput" placeholder="Buscar entre 48.000 videoaulas..." autocomplete="off">
+      <button id="btnSearchYtDirect" type="button" title="Pesquisar este termo diretamente no YouTube sem API">Buscar no YouTube ↗</button>
+    </div>
+    <div class="quick-tags" id="quickTags">
+      <button type="button" class="tag-chip" data-q="Matemática">Matemática</button>
+      <button type="button" class="tag-chip" data-q="Física">Física</button>
+      <button type="button" class="tag-chip" data-q="Química">Química</button>
+      <button type="button" class="tag-chip" data-q="Biologia">Biologia</button>
+      <button type="button" class="tag-chip" data-q="História">História</button>
+      <button type="button" class="tag-chip" data-q="Geografia">Geografia</button>
+      <button type="button" class="tag-chip" data-q="Astronomia">Astronomia</button>
+      <button type="button" class="tag-chip" data-q="Cálculo">Cálculo</button>
+      <button type="button" class="tag-chip" data-q="ENEM">ENEM</button>
+    </div>
   </div>
   
   <div id="statusMessage"></div>
@@ -40538,6 +40612,15 @@ h1 { color: #eaeef5 !important; margin-top: 26px !important; }
           : `${count} vídeos disponíveis`;
       }
       
+      function escapeHtml(s) {
+        return String(s || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
       // Aplica filtro de busca
       function applySearchFilter(searchTerm) {
         try {
@@ -40564,9 +40647,12 @@ h1 { color: #eaeef5 !important; margin-top: 26px !important; }
           if (filteredVideos.length === 0) {
             const emptyState = document.createElement('div');
             emptyState.className = 'empty-state';
+            const cleanTerm = (searchTerm || '').trim();
+            const safeTerm = escapeHtml(cleanTerm);
             emptyState.innerHTML = `
-              <h3>Nenhum vídeo encontrado</h3>
-              <p>Tente outros termos de busca</p>
+              <h3>Nenhum vídeo encontrado no catálogo local</h3>
+              <p>${cleanTerm ? `Não encontramos "${safeTerm}" no acervo salvo, mas você pode pesquisar diretamente no YouTube sem depender de API:` : 'Tente outros termos de busca ou clique em uma das matérias acima.'}</p>
+              ${cleanTerm ? `<a href="https://www.youtube.com/results?search_query=${encodeURIComponent(cleanTerm)}" target="_blank" rel="noopener noreferrer" class="empty-yt-btn">🔍 Pesquisar "${safeTerm}" no YouTube ↗</a>` : ''}
             `;
             videoList.appendChild(emptyState);
           } else {
@@ -40661,6 +40747,27 @@ h1 { color: #eaeef5 !important; margin-top: 26px !important; }
           }
         });
         
+        // Botão de busca direta no YouTube (Zero API)
+        const btnYt = document.getElementById('btnSearchYtDirect');
+        if (btnYt) {
+          btnYt.addEventListener('click', function() {
+            const q = (searchInput.value || '').trim() || 'videoaulas matematica';
+            window.open('https://www.youtube.com/results?search_query=' + encodeURIComponent(q), '_blank', 'noopener,noreferrer');
+          });
+        }
+
+        // Tags rápidas de matérias
+        const tagChips = document.querySelectorAll('.tag-chip');
+        tagChips.forEach(chip => {
+          chip.addEventListener('click', function() {
+            tagChips.forEach(c => c.classList.remove('active'));
+            this.classList.add('active');
+            const q = this.getAttribute('data-q');
+            searchInput.value = q;
+            applySearchFilter(q);
+          });
+        });
+
         // Foco automático na barra de pesquisa
         setTimeout(() => {
           searchInput.focus();
