@@ -114,6 +114,7 @@ button { font: inherit; cursor: pointer; }
   background: color-mix(in srgb, var(--c) 24%, #121827);
 }
 .subj .nm { font-weight: 800; font-size: 12.5px; line-height: 1.2; }
+.subj .dom { font-size: 10.5px; font-weight: 800; color: var(--gold-hi); }
 
 /* ===== RECURSOS ===== */
 #recwrap { margin-top: 20px; }
@@ -1877,6 +1878,13 @@ function registrarSessao(ac, to) {
   }
   if (!st.n) st.n = 1;
   st.ac += ac; st.to += to;
+  /* stats por matéria (para desempenho e dificuldade adaptativa futura) */
+  if (sessao && sessao.subj) {
+    st.mat = st.mat || {};
+    var m = st.mat[sessao.subj.id] || { ac: 0, to: 0 };
+    m.ac += ac; m.to += to;
+    st.mat[sessao.subj.id] = m;
+  }
   saveST(st);
   renderStreak(st);
 }
@@ -2061,7 +2069,10 @@ function renderHome() {
     var b = document.createElement("button");
     b.className = "subj";
     b.style.setProperty("--c", s.c || "#58cc02");
-    b.innerHTML = '<span class="ic">' + s.emoji + '</span><span class="nm">' + s.name + '</span>';
+    var m = st.mat && st.mat[s.id];
+    var pct = m && m.to >= 5 ? Math.round(m.ac / m.to * 100) : null;
+    b.innerHTML = '<span class="ic">' + s.emoji + '</span><span class="nm">' + s.name + '</span>' +
+      (pct !== null ? '<span class="dom">' + (pct >= 80 ? '🥇' : pct >= 50 ? '🥈' : '🥉') + ' ' + pct + '%</span>' : '');
     b.onclick = function () { iniciar(s); };
     g.appendChild(b);
   });
