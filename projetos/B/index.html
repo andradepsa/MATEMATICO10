@@ -3020,6 +3020,267 @@ addGen(GSOC, 2, () => {
   return { pergunta: "Sobre a violência psicológica, de acordo com a Lei Maria da Penha, qual afirmação é verdadeira?", opcoes: ops.map(o => o.t), correta: ops.findIndex(o => o.ok), explicacao: "A Lei Maria da Penha reconhece a violência psicológica como uma das formas de violência doméstica e familiar, que causa dano emocional e diminuição da autoestima ou que prejudica e perturba o pleno desenvolvimento ou que visa degradar ou controlar suas ações, comportamentos, crenças e decisões, mediante ameaça, constrangimento, humilhação, manipulação, isolamento, vigilância constante, perseguição contumaz, insulto, chantagem, ridicularização, exploração e limitação do direito de ir e vir ou qualquer outro meio que lhe cause prejuízo à saúde psicológica e à autodeterminação." };
 });
 
+
+/* ═══ INTEGRAÇÃO v12.8: CMD-013 reparado (protocolos e ameaças) ═══ */
+addGen(GINF, 2, () => {
+  const PROT = { "HTTP": "transferir hipertexto na web", "HTTPS": "transferir hipertexto com criptografia", "FTP": "transferir arquivos", "SMTP": "enviar emails", "TCP/IP": "conectar dispositivos em redes" };
+  const c = Object.keys(PROT)[ri(0, 4)];
+  const erradas = pickDistinct(Object.keys(PROT).filter(x => x !== c), 3);
+  const ops = shuffle([PROT[c], PROT[erradas[0]], PROT[erradas[1]], PROT[erradas[2]]].map(function (t) { return { t: t, ok: t === PROT[c] }; }));
+  return { pergunta: "Qual é a função do protocolo " + c + "?", opcoes: ops.map(function (o) { return o.t; }), correta: ops.findIndex(function (o) { return o.ok; }), explicacao: c + ": " + PROT[c] + "." };
+});
+addGen(GINF, 2, () => {
+  const AMEA = { "Vírus": "programa que se replica e infecta arquivos", "Malware": "software que danifica sistemas", "Phishing": "roubo de dados por engenharia social", "Ransomware": "sequestra arquivos e exige resgate", "Spyware": "coleta dados do usuário escondido" };
+  const c2 = Object.keys(AMEA)[ri(0, 4)];
+  const err = pickDistinct(Object.keys(AMEA).filter(x => x !== c2), 3);
+  const ops2 = shuffle([AMEA[c2], AMEA[err[0]], AMEA[err[1]], AMEA[err[2]]].map(function (t) { return { t: t, ok: t === AMEA[c2] }; }));
+  return { pergunta: "O que descreve: " + AMEA[c2] + "?", opcoes: ops2.map(function (o) { return o.t; }), correta: ops2.findIndex(function (o) { return o.ok; }), explicacao: "Esse é o " + c2 + ": " + AMEA[c2] + "." };
+});
+addGen(GHIST, 2, () => {
+  const perguntas = [
+    "Em que ano o Brasil declarou sua independência?",
+    "Quem foi o primeiro imperador do Brasil?",
+    "Qual foi o principal líder do Paraguai durante a Guerra do Paraguai?",
+    "Em que data foi proclamada a República no Brasil?",
+    "Quem liderou a Revolução de 1930 no Brasil?"
+  ];
+  
+  const opcoes = [
+    ["1822", "1821", "1823", "1824"],
+    ["Dom Pedro I", "Dom Pedro II", "Dom João VI", "Dom Luís I"],
+    ["Solano López", "Herrera", "Francia", "Caballero"],
+    ["15 de novembro de 1889", "13 de maio de 1888", "7 de setembro de 1822", "22 de abril de 1500"],
+    ["Getúlio Vargas", "Juscelino Kubitschek", "Epitácio Pessoa", "Washington Luís"]
+  ];
+  
+  const corretas = [0, 0, 0, 0, 0];
+  
+  const explicacoes = [
+    "O Brasil declarou sua independência em 1822, quando Dom Pedro I proclamou a independência do país.",
+    "Dom Pedro I foi o primeiro imperador do Brasil, reinando de 1822 a 1831.",
+    "Francisco Solano López foi o presidente do Paraguai durante a Guerra do Paraguai (1864-1870).",
+    "A República foi proclamada em 15 de novembro de 1889, quando o marechal Deodoro da Fonseca liderou um golpe militar que depôs o imperador Dom Pedro II.",
+    "Getúlio Vargas liderou a Revolução de 1930, que resultou na queda do presidente Washington Luís e na instauração de uma junta provisória."
+  ];
+  
+  const idx = ri(0, perguntas.length - 1);
+  const opcoesEmbaralhadas = [...opcoes[idx]];
+  
+  // Embaralhar opções
+  for (let i = opcoesEmbaralhadas.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [opcoesEmbaralhadas[i], opcoesEmbaralhadas[j]] = [opcoesEmbaralhadas[j], opcoesEmbaralhadas[i]];
+  }
+  
+  // Encontrar novo índice da resposta correta
+  const novaCorreta = opcoesEmbaralhadas.indexOf(opcoes[idx][corretas[idx]]);
+  
+  return {
+    pergunta: perguntas[idx],
+    opcoes: opcoesEmbaralhadas,
+    correta: novaCorreta,
+    explicacao: explicacoes[idx]
+  };
+});
+
+
+/* ═══ INTEGRAÇÃO v12.8: CMD-013 reparado (protocolos e ameaças) + CMD-015 (história do Brasil — fatos fixos) ═══ */
+addGen(GINF, 2, () => {
+  const PROT = {"HTTP":"transferência de hipertexto na World Wide Web","HTTPS":"transferência segura de hipertexto com criptografia","FTP":"transferência de arquivos entre cliente e servidor","SMTP":"envio de mensagens de email entre servidores","TCP/IP":"comunicação entre dispositivos em redes"};
+  const chaves = ["HTTP","HTTPS","FTP","SMTP","TCP/IP"];
+  const c = chaves[ri(0, chaves.length - 1)];
+  const erradas = pickDistinct(chaves.filter(x => x !== c), 3);
+  const ops = shuffle([PROT[c], PROT[erradas[0]], PROT[erradas[1]], PROT[erradas[2]]].map(t => ({ t, ok: t === PROT[c] })));
+  return { pergunta: "Qual é a principal função do protocolo " + c + "?", opcoes: ops.map(o => o.t), correta: ops.findIndex(o => o.ok), explicacao: c + ": " + PROT[c] + "." };
+});
+addGen(GINF, 2, () => {
+  const AMEA = {"Vírus":"programa malicioso que se replica e infecta outros arquivos","Malware":"software malicioso que danifica ou dá acesso não autorizado a sistemas","Phishing":"engenharia social para obter dados se passando por fonte confiável","Ransomware":"criptografa os arquivos do usuário e exige resgate","Spyware":"coleta informações do usuário sem seu conhecimento"};
+  const chaves = ["Vírus","Malware","Phishing","Ransomware","Spyware"];
+  const c = chaves[ri(0, chaves.length - 1)];
+  const erradas = pickDistinct(chaves.filter(x => x !== c), 3);
+  const ops = shuffle([AMEA[c], AMEA[erradas[0]], AMEA[erradas[1]], AMEA[erradas[2]]].map(t => ({ t, ok: t === AMEA[c] })));
+  return { pergunta: "O que é " + c.toLowerCase() + "?", opcoes: ops.map(o => o.t), correta: ops.findIndex(o => o.ok), explicacao: c + ": " + AMEA[c] + "." };
+});
+
+﻿addGen(GHIST, 2, () => {
+  const perguntas = [
+    "Em que ano o Brasil declarou sua independência?",
+    "Quem foi o primeiro imperador do Brasil?",
+    "Qual foi o principal líder do Paraguai durante a Guerra do Paraguai?",
+    "Em que data foi proclamada a República no Brasil?",
+    "Quem liderou a Revolução de 1930 no Brasil?"
+  ];
+  
+  const opcoes = [
+    ["1822", "1821", "1823", "1824"],
+    ["Dom Pedro I", "Dom Pedro II", "Dom João VI", "Dom Luís I"],
+    ["Solano López", "Herrera", "Francia", "Caballero"],
+    ["15 de novembro de 1889", "13 de maio de 1888", "7 de setembro de 1822", "22 de abril de 1500"],
+    ["Getúlio Vargas", "Juscelino Kubitschek", "Epitácio Pessoa", "Washington Luís"]
+  ];
+  
+  const corretas = [0, 0, 0, 0, 0];
+  
+  const explicacoes = [
+    "O Brasil declarou sua independência em 1822, quando Dom Pedro I proclamou a independência do país.",
+    "Dom Pedro I foi o primeiro imperador do Brasil, reinando de 1822 a 1831.",
+    "Francisco Solano López foi o presidente do Paraguai durante a Guerra do Paraguai (1864-1870).",
+    "A República foi proclamada em 15 de novembro de 1889, quando o marechal Deodoro da Fonseca liderou um golpe militar que depôs o imperador Dom Pedro II.",
+    "Getúlio Vargas liderou a Revolução de 1930, que resultou na queda do presidente Washington Luís e na instauração de uma junta provisória."
+  ];
+  
+  const idx = ri(0, perguntas.length - 1);
+  const opcoesEmbaralhadas = [...opcoes[idx]];
+  
+  // Embaralhar opções
+  for (let i = opcoesEmbaralhadas.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [opcoesEmbaralhadas[i], opcoesEmbaralhadas[j]] = [opcoesEmbaralhadas[j], opcoesEmbaralhadas[i]];
+  }
+  
+  // Encontrar novo índice da resposta correta
+  const novaCorreta = opcoesEmbaralhadas.indexOf(opcoes[idx][corretas[idx]]);
+  
+  return {
+    pergunta: perguntas[idx],
+    opcoes: opcoesEmbaralhadas,
+    correta: novaCorreta,
+    explicacao: explicacoes[idx]
+  };
+});
+
+
+/* ═══ INTEGRAÇÃO v12.8: CMD-013 reparado (protocolos e ameaças) + CMD-015 (história do Brasil) ═══ */
+addGen(GINF, 2, () => {
+  const M = {"HTTP":"transferir hipertexto na web","HTTPS":"transferir hipertexto com criptografia","FTP":"transferir arquivos entre cliente e servidor","SMTP":"enviar emails entre servidores","TCP/IP":"fazer a comunicação entre dispositivos em redes"};
+  const chaves = ["HTTP","HTTPS","FTP","SMTP","TCP/IP"];
+  const c = chaves[ri(0, chaves.length - 1)];
+  const erradas = pickDistinct(chaves.filter(x => x !== c), 3);
+  const ops = shuffle([M[c], M[erradas[0]], M[erradas[1]], M[erradas[2]]].map(t => ({ t, ok: t === M[c] })));
+  return { pergunta: "Qual descreve " + c + "?", opcoes: ops.map(o => o.t), correta: ops.findIndex(o => o.ok), explicacao: c + ": " + M[c] + "." };
+});
+addGen(GINF, 2, () => {
+  const M = {"Vírus":"programa que se replica e infecta arquivos","Malware":"software malicioso que danifica sistemas","Phishing":"engenharia social para roubar dados","Ransomware":"criptografa arquivos e exige resgate","Spyware":"coleta dados do usuário escondido"};
+  const chaves = ["Vírus","Malware","Phishing","Ransomware","Spyware"];
+  const c = chaves[ri(0, chaves.length - 1)];
+  const erradas = pickDistinct(chaves.filter(x => x !== c), 3);
+  const ops = shuffle([M[c], M[erradas[0]], M[erradas[1]], M[erradas[2]]].map(t => ({ t, ok: t === M[c] })));
+  return { pergunta: "Qual descreve " + c + "?", opcoes: ops.map(o => o.t), correta: ops.findIndex(o => o.ok), explicacao: c + ": " + M[c] + "." };
+});
+
+﻿addGen(GHIST, 2, () => {
+  const perguntas = [
+    "Em que ano o Brasil declarou sua independência?",
+    "Quem foi o primeiro imperador do Brasil?",
+    "Qual foi o principal líder do Paraguai durante a Guerra do Paraguai?",
+    "Em que data foi proclamada a República no Brasil?",
+    "Quem liderou a Revolução de 1930 no Brasil?"
+  ];
+  
+  const opcoes = [
+    ["1822", "1821", "1823", "1824"],
+    ["Dom Pedro I", "Dom Pedro II", "Dom João VI", "Dom Luís I"],
+    ["Solano López", "Herrera", "Francia", "Caballero"],
+    ["15 de novembro de 1889", "13 de maio de 1888", "7 de setembro de 1822", "22 de abril de 1500"],
+    ["Getúlio Vargas", "Juscelino Kubitschek", "Epitácio Pessoa", "Washington Luís"]
+  ];
+  
+  const corretas = [0, 0, 0, 0, 0];
+  
+  const explicacoes = [
+    "O Brasil declarou sua independência em 1822, quando Dom Pedro I proclamou a independência do país.",
+    "Dom Pedro I foi o primeiro imperador do Brasil, reinando de 1822 a 1831.",
+    "Francisco Solano López foi o presidente do Paraguai durante a Guerra do Paraguai (1864-1870).",
+    "A República foi proclamada em 15 de novembro de 1889, quando o marechal Deodoro da Fonseca liderou um golpe militar que depôs o imperador Dom Pedro II.",
+    "Getúlio Vargas liderou a Revolução de 1930, que resultou na queda do presidente Washington Luís e na instauração de uma junta provisória."
+  ];
+  
+  const idx = ri(0, perguntas.length - 1);
+  const opcoesEmbaralhadas = [...opcoes[idx]];
+  
+  // Embaralhar opções
+  for (let i = opcoesEmbaralhadas.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [opcoesEmbaralhadas[i], opcoesEmbaralhadas[j]] = [opcoesEmbaralhadas[j], opcoesEmbaralhadas[i]];
+  }
+  
+  // Encontrar novo índice da resposta correta
+  const novaCorreta = opcoesEmbaralhadas.indexOf(opcoes[idx][corretas[idx]]);
+  
+  return {
+    pergunta: perguntas[idx],
+    opcoes: opcoesEmbaralhadas,
+    correta: novaCorreta,
+    explicacao: explicacoes[idx]
+  };
+});
+
+
+/* ═══ INTEGRAÇÃO v12.8: CMD-013 reparado + CMD-015 (história, fatos fixos) ═══ */
+addGen(GINF, 2, () => {
+  const M = {"HTTP":"transferir hipertexto na web","HTTPS":"transferir hipertexto com criptografia","FTP":"transferir arquivos entre cliente e servidor","SMTP":"enviar emails entre servidores","TCP/IP":"conectar dispositivos em redes"};
+  const chaves = ["HTTP","HTTPS","FTP","SMTP","TCP/IP"];
+  const c = chaves[ri(0, chaves.length - 1)];
+  const erradas = pickDistinct(chaves.filter(x => x !== c), 3);
+  const ops = shuffle([M[c], M[erradas[0]], M[erradas[1]], M[erradas[2]]].map(t => ({ t, ok: t === M[c] })));
+  return { pergunta: "Qual descreve " + c + "?", opcoes: ops.map(o => o.t), correta: ops.findIndex(o => o.ok), explicacao: c + ": " + M[c] + "." };
+});
+addGen(GINF, 2, () => {
+  const M = {"Vírus":"programa que se replica e infecta arquivos","Malware":"software que danifica sistemas","Phishing":"roubo de dados por engenharia social","Ransomware":"sequestra arquivos e exige resgate","Spyware":"coleta dados do usuário escondido"};
+  const chaves = ["Vírus","Malware","Phishing","Ransomware","Spyware"];
+  const c = chaves[ri(0, chaves.length - 1)];
+  const erradas = pickDistinct(chaves.filter(x => x !== c), 3);
+  const ops = shuffle([M[c], M[erradas[0]], M[erradas[1]], M[erradas[2]]].map(t => ({ t, ok: t === M[c] })));
+  return { pergunta: "Qual descreve " + c + "?", opcoes: ops.map(o => o.t), correta: ops.findIndex(o => o.ok), explicacao: c + ": " + M[c] + "." };
+});
+
+﻿addGen(GHIST, 2, () => {
+  const perguntas = [
+    "Em que ano o Brasil declarou sua independência?",
+    "Quem foi o primeiro imperador do Brasil?",
+    "Qual foi o principal líder do Paraguai durante a Guerra do Paraguai?",
+    "Em que data foi proclamada a República no Brasil?",
+    "Quem liderou a Revolução de 1930 no Brasil?"
+  ];
+  
+  const opcoes = [
+    ["1822", "1821", "1823", "1824"],
+    ["Dom Pedro I", "Dom Pedro II", "Dom João VI", "Dom Luís I"],
+    ["Solano López", "Herrera", "Francia", "Caballero"],
+    ["15 de novembro de 1889", "13 de maio de 1888", "7 de setembro de 1822", "22 de abril de 1500"],
+    ["Getúlio Vargas", "Juscelino Kubitschek", "Epitácio Pessoa", "Washington Luís"]
+  ];
+  
+  const corretas = [0, 0, 0, 0, 0];
+  
+  const explicacoes = [
+    "O Brasil declarou sua independência em 1822, quando Dom Pedro I proclamou a independência do país.",
+    "Dom Pedro I foi o primeiro imperador do Brasil, reinando de 1822 a 1831.",
+    "Francisco Solano López foi o presidente do Paraguai durante a Guerra do Paraguai (1864-1870).",
+    "A República foi proclamada em 15 de novembro de 1889, quando o marechal Deodoro da Fonseca liderou um golpe militar que depôs o imperador Dom Pedro II.",
+    "Getúlio Vargas liderou a Revolução de 1930, que resultou na queda do presidente Washington Luís e na instauração de uma junta provisória."
+  ];
+  
+  const idx = ri(0, perguntas.length - 1);
+  const opcoesEmbaralhadas = [...opcoes[idx]];
+  
+  // Embaralhar opções
+  for (let i = opcoesEmbaralhadas.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [opcoesEmbaralhadas[i], opcoesEmbaralhadas[j]] = [opcoesEmbaralhadas[j], opcoesEmbaralhadas[i]];
+  }
+  
+  // Encontrar novo índice da resposta correta
+  const novaCorreta = opcoesEmbaralhadas.indexOf(opcoes[idx][corretas[idx]]);
+  
+  return {
+    pergunta: perguntas[idx],
+    opcoes: opcoesEmbaralhadas,
+    correta: novaCorreta,
+    explicacao: explicacoes[idx]
+  };
+});
+
 /* ===== Central de Estudos — app v4 (vídeos ligados às questões + robustez) ===== */
 var BANCOS = ["matematica", "fisica", "historia", "geografia", "biologia", "gerais"];
 var GITHUB_BASE = "https://raw.githubusercontent.com/andradepsa/MATEMATICO10/main/projetos/B/";
