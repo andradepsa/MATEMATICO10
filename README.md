@@ -35,7 +35,8 @@ MATEMATICO10/
 └── projetos/
     ├── A/                ← Hyperdimensional Paradox (ENEM/SAT)
     ├── B/                ← ★ CENTRAL DE ESTUDOS (quiz gamificado)
-    │   ├── index.html    ←   app principal (255 geradores de questões)
+    │   ├── index.html    ←   app principal (311 geradores de questões)
+    │   ├── topicos.js    ←   ★ rigor v12.1: gerador→tópico + 436 vídeos curados (oEmbed) + classificador de bancos + queries Zenodo — 147 tópicos
     │   ├── matematica.json  … ← bancos: 95 mil questões
     │   └── TESTE/        ←   versão original legada (não publicar)
     ├── C/                ← Provas OBMEP
@@ -50,11 +51,17 @@ MATEMATICO10/
 ## 🎮 Central de Estudos (`projetos/B/`)
 
 - **12 matérias**: Matemática, Português, Inglês, Química, Física, História, Geografia, Biologia, Filosofia, Sociologia, Literatura, Conhecimentos Gerais
-- **255 geradores** de questões (matemática paramétrica: nunca repete)
+- **311 geradores** de questões (matemática paramétrica: nunca repete) — inclui geometria analítica, conjuntos, óptica, eletromagnetismo, botânica, evolução, mundo antigo, Brasil contemporâneo e ciência/cultura
 - **~95 mil questões** em 6 bancos JSON (ENEM + vestibares)
-- **48 mil videoaulas** sugeridas por questão (estilo Khan Academy)
+- **Vídeo-aula por TÓPICO com rigor v12** (`topicos.js`): cada gerador aponta para um tópico com vídeos curados e verificados via oEmbed; questões dos bancos passam por um classificador estrito com bordas de palavra. **Sem tópico = sem vídeo (nunca vídeo errado)** — ex.: questão de PG sugere aula de PG, nunca de Fourier
+- **Player na mesma página**: o vídeo abre num modal (Esc / ✕ fecha e reseta o player)
+- **Papers Zenodo por tema da sessão**: busca por `metadata.title` com frases exatas + filtro de relevância do título (nenhum relevante = seção oculta)
 - Gamificação: streak diário, anti-repetição (últimas 300), atalhos de teclado
 - Cache API: funciona offline após primeira visita
+
+### 🧰 Ferramentas de manutenção (`tools/`)
+
+- `python tools/buscar_videos.py "progressão aritmética" --n 3` — busca novas videoaulas no YouTube **sem API** (extrai da página pública de resultados e confirma cada id via oEmbed); imprime JSON pronto para o `CURADOS` do `topicos.js`
 
 ## 🎨 Design System K10 (`assets/`)
 
