@@ -1,4 +1,4 @@
-# MATEMÁTICO 10 — Ecossistema Educacional
+﻿# MATEMÁTICO 10 — Ecossistema Educacional
 
 Plataforma educacional gratuita de matemática e disciplinas gerais: quiz gamificado com 95 mil questões, videoteca com 48 mil videoaulas, e ferramentas de estudo — tudo em HTML/JS puro, sem dependências, funcionando offline.
 
@@ -50,8 +50,8 @@ MATEMATICO10/
 
 ## 🎮 Central de Estudos (`projetos/B/`)
 
-- **12 matérias**: Matemática, Português, Inglês, Química, Física, História, Geografia, Biologia, Filosofia, Sociologia, Literatura, Conhecimentos Gerais
-- **311 geradores** de questões (matemática paramétrica: nunca repete) — inclui geometria analítica, conjuntos, óptica, eletromagnetismo, botânica, evolução, mundo antigo, Brasil contemporâneo e ciência/cultura
+- **13 matérias**: Matemática, Português, Inglês, Química, Física, História, Geografia, Biologia, Filosofia, Sociologia, Literatura, Conhecimentos Gerais, **Informática**
+- **319 geradores** de questões (matemática paramétrica: nunca repete) — inclui geometria analítica, conjuntos, óptica, eletromagnetismo, botânica, evolução, mundo antigo, Brasil contemporâneo e ciência/cultura
 - **~95 mil questões** em 6 bancos JSON (ENEM + vestibares)
 - **Vídeo-aula por TÓPICO com rigor v12** (`topicos.js`): cada gerador aponta para um tópico com vídeos curados e verificados via oEmbed; questões dos bancos passam por um classificador estrito com bordas de palavra. **Sem tópico = sem vídeo (nunca vídeo errado)** — ex.: questão de PG sugere aula de PG, nunca de Fourier
 - **Player na mesma página**: o vídeo abre num modal (Esc / ✕ fecha e reseta o player)
@@ -91,3 +91,4 @@ Tudo conversa: cada recurso usa **caminhos relativos** para os demais (funciona 
 
 - **GitHub Pages**: push na `main` publica automaticamente
 - **Cloudflare** (matematico10.com.br e CYGNA): deploy conectado a este repositório — pushes disparam builds
+

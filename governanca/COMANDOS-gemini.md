@@ -22,3 +22,13 @@
       tema: ① aquífero Guarani (extensão e países) ② industrialização brasileira (1950-80,
       Sudeste) ③ desertos do mundo (Saara, Atacama — diferenças) ④ oceanos (maiores, correntes)
       ⑤ relevo brasileiro (planaltos, planícies, depressões). Dados corretos e conferidos.
+
+- [ ] GEM-005: NOVA DISCIPLINA INFORMÁTICA — crie 5 geradores addGen(GINF, 2, () => {...})
+      de HISTÓRIA DA COMPUTAÇÃO E CONCEITOS: quem criou a WWW (Tim Berners-Lee), primeira
+      programadora (Ada Lovelace), Alan Turing, o que é open source, memória RAM vs SSD,
+      navegador vs sistema operacional. Padrão objeto com shuffle(), gabarito conferido.
+- [ ] GEM-006: VASCULHE canais de informática no YouTube (Curso em Vídeo/Gustavo Guanabara,
+      CFBCursos, ex.: buscas "curso html css aula", "curso python iniciantes", "redes de
+      computadores aula") e liste 10 vídeos NOVOS (não repita os já curados) de 2 a 45 min
+      sobre os tópicos inf-*. Entregue no envelope JSON um arquivo com lista em comentário:
+      // id | título | duração — um por linha.

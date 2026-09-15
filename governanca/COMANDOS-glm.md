@@ -27,3 +27,14 @@
       tireoidianos, grupos sanguíneos ABO, fotossistemas, sucessão ecológica.
 - [ ] CMD-003: 5 geradores de HISTÓRIA (addGen(GHIST,...)): Era Vargas (CLT), AI-5,
       Era JK, Guerra Fria (crises), Revolução Industrial (consequências sociais).
+
+- [ ] CMD-011: NOVA DISCIPLINA INFORMÁTICA — crie 5 geradores addGen(GINF, 1 ou 2, () => {...})
+      de HARDWARE: componentes (CPU, RAM, SSD/HD, placa-mãe, fonte, periféricos), unidades de
+      armazenamento (KB/MB/GB/TB), entrada vs saída de dados. Padrão objeto com shuffle(),
+      4 opções sem duplicatas, gabarito conferido.
+- [ ] CMD-012: NOVA DISCIPLINA INFORMÁTICA — crie 5 geradores addGen(GINF, 2, () => {...})
+      de SEGURANÇA DIGITAL: phishing, senha forte, antivírus, backup, engenharia social,
+      HTTPS vs HTTP. Padrão objeto com shuffle(), gabarito conferido.
+- [ ] CMD-013: NOVA DISCIPLINA INFORMÁTICA — crie 5 geradores addGen(GINF, 2 ou 3, () => {...})
+      de REDES E INTERNET: IP, Wi-Fi vs cabo, navegador, HTTP/HTTPS, e-mail, DNS simples,
+      velocidade de internet (Mbps). Padrão objeto com shuffle(), gabarito conferido.
