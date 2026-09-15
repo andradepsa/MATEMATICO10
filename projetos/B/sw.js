@@ -1,6 +1,6 @@
-/* ═══ Service Worker — Central de Estudos K10 ═══
-   Estratégia: app shell em cache (offline total) + bancos/vídeos com fallback de rede */
-var CACHE = 'ce10-app-v4';
+﻿/* â•â•â• Service Worker â€” Central de Estudos K10 â•â•â•
+   EstratÃ©gia: app shell em cache (offline total) + bancos/vÃ­deos com fallback de rede */
+var CACHE = 'ce10-app-v5';
 var SHELL = [
   './index.html',
   './topicos.js',
@@ -35,8 +35,8 @@ self.addEventListener('fetch', function (e) {
     return;
   }
 
-  /* bancos JSON + vídeos (armazenados pela própria app via Cache API): rede-first */
-  if (url.indexOf('.json') >= 0 || url.indexOf('V%C3%ADdeosK10') >= 0 || url.indexOf('VídeosK10') >= 0) {
+  /* bancos JSON + vÃ­deos (armazenados pela prÃ³pria app via Cache API): rede-first */
+  if (url.indexOf('.json') >= 0 || url.indexOf('V%C3%ADdeosK10') >= 0 || url.indexOf('VÃ­deosK10') >= 0) {
     e.respondWith(
       fetch(e.request).then(function (r) { return r; }).catch(function () {
         return caches.match(e.request).then(function (r) { return r || Response.error(); });
@@ -45,3 +45,4 @@ self.addEventListener('fetch', function (e) {
     return;
   }
 });
+
