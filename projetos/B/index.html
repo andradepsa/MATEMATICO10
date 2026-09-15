@@ -2632,7 +2632,7 @@ function responder(idx) {
   var vbx = document.getElementById("fbvids");
   vbx.innerHTML = "";
   var topico = q.topic || (window.TOPICOS ? TOPICOS.classificar(q.pergunta) : null);
-  var vids = topico && window.TOPICOS ? TOPICOS.videosDo(topico) : [];
+  var vids = topico && window.TOPICOS ? TOPICOS.videosDo(topico).filter(function (v) { return !mortosLocais().has(v.id); }) : [];
   if (!topico && window.TOPICOS) TOPICOS.lacuna(q.pergunta);
   vids.forEach(function (v) {
     var a = document.createElement("a");
@@ -2640,7 +2640,7 @@ function responder(idx) {
     a.href = "https://www.youtube.com/watch?v=" + v.id;
     a.target = "_blank"; a.rel = "noopener";
     a.textContent = "▶ " + v.title + (v.dur ? " (" + v.dur + ")" : "");
-    a.addEventListener("click", function (ev) { ev.preventDefault(); abrirVideo(v.id, v.title); });
+    a.addEventListener("click", function (ev) { ev.preventDefault(); abrirVideo(v.id, v.title, vids.map(function (x) { return x.id; })); });
     vbx.appendChild(a);
   });
 
@@ -2715,10 +2715,34 @@ function carregarPapers(sess) {
 
 /* ---------- modal de vídeo (v12: abre na MESMA página) ---------- */
 var vmodalEl = document.getElementById("vmodal");
-function abrirVideo(id, titulo) {
-  vmodalEl.querySelector(".vtitle").textContent = titulo || "Videoaula";
-  vmodalEl.querySelector(".vframe").src = "https://www.youtube-nocookie.com/embed/" + id + "?rel=0&autoplay=1";
-  vmodalEl.classList.add("on");
+function mortosLocais() {
+  try { return new Set(JSON.parse(localStorage.getItem("ce10vidmortos") || "[]")); }
+  catch (e) { return new Set(); }
+}
+function marcarMorto(id) {
+  try {
+    var m = mortosLocais(); m.add(id);
+    localStorage.setItem("ce10vidmortos", JSON.stringify(Array.from(m)));
+  } catch (e) {}
+}
+function abrirVideo(id, titulo, lista) {
+  var mortos = mortosLocais();
+  var fila = (lista || [id]).filter(function (x) { return !mortos.has(x); });
+  if (!fila.length) return;
+  var atual = fila[0];
+  var check = new Image();
+  check.onload = function () {
+    if (check.naturalWidth <= 120) { marcarMorto(atual); var resto = fila.slice(1); if (resto.length) abrirVideo(resto[0], titulo, resto); return; }
+    vmodalEl.querySelector(".vtitle").textContent = titulo || "Videoaula";
+    vmodalEl.querySelector(".vframe").src = "https://www.youtube-nocookie.com/embed/" + atual + "?rel=0&autoplay=1";
+    vmodalEl.classList.add("on");
+  };
+  check.onerror = function () {
+    marcarMorto(atual); /* video morto: nunca mais sugerido */
+    var resto = fila.slice(1);
+    if (resto.length) abrirVideo(resto[0], titulo, resto);
+  };
+  check.src = "https://i.ytimg.com/vi/" + atual + "/mqdefault.jpg";
 }
 function fecharVideo() {
   vmodalEl.classList.remove("on");

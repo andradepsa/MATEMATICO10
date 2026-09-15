@@ -1,6 +1,6 @@
 /* ═══ Service Worker — Central de Estudos K10 ═══
    Estratégia: app shell em cache (offline total) + bancos/vídeos com fallback de rede */
-var CACHE = 'ce10-app-v3';
+var CACHE = 'ce10-app-v4';
 var SHELL = [
   './index.html',
   './topicos.js',
