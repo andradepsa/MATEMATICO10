@@ -22,7 +22,7 @@
   // 3. Estrutura educacional integrada — tudo conversa com tudo
   var LINKS = [
     { id: 'inicio',     ico: '🏠', lbl: 'Início',             href: root + 'index.html' },
-    { id: 'central',    ico: '🎮', lbl: 'Central de Estudos', href: root + 'projetos/B/index.html' },
+    { id: 'central',    ico: '🎮', lbl: 'Central de Estudos', href: root + 'projetos/B/' },
     { id: 'videoteca',  ico: '▶️', lbl: 'Videoteca',          href: root + 'V%C3%ADdeosK10.html' },
     { id: 'painelia',   ico: '🤖', lbl: 'Painel IA',          href: root + 'PainelIA.html' },
     { id: 'links',      ico: '🔗', lbl: 'Links',              href: root + 'MeusLinks/MeusLinks.html' }
