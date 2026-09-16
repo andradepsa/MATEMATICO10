@@ -24,9 +24,7 @@
     { id: 'inicio',     ico: '🏠', lbl: 'Início',             href: root + 'index.html' },
     { id: 'central',    ico: '🎮', lbl: 'Central de Estudos', href: root + 'projetos/B/' },
     { id: 'videoteca',  ico: '▶️', lbl: 'Videoteca',          href: root + 'V%C3%ADdeosK10.html' },
-    { id: 'painelia',   ico: '🤖', lbl: 'Painel IA',          href: root + 'PainelIA.html' },
-    { id: 'links',      ico: '🔗', lbl: 'Links',              href: root + 'MeusLinks/MeusLinks.html' }
-  ];
+          ];
 
   // 4. Montar navbar
   var nav = document.createElement('nav');
