@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Simulador de Investimento - Taxa Anual</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      --primary: #1a73e8;
+      --bg: #0f172a;
+      --surface: #1e293b;
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --border: #334155;
+      --accent: #10b981;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      padding: 24px 16px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 900px;
+    }
+
+    h1 {
+      font-size: 1.6rem;
+      margin-bottom: 8px;
+    }
+
+    p.subtitle {
+      color: var(--text-muted);
+      margin-bottom: 24px;
+      font-size: 0.95rem;
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+
+    .inputs-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+    }
+
+    label {
+      display: block;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      background: #0f172a;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      font-size: 1rem;
+      outline: none;
+    }
+
+    input:focus {
+      border-color: var(--primary);
+    }
+
+    button {
+      margin-top: 16px;
+      width: 100%;
+      padding: 12px;
+      background: var(--primary);
+      border: none;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    .card {
+      background: #0f172a;
+      padding: 14px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    .card span {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .card strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 1.25rem;
+      color: var(--accent);
+    }
+
+    .card small {
+      display: block;
+      margin-top: 4px;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .chart-box {
+      position: relative;
+      height: 320px;
+      margin-top: 10px;
+    }
+
+    .table-container {
+      max-height: 420px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-top: 10px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: right;
+      font-size: 0.85rem;
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      background: #111827;
+      padding: 10px 12px;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+    }
+
+    tbody td {
+      padding: 10px 12px;
+      border-bottom: 1px solid #1e293b;
+    }
+
+    tbody tr:nth-child(even) {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    td:first-child, th:first-child {
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h1>Calculadora de Investimento: Rumo aos R$ 100k</h1>
+  <p class="subtitle">Simulação baseada em taxa anual (a.a.) com capitalização mensal composta.</p>
+
+  <div class="panel">
+    <div class="inputs-grid">
+      <div>
+        <label for="initial">Saldo Inicial (R$)</label>
+        <input type="number" id="initial" value="4000" step="100">
+      </div>
+      <div>
+        <label for="monthly">Aporte Mensal (R$)</label>
+        <input type="number" id="monthly" value="1000" step="50">
+      </div>
+      <div>
+        <label for="target">Meta de Patrimônio (R$)</label>
+        <input type="number" id="target" value="100000" step="1000">
+      </div>
+      <div>
+        <label for="annualRate">Taxa Anual Líquida (% a.a.)</label>
+        <input type="number" id="annualRate" value="9.8" step="0.1">
+      </div>
+    </div>
+    <button onclick="calcularSimulacao()">Simular Projeção</button>
+
+    <div class="cards-grid">
+      <div class="card">
+        <span>Tempo até a Meta</span>
+        <strong id="cardTime">-</strong>
+        <small id="cardEquivalentRate">Taxa mensal: -</small>
+      </div>
+      <div class="card">
+        <span>Total Investido</span>
+        <strong id="cardInvested">-</strong>
+        <small>Saído do bolso</small>
+      </div>
+      <div class="card">
+        <span>Juros Acumulados</span>
+        <strong id="cardInterest">-</strong>
+        <small>Lucro líquido</small>
+      </div>
+      <div class="card">
+        <span>Saldo Final</span>
+        <strong id="cardTotal">-</strong>
+        <small>Patrimônio total</small>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2 style="font-size: 1.1rem; margin-bottom: 12px;">Curva de Crescimento</h2>
+    <div class="chart-box">
+      <canvas id="growthChart"></canvas>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2 style="font-size: 1.1rem; margin-bottom: 12px;">Evolução Detalhada Mês a Mês</h2>
+    <div class="table-container">
+      <table>
+        <thead>
+          <tr>
+            <th>Mês</th>
+            <th>Saldo Anterior</th>
+            <th>Rendimento</th>
+            <th>Aporte</th>
+            <th>Saldo Final</th>
+          </tr>
+        </thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  let chart = null;
+
+  function formatBRL(val) {
+    return val.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  }
+
+  function calcularSimulacao() {
+    const initial = parseFloat(document.getElementById("initial").value) || 0;
+    const monthly = parseFloat(document.getElementById("monthly").value) || 0;
+    const target = parseFloat(document.getElementById("target").value) || 100000;
+    const annualRatePercent = parseFloat(document.getElementById("annualRate").value) || 0;
+
+    // Conversão de taxa anual para taxa mensal equivalente: (1 + i_ano)^(1/12) - 1
+    const annualRateDecimal = annualRatePercent / 100;
+    const monthlyRate = Math.pow(1 + annualRateDecimal, 1 / 12) - 1;
+
+    let balance = initial;
+    let totalInvested = initial;
+    let month = 0;
+
+    const labels = ["Início"];
+    const dataTotal = [balance];
+    const dataInvested = [totalInvested];
+    const rows = [];
+
+    while (balance < target && month < 600) {
+      month++;
+      const interest = balance * monthlyRate;
+      balance = balance + interest + monthly;
+      totalInvested += monthly;
+
+      labels.push(`Mês ${month}`);
+      dataTotal.push(Math.round(balance));
+      dataInvested.push(Math.round(totalInvested));
+
+      rows.push(`
+        <tr>
+          <td><strong>${month}</strong></td>
+          <td>${formatBRL(balance - interest - monthly)}</td>
+          <td>${formatBRL(interest)}</td>
+          <td>${formatBRL(monthly)}</td>
+          <td><strong>${formatBRL(balance)}</strong></td>
+        </tr>
+      `);
+    }
+
+    const years = Math.floor(month / 12);
+    const remainingMonths = month % 12;
+    let timeStr = "";
+    if (years > 0) timeStr += `${years} ano${years > 1 ? "s" : ""}`;
+    if (remainingMonths > 0) timeStr += `${years > 0 ? " e " : ""}${remainingMonths} m${remainingMonths > 1 ? "eses" : "ês"}`;
+
+    document.getElementById("cardTime").innerText = `${month} meses (${timeStr})`;
+    document.getElementById("cardEquivalentRate").innerText = `Equivale a ${(monthlyRate * 100).toFixed(3)}% a.m.`;
+    document.getElementById("cardInvested").innerText = formatBRL(totalInvested);
+    document.getElementById("cardInterest").innerText = formatBRL(balance - totalInvested);
+    document.getElementById("cardTotal").innerText = formatBRL(balance);
+
+    document.getElementById("tableBody").innerHTML = rows.join("");
+
+    renderChart(labels, dataTotal, dataInvested);
+  }
+
+  function renderChart(labels, totalData, investedData) {
+    const ctx = document.getElementById("growthChart").getContext("2d");
+    if (chart) chart.destroy();
+
+    chart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: "Patrimônio Acumulado (com juros)",
+            data: totalData,
+            borderColor: "#10b981",
+            backgroundColor: "rgba(16, 185, 129, 0.15)",
+            fill: true,
+            tension: 0.2
+          },
+          {
+            label: "Total Investido (do bolso)",
+            data: investedData,
+            borderColor: "#3b82f6",
+            borderDash: [5, 5],
+            fill: false,
+            tension: 0
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          x: {
+            grid: { color: "#334155" },
+            ticks: { color: "#94a3b8", maxTicksLimit: 12 }
+          },
+          y: {
+            grid: { color: "#334155" },
+            ticks: {
+              color: "#94a3b8",
+              callback: val => "R$ " + (val / 1000).toFixed(0) + "k"
+            }
+          }
+        },
+        plugins: {
+          legend: { labels: { color: "#f8fafc" } },
+          tooltip: {
+            callbacks: {
+              label: ctx => `${ctx.dataset.label}: ${formatBRL(ctx.raw)}`
+            }
+          }
+        }
+      }
+    });
+  }
+
+  window.onload = calcularSimulacao;
+</script>
+
+</body>
+</html>
