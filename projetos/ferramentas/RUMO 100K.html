@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Simulador de Investimento - Taxa Anual</title>
+  <title>Simulador de Investimento - Taxa Anual e Prazo Personalizado</title>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     :root {
@@ -57,7 +57,7 @@
 
     .inputs-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
       gap: 16px;
     }
 
@@ -175,6 +175,11 @@
       background: rgba(255, 255, 255, 0.02);
     }
 
+    tr.target-reached {
+      background: rgba(16, 185, 129, 0.15) !important;
+      font-weight: bold;
+    }
+
     td:first-child, th:first-child {
       text-align: center;
     }
@@ -184,7 +189,7 @@
 
 <div class="container">
   <h1>Calculadora de Investimento: Rumo aos R$ 100k</h1>
-  <p class="subtitle">Simulação baseada em taxa anual (a.a.) com capitalização mensal composta.</p>
+  <p class="subtitle">Simulação com ajuste livre de anos, taxa anual (% a.a.) e aportes mensais.</p>
 
   <div class="panel">
     <div class="inputs-grid">
@@ -197,12 +202,16 @@
         <input type="number" id="monthly" value="1000" step="50">
       </div>
       <div>
-        <label for="target">Meta de Patrimônio (R$)</label>
-        <input type="number" id="target" value="100000" step="1000">
+        <label for="annualRate">Taxa Anual (% a.a.)</label>
+        <input type="number" id="annualRate" value="9.8" step="0.1">
       </div>
       <div>
-        <label for="annualRate">Taxa Anual Líquida (% a.a.)</label>
-        <input type="number" id="annualRate" value="9.8" step="0.1">
+        <label for="years">Horizonte (Anos)</label>
+        <input type="number" id="years" value="6" min="1" max="50" step="1">
+      </div>
+      <div>
+        <label for="target">Meta (R$)</label>
+        <input type="number" id="target" value="100000" step="1000">
       </div>
     </div>
     <button onclick="calcularSimulacao()">Simular Projeção</button>
@@ -216,17 +225,17 @@
       <div class="card">
         <span>Total Investido</span>
         <strong id="cardInvested">-</strong>
-        <small>Saído do bolso</small>
+        <small>Saído do bolso no período</small>
       </div>
       <div class="card">
         <span>Juros Acumulados</span>
         <strong id="cardInterest">-</strong>
-        <small>Lucro líquido</small>
+        <small>Lucro líquido no período</small>
       </div>
       <div class="card">
-        <span>Saldo Final</span>
+        <span>Saldo Final (Fim do Prazo)</span>
         <strong id="cardTotal">-</strong>
-        <small>Patrimônio total</small>
+        <small id="cardHorizonLabel">Ao fim de 6 anos</small>
       </div>
     </div>
   </div>
@@ -269,34 +278,43 @@
     const monthly = parseFloat(document.getElementById("monthly").value) || 0;
     const target = parseFloat(document.getElementById("target").value) || 100000;
     const annualRatePercent = parseFloat(document.getElementById("annualRate").value) || 0;
+    const totalYears = parseInt(document.getElementById("years").value, 10) || 5;
 
-    // Conversão de taxa anual para taxa mensal equivalente: (1 + i_ano)^(1/12) - 1
+    const totalMonths = totalYears * 12;
+
+    // Conversão de taxa anual para taxa mensal composta: (1 + i_ano)^(1/12) - 1
     const annualRateDecimal = annualRatePercent / 100;
     const monthlyRate = Math.pow(1 + annualRateDecimal, 1 / 12) - 1;
 
     let balance = initial;
     let totalInvested = initial;
-    let month = 0;
+    let targetMonth = null;
 
     const labels = ["Início"];
     const dataTotal = [balance];
     const dataInvested = [totalInvested];
     const rows = [];
 
-    while (balance < target && month < 600) {
-      month++;
+    for (let m = 1; m <= totalMonths; m++) {
+      const prevBalance = balance;
       const interest = balance * monthlyRate;
       balance = balance + interest + monthly;
       totalInvested += monthly;
 
-      labels.push(`Mês ${month}`);
+      let isTargetRow = false;
+      if (balance >= target && targetMonth === null) {
+        targetMonth = m;
+        isTargetRow = true;
+      }
+
+      labels.push(`Mês ${m}`);
       dataTotal.push(Math.round(balance));
       dataInvested.push(Math.round(totalInvested));
 
       rows.push(`
-        <tr>
-          <td><strong>${month}</strong></td>
-          <td>${formatBRL(balance - interest - monthly)}</td>
+        <tr class="${isTargetRow ? 'target-reached' : ''}">
+          <td><strong>${m}</strong>${isTargetRow ? ' 🎯' : ''}</td>
+          <td>${formatBRL(prevBalance)}</td>
           <td>${formatBRL(interest)}</td>
           <td>${formatBRL(monthly)}</td>
           <td><strong>${formatBRL(balance)}</strong></td>
@@ -304,17 +322,22 @@
       `);
     }
 
-    const years = Math.floor(month / 12);
-    const remainingMonths = month % 12;
-    let timeStr = "";
-    if (years > 0) timeStr += `${years} ano${years > 1 ? "s" : ""}`;
-    if (remainingMonths > 0) timeStr += `${years > 0 ? " e " : ""}${remainingMonths} m${remainingMonths > 1 ? "eses" : "ês"}`;
+    if (targetMonth !== null) {
+      const y = Math.floor(targetMonth / 12);
+      const remM = targetMonth % 12;
+      let timeStr = "";
+      if (y > 0) timeStr += `${y} ano${y > 1 ? "s" : ""}`;
+      if (remM > 0) timeStr += `${y > 0 ? " e " : ""}${remM} m${remM > 1 ? "eses" : "ês"}`;
+      document.getElementById("cardTime").innerText = `${targetMonth} meses (${timeStr})`;
+    } else {
+      document.getElementById("cardTime").innerText = `Não atinge em ${totalYears} anos`;
+    }
 
-    document.getElementById("cardTime").innerText = `${month} meses (${timeStr})`;
     document.getElementById("cardEquivalentRate").innerText = `Equivale a ${(monthlyRate * 100).toFixed(3)}% a.m.`;
     document.getElementById("cardInvested").innerText = formatBRL(totalInvested);
     document.getElementById("cardInterest").innerText = formatBRL(balance - totalInvested);
     document.getElementById("cardTotal").innerText = formatBRL(balance);
+    document.getElementById("cardHorizonLabel").innerText = `Ao final de ${totalYears} ano${totalYears > 1 ? 's' : ''}`;
 
     document.getElementById("tableBody").innerHTML = rows.join("");
 
