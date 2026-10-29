@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minha Carteira de Ações</title>
+<style>
+  :root{--bg:#0f1419;--card:#1a2129;--line:#2a343f;--tx:#e6edf3;--mut:#8b98a5;--up:#26c281;--down:#ef5350;--ac:#4c9aff}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,Segoe UI,Arial,sans-serif;padding:16px}
+  .wrap{max-width:1000px;margin:0 auto}
+  h1{font-size:22px;margin:0 0 14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  input{background:var(--bg);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:15px}
+  input:focus{outline:none;border-color:var(--ac)}
+  button{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:10px 16px;font-size:15px;cursor:pointer}
+  button.sec{background:var(--line);color:var(--tx)}
+  button.sm{padding:6px 12px;font-size:13px}
+  button.on{background:var(--ac);color:#fff}
+  button.x{background:transparent;color:var(--mut);padding:4px 8px;font-size:18px}
+  button.x:hover{color:var(--down)}
+  select{background:var(--bg);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:14px}
+  td input.e{width:190px;padding:5px;font-size:13px}
+  button.cp{background:transparent;color:var(--mut);padding:2px 6px;font-size:14px;border-radius:6px;vertical-align:middle}
+  button.cp:hover{background:var(--line);color:var(--tx)}
+  #ticker{text-transform:uppercase;width:130px}
+  #qtd{width:110px}
+  #pm{width:140px}
+  #dc,td input.d{width:140px;color-scheme:dark}
+  td input.d{padding:5px;font-size:13px}
+  label.dl{font-size:12px;color:var(--mut);display:flex;align-items:center;gap:6px}
+  td input.p{width:90px;padding:5px;text-align:right}
+  #token{flex:1;min-width:200px}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:10px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--mut);font-size:12px;text-transform:uppercase;font-weight:600}
+  tbody tr.item{cursor:pointer}
+  tbody tr.item:hover{background:#202a33}
+  .up{color:var(--up)}.down{color:var(--down)}.mut{color:var(--mut)}
+  td input.q{width:80px;padding:5px;text-align:right}
+  .tick{font-weight:700}
+  .nome{font-size:12px;color:var(--mut);font-weight:400;display:block;max-width:180px;overflow:hidden;text-overflow:ellipsis}
+  .total{font-size:20px;font-weight:700}
+  .scroll{overflow-x:auto}
+  small,.note{color:var(--mut);font-size:12px}
+  #msg{color:var(--down);font-size:14px;min-height:18px;margin-top:8px}
+  /* modal */
+  #modal{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;padding:10px;z-index:9}
+  #modal .box{background:var(--card);border:1px solid var(--line);border-radius:14px;max-width:960px;width:100%;max-height:94vh;overflow:auto;padding:18px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:10px;margin-top:12px}
+  .it{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;min-width:0}
+  .it span{display:block;color:var(--mut);font-size:11px;text-transform:uppercase}
+  .it b{font-size:15px;word-break:break-word}
+  .it small{display:block}
+  .big{font-size:30px;font-weight:700}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 4px}
+  .tabs button{background:var(--line);color:var(--tx);padding:7px 14px;font-size:14px}
+  .tabs button.on{background:var(--ac);color:#fff}
+  svg.chart{width:100%;height:300px;margin-top:10px;background:var(--bg);border-radius:8px;touch-action:none}
+  #hv{min-height:20px;font-size:13px;margin-top:10px;color:var(--tx)}
+  .tbl{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:10px}
+  .tbl th{position:sticky;top:0;background:var(--card)}
+  .tbl td,.tbl th{padding:7px 8px;font-size:13px}
+  p.txt{line-height:1.5;font-size:14px;color:var(--tx);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px;margin:12px 0 0}
+  h3{font-size:14px;margin:18px 0 0;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📈 Minha Carteira de Ações</h1>
+  <div class="tabs" style="margin:0 0 14px">
+    <button id="nav-cart" class="on" onclick="tela('cart')">Minha carteira</button>
+    <button id="nav-per" onclick="tela('per')">Setores perenes · maiores quedas</button>
+  </div>
+  <div id="v-cart">
+
+  <div class="card">
+    <div class="row">
+      <input id="ticker" placeholder="Ex: PETR4" maxlength="10">
+      <input id="qtd" type="number" min="0" step="1" placeholder="Quantidade">
+      <input id="pm" type="number" min="0" step="0.01" placeholder="Preço que paguei">
+      <label class="dl">Data da compra <input id="dc" type="date"></label>
+      <button onclick="adicionar()">Adicionar</button>
+      <button class="sec" onclick="atualizar()">↻ Atualizar</button>
+    </div>
+    <div id="msg"></div>
+    <div class="row" style="margin-top:8px">
+      <input id="token" placeholder="Token brapi.dev (opcional – libera todas as ações)" onchange="salvarToken()">
+    </div>
+    <div class="note" style="margin-top:6px">
+      Sem token, só funcionam PETR4, VALE3, MGLU3 e ITUB4. Crie um token grátis em brapi.dev.
+      <span id="hora"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <span class="mut">Valor total da carteira</span>
+      <span class="total" id="total">R$ 0,00</span>
+    </div>
+    <div class="row" style="justify-content:space-between">
+      <span class="mut">Variação do dia</span>
+      <span id="totalVar">—</span>
+    </div>
+    <div class="row" style="justify-content:space-between">
+      <span class="mut">Total investido (preço pago)</span>
+      <span id="totalCusto">—</span>
+    </div>
+    <div class="row" style="justify-content:space-between">
+      <span class="mut">Lucro / prejuízo total</span>
+      <span id="totalLucro">—</span>
+    </div>
+  </div>
+
+  <div class="card scroll">
+    <table>
+      <thead><tr>
+        <th>Ação</th><th>Qtd</th><th>Data da compra</th><th>Preço pago</th><th>Cotação</th><th>Dia</th><th>Valor total</th><th>Lucro / Prejuízo</th><th></th>
+      </tr></thead>
+      <tbody id="lista"><tr><td colspan="9" class="mut" style="text-align:center">Nenhuma ação ainda. Adicione acima.</td></tr></tbody>
+    </table>
+    <div class="note" style="margin-top:8px">Clique numa ação para ver o histórico completo e todas as informações. Quantidade, data e preço pago podem ser editados direto na lista.</div>
+  </div>
+  </div>
+
+  <div id="v-per" style="display:none">
+    <div class="card">
+      <div class="row">
+        <button onclick="carregarPerenes(true)">↻ Buscar cotações</button>
+        <select id="fsetor" onchange="renderPer()"></select>
+        <select id="ford" onchange="renderPer()">
+          <option value="sem">Ordenar: maior queda na semana</option>
+          <option value="dia">Ordenar: maior queda no dia</option>
+        </select>
+        <label class="dl"><input type="checkbox" id="fq" onchange="renderPer()"> só quedas</label>
+        <span class="note" id="perinfo"></span>
+      </div>
+      <div class="note" style="margin-top:8px">
+        Setores perenes: Bancos, Energia elétrica, Saneamento, Seguros e Telecomunicações. "Semana anterior" é o último fechamento até o mesmo dia da semana passada; "Semana atual" é a cotação de agora.
+      </div>
+    </div>
+    <div class="card scroll">
+      <table>
+        <thead><tr>
+          <th>Setor</th><th>Ação</th><th>Semana anterior</th><th>Semana atual</th><th>Queda informada</th><th>No dia</th><th>Estados atendidos</th>
+        </tr></thead>
+        <tbody id="per"><tr><td colspan="7" class="mut" style="text-align:center">Clique em "Buscar cotações".</td></tr></tbody>
+      </table>
+      <div class="note" id="perrodape" style="margin-top:8px"></div>
+    </div>
+  </div>
+</div>
+
+<div id="modal" onclick="if(event.target===this)fechar()"><div class="box" id="box"></div></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let carteira = JSON.parse(localStorage.getItem('carteira') || '[]'); // [{t, q}]
+let dados = {};   // ticker -> dados da cotação
+let token = localStorage.getItem('brapi_token') || 'iiQogb4AeoxtBvmXnfEkJK';
+$('token').value = token;
+
+const brl = v => (v==null||isNaN(v)) ? '—' : v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const num = v => (v==null||isNaN(v)) ? '—' : v.toLocaleString('pt-BR');
+const pct = v => (v==null||isNaN(v)) ? '—' : (v>=0?'+':'')+v.toFixed(2).replace('.',',')+'%';
+const cls = v => v>0 ? 'up' : v<0 ? 'down' : 'mut';
+const seta = v => v>0 ? '▲' : v<0 ? '▼' : '';
+const dt = ms => new Date(ms).toLocaleDateString('pt-BR');
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function salvar(){ localStorage.setItem('carteira', JSON.stringify(carteira)); }
+function salvarToken(){ token = $('token').value.trim(); localStorage.setItem('brapi_token', token); atualizar(); }
+function msg(t){ $('msg').textContent = t || ''; }
+
+async function buscar(t, extra){
+  const p = new URLSearchParams(extra || {});
+  if(token) p.set('token', token);
+  const r = await fetch(`https://brapi.dev/api/quote/${encodeURIComponent(t)}?${p}`);
+  const j = await r.json();
+  if(!r.ok || !j.results || !j.results[0]) throw new Error(j.message || j.error || 'Ação não encontrada');
+  return j.results[0];
+}
+
+async function adicionar(){
+  const t = $('ticker').value.trim().toUpperCase();
+  const q = parseFloat($('qtd').value) || 0;
+  const pp = parseFloat($('pm').value);
+  const dc = $('dc').value;
+  if(!t){ msg('Digite o código da ação.'); return; }
+  if(!dc){ msg('Informe a data da compra.'); return; }
+  msg('Buscando ' + t + '...');
+  try{
+    dados[t] = await buscar(t);
+  }catch(e){ msg('Não consegui adicionar ' + t + ': ' + e.message); return; }
+  const ex = carteira.find(x => x.t === t);
+  if(ex){ ex.q = q; ex.d = dc; if(!isNaN(pp)) ex.p = pp; } else carteira.push({t, q, p: isNaN(pp) ? null : pp, d: dc});
+  salvar(); msg('');
+  $('ticker').value=''; $('qtd').value=''; $('pm').value=''; $('dc').value='';
+  render();
+}
+
+function remover(t, ev){
+  ev.stopPropagation();
+  carteira = carteira.filter(x => x.t !== t);
+  salvar(); render();
+}
+
+function mudarQtd(t, v){
+  const c = carteira.find(x => x.t === t);
+  c.q = parseFloat(v) || 0;
+  salvar(); render();
+}
+function copiar(t, ev, btn){
+  ev.stopPropagation();
+  const ok = () => { btn.textContent = '✓'; setTimeout(() => btn.textContent = '📋', 1200); };
+  const alt = () => {
+    const ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); ok(); }catch(e){ btn.textContent = '✗'; setTimeout(() => btn.textContent = '📋', 1200); }
+    document.body.removeChild(ta);
+  };
+  if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(ok, alt); else alt();
+}
+function mudarData(t, v){
+  carteira.find(x => x.t === t).d = v || null;
+  salvar(); render();
+}
+function dataBR(s){ return s ? s.split('-').reverse().join('/') : '—'; }
+function diasDesde(s){ return s ? Math.floor((Date.now() - new Date(s + 'T12:00:00').getTime())/864e5) : null; }
+function mudarPreco(t, v){
+  const c = carteira.find(x => x.t === t);
+  const n = parseFloat(String(v).replace(',','.'));
+  c.p = isNaN(n) ? null : n;
+  salvar(); render();
+}
+function lucroHtml(c, preco){
+  if(c.p == null || !c.q) return '<span class="mut">—</span>';
+  const l = (preco - c.p) * c.q, p = (preco/c.p - 1) * 100;
+  return `<span class="${cls(l)}">${seta(l)} ${brl(l)}<br><small>${pct(p)}</small></span>`;
+}
+
+async function atualizar(){
+  if(!carteira.length) return;
+  msg('Atualizando...');
+  let erros = [];
+  await Promise.all(carteira.map(async c => {
+    try{ const d = await buscar(c.t); dados[c.t] = Object.assign(dados[c.t] || {}, d); }
+    catch(e){ erros.push(c.t); }
+  }));
+  msg(erros.length ? 'Falha ao atualizar: ' + erros.join(', ') + ' (talvez precise do token)' : '');
+  $('hora').textContent = ' · Atualizado às ' + new Date().toLocaleTimeString('pt-BR');
+  render();
+}
+
+function render(){
+  const tb = $('lista');
+  if(!carteira.length){
+    tb.innerHTML = '<tr><td colspan="9" class="mut" style="text-align:center">Nenhuma ação ainda. Adicione acima.</td></tr>';
+    $('total').textContent = brl(0); $('totalVar').textContent='—'; $('totalCusto').textContent='—'; $('totalLucro').textContent='—'; return;
+  }
+  let total = 0, varDia = 0, custo = 0, valComPreco = 0;
+  tb.innerHTML = carteira.map(c => {
+    const d = dados[c.t];
+    if(!d) return `<tr class="item" onclick="panorama('${c.t}')"><td class="tick">${c.t}</td><td>${num(c.q)}</td><td colspan="6" class="mut">carregando...</td><td></td></tr>`;
+    const preco = d.regularMarketPrice, ch = d.regularMarketChangePercent, chv = d.regularMarketChange;
+    const val = preco * c.q;
+    total += val; varDia += (chv||0) * c.q;
+    if(c.p != null && c.q){ custo += c.p * c.q; valComPreco += val; }
+    return `<tr class="item" onclick="panorama('${c.t}')">
+      <td class="tick">${c.t} <button class="cp" title="Copiar nome da ação" onclick="copiar('${c.t}',event,this)">📋</button><span class="nome">${esc(d.shortName || d.longName || '')}</span></td>
+      <td><input class="q" type="number" min="0" value="${c.q}" onclick="event.stopPropagation()" onchange="mudarQtd('${c.t}',this.value)"></td>
+<td><input class="d" type="date" value="${c.d || ''}" onclick="event.stopPropagation()" onchange="mudarData('${c.t}',this.value)"></td>
+      <td><input class="p" type="number" min="0" step="0.01" value="${c.p ?? ''}" placeholder="R$" onclick="event.stopPropagation()" onchange="mudarPreco('${c.t}',this.value)"></td>
+      <td>${brl(preco)}</td>
+      <td class="${cls(ch)}">${seta(ch)} ${pct(ch)}</td>
+      <td><b>${brl(val)}</b></td>
+      <td>${lucroHtml(c, preco)}</td>
+      <td><button class="x" title="Remover" onclick="remover('${c.t}',event)">×</button></td>
+    </tr>`;
+  }).join('');
+  $('total').textContent = brl(total);
+  const base = total - varDia;
+  const p = base ? varDia/base*100 : 0;
+  $('totalVar').innerHTML = `<span class="${cls(varDia)}">${seta(varDia)} ${brl(varDia)} (${pct(p)})</span>`;
+  if(custo > 0){
+    const l = valComPreco - custo;
+    $('totalCusto').textContent = brl(custo);
+    $('totalLucro').innerHTML = `<span class="${cls(l)}">${seta(l)} ${brl(l)} (${pct(l/custo*100)})</span>`;
+  } else { $('totalCusto').textContent = '—'; $('totalLucro').textContent = '— (informe o preço pago)'; }
+}
+
+/* =================== SETORES PERENES =================== */
+const PERENES = {
+  'Bancos': ['ITUB4','BBDC4','BBAS3','SANB11','BPAC11'],
+  'Energia elétrica': ['CPLE6','CMIG4','EQTL3','NEOE3','ENGI11','CPFE3','EGIE3','TAEE11'],
+  'Saneamento': ['SBSP3','SAPR11','CSMG3'],
+  'Seguros': ['BBSE3','CXSE3','PSSA3'],
+  'Telecomunicações': ['VIVT3','TIMS3']
+};
+// Estados atendidos (informação fixa, editável na tela; confirme nos sites de RI das empresas)
+const ESTADOS = {
+  ITUB4:'Nacional', BBDC4:'Nacional', BBAS3:'Nacional', SANB11:'Nacional', BPAC11:'Nacional',
+  CPLE6:'PR', CMIG4:'MG', EQTL3:'MA, PA, PI, AL, RS, AP',
+  NEOE3:'BA, PE, RN, SP, MS, DF', ENGI11:'MG, RJ, SE, PB, MT, MS, TO, RO, AC, SP, PR',
+  CPFE3:'SP, RS, PR, MG', EGIE3:'Geração (sem distribuição)', TAEE11:'Transmissão',
+  SBSP3:'SP', SAPR11:'PR', CSMG3:'MG',
+  BBSE3:'Nacional', CXSE3:'Nacional', PSSA3:'Nacional',
+  VIVT3:'Nacional', TIMS3:'Nacional'
+};
+let estUser = JSON.parse(localStorage.getItem('estados') || '{}');
+let per = {}, perCarregando = false;
+const estadosDe = t => estUser[t] ?? ESTADOS[t] ?? '';
+function mudarEstados(t, v){ estUser[t] = v; localStorage.setItem('estados', JSON.stringify(estUser)); }
+
+function tela(v){
+  $('v-cart').style.display = v==='cart' ? '' : 'none';
+  $('v-per').style.display = v==='per' ? '' : 'none';
+  $('nav-cart').className = v==='cart' ? 'on' : '';
+  $('nav-per').className = v==='per' ? 'on' : '';
+  if(v==='per'){ iniciarFiltroSetor(); carregarPerenes(false); }
+}
+function iniciarFiltroSetor(){
+  const s = $('fsetor');
+  if(s.options && s.options.length) return;
+  s.innerHTML = '<option value="">Todos os setores</option>' + Object.keys(PERENES).map(k => `<option value="${k}">${k}</option>`).join('');
+}
+
+function calcPer(s, t, d){
+  const h = (d.historicalDataPrice || []).filter(x => x.close != null).sort((a,b) => a.date - b.date);
+  const alvo = Date.now()/1000 - 7*86400 + 86399;
+  let ant = null;
+  for(const x of h){ if(x.date <= alvo) ant = x; }
+  if(!ant && h.length) ant = h[0];
+  const atual = d.regularMarketPrice;
+  return {s, t, nome:d.shortName || '', atual, ant: ant ? ant.close : null, dataAnt: ant ? ant.date*1000 : null,
+          q: ant ? (atual/ant.close - 1)*100 : null, dia: d.regularMarketChangePercent};
+}
+
+async function carregarPerenes(forca){
+  if(perCarregando) return;
+  if(!forca && Object.keys(per).length) return;
+  perCarregando = true; per = {};
+  const todos = Object.entries(PERENES).flatMap(([s,l]) => l.map(t => [s,t]));
+  let feitos = 0;
+  for(let i = 0; i < todos.length; i += 4){
+    await Promise.all(todos.slice(i, i+4).map(async ([s,t]) => {
+      try{
+        const d = await buscar(t, {range:'1mo', interval:'1d'});
+        per[t] = calcPer(s, t, d);
+        const {historicalDataPrice, ...resto} = d;
+        dados[t] = Object.assign(dados[t] || {}, resto);
+      }catch(e){ per[t] = {s, t, erro:e.message}; }
+      feitos++; $('perinfo').textContent = `Carregando ${feitos}/${todos.length}...`;
+    }));
+    renderPer();
+  }
+  perCarregando = false;
+  $('perinfo').textContent = 'Atualizado às ' + new Date().toLocaleTimeString('pt-BR');
+  renderPer();
+}
+
+function renderPer(){
+  iniciarFiltroSetor();
+  const fs = $('fsetor').value, ord = $('ford').value, soQ = $('fq').checked;
+  const chave = r => ord==='dia' ? r.dia : r.q;
+  let rows = Object.values(per).filter(r => !r.erro && (!fs || r.s===fs) && (!soQ || (chave(r) != null && chave(r) < 0)));
+  rows.sort((a,b) => (chave(a) ?? 1e9) - (chave(b) ?? 1e9));
+  const erros = Object.values(per).filter(r => r.erro);
+  $('per').innerHTML = rows.length ? rows.map(r => `<tr class="item" onclick="panorama('${r.t}')">
+      <td style="text-align:left">${esc(r.s)}</td>
+      <td class="tick">${r.t} <button class="cp" title="Copiar nome da ação" onclick="copiar('${r.t}',event,this)">📋</button><span class="nome">${esc(r.nome)}</span></td>
+      <td>${brl(r.ant)}<br><small>${r.dataAnt ? dt(r.dataAnt) : ''}</small></td>
+      <td><b>${brl(r.atual)}</b><br><small>hoje</small></td>
+      <td class="${cls(r.q)}"><b>${r.q==null ? '—' : seta(r.q) + ' ' + pct(r.q)}</b></td>
+      <td class="${cls(r.dia)}">${r.dia==null ? '—' : seta(r.dia) + ' ' + pct(r.dia)}</td>
+      <td style="text-align:left"><input class="e" value="${esc(estadosDe(r.t))}" placeholder="ex: SP, MG" onclick="event.stopPropagation()" onchange="mudarEstados('${r.t}',this.value)"></td>
+    </tr>`).join('') : `<tr><td colspan="7" class="mut" style="text-align:center">${Object.keys(per).length ? 'Nenhuma ação para mostrar com esse filtro.' : 'Clique em "Buscar cotações".'}</td></tr>`;
+  $('perrodape').textContent = erros.length ? `Não carregaram (${erros.length}): ${erros.map(r => r.t).join(', ')} — talvez precise do token ou a ação não foi encontrada.` : '';
+}
+
+/* =================== HISTÓRICO E PANORAMA =================== */
+const RANGES = [['1mo','1M','1d'],['3mo','3M','1d'],['6mo','6M','1d'],['1y','1A','1d'],['2y','2A','1d'],['5y','5A','1wk'],['10y','10A','1mo'],['max','Máx','1mo']];
+const ABAS = [['hist','Histórico'],['dia','Resumo do dia'],['fund','Fundamentos'],['div','Dividendos'],['emp','Empresa']];
+const FREQ = {'1d':252,'5d':52,'1wk':52,'1mo':12};
+const IVNOME = {'1d':'diário','1wk':'semanal','1mo':'mensal'};
+let M = null;
+
+const ROTULOS = {
+  regularMarketPrice:'Preço atual',regularMarketChange:'Variação (R$)',regularMarketChangePercent:'Variação (%)',
+  regularMarketTime:'Horário da cotação',regularMarketDayHigh:'Máxima do dia',regularMarketDayLow:'Mínima do dia',
+  regularMarketVolume:'Volume do dia',regularMarketPreviousClose:'Fechamento anterior',regularMarketOpen:'Abertura',
+  fiftyTwoWeekRange:'Faixa 52 semanas',fiftyTwoWeekLow:'Mínima 52 semanas',fiftyTwoWeekHigh:'Máxima 52 semanas',
+  priceEarnings:'P/L',earningsPerShare:'LPA',marketCap:'Valor de mercado',shortName:'Nome curto',longName:'Nome completo',
+  symbol:'Código',currency:'Moeda',averageDailyVolume10Day:'Volume médio 10 dias',averageDailyVolume3Month:'Volume médio 3 meses',
+  bid:'Compra',ask:'Venda',bidSize:'Qtd. compra',askSize:'Qtd. venda',twoHundredDayAverage:'Média 200 dias',
+  twoHundredDayAverageChange:'Var. vs média 200d',twoHundredDayAverageChangePercent:'Var. % vs média 200d',
+  fiftyDayAverage:'Média 50 dias',fiftyDayAverageChange:'Var. vs média 50d',fiftyDayAverageChangePercent:'Var. % vs média 50d',
+  fiftyTwoWeekLowChange:'Dist. da mínima 52s',fiftyTwoWeekLowChangePercent:'Dist. % da mínima 52s',
+  fiftyTwoWeekHighChange:'Dist. da máxima 52s',fiftyTwoWeekHighChangePercent:'Dist. % da máxima 52s',
+  dividendYield:'Dividend yield',trailingAnnualDividendRate:'Dividendos 12m (R$)',trailingAnnualDividendYield:'Yield 12m',
+  returnOnEquity:'ROE',returnOnAssets:'ROA',profitMargins:'Margem líquida',operatingMargins:'Margem operacional',
+  grossMargins:'Margem bruta',ebitdaMargins:'Margem EBITDA',priceToBook:'P/VP',bookValue:'Valor patrimonial/ação',
+  enterpriseValue:'Valor da firma (EV)',enterpriseToEbitda:'EV/EBITDA',enterpriseToRevenue:'EV/Receita',
+  sharesOutstanding:'Ações em circulação',floatShares:'Ações em free float',beta:'Beta',payoutRatio:'Payout',
+  trailingEps:'LPA (12m)',forwardEps:'LPA projetado',forwardPE:'P/L projetado',pegRatio:'PEG',
+  totalRevenue:'Receita total',revenueGrowth:'Crescimento da receita',earningsGrowth:'Crescimento do lucro',
+  totalDebt:'Dívida total',totalCash:'Caixa total',debtToEquity:'Dívida/Patrimônio',currentRatio:'Liquidez corrente',
+  quickRatio:'Liquidez seca',ebitda:'EBITDA',grossProfits:'Lucro bruto',freeCashflow:'Fluxo de caixa livre',
+  operatingCashflow:'Fluxo de caixa operacional',recommendationKey:'Recomendação',numberOfAnalystOpinions:'Nº de analistas',
+  targetMeanPrice:'Preço-alvo médio',targetHighPrice:'Preço-alvo máximo',targetLowPrice:'Preço-alvo mínimo',
+  sector:'Setor',industry:'Indústria',website:'Site',fullTimeEmployees:'Funcionários',city:'Cidade',state:'Estado',
+  country:'País',address1:'Endereço',phone:'Telefone',zip:'CEP'
+};
+const rotulo = k => ROTULOS[k] || k.replace(/([A-Z])/g,' $1').replace(/^./,c=>c.toUpperCase());
+
+function fmtVal(k, v){
+  if(typeof v === 'boolean') return v ? 'Sim' : 'Não';
+  if(typeof v === 'string'){
+    if(/^\d{4}-\d\d-\d\dT/.test(v)) return new Date(v).toLocaleString('pt-BR');
+    return esc(v);
+  }
+  if(typeof v !== 'number') return esc(v);
+  if(/Percent|Yield|Margin|Growth|ROE|ROA|returnOn|payout|Ratio$/i.test(k) && !/currentRatio|quickRatio|debtToEquity|pegRatio|priceToBook/i.test(k)){
+    return Math.abs(v) <= 5 && !/Percent/i.test(k) ? (v*100).toFixed(2).replace('.',',')+'%' : v.toFixed(2).replace('.',',')+'%';
+  }
+  if(/price|close|open|high|low|bid$|ask$|target.*Price|average$|Average$|bookValue|Eps$|earningsPerShare|Dividend.*Rate|Change$|^trailingAnnualDividendRate/i.test(k) && !/Volume|Percent/i.test(k)) return brl(v);
+  if(Math.abs(v) >= 1e9) return (v/1e9).toLocaleString('pt-BR',{maximumFractionDigits:2}) + ' bi';
+  if(Math.abs(v) >= 1e6) return (v/1e6).toLocaleString('pt-BR',{maximumFractionDigits:2}) + ' mi';
+  return v.toLocaleString('pt-BR',{maximumFractionDigits:4});
+}
+
+// transforma um objeto em grade de itens (só valores simples)
+function kvs(obj, ignorar){
+  if(!obj) return '';
+  ignorar = ignorar || [];
+  const out = [];
+  for(const k of Object.keys(obj)){
+    if(ignorar.includes(k)) continue;
+    let v = obj[k];
+    if(v && typeof v === 'object' && !Array.isArray(v) && 'raw' in v) v = v.raw;
+    if(v == null || typeof v === 'object' || v === '') continue;
+    if(typeof v === 'string' && v.length > 120) continue;
+    out.push(`<div class="it"><span>${esc(rotulo(k))}</span><b>${fmtVal(k, v)}</b></div>`);
+  }
+  return out.length ? `<div class="grid">${out.join('')}</div>` : '';
+}
+
+function estatisticas(h, iv){
+  const c = h.map(x => x.close);
+  const ret = []; for(let i=1;i<c.length;i++) ret.push(c[i]/c[i-1]-1);
+  const mean = ret.reduce((a,b)=>a+b,0)/(ret.length||1);
+  const sd = Math.sqrt(ret.reduce((a,b)=>a+(b-mean)**2,0)/(ret.length>1?ret.length-1:1));
+  const vol = sd*Math.sqrt(FREQ[iv]||252)*100;
+  let pico = c[0], dd = 0;
+  for(const x of c){ if(x>pico) pico=x; const q=(x/pico-1)*100; if(q<dd) dd=q; }
+  const lo = h.reduce((a,b) => (b.low ?? b.close) < (a.low ?? a.close) ? b : a);
+  const hi = h.reduce((a,b) => (b.high ?? b.close) > (a.high ?? a.close) ? b : a);
+  const ret100 = ret.map(x=>x*100);
+  const melhor = Math.max(...ret100), pior = Math.min(...ret100);
+  const volumes = h.map(x=>x.volume).filter(x=>x!=null);
+  const first = c[0], last = c[c.length-1];
+  return {
+    retorno:(last/first-1)*100, delta:last-first, first, last,
+    lo, hi, media:c.reduce((a,b)=>a+b,0)/c.length, vol, dd,
+    melhor, pior, altas:ret.filter(x=>x>0).length, baixas:ret.filter(x=>x<0).length, iguais:ret.filter(x=>x===0).length,
+    volMedio: volumes.length ? volumes.reduce((a,b)=>a+b,0)/volumes.length : null,
+    volTotal: volumes.length ? volumes.reduce((a,b)=>a+b,0) : null,
+    n:h.length
+  };
+}
+
+function grafico(h){
+  if(h.length < 2) return '<div class="mut" style="padding:20px">Sem dados históricos suficientes para este período.</div>';
+  const W=900, H=230, VT=246, VH=54, T=VT+VH, pad=6;
+  const mn = Math.min(...h.map(x => x.low ?? x.close)), mx = Math.max(...h.map(x => x.high ?? x.close));
+  const X = i => pad + i/(h.length-1)*(W-2*pad);
+  const Y = v => pad + (1-(v-mn)/((mx-mn)||1))*(H-2*pad);
+  const pts = h.map((x,i) => `${X(i).toFixed(1)},${Y(x.close).toFixed(1)}`).join(' ');
+  const cor = h[h.length-1].close >= h[0].close ? '#26c281' : '#ef5350';
+  const mv = Math.max(...h.map(x => x.volume || 0)) || 1;
+  const bw = Math.max((W-2*pad)/h.length*0.7, 0.6);
+  const bars = h.map((x,i) => {
+    const bh = (x.volume||0)/mv*VH;
+    const up = i===0 || x.close >= h[i-1].close;
+    return `<rect x="${(X(i)-bw/2).toFixed(1)}" y="${(T-bh).toFixed(1)}" width="${bw.toFixed(1)}" height="${bh.toFixed(1)}" fill="${up?'#26c281':'#ef5350'}" opacity=".45"/>`;
+  }).join('');
+  return `<svg class="chart" id="gsvg" viewBox="0 0 ${W} ${T}" preserveAspectRatio="none">
+      <polygon points="${pad},${H-pad} ${pts} ${W-pad},${H-pad}" fill="${cor}" opacity=".12"/>
+      <polyline fill="none" stroke="${cor}" stroke-width="2" vector-effect="non-scaling-stroke" points="${pts}"/>
+      ${bars}
+      <line id="cx" x1="0" x2="0" y1="0" y2="${T}" stroke="#8b98a5" stroke-width="1" vector-effect="non-scaling-stroke" style="display:none"/>
+    </svg>
+    <div class="note">Linha = fechamento · barras = volume · passe o mouse (ou o dedo) no gráfico para ver cada ponto · escala: ${brl(mn)} a ${brl(mx)}</div>`;
+}
+
+function ligarGrafico(h){
+  const s = $('gsvg'); if(!s || h.length < 2) return;
+  const cx = $('cx'), hv = $('hv');
+  const mover = ex => {
+    const r = s.getBoundingClientRect();
+    let i = Math.round((ex - r.left)/r.width*(h.length-1));
+    i = Math.max(0, Math.min(h.length-1, i));
+    const x = h[i], ant = i ? h[i-1].close : null;
+    const v = ant ? (x.close/ant-1)*100 : null;
+    cx.style.display = ''; const px = 6 + i/(h.length-1)*888; cx.setAttribute('x1',px); cx.setAttribute('x2',px);
+    hv.innerHTML = `<b>${dt(x.date*1000)}</b> · Abertura ${brl(x.open)} · Máx ${brl(x.high)} · Mín ${brl(x.low)} · <b>Fech ${brl(x.close)}</b>` +
+      (v!=null ? ` · <span class="${cls(v)}">${pct(v)}</span>` : '') + ` · Vol ${num(x.volume)}`;
+  };
+  s.onmousemove = e => mover(e.clientX);
+  s.ontouchmove = s.ontouchstart = e => { if(e.touches[0]) mover(e.touches[0].clientX); };
+}
+
+function it(l, v, sub){ return `<div class="it"><span>${l}</span><b>${v}</b>${sub?`<small class="mut">${sub}</small>`:''}</div>`; }
+
+function abaHist(){
+  const h = M.hist;
+  if(M.erro) return `<p class="txt">Erro ao carregar histórico: ${esc(M.erro)}</p>`;
+  const r = RANGES.find(x => x[0]===M.range);
+  let html = `<div class="row" style="margin-top:10px">${RANGES.map(x => `<button class="sm ${x[0]===M.range?'on':'sec'}" onclick="mudarRange('${x[0]}')">${x[1]}</button>`).join('')}
+      <span class="note">dados ${IVNOME[r[2]]}</span></div>`;
+  html += grafico(h);
+  if(h.length < 2) return html;
+  const e = estatisticas(h, M.iv);
+  html += `<div id="hv">Passe o mouse no gráfico para ver os detalhes de cada data.</div>`;
+  html += `<h3>Estatísticas do período (${dt(h[0].date*1000)} a ${dt(h[h.length-1].date*1000)} · ${e.n} pontos)</h3><div class="grid">
+    ${it('Retorno no período', `<span class="${cls(e.retorno)}">${pct(e.retorno)}</span>`, `${brl(e.first)} → ${brl(e.last)} (${brl(e.delta)})`)}
+    ${it('Mínima do período', brl(e.lo.low ?? e.lo.close), dt(e.lo.date*1000))}
+    ${it('Máxima do período', brl(e.hi.high ?? e.hi.close), dt(e.hi.date*1000))}
+    ${it('Fechamento médio', brl(e.media))}
+    ${it('Volatilidade anualizada', e.vol.toFixed(1).replace('.',',')+'%', 'desvio-padrão dos retornos')}
+    ${it('Queda máxima (drawdown)', `<span class="down">${pct(e.dd)}</span>`, 'do topo ao fundo seguinte')}
+    ${it('Melhor ' + (M.iv==='1d'?'dia':M.iv==='1wk'?'semana':'mês'), `<span class="up">${pct(e.melhor)}</span>`)}
+    ${it('Pior ' + (M.iv==='1d'?'dia':M.iv==='1wk'?'semana':'mês'), `<span class="down">${pct(e.pior)}</span>`)}
+    ${it('Altas / Baixas', `<span class="up">${e.altas}</span> / <span class="down">${e.baixas}</span>`, e.iguais ? e.iguais + ' sem variação' : '')}
+    ${it('Volume médio', num(Math.round(e.volMedio||0)))}
+    ${it('Volume total', num(Math.round(e.volTotal||0)))}
+  </div>`;
+  const linhas = h.map((x,i) => {
+    const v = i ? (x.close/h[i-1].close-1)*100 : null;
+    return `<tr><td>${dt(x.date*1000)}</td><td>${brl(x.open)}</td><td>${brl(x.high)}</td><td>${brl(x.low)}</td><td>${brl(x.close)}</td>
+      <td class="${cls(v)}">${v==null?'—':pct(v)}</td><td>${num(x.volume)}</td></tr>`;
+  }).reverse().join('');
+  html += `<h3>Tabela completa <button class="sm sec" style="margin-left:8px" onclick="baixarCSV()">⬇ Baixar CSV</button></h3>
+    <div class="tbl"><table><thead><tr><th>Data</th><th>Abertura</th><th>Máxima</th><th>Mínima</th><th>Fechamento</th><th>Var.</th><th>Volume</th></tr></thead><tbody>${linhas}</tbody></table></div>`;
+  return html;
+}
+
+function abaDia(){
+  const d = M.d;
+  const base = kvs(d, ['historicalDataPrice','dividendsData','logourl','summaryProfile','defaultKeyStatistics','financialData','shortName','longName','symbol','currency','priceEarnings','earningsPerShare','updatedAt','bid','ask','bidSize','askSize']);
+  return (base || '<p class="txt">Sem dados.</p>') + '<div class="note" style="margin-top:10px">Mostra todos os campos que a brapi devolveu para esta ação hoje.</div>';
+}
+
+function abaFund(){
+  const d = M.d, m = M.mods;
+  let html = kvs({priceEarnings:d.priceEarnings, earningsPerShare:d.earningsPerShare, marketCap:d.marketCap});
+  if(m === null) return html + '<p class="txt">Carregando indicadores adicionais...</p>';
+  const a = kvs(m.defaultKeyStatistics), b = kvs(m.financialData);
+  if(a) html += '<h3>Estatísticas-chave</h3>' + a;
+  if(b) html += '<h3>Dados financeiros</h3>' + b;
+  if(!a && !b) html += '<p class="txt">Indicadores adicionais (ROE, margens, dívida, etc.) não vieram nesta consulta. Alguns dependem do plano da brapi.</p>';
+  return html;
+}
+
+function abaDiv(){
+  const dv = M.d.dividendsData || {};
+  const cash = (dv.cashDividends || []).slice().sort((a,b) => new Date(b.paymentDate||b.lastDatePrior||0) - new Date(a.paymentDate||a.lastDatePrior||0));
+  const stock = dv.stockDividends || [];
+  if(!cash.length && !stock.length) return '<p class="txt">Nenhum provento encontrado para esta ação.</p>';
+  let html = '';
+  if(cash.length){
+    const um = Date.now() - 365*864e5;
+    const t12 = cash.filter(x => new Date(x.paymentDate||x.lastDatePrior||0).getTime() >= um).reduce((a,x) => a + (x.rate||0), 0);
+    const preco = M.d.regularMarketPrice;
+    html += `<div class="grid">${it('Pago nos últimos 12 meses', brl(t12)+' /ação')}${it('Yield 12 meses', preco ? (t12/preco*100).toFixed(2).replace('.',',')+'%' : '—','sobre o preço atual')}${it('Total de proventos listados', cash.length)}</div>`;
+    html += `<h3>Dividendos e JCP</h3><div class="tbl"><table><thead><tr><th>Pagamento</th><th>Tipo</th><th>Valor/ação</th><th>Data com</th><th>Aprovado em</th><th>Referente a</th></tr></thead><tbody>` +
+      cash.map(x => `<tr><td>${x.paymentDate ? new Date(x.paymentDate).toLocaleDateString('pt-BR') : '—'}</td><td>${esc(x.label||'—')}</td><td>${brl(x.rate)}</td>
+        <td>${x.lastDatePrior ? new Date(x.lastDatePrior).toLocaleDateString('pt-BR') : '—'}</td><td>${x.approvedOn ? new Date(x.approvedOn).toLocaleDateString('pt-BR') : '—'}</td><td>${esc(x.relatedTo||'—')}</td></tr>`).join('') + '</tbody></table></div>';
+  }
+  if(stock.length){
+    html += `<h3>Bonificações, desdobramentos e grupamentos</h3><div class="tbl"><table><tbody>` +
+      stock.map(x => `<tr><td style="text-align:left">${Object.entries(x).filter(([k,v]) => v!=null && typeof v!=='object').map(([k,v]) => `${esc(rotulo(k))}: <b>${fmtVal(k,v)}</b>`).join(' · ')}</td></tr>`).join('') + '</tbody></table></div>';
+  }
+  return html;
+}
+
+function abaEmp(){
+  const m = M.mods;
+  if(m === null) return '<p class="txt">Carregando...</p>';
+  const p = m.summaryProfile;
+  if(!p) return '<p class="txt">Perfil da empresa não disponível nesta consulta (pode depender do plano da brapi).</p>';
+  let html = kvs(p, ['longBusinessSummary','companyOfficers']);
+  if(p.longBusinessSummary) html += `<p class="txt">${esc(p.longBusinessSummary)}</p>`;
+  return html;
+}
+
+function rm(){
+  if(!M) return;
+  const d = M.d, ch = d.regularMarketChangePercent;
+  const corpo = {hist:abaHist, dia:abaDia, fund:abaFund, div:abaDiv, emp:abaEmp}[M.aba]();
+  const c = carteira.find(x => x.t === M.t);
+  $('box').innerHTML = `
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <div><div class="tick" style="font-size:22px">${M.t} <button class="cp" title="Copiar nome da ação" onclick="copiar('${M.t}',event,this)">📋</button></div><div class="mut">${esc(d.longName || d.shortName || '')}</div></div>
+      <button class="sec" onclick="fechar()">Fechar</button>
+    </div>
+    <div style="margin-top:10px"><span class="big">${brl(d.regularMarketPrice)}</span>
+      <span class="${cls(ch)}" style="font-size:17px;margin-left:8px">${seta(ch)} ${pct(ch)} (${brl(d.regularMarketChange)})</span>
+      ${c ? `<div class="mut" style="margin-top:4px">Sua posição: ${num(c.q)} ações = <b style="color:var(--tx)">${brl(c.q*d.regularMarketPrice)}</b>
+        ${c.d ? ` · Comprada em <b style="color:var(--tx)">${dataBR(c.d)}</b> (${diasDesde(c.d)} dias)` : ' · <i>data da compra não informada</i>'}${c.p != null ? ` · Você pagou <b style="color:var(--tx)">${brl(c.p)}</b> (total ${brl(c.p*c.q)}) · Resultado: ${lucroHtml(c, d.regularMarketPrice).replace('<br>',' ')}` : ' · <i>preço pago não informado</i>'}</div>` : ''}</div>
+    <div class="tabs">${ABAS.map(a => `<button class="${a[0]===M.aba?'on':''}" onclick="mudarAba('${a[0]}')">${a[1]}</button>`).join('')}</div>
+    <div id="corpo">${corpo}</div>
+    <div class="note" style="margin-top:14px">Dados via brapi.dev, podem ter atraso. Não é recomendação de investimento.</div>`;
+  if(M.aba === 'hist') ligarGrafico(M.hist);
+}
+
+async function carregar(){
+  const m = M, r = RANGES.find(x => x[0]===m.range);
+  try{
+    const d = await buscar(m.t, {range:r[0], interval:r[2], fundamental:'true', dividends:'true'});
+    if(M !== m) return;
+    m.hist = (d.historicalDataPrice || []).filter(x => x.close != null);
+    m.d = Object.assign({}, m.d, d); dados[m.t] = Object.assign(dados[m.t] || {}, d);
+    delete dados[m.t].historicalDataPrice;
+    m.iv = r[2]; m.erro = '';
+  }catch(e){ if(M !== m) return; m.erro = e.message; m.hist = []; }
+  rm();
+  if(m.mods === null){
+    try{ m.mods = await buscar(m.t, {modules:'summaryProfile,defaultKeyStatistics,financialData'}); }
+    catch(e){ m.mods = {}; }
+    if(M === m && (m.aba==='fund' || m.aba==='emp')) rm();
+  }
+}
+
+function panorama(t){
+  M = {t, range:'3mo', aba:'hist', hist:[], d:Object.assign({}, dados[t]), mods:null, iv:'1d', erro:''};
+  $('modal').style.display = 'flex';
+  rm();
+  $('corpo').innerHTML = '<div class="mut" style="padding:20px">Carregando histórico de ' + t + '...</div>';
+  carregar();
+}
+function mudarRange(r){
+  M.range = r; M.hist = [];
+  rm(); $('corpo').innerHTML = '<div class="mut" style="padding:20px">Carregando...</div>';
+  carregar();
+}
+function mudarAba(a){ M.aba = a; rm(); }
+
+function baixarCSV(){
+  const linhas = ['Data;Abertura;Maxima;Minima;Fechamento;Volume'].concat(M.hist.map(x =>
+    [new Date(x.date*1000).toISOString().slice(0,10), x.open, x.high, x.low, x.close, x.volume].map(v => v==null?'':String(v).replace('.',',')).join(';')));
+  const blob = new Blob(['﻿' + linhas.join('\n')], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `${M.t}_historico_${M.range}.csv`; a.click();
+}
+
+function fechar(){ $('modal').style.display = 'none'; M = null; }
+document.addEventListener('keydown', e => { if(e.key==='Escape') fechar(); if(e.key==='Enter' && (e.target.id==='ticker'||e.target.id==='qtd')) adicionar(); });
+
+render();
+atualizar();
+setInterval(atualizar, 60000);
+</script>
+</body>
+</html>
