@@ -117,11 +117,11 @@
   <div class="card scroll">
     <table>
       <thead><tr>
-        <th>Ação</th><th>Qtd</th><th>Data da compra</th><th>Preço pago</th><th>Cotação</th><th>Dia</th><th>Valor total</th><th>Lucro / Prejuízo</th><th>Dividendos</th><th></th>
+        <th>Ação</th><th>Qtd</th><th>Data da compra</th><th>Preço pago</th><th>Cotação</th><th>Dia</th><th>Valor total</th><th>Lucro / Prejuízo</th><th></th>
       </tr></thead>
-      <tbody id="lista"><tr><td colspan="10" class="mut" style="text-align:center">Nenhuma ação ainda. Adicione acima.</td></tr></tbody>
+      <tbody id="lista"><tr><td colspan="9" class="mut" style="text-align:center">Nenhuma ação ainda. Adicione acima.</td></tr></tbody>
     </table>
-    <div class="note" style="margin-top:8px">Clique numa ação para ver o histórico completo e todas as informações. Dividendos: valor recebido desde a data da compra (data com) e, abaixo, o acumulado/yield dos últimos 12 meses. Quantidade, data e preço pago podem ser editados direto na lista.</div>
+    <div class="note" style="margin-top:8px">Clique numa ação para ver o histórico completo e todas as informações. Quantidade, data e preço pago podem ser editados direto na lista.</div>
   </div>
   </div>
 
@@ -144,9 +144,9 @@
     <div class="card scroll">
       <table>
         <thead><tr>
-          <th>Setor</th><th>Ação</th><th>Semana anterior</th><th>Semana atual</th><th>Queda informada</th><th>No dia</th><th>Dividendos 12m</th><th>Estados atendidos</th>
+          <th>Setor</th><th>Ação</th><th>Semana anterior</th><th>Semana atual</th><th>Queda informada</th><th>No dia</th><th>Estados atendidos</th>
         </tr></thead>
-        <tbody id="per"><tr><td colspan="8" class="mut" style="text-align:center">Clique em "Buscar cotações".</td></tr></tbody>
+        <tbody id="per"><tr><td colspan="7" class="mut" style="text-align:center">Clique em "Buscar cotações".</td></tr></tbody>
       </table>
       <div class="note" id="perrodape" style="margin-top:8px"></div>
     </div>
@@ -183,11 +183,6 @@ async function buscar(t, extra){
   return j.results[0];
 }
 
-async function buscarDiv(t, extra){
-  try{ return await buscar(t, Object.assign({dividends:'true'}, extra||{})); }
-  catch(e){ return await buscar(t, extra); }
-}
-
 async function adicionar(){
   const t = $('ticker').value.trim().toUpperCase();
   const q = parseFloat($('qtd').value) || 0;
@@ -197,7 +192,7 @@ async function adicionar(){
   if(!dc){ msg('Informe a data da compra.'); return; }
   msg('Buscando ' + t + '...');
   try{
-    dados[t] = await buscarDiv(t);
+    dados[t] = await buscar(t);
   }catch(e){ msg('Não consegui adicionar ' + t + ': ' + e.message); return; }
   const ex = carteira.find(x => x.t === t);
   if(ex){ ex.q = q; ex.d = dc; if(!isNaN(pp)) ex.p = pp; } else carteira.push({t, q, p: isNaN(pp) ? null : pp, d: dc});
@@ -246,27 +241,12 @@ function lucroHtml(c, preco){
   return `<span class="${cls(l)}">${seta(l)} ${brl(l)}<br><small>${pct(p)}</small></span>`;
 }
 
-function divHtml(c, d, preco){
-  const cash = (d.dividendsData && d.dividendsData.cashDividends) || [];
-  if(!cash.length) return '<span class="mut">—</span>';
-  const tm = x => new Date(x.lastDatePrior || x.paymentDate || 0).getTime();
-  const t12 = cash.filter(x => tm(x) >= Date.now() - 365*864e5).reduce((a,x) => a + (x.rate||0), 0);
-  const y = preco ? t12/preco*100 : null;
-  let top = '';
-  if(c.d && c.q){
-    const ini = new Date(c.d + 'T00:00:00').getTime();
-    const rec = cash.filter(x => tm(x) >= ini).reduce((a,x) => a + (x.rate||0), 0) * c.q;
-    top = `<b class="up">${brl(rec)}</b><br>`;
-  }
-  return `${top}<small>12m: ${brl(t12)}/ação${y!=null ? ' · ' + y.toFixed(2).replace('.',',') + '%' : ''}</small>`;
-}
-
 async function atualizar(){
   if(!carteira.length) return;
   msg('Atualizando...');
   let erros = [];
   await Promise.all(carteira.map(async c => {
-    try{ const d = await buscarDiv(c.t); dados[c.t] = Object.assign(dados[c.t] || {}, d); }
+    try{ const d = await buscar(c.t); dados[c.t] = Object.assign(dados[c.t] || {}, d); }
     catch(e){ erros.push(c.t); }
   }));
   msg(erros.length ? 'Falha ao atualizar: ' + erros.join(', ') + ' (talvez precise do token)' : '');
@@ -277,13 +257,13 @@ async function atualizar(){
 function render(){
   const tb = $('lista');
   if(!carteira.length){
-    tb.innerHTML = '<tr><td colspan="10" class="mut" style="text-align:center">Nenhuma ação ainda. Adicione acima.</td></tr>';
+    tb.innerHTML = '<tr><td colspan="9" class="mut" style="text-align:center">Nenhuma ação ainda. Adicione acima.</td></tr>';
     $('total').textContent = brl(0); $('totalVar').textContent='—'; $('totalCusto').textContent='—'; $('totalLucro').textContent='—'; return;
   }
   let total = 0, varDia = 0, custo = 0, valComPreco = 0;
   tb.innerHTML = carteira.map(c => {
     const d = dados[c.t];
-    if(!d) return `<tr class="item" onclick="panorama('${c.t}')"><td class="tick">${c.t}</td><td>${num(c.q)}</td><td colspan="7" class="mut">carregando...</td><td></td></tr>`;
+    if(!d) return `<tr class="item" onclick="panorama('${c.t}')"><td class="tick">${c.t}</td><td>${num(c.q)}</td><td colspan="6" class="mut">carregando...</td><td></td></tr>`;
     const preco = d.regularMarketPrice, ch = d.regularMarketChangePercent, chv = d.regularMarketChange;
     const val = preco * c.q;
     total += val; varDia += (chv||0) * c.q;
@@ -297,7 +277,6 @@ function render(){
       <td class="${cls(ch)}">${seta(ch)} ${pct(ch)}</td>
       <td><b>${brl(val)}</b></td>
       <td>${lucroHtml(c, preco)}</td>
-      <td>${divHtml(c, d, preco)}</td>
       <td><button class="x" title="Remover" onclick="remover('${c.t}',event)">×</button></td>
     </tr>`;
   }).join('');
@@ -356,8 +335,7 @@ function calcPer(s, t, d){
   if(!ant && h.length) ant = h[0];
   const atual = d.regularMarketPrice;
   return {s, t, nome:d.shortName || '', atual, ant: ant ? ant.close : null, dataAnt: ant ? ant.date*1000 : null,
-          q: ant ? (atual/ant.close - 1)*100 : null, dia: d.regularMarketChangePercent,
-          div: ((d.dividendsData && d.dividendsData.cashDividends) || []).filter(x => new Date(x.lastDatePrior || x.paymentDate || 0).getTime() >= Date.now() - 365*864e5).reduce((a,x) => a + (x.rate||0), 0)};
+          q: ant ? (atual/ant.close - 1)*100 : null, dia: d.regularMarketChangePercent};
 }
 
 async function carregarPerenes(forca){
@@ -369,7 +347,7 @@ async function carregarPerenes(forca){
   for(let i = 0; i < todos.length; i += 4){
     await Promise.all(todos.slice(i, i+4).map(async ([s,t]) => {
       try{
-        const d = await buscarDiv(t, {range:'1mo', interval:'1d'});
+        const d = await buscar(t, {range:'1mo', interval:'1d'});
         per[t] = calcPer(s, t, d);
         const {historicalDataPrice, ...resto} = d;
         dados[t] = Object.assign(dados[t] || {}, resto);
@@ -397,9 +375,8 @@ function renderPer(){
       <td><b>${brl(r.atual)}</b><br><small>hoje</small></td>
       <td class="${cls(r.q)}"><b>${r.q==null ? '—' : seta(r.q) + ' ' + pct(r.q)}</b></td>
       <td class="${cls(r.dia)}">${r.dia==null ? '—' : seta(r.dia) + ' ' + pct(r.dia)}</td>
-      <td>${r.div ? brl(r.div) + '<br><small>' + (r.div/r.atual*100).toFixed(2).replace('.',',') + '%</small>' : '<span class="mut">—</span>'}</td>
       <td style="text-align:left"><input class="e" value="${esc(estadosDe(r.t))}" placeholder="ex: SP, MG" onclick="event.stopPropagation()" onchange="mudarEstados('${r.t}',this.value)"></td>
-    </tr>`).join('') : `<tr><td colspan="8" class="mut" style="text-align:center">${Object.keys(per).length ? 'Nenhuma ação para mostrar com esse filtro.' : 'Clique em "Buscar cotações".'}</td></tr>`;
+    </tr>`).join('') : `<tr><td colspan="7" class="mut" style="text-align:center">${Object.keys(per).length ? 'Nenhuma ação para mostrar com esse filtro.' : 'Clique em "Buscar cotações".'}</td></tr>`;
   $('perrodape').textContent = erros.length ? `Não carregaram (${erros.length}): ${erros.map(r => r.t).join(', ')} — talvez precise do token ou a ação não foi encontrada.` : '';
 }
 
