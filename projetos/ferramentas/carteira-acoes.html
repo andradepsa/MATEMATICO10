@@ -69,8 +69,12 @@
   p.txt{line-height:1.5;font-size:14px;color:var(--tx);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px;margin:12px 0 0}
   h3{font-size:14px;margin:18px 0 0;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
   h2{font-size:17px;margin:0 0 8px}
-  .sal input{width:100px;text-align:right}
-  .sal td,.sal th{padding:6px 8px}
+  .inp{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+  .inp label{display:block;font-size:12px;color:var(--mut)}
+  .inp input{width:100%;margin-top:4px}
+  tr.alvo{background:rgba(38,194,129,.18);font-weight:700}
+  .sal .tbl td,.sal .tbl th{text-align:right}
+  .sal .tbl td:first-child,.sal .tbl th:first-child{text-align:center}
 </style>
 </head>
 <body>
@@ -176,31 +180,54 @@
   <!-- ===================== TELA 3: SALÁRIO PERPÉTUO ===================== -->
   <div id="v-sal" class="sal" style="display:none">
     <div class="card">
-      <h2>Conta do salário perpétuo</h2>
-      <div class="note" style="margin-bottom:10px">
-        Capital necessário = (renda mensal × 12) ÷ retorno líquido ponderado, já com margem de segurança.
-        Tudo em reais de hoje. Os retornos de cada classe são <b>editáveis</b> — os valores iniciais são os citados no vídeo, não uma previsão.
+      <h2>Quanto tempo até viver de renda? (conta do salário perpétuo)</h2>
+      <div class="note" style="margin-bottom:12px">
+        <b>Capital-alvo = (renda mensal × 12) ÷ (yield líquido × (1 − margem de segurança))</b>. Todo mês os proventos são reinvestidos e você soma o aporte,
+        até o patrimônio chegar no capital-alvo. Tudo em reais de hoje: assume que cotas e proventos acompanham a inflação.
+        O yield inicial (7,9%) é o citado no vídeo — troque pelo seu.
       </div>
-      <div class="row">
-        <label class="dl">Renda mensal desejada (R$) <input id="s_renda" type="number" min="0" step="100" oninput="calcSal()"></label>
-        <label class="dl">Margem de segurança (%) <input id="s_margem" type="number" min="0" max="90" step="1" oninput="calcSal()"></label>
-        <label class="dl">Patrimônio atual (R$) <input id="s_patr" type="number" min="0" step="1000" oninput="calcSal()" style="width:140px"></label>
-        <button class="sec sm" onclick="usarCarteira()">usar valor da carteira</button>
-        <label class="dl">Aporte mensal (R$) <input id="s_aporte" type="number" min="0" step="100" oninput="calcSal()"></label>
+      <div class="inp">
+        <label>Renda mensal desejada (R$)<input id="s_renda" type="number" min="0" step="100" oninput="calcSal()"></label>
+        <label>Saldo inicial (R$)<input id="s_ini" type="number" min="0" step="100" oninput="calcSal()"></label>
+        <label>Aporte mensal (R$)<input id="s_aporte" type="number" min="0" step="50" oninput="calcSal()"></label>
+        <label>Yield líquido dos proventos (% a.a.)<input id="s_yield" type="number" min="0" step="0.1" oninput="calcSal()"></label>
+        <label>Margem de segurança (%)<input id="s_margem" type="number" min="0" max="90" step="1" oninput="calcSal()"></label>
+        <label>Valorização real das cotas (% a.a.)<input id="s_val" type="number" step="0.1" oninput="calcSal()"></label>
+        <label>Horizonte (anos)<input id="s_anos" type="number" min="1" max="60" step="1" oninput="calcSal()"></label>
       </div>
-      <div class="scroll" style="margin-top:12px">
-        <table>
-          <thead><tr><th>Classe de ativo</th><th>Peso (%)</th><th>Retorno líquido (% a.a.)</th><th>Capital alocado</th><th>Renda mensal</th></tr></thead>
-          <tbody id="s_cls"></tbody>
-        </table>
+      <div class="row" style="margin-top:10px">
+        <button class="sec sm" onclick="usarCarteira()">saldo inicial = valor da minha carteira</button>
+        <button class="sec sm" onclick="usarYield()">yield = o da minha carteira</button>
       </div>
+      <div class="kpis" id="s_cards" style="margin-top:14px"></div>
     </div>
-    <div class="card" id="s_out"></div>
+
     <div class="card">
-      <h3 style="margin-top:0">Capital necessário por retorno líquido (sem margem)</h3>
-      <div class="tbl" style="max-height:none"><table id="s_tab"></table></div>
-      <div class="note" style="margin-top:8px">Conferência do vídeo: R$ 60.000 ÷ 6% = R$ 1.000.000 · ÷ 8% = R$ 750.000 · ÷ 10% = R$ 600.000 · ÷ 12% = R$ 500.000.</div>
+      <h3 style="margin-top:0">Curva de crescimento</h3>
+      <div id="s_graf"></div>
+      <div id="s_hv" class="note" style="min-height:20px;margin-top:8px">Passe o mouse no gráfico para ver cada mês.</div>
+      <div class="note"><span class="up">▬</span> patrimônio com proventos reinvestidos · <span style="color:var(--ac)">╌</span> total investido do bolso · <span class="warn">╌</span> capital-alvo</div>
     </div>
+
+    <div class="card scroll">
+      <h3 style="margin-top:0">E se eu aportar outro valor por mês?</h3>
+      <table id="s_cen"></table>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-top:0">Evolução mês a mês</h3>
+      <div class="tbl"><table>
+        <thead><tr><th>Mês</th><th>Saldo anterior</th><th>Proventos reinvestidos</th><th>Aporte</th><th>Saldo final</th><th>Renda/mês</th><th>% da meta</th></tr></thead>
+        <tbody id="s_rows"></tbody>
+      </table></div>
+      <div class="note" style="margin-top:8px">🎯 = mês em que o patrimônio atinge o capital-alvo. "Renda/mês" usa o yield já com a margem de segurança.</div>
+    </div>
+
+    <div class="card scroll">
+      <h3 style="margin-top:0">Capital necessário por yield líquido (sem margem)</h3>
+      <table id="s_tab"></table>
+    </div>
+
     <div class="card">
       <h3 style="margin-top:0">Pontos de atenção</h3>
       <ul class="note" style="line-height:1.6;font-size:13px;padding-left:18px">
@@ -208,7 +235,7 @@
         <li><b>FIIs:</b> rendimentos são isentos para pessoa física só se os requisitos legais forem cumpridos (ex.: menos de 10% das cotas, fundo com 50+ cotistas, cotas negociadas em bolsa). Ganho na venda da cota paga 20%.</li>
         <li><b>Retorno passado não é contrato:</b> um ano excepcional não se repete. Por isso a margem de segurança.</li>
         <li><b>Preço da cota ≠ renda:</b> a cotação oscila mesmo que o provento continue igual.</li>
-        <li><b>Real × nominal:</b> renda fixa IPCA+ já preserva o poder de compra; dividendos de ações só acompanham a inflação se os lucros crescerem junto.</li>
+        <li><b>Premissa de reais de hoje:</b> só vale se os proventos crescerem pelo menos com a inflação. Se não, o poder de compra da renda cai com o tempo.</li>
         <li>Não é recomendação de investimento.</li>
       </ul>
     </div>
@@ -513,70 +540,123 @@ function renderPer(){
 }
 
 /* =================== SALÁRIO PERPÉTUO =================== */
-const SAL_PAD = {renda:5000, margem:15, aporte:1000, patr:0, classes:[
-  {n:'Ações de dividendos (BESST)', p:40, r:7.9},
-  {n:'Fundos imobiliários (FIIs)', p:35, r:9.2},
-  {n:'Renda fixa IPCA+ (líquido)', p:20, r:5.0},
-  {n:'Exterior (moeda forte, líquido)', p:5, r:1.8}
-]};
-let sal = ls.get('sal', null) || JSON.parse(JSON.stringify(SAL_PAD));
-let salIniciado = false;
+const SAL_PAD = {renda:1000, ini:4000, aporte:1000, yld:7.9, margem:15, val:0, anos:30};
+let sal = Object.assign({}, SAL_PAD, ls.get('sal2', {}));
+let salIniciado = false, salSerie = null;
+const SAL_CAMPOS = [['renda','s_renda'],['ini','s_ini'],['aporte','s_aporte'],['yld','s_yield'],['margem','s_margem'],['val','s_val'],['anos','s_anos']];
 function initSal(){
   if(salIniciado) return; salIniciado = true;
-  $('s_renda').value = sal.renda; $('s_margem').value = sal.margem; $('s_aporte').value = sal.aporte; $('s_patr').value = sal.patr || '';
-  $('s_cls').innerHTML = sal.classes.map((c,i) => `<tr>
-    <td style="text-align:left">${esc(c.n)}</td>
-    <td><input id="s_p${i}" type="number" min="0" step="1" value="${c.p}" oninput="calcSal()"></td>
-    <td><input id="s_r${i}" type="number" min="0" step="0.1" value="${c.r}" oninput="calcSal()"></td>
-    <td id="s_c${i}">—</td><td id="s_m${i}">—</td></tr>`).join('');
+  SAL_CAMPOS.forEach(([k,id]) => $(id).value = sal[k]);
 }
-function usarCarteira(){ initSal(); $('s_patr').value = Math.round(valorCarteira); calcSal(); }
-function tempoMeses(m){
+function usarCarteira(){ initSal(); $('s_ini').value = Math.round(valorCarteira); calcSal(); }
+function usarYield(){
+  initSal();
+  if(valorCarteira > 0 && rendaCarteira > 0){ $('s_yield').value = (rendaCarteira*12/valorCarteira*100).toFixed(2); calcSal(); }
+}
+function fmtTempo(m){
   if(m == null) return 'mais de 100 anos';
+  if(m === 0) return 'já atingido';
   const a = Math.floor(m/12), r = m % 12;
-  return (a ? a + (a===1 ? ' ano' : ' anos') : '') + (a && r ? ' e ' : '') + (r ? r + (r===1 ? ' mês' : ' meses') : (a ? '' : 'já atingido'));
+  return (a ? a + (a===1 ? ' ano' : ' anos') : '') + (a && r ? ' e ' : '') + (r ? r + (r===1 ? ' mês' : ' meses') : '');
 }
+// meses até o patrimônio chegar em "alvo" (null se passar de maxM)
+function simSal(ini, aporte, rm, alvo, maxM){
+  let b = ini;
+  if(b >= alvo) return 0;
+  for(let m = 1; m <= maxM; m++){ b = b*(1+rm) + aporte; if(b >= alvo) return m; }
+  return null;
+}
+function graficoSal(sb, si, alvo, mAlvo){
+  const N = sb.length - 1;
+  if(N < 1) return '';
+  const W = 900, H = 300, pad = 6, mx = (Math.max(sb[N], alvo || 0) * 1.05) || 1;
+  const X = i => pad + i/N*(W-2*pad), Y = v => H - pad - (v/mx)*(H-2*pad);
+  const pb = sb.map((v,i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+  const pi = si.map((v,i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
+  return `<svg class="chart" id="s_gsvg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+    <polygon points="${pad},${H-pad} ${pb} ${W-pad},${H-pad}" fill="#26c281" opacity=".12"/>
+    <polyline fill="none" stroke="#26c281" stroke-width="2" vector-effect="non-scaling-stroke" points="${pb}"/>
+    <polyline fill="none" stroke="#4c9aff" stroke-width="2" stroke-dasharray="6 4" vector-effect="non-scaling-stroke" points="${pi}"/>
+    ${alvo ? `<line x1="0" x2="${W}" y1="${Y(alvo).toFixed(1)}" y2="${Y(alvo).toFixed(1)}" stroke="#e8b339" stroke-width="1.5" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/>` : ''}
+    ${mAlvo != null && mAlvo <= N && mAlvo > 0 ? `<line x1="${X(mAlvo).toFixed(1)}" x2="${X(mAlvo).toFixed(1)}" y1="0" y2="${H}" stroke="#e8b339" stroke-width="1" vector-effect="non-scaling-stroke"/>` : ''}
+    <line id="s_cx" x1="0" x2="0" y1="0" y2="${H}" stroke="#8b98a5" stroke-width="1" vector-effect="non-scaling-stroke" style="display:none"/>
+  </svg>`;
+}
+function ligarGraficoSal(){
+  const s = $('s_gsvg'); if(!s || !salSerie) return;
+  const mover = ex => {
+    const r = s.getBoundingClientRect(), N = salSerie.b.length - 1;
+    let i = Math.round((ex - r.left)/r.width*N); i = Math.max(0, Math.min(N, i));
+    const cx = $('s_cx'), px = 6 + i/N*888; cx.style.display = ''; cx.setAttribute('x1', px); cx.setAttribute('x2', px);
+    const renda = salSerie.b[i] * salSerie.yEf/100/12;
+    $('s_hv').innerHTML = `<b>Mês ${i}</b> (${(i/12).toFixed(1).replace('.',',')} anos) · Patrimônio <b>${brl(salSerie.b[i])}</b> · Investido ${brl(salSerie.i[i])} · Renda/mês <b>${brl(renda)}</b> (${pct1(salSerie.renda > 0 ? renda/salSerie.renda*100 : 0)} da meta)`;
+  };
+  s.onmousemove = e => mover(e.clientX);
+  s.ontouchmove = s.ontouchstart = e => { if(e.touches[0]) mover(e.touches[0].clientX); };
+}
+
 function calcSal(){
   initSal();
-  sal.renda = nv('s_renda'); sal.margem = Math.min(90, nv('s_margem')); sal.aporte = nv('s_aporte'); sal.patr = nv('s_patr');
-  sal.classes.forEach((c,i) => { c.p = nv('s_p'+i); c.r = nv('s_r'+i); });
-  ls.set('sal', sal);
-  const somaP = sal.classes.reduce((a,c) => a + c.p, 0);
+  sal = {renda:nv('s_renda'), ini:nv('s_ini'), aporte:nv('s_aporte'), yld:nv('s_yield'),
+         margem:Math.min(90, Math.max(0, nv('s_margem'))), val:nv('s_val'), anos:Math.min(60, Math.max(1, Math.round(nv('s_anos')) || 1))};
+  ls.set('sal2', sal);
+  const yEf = sal.yld * (1 - sal.margem/100);                 // yield usado na conta (% a.a.)
   const anual = sal.renda * 12;
-  const rBruto = somaP > 0 ? sal.classes.reduce((a,c) => a + c.p/somaP*c.r, 0) : 0;
-  const rCons = rBruto * (1 - sal.margem/100);
-  const cap = rCons > 0 ? anual / (rCons/100) : null;
-  sal.classes.forEach((c,i) => {
-    const capc = cap != null && somaP > 0 ? cap * c.p/somaP : null;
-    $('s_c'+i).textContent = capc == null ? '—' : brl(capc);
-    $('s_m'+i).textContent = capc == null ? '—' : brl(capc * c.r/100 / 12);
-  });
-  // tempo até a meta, em reais de hoje, reinvestindo tudo
-  let meses = null;
-  if(cap != null){
-    const rm = Math.pow(1 + rCons/100, 1/12) - 1;
-    let p = sal.patr; let m = 0;
-    if(p >= cap) meses = 0;
-    else { while(m < 1200){ p = p*(1+rm) + sal.aporte; m++; if(p >= cap){ meses = m; break; } } }
-  }
-  const rendaAtualCons = rCons > 0 ? sal.patr * rCons/100 / 12 : 0;
-  const colchao = rBruto > 0 && cap != null ? cap * rBruto/100 / 12 - sal.renda : 0;
-  $('s_out').innerHTML = `
-    ${Math.abs(somaP - 100) > 0.01 ? `<p class="warn" style="margin:0 0 10px">Atenção: os pesos somam ${somaP.toFixed(0)}%, não 100%. Os cálculos usam os pesos proporcionais.</p>` : ''}
-    <div class="kpis">
-      <div class="it"><span>Renda anual alvo</span><b>${brl(anual)}</b><small>${brl(sal.renda)} × 12</small></div>
-      <div class="it"><span>Retorno líquido ponderado</span><b>${pct1(rBruto)}</b></div>
-      <div class="it"><span>Após margem de ${sal.margem.toString().replace('.',',')}%</span><b>${pct1(rCons)}</b><small>retorno conservador</small></div>
-      <div class="it"><span>Capital necessário</span><b class="total up">${cap == null ? '—' : brl(cap)}</b><small>${brl(anual)} ÷ ${pct1(rCons)}</small></div>
-      <div class="it"><span>Colchão de segurança</span><b>${brl(colchao)}/mês</b><small>renda acima da meta se o retorno informado se confirmar</small></div>
-      <div class="it"><span>Falta acumular</span><b>${cap == null ? '—' : brl(Math.max(0, cap - sal.patr))}</b><small>${cap ? pct1(Math.min(100, sal.patr/cap*100)) + ' do caminho' : ''}</small></div>
-      <div class="it"><span>Renda do patrimônio atual</span><b>${brl(rendaAtualCons)}/mês</b><small>no cenário conservador</small></div>
-      <div class="it"><span>Tempo até a meta</span><b>${cap == null ? '—' : tempoMeses(meses)}</b><small>aporte de ${brl(sal.aporte)}/mês, tudo reinvestido, em reais de hoje</small></div>
-    </div>
-    ${rendaCarteira > 0 ? `<p class="note" style="margin:12px 0 0">Sua carteira de ações hoje rende cerca de <b>${brl(rendaCarteira)}/mês</b> (proventos líquidos dos últimos 12 meses), ${sal.renda > 0 ? pct1(rendaCarteira/sal.renda*100) : '—'} da meta.</p>` : ''}`;
   const taxas = [4,5,6,7,8,9,10,12];
-  $('s_tab').innerHTML = '<thead><tr><th>Retorno líquido</th>' + taxas.map(r => `<th>${r}%</th>`).join('') + '</tr></thead><tbody><tr><td style="text-align:left">Capital necessário</td>' +
+  $('s_tab').innerHTML = '<thead><tr><th>Yield líquido</th>' + taxas.map(r => `<th>${r}%</th>`).join('') + '</tr></thead><tbody><tr><td style="text-align:left">Capital para ' + brl(sal.renda) + '/mês</td>' +
     taxas.map(r => `<td>${brl(anual / (r/100))}</td>`).join('') + '</tr></tbody>';
+  if(!(yEf > 0) || !(sal.renda > 0)){
+    $('s_cards').innerHTML = '<p class="warn" style="margin:0">Informe uma renda e um yield maiores que zero.</p>';
+    $('s_graf').innerHTML = ''; $('s_rows').innerHTML = ''; $('s_cen').innerHTML = ''; salSerie = null; return;
+  }
+  const g = (1 + yEf/100) * (1 + sal.val/100) - 1;              // crescimento anual real do patrimônio
+  const rm = Math.pow(1 + g, 1/12) - 1;
+  const alvo = anual / (yEf/100);
+  const horM = sal.anos * 12, maxM = 1200;
+
+  let b = sal.ini, inv = sal.ini, prov = 0;
+  let mAlvo = b >= alvo ? 0 : null, invAlvo = inv, provAlvo = 0;
+  const sb = [b], si = [inv], rows = [];
+  for(let m = 1; m <= maxM; m++){
+    const ant = b, rend = b * rm;
+    b = b + rend + sal.aporte; inv += sal.aporte; prov += rend;
+    let marca = false;
+    if(mAlvo === null && b >= alvo){ mAlvo = m; invAlvo = inv; provAlvo = prov; marca = true; }
+    if(m <= horM){
+      sb.push(b); si.push(inv);
+      const renda = b * yEf/100/12;
+      rows.push(`<tr class="${marca ? 'alvo' : ''}"><td>${m}${marca ? ' 🎯' : ''}</td><td>${brl(ant)}</td><td>${brl(rend)}</td><td>${brl(sal.aporte)}</td><td><b>${brl(b)}</b></td><td>${brl(renda)}</td><td>${pct1(renda/sal.renda*100)}</td></tr>`);
+    }
+    if(m >= horM && mAlvo !== null) break;
+  }
+  const bFim = sb[sb.length-1], iFim = si[si.length-1];
+  salSerie = {b:sb, i:si, yEf, renda:sal.renda};
+  $('s_graf').innerHTML = graficoSal(sb, si, alvo, mAlvo);
+  ligarGraficoSal();
+  $('s_rows').innerHTML = rows.join('');
+
+  const dentro = mAlvo !== null && mAlvo <= horM;
+  const colchao = alvo * sal.yld/100 / 12;
+  $('s_cards').innerHTML = `
+    <div class="it"><span>Capital-alvo</span><b class="total up">${brl(alvo)}</b><small>${brl(anual)} ÷ ${pct1(yEf)} (yield ${pct1(sal.yld)} após margem de ${String(sal.margem).replace('.',',')}%)</small></div>
+    <div class="it"><span>Tempo até a meta</span><b class="total">${fmtTempo(mAlvo)}</b><small>${mAlvo == null ? 'não chega em 100 anos com esses valores' : (mAlvo > 0 ? mAlvo + ' meses' : '') + (dentro ? '' : ' · além do horizonte de ' + sal.anos + ' anos')}</small></div>
+    <div class="it"><span>Investido do bolso até lá</span><b>${mAlvo == null ? '—' : brl(invAlvo)}</b><small>saldo inicial + aportes</small></div>
+    <div class="it"><span>Proventos reinvestidos até lá</span><b>${mAlvo == null ? '—' : brl(provAlvo)}</b><small>${mAlvo == null ? '' : pct1(provAlvo/alvo*100) + ' do capital-alvo veio dos proventos'}</small></div>
+    <div class="it"><span>Renda que o saldo inicial já gera</span><b>${brl(sal.ini * yEf/100/12)}/mês</b><small>${pct1(sal.ini * yEf/100/12 / sal.renda * 100)} da meta</small></div>
+    <div class="it"><span>Colchão de segurança</span><b>${brl(colchao - sal.renda)}/mês</b><small>a mais, se o yield de ${pct1(sal.yld)} se confirmar (total ${brl(colchao)})</small></div>
+    <div class="it"><span>Em ${sal.anos} ${sal.anos === 1 ? 'ano' : 'anos'}</span><b>${brl(bFim)}</b><small>${brl(bFim * yEf/100/12)}/mês · investido ${brl(iFim)}</small></div>
+    ${rendaCarteira > 0 ? `<div class="it"><span>Sua carteira hoje rende</span><b>${brl(rendaCarteira)}/mês</b><small>${pct1(rendaCarteira/sal.renda*100)} da meta (proventos líquidos 12m)</small></div>` : ''}`;
+
+  // cenários de aporte
+  const aportes = [...new Set([0, 250, 500, 1000, 2000, sal.aporte])].sort((a,c) => a - c);
+  $('s_cen').innerHTML = '<thead><tr><th>Aporte mensal</th><th>Tempo até a meta</th><th>Investido do bolso</th><th>Proventos reinvestidos</th></tr></thead><tbody>' +
+    aportes.map(a => {
+      const m = simSal(sal.ini, a, rm, alvo, maxM);
+      const iv = m == null ? null : sal.ini + a*m;
+      const pv = m == null ? null : alvo - iv;
+      const atual = a === sal.aporte;
+      return `<tr style="${atual ? 'background:#202a33;font-weight:700' : ''}"><td style="text-align:left">${a === 0 ? 'Sem novos aportes' : brl(a)}${atual ? ' (o seu)' : ''}</td><td>${fmtTempo(m)}</td><td>${iv == null ? '—' : brl(iv)}</td><td>${pv == null ? '—' : brl(pv)}</td></tr>`;
+    }).join('') + '</tbody>';
 }
 
 /* =================== HISTÓRICO E PANORAMA =================== */
