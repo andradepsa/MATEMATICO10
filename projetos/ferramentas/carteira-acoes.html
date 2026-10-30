@@ -3,23 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Carteira de Dividendos</title>
+<title>Minha Carteira de Ações</title>
 <style>
-  :root{--bg:#0f1419;--card:#1a2129;--line:#2a343f;--tx:#e6edf3;--mut:#8b98a5;--up:#26c281;--down:#ef5350;--ac:#4c9aff;--warn:#e8b339}
+  :root{--bg:#0f1419;--card:#1a2129;--line:#2a343f;--tx:#e6edf3;--mut:#8b98a5;--up:#26c281;--down:#ef5350;--ac:#4c9aff}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--tx);font-family:system-ui,Segoe UI,Arial,sans-serif;padding:16px}
-  .wrap{max-width:1100px;margin:0 auto}
+  .wrap{max-width:1000px;margin:0 auto}
   h1{font-size:22px;margin:0 0 14px}
   .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:14px}
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .between{justify-content:space-between}
-  input,select{background:var(--bg);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:15px}
-  input:focus,select:focus{outline:none;border-color:var(--ac)}
+  input{background:var(--bg);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:15px}
+  input:focus{outline:none;border-color:var(--ac)}
   button{background:var(--ac);color:#fff;border:0;border-radius:8px;padding:10px 16px;font-size:15px;cursor:pointer}
   button.sec{background:var(--line);color:var(--tx)}
   button.sm{padding:6px 12px;font-size:13px}
+  button.on{background:var(--ac);color:#fff}
   button.x{background:transparent;color:var(--mut);padding:4px 8px;font-size:18px}
   button.x:hover{color:var(--down)}
+  select{background:var(--bg);color:var(--tx);border:1px solid var(--line);border-radius:8px;padding:10px;font-size:14px}
+  td input.e{width:190px;padding:5px;font-size:13px}
   button.cp{background:transparent;color:var(--mut);padding:2px 6px;font-size:14px;border-radius:6px;vertical-align:middle}
   button.cp:hover{background:var(--line);color:var(--tx)}
   #ticker{text-transform:uppercase;width:130px}
@@ -27,31 +29,23 @@
   #pm{width:140px}
   #dc,td input.d{width:140px;color-scheme:dark}
   td input.d{padding:5px;font-size:13px}
-  #token{flex:1;min-width:200px}
   label.dl{font-size:12px;color:var(--mut);display:flex;align-items:center;gap:6px}
+  td input.p{width:90px;padding:5px;text-align:right}
+  #token{flex:1;min-width:200px}
   table{width:100%;border-collapse:collapse}
   th,td{padding:10px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
   th:first-child,td:first-child{text-align:left}
   th{color:var(--mut);font-size:12px;text-transform:uppercase;font-weight:600}
   tbody tr.item{cursor:pointer}
   tbody tr.item:hover{background:#202a33}
-  .up{color:var(--up)}.down{color:var(--down)}.mut{color:var(--mut)}.warn{color:var(--warn)}
+  .up{color:var(--up)}.down{color:var(--down)}.mut{color:var(--mut)}
   td input.q{width:80px;padding:5px;text-align:right}
-  td input.p{width:90px;padding:5px;text-align:right}
-  td input.e{width:190px;padding:5px;font-size:13px}
   .tick{font-weight:700}
   .nome{font-size:12px;color:var(--mut);font-weight:400;display:block;max-width:180px;overflow:hidden;text-overflow:ellipsis}
   .total{font-size:20px;font-weight:700}
   .scroll{overflow-x:auto}
   small,.note{color:var(--mut);font-size:12px}
   #msg{color:var(--down);font-size:14px;min-height:18px;margin-top:8px}
-  .bar{height:10px;background:var(--bg);border:1px solid var(--line);border-radius:6px;overflow:hidden;margin-top:6px}
-  .bar>div{height:100%;background:var(--up)}
-  .kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
-  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 4px}
-  .tabs button{background:var(--line);color:var(--tx);padding:7px 14px;font-size:14px}
-  .tabs button.on{background:var(--ac);color:#fff}
-  button.sm.on{background:var(--ac);color:#fff}
   /* modal */
   #modal{position:fixed;inset:0;background:#000a;display:none;align-items:center;justify-content:center;padding:10px;z-index:9}
   #modal .box{background:var(--card);border:1px solid var(--line);border-radius:14px;max-width:960px;width:100%;max-height:94vh;overflow:auto;padding:18px}
@@ -61,6 +55,9 @@
   .it b{font-size:15px;word-break:break-word}
   .it small{display:block}
   .big{font-size:30px;font-weight:700}
+  .tabs{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 4px}
+  .tabs button{background:var(--line);color:var(--tx);padding:7px 14px;font-size:14px}
+  .tabs button.on{background:var(--ac);color:#fff}
   svg.chart{width:100%;height:300px;margin-top:10px;background:var(--bg);border-radius:8px;touch-action:none}
   #hv{min-height:20px;font-size:13px;margin-top:10px;color:var(--tx)}
   .tbl{max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:8px;margin-top:10px}
@@ -68,79 +65,66 @@
   .tbl td,.tbl th{padding:7px 8px;font-size:13px}
   p.txt{line-height:1.5;font-size:14px;color:var(--tx);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:12px;margin:12px 0 0}
   h3{font-size:14px;margin:18px 0 0;color:var(--mut);text-transform:uppercase;letter-spacing:.04em}
-  h2{font-size:17px;margin:0 0 8px}
-  .inp{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
-  .inp label{display:block;font-size:12px;color:var(--mut)}
-  .inp input{width:100%;margin-top:4px}
-  tr.alvo{background:rgba(38,194,129,.18);font-weight:700}
-  .sal .tbl td,.sal .tbl th{text-align:right}
-  .sal .tbl td:first-child,.sal .tbl th:first-child{text-align:center}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>💰 Carteira de Dividendos</h1>
+  <h1>📈 Minha Carteira de Ações</h1>
   <div class="tabs" style="margin:0 0 14px">
     <button id="nav-cart" class="on" onclick="tela('cart')">Minha carteira</button>
-    <button id="nav-per" onclick="tela('per')">Setores perenes (BESST)</button>
-    <button id="nav-sal" onclick="tela('sal')">Salário perpétuo</button>
+    <button id="nav-per" onclick="tela('per')">Setores perenes · maiores quedas</button>
   </div>
-
-  <!-- ===================== TELA 1: CARTEIRA ===================== -->
   <div id="v-cart">
-    <div class="card">
-      <div class="row">
-        <input id="ticker" placeholder="Ex: BBAS3" maxlength="10">
-        <input id="qtd" type="number" min="0" step="1" placeholder="Quantidade">
-        <input id="pm" type="number" min="0" step="0.01" placeholder="Preço que paguei">
-        <label class="dl">Data da compra <input id="dc" type="date"></label>
-        <button onclick="adicionar()">Adicionar</button>
-        <button class="sec" onclick="atualizar(true)">↻ Atualizar</button>
-      </div>
-      <div id="msg"></div>
-      <div class="row" style="margin-top:8px">
-        <input id="token" placeholder="Token brapi.dev (opcional – libera todas as ações)" onchange="salvarToken()">
-      </div>
-      <div class="note" style="margin-top:6px">
-        Sem token, só funcionam PETR4, VALE3, MGLU3 e ITUB4. Crie um token grátis em brapi.dev.
-        <span id="hora"></span>
-      </div>
-    </div>
 
-    <div class="card">
-      <div class="kpis">
-        <div class="it"><span>Valor da carteira</span><b id="total" class="total">R$ 0,00</b></div>
-        <div class="it"><span>Variação do dia</span><b id="totalVar">—</b></div>
-        <div class="it"><span>Total investido</span><b id="totalCusto">—</b></div>
-        <div class="it"><span>Lucro / prejuízo</span><b id="totalLucro">—</b></div>
-        <div class="it"><span>Renda mensal estimada</span><b id="rendaMes" class="total">—</b><small id="rendaNota"></small></div>
-        <div class="it"><span>Yield sobre o custo</span><b id="yocTotal">—</b><small>proventos líquidos 12m ÷ custo</small></div>
-      </div>
-      <div class="row between" style="margin-top:14px">
-        <span class="mut">Meta de renda mensal (R$)
-          <input id="meta" type="number" min="0" step="100" style="width:110px;padding:6px;margin-left:6px" onchange="salvarMeta()"></span>
-        <span id="metaTxt" class="mut"></span>
-      </div>
-      <div class="bar"><div id="metaBar" style="width:0%"></div></div>
-      <div class="note" style="margin-top:8px">
-        Renda estimada = proventos <b>líquidos</b> pagos nos últimos 12 meses por ação × sua quantidade ÷ 12 (JCP com 15% descontado na fonte).
-        É o passado, não uma promessa: dividendo pode cair em ano ruim.
-      </div>
+  <div class="card">
+    <div class="row">
+      <input id="ticker" placeholder="Ex: PETR4" maxlength="10">
+      <input id="qtd" type="number" min="0" step="1" placeholder="Quantidade">
+      <input id="pm" type="number" min="0" step="0.01" placeholder="Preço que paguei">
+      <label class="dl">Data da compra <input id="dc" type="date"></label>
+      <button onclick="adicionar()">Adicionar</button>
+      <button class="sec" onclick="atualizar()">↻ Atualizar</button>
     </div>
-
-    <div class="card scroll">
-      <table>
-        <thead><tr>
-          <th>Ação</th><th>Qtd</th><th>Data da compra</th><th>Preço pago</th><th>Cotação</th><th>Dia</th>
-          <th>Valor total</th><th>Lucro / Prejuízo</th><th>Yield s/ custo</th><th>Renda / mês</th><th></th>
-        </tr></thead>
-        <tbody id="lista"><tr><td colspan="11" class="mut" style="text-align:center">Nenhuma ação ainda. Adicione acima.</td></tr></tbody>
-      </table>
-      <div class="note" style="margin-top:8px">Clique numa ação para ver histórico, dividendos e fundamentos. Quantidade, data e preço pago podem ser editados direto na lista.</div>
+    <div id="msg"></div>
+    <div class="row" style="margin-top:8px">
+      <input id="token" placeholder="Token brapi.dev (opcional – libera todas as ações)" onchange="salvarToken()">
+    </div>
+    <div class="note" style="margin-top:6px">
+      Sem token, só funcionam PETR4, VALE3, MGLU3 e ITUB4. Crie um token grátis em brapi.dev.
+      <span id="hora"></span>
     </div>
   </div>
 
-  <!-- ===================== TELA 2: SETORES PERENES ===================== -->
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <span class="mut">Valor total da carteira</span>
+      <span class="total" id="total">R$ 0,00</span>
+    </div>
+    <div class="row" style="justify-content:space-between">
+      <span class="mut">Variação do dia</span>
+      <span id="totalVar">—</span>
+    </div>
+    <div class="row" style="justify-content:space-between">
+      <span class="mut">Total investido (preço pago)</span>
+      <span id="totalCusto">—</span>
+    </div>
+    <div class="row" style="justify-content:space-between">
+      <span class="mut">Lucro / prejuízo total</span>
+      <span id="totalLucro">—</span>
+    </div>
+  </div>
+
+  <div class="card scroll">
+    <table>
+      <thead><tr>
+        <th>Ação</th><th>Qtd</th><th>Data da compra</th><th>Preço pago</th><th>Cotação</th><th>Dia</th><th>Valor total</th><th>Lucro / Prejuízo</th><th></th>
+      </tr></thead>
+      <tbody id="lista"><tr><td colspan="9" class="mut" style="text-align:center">Nenhuma ação ainda. Adicione acima.</td></tr></tbody>
+    </table>
+    <div class="note" style="margin-top:8px">Clique numa ação para ver o histórico completo e todas as informações. Quantidade, data e preço pago podem ser editados direto na lista.</div>
+  </div>
+  </div>
+
   <div id="v-per" style="display:none">
     <div class="card">
       <div class="row">
@@ -149,95 +133,22 @@
         <select id="ford" onchange="renderPer()">
           <option value="sem">Ordenar: maior queda na semana</option>
           <option value="dia">Ordenar: maior queda no dia</option>
-          <option value="yld">Ordenar: maior yield 12m</option>
         </select>
-        <label class="dl">Yield mín. % <input id="fy" type="number" min="0" step="0.5" style="width:80px;padding:6px" onchange="renderPer()"></label>
         <label class="dl"><input type="checkbox" id="fq" onchange="renderPer()"> só quedas</label>
         <span class="note" id="perinfo"></span>
       </div>
-      <div class="row" style="margin-top:10px">
-        <input id="addt" placeholder="Ação extra (ex: KLBN11)" maxlength="10" style="width:190px;text-transform:uppercase">
-        <select id="adds"></select>
-        <button class="sec sm" onclick="addExtra()">+ Incluir na lista</button>
-      </div>
       <div class="note" style="margin-top:8px">
-        <b>BESST</b> = Bancos, Energia, Saneamento, Seguros, Telecom: setores que as pessoas continuam usando em qualquer crise.
-        Setor perene não basta: a empresa também precisa pagar proventos de verdade — por isso a coluna <b>Yield 12m</b> (proventos líquidos ÷ preço).
-        "Semana anterior" = último fechamento até o mesmo dia da semana passada; "Semana atual" = cotação de agora.
+        Setores perenes: Bancos, Energia elétrica, Saneamento, Seguros e Telecomunicações. "Semana anterior" é o último fechamento até o mesmo dia da semana passada; "Semana atual" é a cotação de agora.
       </div>
     </div>
     <div class="card scroll">
       <table>
         <thead><tr>
-          <th>Setor</th><th>Ação</th><th>Semana anterior</th><th>Semana atual</th><th>Queda informada</th><th>No dia</th><th>Yield 12m</th><th>Estados atendidos</th><th></th>
+          <th>Setor</th><th>Ação</th><th>Semana anterior</th><th>Semana atual</th><th>Queda informada</th><th>No dia</th><th>Estados atendidos</th>
         </tr></thead>
-        <tbody id="per"><tr><td colspan="9" class="mut" style="text-align:center">Clique em "Buscar cotações".</td></tr></tbody>
+        <tbody id="per"><tr><td colspan="7" class="mut" style="text-align:center">Clique em "Buscar cotações".</td></tr></tbody>
       </table>
       <div class="note" id="perrodape" style="margin-top:8px"></div>
-    </div>
-  </div>
-
-  <!-- ===================== TELA 3: SALÁRIO PERPÉTUO ===================== -->
-  <div id="v-sal" class="sal" style="display:none">
-    <div class="card">
-      <h2>Quanto tempo até viver de renda? (conta do salário perpétuo)</h2>
-      <div class="note" style="margin-bottom:12px">
-        <b>Capital-alvo = (renda mensal × 12) ÷ (yield líquido × (1 − margem de segurança))</b>. Todo mês os proventos são reinvestidos e você soma o aporte,
-        até o patrimônio chegar no capital-alvo. Tudo em reais de hoje: assume que cotas e proventos acompanham a inflação.
-        O yield inicial (7,9%) é o citado no vídeo — troque pelo seu.
-      </div>
-      <div class="inp">
-        <label>Renda mensal desejada (R$)<input id="s_renda" type="number" min="0" step="100" oninput="calcSal()"></label>
-        <label>Saldo inicial (R$)<input id="s_ini" type="number" min="0" step="100" oninput="calcSal()"></label>
-        <label>Aporte mensal (R$)<input id="s_aporte" type="number" min="0" step="50" oninput="calcSal()"></label>
-        <label>Yield líquido dos proventos (% a.a.)<input id="s_yield" type="number" min="0" step="0.1" oninput="calcSal()"></label>
-        <label>Margem de segurança (%)<input id="s_margem" type="number" min="0" max="90" step="1" oninput="calcSal()"></label>
-        <label>Valorização real das cotas (% a.a.)<input id="s_val" type="number" step="0.1" oninput="calcSal()"></label>
-        <label>Horizonte (anos)<input id="s_anos" type="number" min="1" max="60" step="1" oninput="calcSal()"></label>
-      </div>
-      <div class="row" style="margin-top:10px">
-        <button class="sec sm" onclick="usarCarteira()">saldo inicial = valor da minha carteira</button>
-        <button class="sec sm" onclick="usarYield()">yield = o da minha carteira</button>
-      </div>
-      <div class="kpis" id="s_cards" style="margin-top:14px"></div>
-    </div>
-
-    <div class="card">
-      <h3 style="margin-top:0">Curva de crescimento</h3>
-      <div id="s_graf"></div>
-      <div id="s_hv" class="note" style="min-height:20px;margin-top:8px">Passe o mouse no gráfico para ver cada mês.</div>
-      <div class="note"><span class="up">▬</span> patrimônio com proventos reinvestidos · <span style="color:var(--ac)">╌</span> total investido do bolso · <span class="warn">╌</span> capital-alvo</div>
-    </div>
-
-    <div class="card scroll">
-      <h3 style="margin-top:0">E se eu aportar outro valor por mês?</h3>
-      <table id="s_cen"></table>
-    </div>
-
-    <div class="card">
-      <h3 style="margin-top:0">Evolução mês a mês</h3>
-      <div class="tbl"><table>
-        <thead><tr><th>Mês</th><th>Saldo anterior</th><th>Proventos reinvestidos</th><th>Aporte</th><th>Saldo final</th><th>Renda/mês</th><th>% da meta</th></tr></thead>
-        <tbody id="s_rows"></tbody>
-      </table></div>
-      <div class="note" style="margin-top:8px">🎯 = mês em que o patrimônio atinge o capital-alvo. "Renda/mês" usa o yield já com a margem de segurança.</div>
-    </div>
-
-    <div class="card scroll">
-      <h3 style="margin-top:0">Capital necessário por yield líquido (sem margem)</h3>
-      <table id="s_tab"></table>
-    </div>
-
-    <div class="card">
-      <h3 style="margin-top:0">Pontos de atenção</h3>
-      <ul class="note" style="line-height:1.6;font-size:13px;padding-left:18px">
-        <li><b>Imposto:</b> desde 2026 (Lei 15.270/2025) há retenção de 10% quando uma única empresa paga mais de R$ 50 mil no mês a uma pessoa física, e imposto mínimo para renda anual acima de R$ 600 mil. Abaixo disso, dividendos seguem isentos. JCP sofre 15% na fonte sempre.</li>
-        <li><b>FIIs:</b> rendimentos são isentos para pessoa física só se os requisitos legais forem cumpridos (ex.: menos de 10% das cotas, fundo com 50+ cotistas, cotas negociadas em bolsa). Ganho na venda da cota paga 20%.</li>
-        <li><b>Retorno passado não é contrato:</b> um ano excepcional não se repete. Por isso a margem de segurança.</li>
-        <li><b>Preço da cota ≠ renda:</b> a cotação oscila mesmo que o provento continue igual.</li>
-        <li><b>Premissa de reais de hoje:</b> só vale se os proventos crescerem pelo menos com a inflação. Se não, o poder de compra da renda cai com o tempo.</li>
-        <li>Não é recomendação de investimento.</li>
-      </ul>
     </div>
   </div>
 </div>
@@ -246,32 +157,21 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const ls = {
-  get(k, d){ try{ const v = localStorage.getItem(k); return v==null ? d : JSON.parse(v); }catch(e){ return d; } },
-  set(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
-};
-let carteira = ls.get('carteira', []);       // [{t, q, p, d}]
-let dados = {};                               // ticker -> cotação
-let divs = {};                                // ticker -> {bruto, liq, n} | null (sem dados)
-let token = ''; try{ token = localStorage.getItem('brapi_token') || ''; }catch(e){}
-if(!token) token = 'iiQogb4AeoxtBvmXnfEkJK';
+let carteira = JSON.parse(localStorage.getItem('carteira') || '[]'); // [{t, q}]
+let dados = {};   // ticker -> dados da cotação
+let token = localStorage.getItem('brapi_token') || 'iiQogb4AeoxtBvmXnfEkJK';
 $('token').value = token;
-$('meta').value = ls.get('meta', 5000);
-let rendaCarteira = 0, valorCarteira = 0;
 
 const brl = v => (v==null||isNaN(v)) ? '—' : v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
 const num = v => (v==null||isNaN(v)) ? '—' : v.toLocaleString('pt-BR');
 const pct = v => (v==null||isNaN(v)) ? '—' : (v>=0?'+':'')+v.toFixed(2).replace('.',',')+'%';
-const pct1 = v => (v==null||isNaN(v)) ? '—' : v.toFixed(2).replace('.',',')+'%';
 const cls = v => v>0 ? 'up' : v<0 ? 'down' : 'mut';
 const seta = v => v>0 ? '▲' : v<0 ? '▼' : '';
 const dt = ms => new Date(ms).toLocaleDateString('pt-BR');
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-const nv = id => parseFloat(String($(id).value).replace(',','.')) || 0;
 
-function salvar(){ ls.set('carteira', carteira); }
-function salvarToken(){ token = $('token').value.trim(); try{ localStorage.setItem('brapi_token', token); }catch(e){} atualizar(true); }
-function salvarMeta(){ ls.set('meta', nv('meta')); render(); }
+function salvar(){ localStorage.setItem('carteira', JSON.stringify(carteira)); }
+function salvarToken(){ token = $('token').value.trim(); localStorage.setItem('brapi_token', token); atualizar(); }
 function msg(t){ $('msg').textContent = t || ''; }
 
 async function buscar(t, extra){
@@ -283,31 +183,6 @@ async function buscar(t, extra){
   return j.results[0];
 }
 
-/* ---------- proventos: últimos 12 meses (pagos), JCP com 15% retido ---------- */
-function calcDivs(dv){
-  const cash = (dv && dv.cashDividends) || [];
-  const agora = Date.now(), lim = agora - 365*864e5;
-  let bruto = 0, liq = 0, n = 0;
-  for(const x of cash){
-    const t = new Date(x.paymentDate || x.lastDatePrior || 0).getTime();
-    if(!t || t < lim || t > agora || !x.rate) continue;
-    const jcp = /jcp|juros/i.test(x.label || '');
-    bruto += x.rate; liq += jcp ? x.rate*0.85 : x.rate; n++;
-  }
-  return {bruto, liq, n};
-}
-const divsEmCurso = {};
-function garantirDivs(t){
-  if(t in divs) return Promise.resolve();
-  if(divsEmCurso[t]) return divsEmCurso[t];
-  divsEmCurso[t] = buscar(t, {dividends:'true'})
-    .then(d => { divs[t] = d.dividendsData ? calcDivs(d.dividendsData) : null; })
-    .catch(() => { divs[t] = null; })
-    .then(() => { delete divsEmCurso[t]; });
-  return divsEmCurso[t];
-}
-
-/* ---------- carteira ---------- */
 async function adicionar(){
   const t = $('ticker').value.trim().toUpperCase();
   const q = parseFloat($('qtd').value) || 0;
@@ -316,29 +191,26 @@ async function adicionar(){
   if(!t){ msg('Digite o código da ação.'); return; }
   if(!dc){ msg('Informe a data da compra.'); return; }
   msg('Buscando ' + t + '...');
-  try{ dados[t] = await buscar(t); }
-  catch(e){ msg('Não consegui adicionar ' + t + ': ' + e.message); return; }
+  try{
+    dados[t] = await buscar(t);
+  }catch(e){ msg('Não consegui adicionar ' + t + ': ' + e.message); return; }
   const ex = carteira.find(x => x.t === t);
   if(ex){ ex.q = q; ex.d = dc; if(!isNaN(pp)) ex.p = pp; } else carteira.push({t, q, p: isNaN(pp) ? null : pp, d: dc});
   salvar(); msg('');
   $('ticker').value=''; $('qtd').value=''; $('pm').value=''; $('dc').value='';
   render();
-  garantirDivs(t).then(render);
 }
-function remover(t, ev){ ev.stopPropagation(); carteira = carteira.filter(x => x.t !== t); salvar(); render(); }
-function mudarQtd(t, v){ const c = carteira.find(x => x.t === t); c.q = parseFloat(v) || 0; salvar(); render(); }
-function mudarData(t, v){ carteira.find(x => x.t === t).d = v || null; salvar(); render(); }
-function mudarPreco(t, v){
+
+function remover(t, ev){
+  ev.stopPropagation();
+  carteira = carteira.filter(x => x.t !== t);
+  salvar(); render();
+}
+
+function mudarQtd(t, v){
   const c = carteira.find(x => x.t === t);
-  const n = parseFloat(String(v).replace(',','.'));
-  c.p = isNaN(n) ? null : n; salvar(); render();
-}
-function dataBR(s){ return s ? s.split('-').reverse().join('/') : '—'; }
-function diasDesde(s){ return s ? Math.floor((Date.now() - new Date(s + 'T12:00:00').getTime())/864e5) : null; }
-function lucroHtml(c, preco){
-  if(c.p == null || !c.q) return '<span class="mut">—</span>';
-  const l = (preco - c.p) * c.q, p = (preco/c.p - 1) * 100;
-  return `<span class="${cls(l)}">${seta(l)} ${brl(l)}<br><small>${pct(p)}</small></span>`;
+  c.q = parseFloat(v) || 0;
+  salvar(); render();
 }
 function copiar(t, ev, btn){
   ev.stopPropagation();
@@ -351,18 +223,32 @@ function copiar(t, ev, btn){
   };
   if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(t).then(ok, alt); else alt();
 }
+function mudarData(t, v){
+  carteira.find(x => x.t === t).d = v || null;
+  salvar(); render();
+}
+function dataBR(s){ return s ? s.split('-').reverse().join('/') : '—'; }
+function diasDesde(s){ return s ? Math.floor((Date.now() - new Date(s + 'T12:00:00').getTime())/864e5) : null; }
+function mudarPreco(t, v){
+  const c = carteira.find(x => x.t === t);
+  const n = parseFloat(String(v).replace(',','.'));
+  c.p = isNaN(n) ? null : n;
+  salvar(); render();
+}
+function lucroHtml(c, preco){
+  if(c.p == null || !c.q) return '<span class="mut">—</span>';
+  const l = (preco - c.p) * c.q, p = (preco/c.p - 1) * 100;
+  return `<span class="${cls(l)}">${seta(l)} ${brl(l)}<br><small>${pct(p)}</small></span>`;
+}
 
-async function atualizar(forca){
+async function atualizar(){
   if(!carteira.length) return;
-  if(forca) divs = {};
   msg('Atualizando...');
   let erros = [];
   await Promise.all(carteira.map(async c => {
     try{ const d = await buscar(c.t); dados[c.t] = Object.assign(dados[c.t] || {}, d); }
     catch(e){ erros.push(c.t); }
   }));
-  render();
-  await Promise.all(carteira.map(c => garantirDivs(c.t)));
   msg(erros.length ? 'Falha ao atualizar: ' + erros.join(', ') + ' (talvez precise do token)' : '');
   $('hora').textContent = ' · Atualizado às ' + new Date().toLocaleTimeString('pt-BR');
   render();
@@ -371,114 +257,74 @@ async function atualizar(forca){
 function render(){
   const tb = $('lista');
   if(!carteira.length){
-    tb.innerHTML = '<tr><td colspan="11" class="mut" style="text-align:center">Nenhuma ação ainda. Adicione acima.</td></tr>';
-    ['total','totalVar','totalCusto','totalLucro','rendaMes','yocTotal'].forEach(i => $(i).textContent = i==='total' ? brl(0) : '—');
-    $('rendaNota').textContent = ''; rendaCarteira = 0; valorCarteira = 0; metaBarra(0); return;
+    tb.innerHTML = '<tr><td colspan="9" class="mut" style="text-align:center">Nenhuma ação ainda. Adicione acima.</td></tr>';
+    $('total').textContent = brl(0); $('totalVar').textContent='—'; $('totalCusto').textContent='—'; $('totalLucro').textContent='—'; return;
   }
-  let total = 0, varDia = 0, custo = 0, valComPreco = 0, renda = 0, semDiv = 0, custoComDiv = 0, divCusto = 0;
+  let total = 0, varDia = 0, custo = 0, valComPreco = 0;
   tb.innerHTML = carteira.map(c => {
     const d = dados[c.t];
-    if(!d) return `<tr class="item" onclick="panorama('${c.t}')"><td class="tick">${c.t}</td><td>${num(c.q)}</td><td colspan="8" class="mut">carregando...</td><td></td></tr>`;
+    if(!d) return `<tr class="item" onclick="panorama('${c.t}')"><td class="tick">${c.t}</td><td>${num(c.q)}</td><td colspan="6" class="mut">carregando...</td><td></td></tr>`;
     const preco = d.regularMarketPrice, ch = d.regularMarketChangePercent, chv = d.regularMarketChange;
     const val = preco * c.q;
     total += val; varDia += (chv||0) * c.q;
     if(c.p != null && c.q){ custo += c.p * c.q; valComPreco += val; }
-    const dv = divs[c.t];
-    let yoc = null, rm = null;
-    if(dv){
-      rm = dv.liq * c.q / 12; renda += rm;
-      if(c.p){ yoc = dv.liq / c.p * 100; custoComDiv += c.p * c.q; divCusto += dv.liq * c.q; }
-    } else if(c.t in divs) semDiv++;
-    const hora = d.regularMarketTime ? new Date(d.regularMarketTime).toLocaleString('pt-BR') : '';
     return `<tr class="item" onclick="panorama('${c.t}')">
       <td class="tick">${c.t} <button class="cp" title="Copiar nome da ação" onclick="copiar('${c.t}',event,this)">📋</button><span class="nome">${esc(d.shortName || d.longName || '')}</span></td>
       <td><input class="q" type="number" min="0" value="${c.q}" onclick="event.stopPropagation()" onchange="mudarQtd('${c.t}',this.value)"></td>
-      <td><input class="d" type="date" value="${c.d || ''}" onclick="event.stopPropagation()" onchange="mudarData('${c.t}',this.value)"></td>
+<td><input class="d" type="date" value="${c.d || ''}" onclick="event.stopPropagation()" onchange="mudarData('${c.t}',this.value)"></td>
       <td><input class="p" type="number" min="0" step="0.01" value="${c.p ?? ''}" placeholder="R$" onclick="event.stopPropagation()" onchange="mudarPreco('${c.t}',this.value)"></td>
-      <td title="${hora ? 'Cotação de ' + hora : ''}">${brl(preco)}</td>
+      <td>${brl(preco)}</td>
       <td class="${cls(ch)}">${seta(ch)} ${pct(ch)}</td>
       <td><b>${brl(val)}</b></td>
       <td>${lucroHtml(c, preco)}</td>
-      <td title="${dv ? 'Proventos líquidos 12m: ' + brl(dv.liq) + '/ação (' + dv.n + ' pagamentos)' : ''}">${dv ? (yoc==null ? '<span class="mut">—</span>' : '<b>' + pct1(yoc) + '</b>') : '<span class="mut">' + ((c.t in divs) ? 'sem dados' : '...') + '</span>'}</td>
-      <td>${rm==null ? '<span class="mut">—</span>' : brl(rm)}</td>
       <td><button class="x" title="Remover" onclick="remover('${c.t}',event)">×</button></td>
     </tr>`;
   }).join('');
-  valorCarteira = total; rendaCarteira = renda;
   $('total').textContent = brl(total);
-  const base = total - varDia, p = base ? varDia/base*100 : 0;
+  const base = total - varDia;
+  const p = base ? varDia/base*100 : 0;
   $('totalVar').innerHTML = `<span class="${cls(varDia)}">${seta(varDia)} ${brl(varDia)} (${pct(p)})</span>`;
   if(custo > 0){
     const l = valComPreco - custo;
     $('totalCusto').textContent = brl(custo);
     $('totalLucro').innerHTML = `<span class="${cls(l)}">${seta(l)} ${brl(l)} (${pct(l/custo*100)})</span>`;
   } else { $('totalCusto').textContent = '—'; $('totalLucro').textContent = '— (informe o preço pago)'; }
-  $('rendaMes').textContent = brl(renda);
-  $('rendaNota').textContent = semDiv ? semDiv + ' ação(ões) sem dados de proventos' : '';
-  $('yocTotal').textContent = custoComDiv > 0 ? pct1(divCusto / custoComDiv * 100) : '—';
-  metaBarra(renda);
-}
-function metaBarra(renda){
-  const meta = nv('meta');
-  const pc = meta > 0 ? renda / meta * 100 : 0;
-  $('metaBar').style.width = Math.min(100, pc).toFixed(1) + '%';
-  $('metaTxt').textContent = meta > 0 ? `${brl(renda)} de ${brl(meta)} por mês (${pc.toFixed(1).replace('.',',')}% da meta)` : '';
 }
 
-/* =================== TELAS =================== */
-function tela(v){
-  ['cart','per','sal'].forEach(k => {
-    $('v-'+k).style.display = k===v ? '' : 'none';
-    $('nav-'+k).className = k===v ? 'on' : '';
-  });
-  if(v==='per'){ montarSetores(); carregarPerenes(false); }
-  if(v==='sal'){ calcSal(); }
-}
-
-/* =================== SETORES PERENES (BESST) =================== */
+/* =================== SETORES PERENES =================== */
 const PERENES = {
   'Bancos': ['ITUB4','BBDC4','BBAS3','SANB11','BPAC11'],
-  'Energia elétrica': ['TAEE11','ISAE4','CPLE6','CMIG4','EQTL3','NEOE3','ENGI11','CPFE3','EGIE3','AURE3'],
+  'Energia elétrica': ['CPLE6','CMIG4','EQTL3','NEOE3','ENGI11','CPFE3','EGIE3','TAEE11'],
   'Saneamento': ['SBSP3','SAPR11','CSMG3'],
   'Seguros': ['BBSE3','CXSE3','PSSA3'],
   'Telecomunicações': ['VIVT3','TIMS3']
 };
-// Estados atendidos: informação fixa e NÃO oficial (a brapi não fornece). Edite na tela; confira no site de RI.
+// Estados atendidos (informação fixa, editável na tela; confirme nos sites de RI das empresas)
 const ESTADOS = {
   ITUB4:'Nacional', BBDC4:'Nacional', BBAS3:'Nacional', SANB11:'Nacional', BPAC11:'Nacional',
-  TAEE11:'Transmissão (vários estados)', ISAE4:'Transmissão (vários estados)', CPLE6:'PR', CMIG4:'MG',
-  EQTL3:'MA, PA, PI, AL, RS, AP', NEOE3:'BA, PE, RN, SP, MS, DF', ENGI11:'MG, RJ, SE, PB, MT, MS, TO, RO, AC, SP, PR',
-  CPFE3:'SP, RS, PR, MG', EGIE3:'Geração (sem distribuição)', AURE3:'Geração e comercialização',
+  CPLE6:'PR', CMIG4:'MG', EQTL3:'MA, PA, PI, AL, RS, AP',
+  NEOE3:'BA, PE, RN, SP, MS, DF', ENGI11:'MG, RJ, SE, PB, MT, MS, TO, RO, AC, SP, PR',
+  CPFE3:'SP, RS, PR, MG', EGIE3:'Geração (sem distribuição)', TAEE11:'Transmissão',
   SBSP3:'SP', SAPR11:'PR', CSMG3:'MG',
   BBSE3:'Nacional', CXSE3:'Nacional', PSSA3:'Nacional',
   VIVT3:'Nacional', TIMS3:'Nacional'
 };
-let estUser = ls.get('estados', {});
-let perExtra = ls.get('perExtra', {});          // {ticker: setor}
+let estUser = JSON.parse(localStorage.getItem('estados') || '{}');
 let per = {}, perCarregando = false;
 const estadosDe = t => estUser[t] ?? ESTADOS[t] ?? '';
-function mudarEstados(t, v){ estUser[t] = v; ls.set('estados', estUser); }
-function setoresLista(){ const s = Object.keys(PERENES); if(Object.keys(perExtra).some(t => !PERENES[perExtra[t]])) s.push('Outros'); return s; }
-function todosPer(){
-  const l = Object.entries(PERENES).flatMap(([s,ts]) => ts.map(t => [s,t]));
-  for(const [t,s] of Object.entries(perExtra)) if(!l.some(x => x[1]===t)) l.push([PERENES[s] ? s : 'Outros', t]);
-  return l;
+function mudarEstados(t, v){ estUser[t] = v; localStorage.setItem('estados', JSON.stringify(estUser)); }
+
+function tela(v){
+  $('v-cart').style.display = v==='cart' ? '' : 'none';
+  $('v-per').style.display = v==='per' ? '' : 'none';
+  $('nav-cart').className = v==='cart' ? 'on' : '';
+  $('nav-per').className = v==='per' ? 'on' : '';
+  if(v==='per'){ iniciarFiltroSetor(); carregarPerenes(false); }
 }
-function montarSetores(){
-  const f = $('fsetor'), a = $('adds'), vf = f.value;
-  f.innerHTML = '<option value="">Todos os setores</option>' + setoresLista().map(k => `<option value="${k}">${k}</option>`).join('');
-  if(vf) f.value = vf;
-  a.innerHTML = Object.keys(PERENES).concat(['Outros']).map(k => `<option value="${k}">${k}</option>`).join('');
-}
-function addExtra(){
-  const t = $('addt').value.trim().toUpperCase();
-  if(!t) return;
-  if(todosPer().some(x => x[1]===t)){ $('perrodape').textContent = t + ' já está na lista.'; return; }
-  perExtra[t] = $('adds').value; ls.set('perExtra', perExtra);
-  $('addt').value = ''; montarSetores(); carregarPerenes(true);
-}
-function removerExtra(t, ev){
-  ev.stopPropagation(); delete perExtra[t]; ls.set('perExtra', perExtra); delete per[t]; montarSetores(); renderPer();
+function iniciarFiltroSetor(){
+  const s = $('fsetor');
+  if(s.options && s.options.length) return;
+  s.innerHTML = '<option value="">Todos os setores</option>' + Object.keys(PERENES).map(k => `<option value="${k}">${k}</option>`).join('');
 }
 
 function calcPer(s, t, d){
@@ -488,25 +334,22 @@ function calcPer(s, t, d){
   for(const x of h){ if(x.date <= alvo) ant = x; }
   if(!ant && h.length) ant = h[0];
   const atual = d.regularMarketPrice;
-  const dv = d.dividendsData ? calcDivs(d.dividendsData) : null;
-  divs[t] = dv;
   return {s, t, nome:d.shortName || '', atual, ant: ant ? ant.close : null, dataAnt: ant ? ant.date*1000 : null,
-          q: ant ? (atual/ant.close - 1)*100 : null, dia: d.regularMarketChangePercent,
-          yld: dv && atual ? dv.liq/atual*100 : null};
+          q: ant ? (atual/ant.close - 1)*100 : null, dia: d.regularMarketChangePercent};
 }
 
 async function carregarPerenes(forca){
   if(perCarregando) return;
   if(!forca && Object.keys(per).length) return;
   perCarregando = true; per = {};
-  const todos = todosPer();
+  const todos = Object.entries(PERENES).flatMap(([s,l]) => l.map(t => [s,t]));
   let feitos = 0;
   for(let i = 0; i < todos.length; i += 4){
     await Promise.all(todos.slice(i, i+4).map(async ([s,t]) => {
       try{
-        const d = await buscar(t, {range:'1mo', interval:'1d', dividends:'true'});
+        const d = await buscar(t, {range:'1mo', interval:'1d'});
         per[t] = calcPer(s, t, d);
-        const {historicalDataPrice, dividendsData, ...resto} = d;
+        const {historicalDataPrice, ...resto} = d;
         dados[t] = Object.assign(dados[t] || {}, resto);
       }catch(e){ per[t] = {s, t, erro:e.message}; }
       feitos++; $('perinfo').textContent = `Carregando ${feitos}/${todos.length}...`;
@@ -519,144 +362,22 @@ async function carregarPerenes(forca){
 }
 
 function renderPer(){
-  const fs = $('fsetor').value, ord = $('ford').value, soQ = $('fq').checked, ymin = nv('fy');
-  const chave = r => ord==='dia' ? r.dia : ord==='yld' ? (r.yld == null ? null : -r.yld) : r.q;
-  let rows = Object.values(per).filter(r => !r.erro && (!fs || r.s===fs) &&
-    (!soQ || (r.q != null && r.q < 0)) && (!ymin || (r.yld != null && r.yld >= ymin)));
+  iniciarFiltroSetor();
+  const fs = $('fsetor').value, ord = $('ford').value, soQ = $('fq').checked;
+  const chave = r => ord==='dia' ? r.dia : r.q;
+  let rows = Object.values(per).filter(r => !r.erro && (!fs || r.s===fs) && (!soQ || (chave(r) != null && chave(r) < 0)));
   rows.sort((a,b) => (chave(a) ?? 1e9) - (chave(b) ?? 1e9));
   const erros = Object.values(per).filter(r => r.erro);
   $('per').innerHTML = rows.length ? rows.map(r => `<tr class="item" onclick="panorama('${r.t}')">
       <td style="text-align:left">${esc(r.s)}</td>
       <td class="tick">${r.t} <button class="cp" title="Copiar nome da ação" onclick="copiar('${r.t}',event,this)">📋</button><span class="nome">${esc(r.nome)}</span></td>
       <td>${brl(r.ant)}<br><small>${r.dataAnt ? dt(r.dataAnt) : ''}</small></td>
-      <td><b>${brl(r.atual)}</b><br><small>agora</small></td>
+      <td><b>${brl(r.atual)}</b><br><small>hoje</small></td>
       <td class="${cls(r.q)}"><b>${r.q==null ? '—' : seta(r.q) + ' ' + pct(r.q)}</b></td>
       <td class="${cls(r.dia)}">${r.dia==null ? '—' : seta(r.dia) + ' ' + pct(r.dia)}</td>
-      <td title="Proventos líquidos pagos em 12 meses ÷ preço atual">${r.yld==null ? '<span class="mut">—</span>' : '<b>' + pct1(r.yld) + '</b>'}</td>
       <td style="text-align:left"><input class="e" value="${esc(estadosDe(r.t))}" placeholder="ex: SP, MG" onclick="event.stopPropagation()" onchange="mudarEstados('${r.t}',this.value)"></td>
-      <td>${perExtra[r.t] ? `<button class="x" title="Remover da lista" onclick="removerExtra('${r.t}',event)">×</button>` : ''}</td>
-    </tr>`).join('') : `<tr><td colspan="9" class="mut" style="text-align:center">${Object.keys(per).length ? 'Nenhuma ação para mostrar com esse filtro.' : 'Clique em "Buscar cotações".'}</td></tr>`;
+    </tr>`).join('') : `<tr><td colspan="7" class="mut" style="text-align:center">${Object.keys(per).length ? 'Nenhuma ação para mostrar com esse filtro.' : 'Clique em "Buscar cotações".'}</td></tr>`;
   $('perrodape').textContent = erros.length ? `Não carregaram (${erros.length}): ${erros.map(r => r.t).join(', ')} — talvez precise do token ou a ação não foi encontrada.` : '';
-}
-
-/* =================== SALÁRIO PERPÉTUO =================== */
-const SAL_PAD = {renda:1000, ini:4000, aporte:1000, yld:7.9, margem:15, val:0, anos:30};
-let sal = Object.assign({}, SAL_PAD, ls.get('sal2', {}));
-let salIniciado = false, salSerie = null;
-const SAL_CAMPOS = [['renda','s_renda'],['ini','s_ini'],['aporte','s_aporte'],['yld','s_yield'],['margem','s_margem'],['val','s_val'],['anos','s_anos']];
-function initSal(){
-  if(salIniciado) return; salIniciado = true;
-  SAL_CAMPOS.forEach(([k,id]) => $(id).value = sal[k]);
-}
-function usarCarteira(){ initSal(); $('s_ini').value = Math.round(valorCarteira); calcSal(); }
-function usarYield(){
-  initSal();
-  if(valorCarteira > 0 && rendaCarteira > 0){ $('s_yield').value = (rendaCarteira*12/valorCarteira*100).toFixed(2); calcSal(); }
-}
-function fmtTempo(m){
-  if(m == null) return 'mais de 100 anos';
-  if(m === 0) return 'já atingido';
-  const a = Math.floor(m/12), r = m % 12;
-  return (a ? a + (a===1 ? ' ano' : ' anos') : '') + (a && r ? ' e ' : '') + (r ? r + (r===1 ? ' mês' : ' meses') : '');
-}
-// meses até o patrimônio chegar em "alvo" (null se passar de maxM)
-function simSal(ini, aporte, rm, alvo, maxM){
-  let b = ini;
-  if(b >= alvo) return 0;
-  for(let m = 1; m <= maxM; m++){ b = b*(1+rm) + aporte; if(b >= alvo) return m; }
-  return null;
-}
-function graficoSal(sb, si, alvo, mAlvo){
-  const N = sb.length - 1;
-  if(N < 1) return '';
-  const W = 900, H = 300, pad = 6, mx = (Math.max(sb[N], alvo || 0) * 1.05) || 1;
-  const X = i => pad + i/N*(W-2*pad), Y = v => H - pad - (v/mx)*(H-2*pad);
-  const pb = sb.map((v,i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
-  const pi = si.map((v,i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(' ');
-  return `<svg class="chart" id="s_gsvg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
-    <polygon points="${pad},${H-pad} ${pb} ${W-pad},${H-pad}" fill="#26c281" opacity=".12"/>
-    <polyline fill="none" stroke="#26c281" stroke-width="2" vector-effect="non-scaling-stroke" points="${pb}"/>
-    <polyline fill="none" stroke="#4c9aff" stroke-width="2" stroke-dasharray="6 4" vector-effect="non-scaling-stroke" points="${pi}"/>
-    ${alvo ? `<line x1="0" x2="${W}" y1="${Y(alvo).toFixed(1)}" y2="${Y(alvo).toFixed(1)}" stroke="#e8b339" stroke-width="1.5" stroke-dasharray="4 4" vector-effect="non-scaling-stroke"/>` : ''}
-    ${mAlvo != null && mAlvo <= N && mAlvo > 0 ? `<line x1="${X(mAlvo).toFixed(1)}" x2="${X(mAlvo).toFixed(1)}" y1="0" y2="${H}" stroke="#e8b339" stroke-width="1" vector-effect="non-scaling-stroke"/>` : ''}
-    <line id="s_cx" x1="0" x2="0" y1="0" y2="${H}" stroke="#8b98a5" stroke-width="1" vector-effect="non-scaling-stroke" style="display:none"/>
-  </svg>`;
-}
-function ligarGraficoSal(){
-  const s = $('s_gsvg'); if(!s || !salSerie) return;
-  const mover = ex => {
-    const r = s.getBoundingClientRect(), N = salSerie.b.length - 1;
-    let i = Math.round((ex - r.left)/r.width*N); i = Math.max(0, Math.min(N, i));
-    const cx = $('s_cx'), px = 6 + i/N*888; cx.style.display = ''; cx.setAttribute('x1', px); cx.setAttribute('x2', px);
-    const renda = salSerie.b[i] * salSerie.yEf/100/12;
-    $('s_hv').innerHTML = `<b>Mês ${i}</b> (${(i/12).toFixed(1).replace('.',',')} anos) · Patrimônio <b>${brl(salSerie.b[i])}</b> · Investido ${brl(salSerie.i[i])} · Renda/mês <b>${brl(renda)}</b> (${pct1(salSerie.renda > 0 ? renda/salSerie.renda*100 : 0)} da meta)`;
-  };
-  s.onmousemove = e => mover(e.clientX);
-  s.ontouchmove = s.ontouchstart = e => { if(e.touches[0]) mover(e.touches[0].clientX); };
-}
-
-function calcSal(){
-  initSal();
-  sal = {renda:nv('s_renda'), ini:nv('s_ini'), aporte:nv('s_aporte'), yld:nv('s_yield'),
-         margem:Math.min(90, Math.max(0, nv('s_margem'))), val:nv('s_val'), anos:Math.min(60, Math.max(1, Math.round(nv('s_anos')) || 1))};
-  ls.set('sal2', sal);
-  const yEf = sal.yld * (1 - sal.margem/100);                 // yield usado na conta (% a.a.)
-  const anual = sal.renda * 12;
-  const taxas = [4,5,6,7,8,9,10,12];
-  $('s_tab').innerHTML = '<thead><tr><th>Yield líquido</th>' + taxas.map(r => `<th>${r}%</th>`).join('') + '</tr></thead><tbody><tr><td style="text-align:left">Capital para ' + brl(sal.renda) + '/mês</td>' +
-    taxas.map(r => `<td>${brl(anual / (r/100))}</td>`).join('') + '</tr></tbody>';
-  if(!(yEf > 0) || !(sal.renda > 0)){
-    $('s_cards').innerHTML = '<p class="warn" style="margin:0">Informe uma renda e um yield maiores que zero.</p>';
-    $('s_graf').innerHTML = ''; $('s_rows').innerHTML = ''; $('s_cen').innerHTML = ''; salSerie = null; return;
-  }
-  const g = (1 + yEf/100) * (1 + sal.val/100) - 1;              // crescimento anual real do patrimônio
-  const rm = Math.pow(1 + g, 1/12) - 1;
-  const alvo = anual / (yEf/100);
-  const horM = sal.anos * 12, maxM = 1200;
-
-  let b = sal.ini, inv = sal.ini, prov = 0;
-  let mAlvo = b >= alvo ? 0 : null, invAlvo = inv, provAlvo = 0;
-  const sb = [b], si = [inv], rows = [];
-  for(let m = 1; m <= maxM; m++){
-    const ant = b, rend = b * rm;
-    b = b + rend + sal.aporte; inv += sal.aporte; prov += rend;
-    let marca = false;
-    if(mAlvo === null && b >= alvo){ mAlvo = m; invAlvo = inv; provAlvo = prov; marca = true; }
-    if(m <= horM){
-      sb.push(b); si.push(inv);
-      const renda = b * yEf/100/12;
-      rows.push(`<tr class="${marca ? 'alvo' : ''}"><td>${m}${marca ? ' 🎯' : ''}</td><td>${brl(ant)}</td><td>${brl(rend)}</td><td>${brl(sal.aporte)}</td><td><b>${brl(b)}</b></td><td>${brl(renda)}</td><td>${pct1(renda/sal.renda*100)}</td></tr>`);
-    }
-    if(m >= horM && mAlvo !== null) break;
-  }
-  const bFim = sb[sb.length-1], iFim = si[si.length-1];
-  salSerie = {b:sb, i:si, yEf, renda:sal.renda};
-  $('s_graf').innerHTML = graficoSal(sb, si, alvo, mAlvo);
-  ligarGraficoSal();
-  $('s_rows').innerHTML = rows.join('');
-
-  const dentro = mAlvo !== null && mAlvo <= horM;
-  const colchao = alvo * sal.yld/100 / 12;
-  $('s_cards').innerHTML = `
-    <div class="it"><span>Capital-alvo</span><b class="total up">${brl(alvo)}</b><small>${brl(anual)} ÷ ${pct1(yEf)} (yield ${pct1(sal.yld)} após margem de ${String(sal.margem).replace('.',',')}%)</small></div>
-    <div class="it"><span>Tempo até a meta</span><b class="total">${fmtTempo(mAlvo)}</b><small>${mAlvo == null ? 'não chega em 100 anos com esses valores' : (mAlvo > 0 ? mAlvo + ' meses' : '') + (dentro ? '' : ' · além do horizonte de ' + sal.anos + ' anos')}</small></div>
-    <div class="it"><span>Investido do bolso até lá</span><b>${mAlvo == null ? '—' : brl(invAlvo)}</b><small>saldo inicial + aportes</small></div>
-    <div class="it"><span>Proventos reinvestidos até lá</span><b>${mAlvo == null ? '—' : brl(provAlvo)}</b><small>${mAlvo == null ? '' : pct1(provAlvo/alvo*100) + ' do capital-alvo veio dos proventos'}</small></div>
-    <div class="it"><span>Renda que o saldo inicial já gera</span><b>${brl(sal.ini * yEf/100/12)}/mês</b><small>${pct1(sal.ini * yEf/100/12 / sal.renda * 100)} da meta</small></div>
-    <div class="it"><span>Colchão de segurança</span><b>${brl(colchao - sal.renda)}/mês</b><small>a mais, se o yield de ${pct1(sal.yld)} se confirmar (total ${brl(colchao)})</small></div>
-    <div class="it"><span>Em ${sal.anos} ${sal.anos === 1 ? 'ano' : 'anos'}</span><b>${brl(bFim)}</b><small>${brl(bFim * yEf/100/12)}/mês · investido ${brl(iFim)}</small></div>
-    ${rendaCarteira > 0 ? `<div class="it"><span>Sua carteira hoje rende</span><b>${brl(rendaCarteira)}/mês</b><small>${pct1(rendaCarteira/sal.renda*100)} da meta (proventos líquidos 12m)</small></div>` : ''}`;
-
-  // cenários de aporte
-  const aportes = [...new Set([0, 250, 500, 1000, 2000, sal.aporte])].sort((a,c) => a - c);
-  $('s_cen').innerHTML = '<thead><tr><th>Aporte mensal</th><th>Tempo até a meta</th><th>Investido do bolso</th><th>Proventos reinvestidos</th></tr></thead><tbody>' +
-    aportes.map(a => {
-      const m = simSal(sal.ini, a, rm, alvo, maxM);
-      const iv = m == null ? null : sal.ini + a*m;
-      const pv = m == null ? null : alvo - iv;
-      const atual = a === sal.aporte;
-      return `<tr style="${atual ? 'background:#202a33;font-weight:700' : ''}"><td style="text-align:left">${a === 0 ? 'Sem novos aportes' : brl(a)}${atual ? ' (o seu)' : ''}</td><td>${fmtTempo(m)}</td><td>${iv == null ? '—' : brl(iv)}</td><td>${pv == null ? '—' : brl(pv)}</td></tr>`;
-    }).join('') + '</tbody>';
 }
 
 /* =================== HISTÓRICO E PANORAMA =================== */
@@ -673,7 +394,7 @@ const ROTULOS = {
   fiftyTwoWeekRange:'Faixa 52 semanas',fiftyTwoWeekLow:'Mínima 52 semanas',fiftyTwoWeekHigh:'Máxima 52 semanas',
   priceEarnings:'P/L',earningsPerShare:'LPA',marketCap:'Valor de mercado',shortName:'Nome curto',longName:'Nome completo',
   symbol:'Código',currency:'Moeda',averageDailyVolume10Day:'Volume médio 10 dias',averageDailyVolume3Month:'Volume médio 3 meses',
-  twoHundredDayAverage:'Média 200 dias',
+  bid:'Compra',ask:'Venda',bidSize:'Qtd. compra',askSize:'Qtd. venda',twoHundredDayAverage:'Média 200 dias',
   twoHundredDayAverageChange:'Var. vs média 200d',twoHundredDayAverageChangePercent:'Var. % vs média 200d',
   fiftyDayAverage:'Média 50 dias',fiftyDayAverageChange:'Var. vs média 50d',fiftyDayAverageChangePercent:'Var. % vs média 50d',
   fiftyTwoWeekLowChange:'Dist. da mínima 52s',fiftyTwoWeekLowChangePercent:'Dist. % da mínima 52s',
@@ -710,6 +431,7 @@ function fmtVal(k, v){
   return v.toLocaleString('pt-BR',{maximumFractionDigits:4});
 }
 
+// transforma um objeto em grade de itens (só valores simples)
 function kvs(obj, ignorar){
   if(!obj) return '';
   ignorar = ignorar || [];
@@ -849,8 +571,10 @@ function abaDiv(){
   if(!cash.length && !stock.length) return '<p class="txt">Nenhum provento encontrado para esta ação.</p>';
   let html = '';
   if(cash.length){
-    const c12 = calcDivs(dv), preco = M.d.regularMarketPrice;
-    html += `<div class="grid">${it('Pago nos últimos 12 meses (bruto)', brl(c12.bruto)+' /ação')}${it('Pago nos últimos 12 meses (líquido)', brl(c12.liq)+' /ação', 'JCP com 15% retido')}${it('Yield 12m líquido', preco ? (c12.liq/preco*100).toFixed(2).replace('.',',')+'%' : '—','sobre o preço atual')}${it('Total de proventos listados', cash.length)}</div>`;
+    const um = Date.now() - 365*864e5;
+    const t12 = cash.filter(x => new Date(x.paymentDate||x.lastDatePrior||0).getTime() >= um).reduce((a,x) => a + (x.rate||0), 0);
+    const preco = M.d.regularMarketPrice;
+    html += `<div class="grid">${it('Pago nos últimos 12 meses', brl(t12)+' /ação')}${it('Yield 12 meses', preco ? (t12/preco*100).toFixed(2).replace('.',',')+'%' : '—','sobre o preço atual')}${it('Total de proventos listados', cash.length)}</div>`;
     html += `<h3>Dividendos e JCP</h3><div class="tbl"><table><thead><tr><th>Pagamento</th><th>Tipo</th><th>Valor/ação</th><th>Data com</th><th>Aprovado em</th><th>Referente a</th></tr></thead><tbody>` +
       cash.map(x => `<tr><td>${x.paymentDate ? new Date(x.paymentDate).toLocaleDateString('pt-BR') : '—'}</td><td>${esc(x.label||'—')}</td><td>${brl(x.rate)}</td>
         <td>${x.lastDatePrior ? new Date(x.lastDatePrior).toLocaleDateString('pt-BR') : '—'}</td><td>${x.approvedOn ? new Date(x.approvedOn).toLocaleDateString('pt-BR') : '—'}</td><td>${esc(x.relatedTo||'—')}</td></tr>`).join('') + '</tbody></table></div>';
@@ -877,18 +601,15 @@ function rm(){
   const d = M.d, ch = d.regularMarketChangePercent;
   const corpo = {hist:abaHist, dia:abaDia, fund:abaFund, div:abaDiv, emp:abaEmp}[M.aba]();
   const c = carteira.find(x => x.t === M.t);
-  const dv = divs[M.t];
   $('box').innerHTML = `
-    <div class="row between" style="align-items:flex-start">
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
       <div><div class="tick" style="font-size:22px">${M.t} <button class="cp" title="Copiar nome da ação" onclick="copiar('${M.t}',event,this)">📋</button></div><div class="mut">${esc(d.longName || d.shortName || '')}</div></div>
       <button class="sec" onclick="fechar()">Fechar</button>
     </div>
     <div style="margin-top:10px"><span class="big">${brl(d.regularMarketPrice)}</span>
       <span class="${cls(ch)}" style="font-size:17px;margin-left:8px">${seta(ch)} ${pct(ch)} (${brl(d.regularMarketChange)})</span>
-      ${dv && d.regularMarketPrice ? `<div class="mut" style="margin-top:4px">Yield 12m líquido: <b style="color:var(--tx)">${pct1(dv.liq/d.regularMarketPrice*100)}</b></div>` : ''}
       ${c ? `<div class="mut" style="margin-top:4px">Sua posição: ${num(c.q)} ações = <b style="color:var(--tx)">${brl(c.q*d.regularMarketPrice)}</b>
-        ${c.d ? ` · Comprada em <b style="color:var(--tx)">${dataBR(c.d)}</b> (${diasDesde(c.d)} dias)` : ' · <i>data da compra não informada</i>'}${c.p != null ? ` · Você pagou <b style="color:var(--tx)">${brl(c.p)}</b> (total ${brl(c.p*c.q)}) · Resultado: ${lucroHtml(c, d.regularMarketPrice).replace('<br>',' ')}` : ' · <i>preço pago não informado</i>'}
-        ${dv && c.p ? ` · Yield s/ custo: <b style="color:var(--tx)">${pct1(dv.liq/c.p*100)}</b>` : ''}</div>` : ''}</div>
+        ${c.d ? ` · Comprada em <b style="color:var(--tx)">${dataBR(c.d)}</b> (${diasDesde(c.d)} dias)` : ' · <i>data da compra não informada</i>'}${c.p != null ? ` · Você pagou <b style="color:var(--tx)">${brl(c.p)}</b> (total ${brl(c.p*c.q)}) · Resultado: ${lucroHtml(c, d.regularMarketPrice).replace('<br>',' ')}` : ' · <i>preço pago não informado</i>'}</div>` : ''}</div>
     <div class="tabs">${ABAS.map(a => `<button class="${a[0]===M.aba?'on':''}" onclick="mudarAba('${a[0]}')">${a[1]}</button>`).join('')}</div>
     <div id="corpo">${corpo}</div>
     <div class="note" style="margin-top:14px">Dados via brapi.dev, podem ter atraso. Não é recomendação de investimento.</div>`;
@@ -902,8 +623,7 @@ async function carregar(){
     if(M !== m) return;
     m.hist = (d.historicalDataPrice || []).filter(x => x.close != null);
     m.d = Object.assign({}, m.d, d); dados[m.t] = Object.assign(dados[m.t] || {}, d);
-    delete dados[m.t].historicalDataPrice; delete dados[m.t].dividendsData;
-    if(d.dividendsData) divs[m.t] = calcDivs(d.dividendsData);
+    delete dados[m.t].historicalDataPrice;
     m.iv = r[2]; m.erro = '';
   }catch(e){ if(M !== m) return; m.erro = e.message; m.hist = []; }
   rm();
@@ -941,7 +661,7 @@ document.addEventListener('keydown', e => { if(e.key==='Escape') fechar(); if(e.
 
 render();
 atualizar();
-setInterval(() => atualizar(), 60000);
+setInterval(atualizar, 60000);
 </script>
 </body>
 </html>
