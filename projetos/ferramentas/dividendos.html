@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simulador de Dividendos</title>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    padding: 20px;
+    font-family: Arial, sans-serif;
+    background: #f1f4f8;
+    color: #243247;
+}
+
+.container {
+    max-width: 1200px;
+    margin: auto;
+}
+
+h1 { color: #17365d; }
+
+.painel {
+    background: white;
+    padding: 22px;
+    margin: 18px 0;
+    border-radius: 12px;
+    box-shadow: 0 3px 12px #0001;
+}
+
+input {
+    padding: 12px;
+    font-size: 19px;
+    width: 100%;
+    border: 1px solid #ccc;
+    border-radius: 7px;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit,minmax(180px,1fr));
+    gap: 12px;
+}
+
+.card {
+    background: #17365d;
+    color: white;
+    padding: 18px;
+    border-radius: 9px;
+}
+
+.card strong {
+    display: block;
+    font-size: 22px;
+    margin-top: 10px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    background: white;
+    min-width: 950px;
+}
+
+th {
+    background: #17365d;
+    color: white;
+    padding: 13px;
+}
+
+td {
+    padding: 12px;
+    border-bottom: 1px solid #ddd;
+    text-align: right;
+}
+
+td:first-child, th:first-child {
+    text-align: left;
+}
+
+tr:hover { background: #eef5ff; }
+
+table input {
+    width: 105px;
+    font-size: 14px;
+    padding: 7px;
+}
+
+.verde {
+    color: #13834c;
+    font-weight: bold;
+}
+
+.tabela {
+    overflow-x: auto;
+}
+
+button {
+    background: #17365d;
+    color: white;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 7px;
+    cursor: pointer;
+    margin-top: 12px;
+}
+
+button:hover { background: #285b91; }
+
+.aviso {
+    font-size: 13px;
+    line-height: 1.6;
+    color: #667085;
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>Simulador de Ações e Dividendos</h1>
+
+<p>Compare seis empresas e descubra qual apresenta o maior rendimento histórico.</p>
+
+<div class="painel">
+
+<label><b>Quanto deseja investir?</b></label>
+
+<input
+id="capital"
+type="number"
+min="0"
+step="100"
+value="1000"
+oninput="calcular()"
+>
+
+</div>
+
+<div class="painel">
+
+<div class="grid">
+
+<div class="card">
+Capital disponível
+<strong id="total">R$ 1.000,00</strong>
+</div>
+
+<div class="card">
+Melhor rendimento histórico
+<strong id="melhor">--</strong>
+</div>
+
+<div class="card">
+Dividendos anuais estimados
+<strong id="dividendos">--</strong>
+</div>
+
+<div class="card">
+Rendimento estimado
+<strong id="rendimento">--</strong>
+</div>
+
+</div>
+
+</div>
+
+<div class="painel">
+
+<h2>Comparação das seis ações</h2>
+
+<p>Você também pode alterar os preços e os dividendos para testar outros cenários.</p>
+
+<div class="tabela">
+
+<table>
+
+<thead>
+<tr>
+<th>Ranking</th>
+<th>Empresa</th>
+<th>Preço (R$)</th>
+<th>Dividendos por ação (R$)</th>
+<th>Quantidade</th>
+<th>Investimento</th>
+<th>Saldo</th>
+<th>Dividendos anuais</th>
+<th>Média mensal</th>
+<th>Retorno</th>
+</tr>
+</thead>
+
+<tbody id="resultado"></tbody>
+
+</table>
+
+</div>
+</div>
+
+<div class="painel">
+
+<h2>Como funciona</h2>
+
+<p>1. Informe o dinheiro disponível.</p>
+<p>2. O programa calcula quantas ações inteiras consegue comprar de cada empresa.</p>
+<p>3. Calcula os dividendos anuais estimados.</p>
+<p>4. Calcula o rendimento percentual sobre o investimento efetivo.</p>
+<p>5. Ordena as empresas da maior para a menor rentabilidade histórica.</p>
+
+<p class="aviso">
+Os dividendos utilizados são referências históricas de 2025 mencionadas na análise anterior. Não representam pagamentos garantidos.
+A média mensal é apenas uma divisão dos proventos anuais por 12.
+Os valores são brutos e podem incluir JCP. Preços e proventos devem ser atualizados antes de decisões de investimento.
+O simulador não consulta cotações em tempo real.
+</p>
+
+</div>
+
+</div>
+
+<script>
+
+const acoes = [
+{
+ codigo:"BBSE3",
+ empresa:"BB Seguridade",
+ preco:41.32,
+ dividendo:4.214
+},
+{
+ codigo:"BMGB4",
+ empresa:"Banco BMG",
+ preco:5.16,
+ dividendo:0.547
+},
+{
+ codigo:"BRSR6",
+ empresa:"Banrisul",
+ preco:12.36,
+ dividendo:1.603
+},
+{
+ codigo:"CMIG4",
+ empresa:"Cemig",
+ preco:10.07,
+ dividendo:1.650
+},
+{
+ codigo:"CXSE3",
+ empresa:"Caixa Seguridade",
+ preco:21.38,
+ dividendo:1.262
+},
+{
+ codigo:"KLBN4",
+ empresa:"Klabin",
+ preco:3.41,
+ dividendo:0.157
+}
+];
+
+function dinheiro(valor) {
+ return valor.toLocaleString("pt-BR",{
+  style:"currency",
+  currency:"BRL"
+ });
+}
+
+function calcular() {
+
+ const capital = Math.max(
+  0,
+  Number(document.getElementById("capital").value) || 0
+ );
+
+ document.getElementById("total").textContent =
+ dinheiro(capital);
+
+ let dados = acoes.map((a,index)=>{
+
+  const quantidade = Math.floor(capital/a.preco);
+  const investido = quantidade*a.preco;
+  const saldo = capital-investido;
+  const dividendos = quantidade*a.dividendo;
+  const mensal = dividendos/12;
+
+  const retorno = investido>0
+   ? dividendos/investido*100
+   : 0;
+
+  return {
+   ...a,
+   index,
+   quantidade,
+   investido,
+   saldo,
+   dividendos,
+   mensal,
+   retorno
+  };
+
+ });
+
+ dados.sort((a,b)=>b.retorno-a.retorno);
+
+ const disponiveis = dados.filter(a=>a.quantidade>0);
+
+ const melhor = disponiveis[0];
+
+ document.getElementById("melhor").textContent =
+ melhor ? melhor.codigo : "--";
+
+ document.getElementById("dividendos").textContent =
+ melhor ? dinheiro(melhor.dividendos) : "--";
+
+ document.getElementById("rendimento").textContent =
+ melhor ? melhor.retorno.toFixed(2).replace(".",",")+"%" : "--";
+
+ const tabela = document.getElementById("resultado");
+
+ tabela.innerHTML="";
+
+ dados.forEach((a,posicao)=>{
+
+  const linha=document.createElement("tr");
+
+  linha.innerHTML=`
+   <td>${posicao+1}º</td>
+   <td><b>${a.codigo}</b><br>${a.empresa}</td>
+   <td>
+    <input type="number" min="0.01" step="0.01"
+    value="${a.preco.toFixed(2)}"
+    onchange="alterar(${a.index},'preco',this.value)">
+   </td>
+   <td>
+    <input type="number" min="0" step="0.001"
+    value="${a.dividendo.toFixed(3)}"
+    onchange="alterar(${a.index},'dividendo',this.value)">
+   </td>
+   <td>${a.quantidade}</td>
+   <td>${dinheiro(a.investido)}</td>
+   <td>${dinheiro(a.saldo)}</td>
+   <td class="verde">${dinheiro(a.dividendos)}</td>
+   <td>${dinheiro(a.mensal)}</td>
+   <td class="verde">${a.retorno.toFixed(2).replace(".",",")}%</td>
+  `;
+
+  tabela.appendChild(linha);
+
+ });
+
+}
+
+function alterar(index,campo,valor){
+
+ const numero=Number(valor);
+
+ if(!Number.isFinite(numero) || numero<0 ||
+    (campo==="preco" && numero===0)){
+  calcular();
+  return;
+ }
+
+ acoes[index][campo]=numero;
+ calcular();
+
+}
+
+calcular();
+
+</script>
+
+</body>
+</html>
