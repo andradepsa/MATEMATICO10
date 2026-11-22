@@ -1,0 +1,1873 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>K60 TV</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#000;color:#fff;font-family:Arial,sans-serif;overflow:hidden}
+#tela-home{position:absolute;top:0;left:0;width:100%;height:100%;text-align:center;display:flex;align-items:flex-start;justify-content:center;gap:20px;padding:0 20px;overflow:hidden}
+#home-centro{flex:1;max-width:560px;height:100%;overflow-y:auto;padding-bottom:20px}
+#home-lado{width:320px;max-width:35%;height:100%;padding:30px 0 20px;display:flex;flex-direction:column}
+@media(max-width:720px){#tela-home{flex-direction:column;align-items:stretch;padding:0 10px;overflow-y:auto}#home-centro{height:auto;max-width:none;overflow:visible}#home-lado{width:100%;max-width:none;height:300px;padding:0 0 20px}}
+#titulo{font-size:36px;font-weight:bold;color:#00aaff;padding-top:30px;margin-bottom:4px}
+#subtitulo{font-size:13px;color:#555;margin-bottom:16px}
+#status-line{font-size:15px;color:#888;margin-bottom:10px}
+#status-line span{color:#00aaff;font-weight:bold}
+#faixas{font-size:13px;color:#555;margin-bottom:16px;line-height:1.9}
+#faixas .dest{color:#00aaff;font-weight:bold;font-size:14px}
+#faixas b{color:#aaa}
+#filtro-cat{margin-bottom:14px}
+#filtro-cat select{background:#111;color:#00aaff;border:2px solid #00aaff;border-radius:20px;padding:8px 16px;font-size:14px;font-weight:bold;font-family:Arial,sans-serif;cursor:pointer;outline:none}
+#filtro-cat select:focus{border-color:#ffaa00;color:#ffaa00}
+#display-canal{display:inline-block;border:3px solid #333;border-radius:12px;padding:14px 40px;margin-bottom:10px;min-width:260px}
+#display-canal.ativo{border-color:#00aaff}
+#digitos{font-size:58px;font-weight:bold;color:#00aaff;font-family:monospace;letter-spacing:4px;min-height:68px;line-height:1}
+#digitos.vazio{color:#222}
+#instrucao{font-size:12px;color:#444;margin-top:8px}
+#btn-enter{margin-top:14px;background:#111;border:2px solid #00aaff;color:#00aaff;font-size:16px;font-weight:bold;padding:12px 48px;border-radius:30px;cursor:pointer;transition:background .15s,transform .1s}
+#btn-enter:active{background:#00aaff22;transform:scale(.95)}
+#tela-player{position:absolute;top:0;left:0;width:100%;height:100%;background:#000;display:none}
+#vid{width:100%;height:100%;display:block}
+#osd{position:absolute;top:0;left:0;right:0;background:rgba(0,0,0,0.85);padding:16px 24px}
+#osd-num{font-size:40px;font-weight:bold;color:#00aaff;font-family:monospace}
+#osd-nome{font-size:20px;color:#fff;margin-top:4px}
+#osd-estado{font-size:12px;color:#00aaff;margin-top:4px}
+#carregando{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:18px;color:#888;text-align:center}
+#p-canal{position:absolute;bottom:80px;left:50%;transform:translateX(-50%);background:#111;border:2px solid #ffaa00;border-radius:10px;padding:10px 32px;text-align:center;display:none}
+#p-canal-val{font-size:36px;font-weight:bold;color:#ffaa00;font-family:monospace;letter-spacing:6px}
+#controles{position:absolute;bottom:24px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:14px;transition:opacity .4s}
+#controles.oculto{opacity:0;pointer-events:none}
+#btn-voltar{background:#111;border:2px solid #00aaff;color:#00aaff;font-size:15px;font-weight:bold;padding:12px 40px;border-radius:30px;cursor:pointer}
+.btn-ch{background:#111;border:2px solid #ffaa00;color:#ffaa00;font-size:22px;font-weight:bold;width:52px;height:52px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,transform .1s;user-select:none}
+.btn-ch:active{background:#ffaa0033;transform:scale(.92)}
+#toast{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:#111;border:2px solid #ff5555;border-radius:12px;padding:24px 40px;text-align:center;display:none;z-index:99}
+#toast p{font-size:16px;color:#ff8888}
+#toast small{font-size:12px;color:#555}
+#btn-fav{background:#111;border:2px solid #ffdd00;color:#ffdd00;font-size:20px;width:52px;height:52px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s,transform .1s}
+#btn-fav:active{transform:scale(.92)}
+#btn-fav.favoritado{background:#ffdd00;color:#000}
+#favs{margin:0;width:100%;height:100%;overflow-y:auto;background:#0a0a0a;border:2px solid #333;border-radius:12px;padding:12px;text-align:left;scrollbar-width:thin;scrollbar-color:#ffdd00 #111}
+#favs::-webkit-scrollbar{width:10px}
+#favs::-webkit-scrollbar-track{background:#111;border-radius:5px}
+#favs::-webkit-scrollbar-thumb{background:#ffdd00;border-radius:5px}
+#favs::-webkit-scrollbar-thumb:hover{background:#ffaa00}
+#favs-titulo{font-size:13px;color:#ffdd00;margin-bottom:6px;font-weight:bold}
+.fav-item{display:flex;align-items:center;justify-content:space-between;background:#111;border:1px solid #333;border-radius:8px;padding:8px 14px;margin-bottom:6px;cursor:pointer;transition:border-color .15s}
+.fav-item:hover{border-color:#00aaff}
+.fav-nome{font-size:14px;color:#fff;text-align:left;flex:1}
+.fav-del{background:none;border:none;color:#ff5555;font-size:18px;cursor:pointer;padding:0 0 0 12px;line-height:1}
+#btn-sintonizar{margin-top:10px;background:#111;border:2px solid #00ff88;color:#00ff88;font-size:14px;font-weight:bold;padding:10px 28px;border-radius:30px;cursor:pointer;transition:background .15s,transform .1s}
+#btn-sintonizar:active{background:#00ff8822;transform:scale(.95)}
+#btn-sintonizar:disabled{opacity:.6;cursor:not-allowed;border-color:#ffaa00;color:#ffaa00}
+#sint-progresso{font-size:13px;color:#00ff88;margin-top:8px;min-height:18px}
+#sint-progresso .err{color:#ff5555}
+#sint-progresso .ok{color:#00ff88}
+#volume-ctrl{position:absolute;bottom:96px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:10px;background:rgba(0,0,0,0.75);border:2px solid #00aaff;border-radius:30px;padding:8px 18px;transition:opacity .4s;z-index:10}
+#volume-ctrl.oculto{opacity:0;pointer-events:none}
+#btn-mute{background:none;border:none;color:#00aaff;font-size:22px;cursor:pointer;width:34px;height:34px;display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:0}
+#btn-mute:active{transform:scale(.88)}
+#vol-slider{-webkit-appearance:none;appearance:none;width:130px;height:5px;border-radius:4px;background:#333;outline:none;cursor:pointer}
+#vol-slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:18px;height:18px;border-radius:50%;background:#00aaff;cursor:pointer;border:2px solid #fff}
+#vol-slider::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#00aaff;cursor:pointer;border:2px solid #fff}
+#vol-label{font-size:13px;color:#00aaff;font-weight:bold;font-family:monospace;width:34px;text-align:right}
+/* ── Teclado numérico mobile ── */
+#teclado-num{display:none;margin-top:14px;grid-template-columns:repeat(3,1fr);gap:8px;max-width:280px;margin-left:auto;margin-right:auto}
+#teclado-num.visivel{display:grid}
+.tk{background:#111;border:2px solid #00aaff;color:#00aaff;font-size:24px;font-weight:bold;border-radius:12px;padding:14px 0;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation;transition:background .1s,transform .1s;text-align:center}
+.tk:active{background:#00aaff33;transform:scale(.93)}
+.tk-del{border-color:#ff5555;color:#ff5555}
+.tk-del:active{background:#ff555533}
+.tk-ok{border-color:#00ff88;color:#00ff88}
+.tk-ok:active{background:#00ff8833}
+/* teclado no player */
+#teclado-player{position:absolute;bottom:85px;left:50%;transform:translateX(-50%);display:none;grid-template-columns:repeat(3,1fr);gap:6px;width:220px;z-index:20;background:rgba(0,0,0,0.88);border:2px solid #ffaa00;border-radius:14px;padding:10px}
+#teclado-player.visivel{display:grid}
+.tkp{background:#111;border:1px solid #ffaa00;color:#ffaa00;font-size:20px;font-weight:bold;border-radius:8px;padding:11px 0;cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent;touch-action:manipulation;text-align:center;transition:background .1s}
+.tkp:active{background:#ffaa0044}
+.tkp-del{border-color:#ff5555;color:#ff5555}
+.tkp-ok{border-color:#00ff88;color:#00ff88}
+#swipe-hint{position:absolute;bottom:145px;left:50%;transform:translateX(-50%);font-size:11px;color:#444;white-space:nowrap;pointer-events:none;display:none}
+</style>
+</head>
+<body>
+
+<div id="tela-home">
+  <div id="home-centro">
+    <div id="titulo">&#128250; K60 TV</div>
+    <div id="subtitulo" data-i18n="subtitle">Live TV - access by number</div>
+    <div id="status-line">Loading channels...</div>
+    <div id="faixas"></div>
+    <div id="filtro-cat">
+      <select id="sel-cat" onchange="setFiltroCategoria(this.value)">
+        <option value="" id="opt-todas">&#9788; <span data-i18n="all_cats">All categories</span></option>
+      </select>
+    </div>
+    <div id="display-canal">
+      <div id="digitos" class="vazio">_</div>
+    </div>
+    <div id="instrucao" data-i18n="instruction">Type the channel number and press ENTER</div>
+    <button id="btn-enter" onclick="clearTimeout(bufTmr);irCanal()">&#9654; <span data-i18n="enter">ENTER</span></button>
+    <div id="teclado-num">
+      <div class="tk" onclick="tkDigito('1')">1</div>
+      <div class="tk" onclick="tkDigito('2')">2</div>
+      <div class="tk" onclick="tkDigito('3')">3</div>
+      <div class="tk" onclick="tkDigito('4')">4</div>
+      <div class="tk" onclick="tkDigito('5')">5</div>
+      <div class="tk" onclick="tkDigito('6')">6</div>
+      <div class="tk" onclick="tkDigito('7')">7</div>
+      <div class="tk" onclick="tkDigito('8')">8</div>
+      <div class="tk" onclick="tkDigito('9')">9</div>
+      <div class="tk tk-del" onclick="tkApagar()">&#9003;</div>
+      <div class="tk" onclick="tkDigito('0')">0</div>
+      <div class="tk tk-ok" onclick="clearTimeout(bufTmr);irCanal()">OK</div>
+    </div>
+    <div><button id="btn-sintonizar" onclick="sintonizarIdioma()">&#128225; <span data-i18n="tune">Sintonizar canais do meu idioma</span></button></div>
+    <div id="lang-picker" style="margin-top:10px;display:flex;align-items:center;flex-wrap:wrap;gap:6px;">
+      &#127760; <label for="sel-lang" style="font-size:14px;">Idioma / Language:</label>
+      <select id="sel-lang" onchange="trocarIdioma(this.value)" style="padding:4px 8px;font-size:14px;"></select>
+      <button onclick="mudarIdiomaBase()" title="Definir como meu idioma principal (recarrega o app)" style="padding:4px 10px;font-size:12px;background:#111;border:1px solid #555;color:#888;border-radius:12px;cursor:pointer;white-space:nowrap;">&#127968; Principal</button>
+    </div>
+    <div id="sint-progresso"></div>
+  </div>
+  <aside id="home-lado">
+    <div id="favs"></div>
+  </aside>
+</div>
+
+<div id="tela-player" onmousemove="mostrarVolume()">
+  <video id="vid" autoplay></video>
+  <div id="osd">
+    <div id="osd-num">-</div>
+    <div id="osd-nome" data-i18n="channel">Channel</div>
+    <div id="osd-estado" data-i18n="connecting">Connecting...</div>
+  </div>
+  <div id="carregando" data-i18n="connecting_channel">Connecting to channel...</div>
+  <div id="p-canal"><div id="p-canal-val">_</div></div>
+  <div id="volume-ctrl" class="oculto">
+    <button id="btn-mute" title="Mudo/Som">&#128266;</button>
+    <input id="vol-slider" type="range" min="0" max="100" value="100">
+    <span id="vol-label">100%</span>
+  </div>
+  <div id="controles">
+    <button class="btn-ch" id="btn-ch-baixo" data-i18n-title="prev_channel" title="Previous channel">&#9660;</button>
+    <button id="btn-voltar">&#9664; <span data-i18n="back">Back</span></button>
+    <button class="btn-ch" id="btn-ch-cima" data-i18n-title="next_channel" title="Next channel">&#9650;</button>
+    <button id="btn-fav" data-i18n-title="fav_channel" title="Favorite channel">&#9733;</button>
+  </div>
+  <div id="teclado-player">
+    <div class="tkp" onclick="tkpDigito('1')">1</div>
+    <div class="tkp" onclick="tkpDigito('2')">2</div>
+    <div class="tkp" onclick="tkpDigito('3')">3</div>
+    <div class="tkp" onclick="tkpDigito('4')">4</div>
+    <div class="tkp" onclick="tkpDigito('5')">5</div>
+    <div class="tkp" onclick="tkpDigito('6')">6</div>
+    <div class="tkp" onclick="tkpDigito('7')">7</div>
+    <div class="tkp" onclick="tkpDigito('8')">8</div>
+    <div class="tkp" onclick="tkpDigito('9')">9</div>
+    <div class="tkp tkp-del" onclick="tkpApagar()">&#9003;</div>
+    <div class="tkp" onclick="tkpDigito('0')">0</div>
+    <div class="tkp tkp-ok" onclick="tkpConfirmar()">OK</div>
+  </div>
+  <div id="swipe-hint">&#8597; Swipe to change channel</div>
+</div>
+
+<div id="toast"><p data-i18n="unavailable">Canal indisponível</p><small data-i18n="returning">Pulando para o próximo canal...</small></div>
+
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
+<script>
+// ── Idioma do usuario ──────────────────────────────────────────
+var LANG_MAP = {
+  'pt':'por','en':'eng','es':'spa','fr':'fra','de':'deu',
+  'it':'ita','ja':'jpn','ko':'kor','zh':'zho','ru':'rus',
+  'ar':'ara','tr':'tur','nl':'nld','pl':'pol','hi':'hin',
+  'sv':'swe','ro':'ron','cs':'ces','el':'ell','id':'ind'
+};
+var LANG_NAMES = {
+  'pt':'Português','en':'English','es':'Español','fr':'Français','de':'Deutsch',
+  'it':'Italiano','ja':'日本語','ko':'한국어','zh':'中文','ru':'Русский',
+  'ar':'العربية','tr':'Türkçe','nl':'Nederlands','pl':'Polski','hi':'हिन्दी',
+  'sv':'Svenska','ro':'Română','cs':'Čeština','el':'Ελληνικά','id':'Indonesia'
+};
+var LS_LANG = 'k10_user_lang';
+var rawLangAuto = ((navigator.languages && navigator.languages[0]) || navigator.language || 'pt').toLowerCase().split('-')[0];
+var rawLang = (function(){
+  try { var s = localStorage.getItem(LS_LANG); if (s && LANG_MAP[s]) return s; } catch(e){}
+  return LANG_MAP[rawLangAuto] ? rawLangAuto : 'pt';
+})();
+var LANG_ISO  = LANG_MAP[rawLang] || 'por';
+var LANG_NOME = (LANG_NAMES[rawLang] || rawLang).toUpperCase();
+
+function trocarIdioma(novo) {
+  if (!novo || !LANG_MAP[novo]) return;
+  tuneTargetLang = novo;
+  var nome = (LANG_NAMES[novo] || novo).toUpperCase();
+  var btn = document.getElementById('btn-sintonizar');
+  if (btn && typeof sintRodando !== 'undefined' && !sintRodando) {
+    if (novo === rawLang) {
+      btn.innerHTML = '&#128225; <span data-i18n="tune">Sintonizar canais do meu idioma</span>';
+    } else {
+      btn.innerHTML = '&#128225; Sintonizar ' + nome;
+    }
+  }
+}
+
+function mudarIdiomaBase() {
+  var sel = document.getElementById('sel-lang');
+  var novo = sel ? sel.value : rawLang;
+  if (!novo || !LANG_MAP[novo]) return;
+  try { localStorage.setItem(LS_LANG, novo); } catch(e){}
+  location.reload();
+}
+
+// ── Estado ─────────────────────────────────────────────────────
+var canais = [];
+var seenUrls = {};
+var langFim = 0;
+var buf = '', bufTmr = null;
+var pBuf = '', pBufTmr = null;
+var curCh = -1, pronto = false;
+var osdTmr, errTmr, failTmr, hlsObj;
+var skipCount = 0;
+
+// ── FLAG: indica que canaisLang foi restaurado de uma sintonia salva ──
+// Quando true, carregar() NÃO sobrescreve canaisLang com o M3U bruto.
+var _sintoniaRestaurada = false;
+
+var PROXIES = [
+  'https://corsproxy.io/?url=',
+  'https://api.allorigins.win/raw?url=',
+  'https://api.codetabs.com/v1/proxy/?quest=',
+  'https://thingproxy.freeboard.io/fetch/'
+];
+var API_BASES = [
+  'https://iptv-org.github.io/api',
+  'https://cdn.jsdelivr.net/gh/iptv-org/api@gh-pages',
+  'https://raw.githubusercontent.com/iptv-org/api/gh-pages'
+];
+
+// ── XHR com fallback proxy ─────────────────────────────────────
+function xhr(url, cb) {
+  var tentativas = [url];
+  for (var i = 0; i < PROXIES.length; i++) tentativas.push(PROXIES[i] + encodeURIComponent(url));
+  var ti = 0;
+  function next() {
+    if (ti >= tentativas.length) { cb('erro'); return; }
+    var r = new XMLHttpRequest();
+    r.open('GET', tentativas[ti++], true);
+    try { r.timeout = 12000; } catch(e){}
+    r.onreadystatechange = function() {
+      if (r.readyState !== 4) return;
+      if (r.status === 200) cb(null, r.responseText); else next();
+    };
+    r.onerror = next;
+    r.ontimeout = next;
+    try { r.send(); } catch(e) { next(); }
+  }
+  next();
+}
+
+// ── Baixar M3U com proxies ─────────────────────────────────────
+function fetchM3u(urls, cb) {
+  var raw = [];
+  for (var a = 0; a < urls.length; a++) {
+    raw.push(urls[a]);
+    for (var b = 0; b < PROXIES.length; b++) raw.push(PROXIES[b] + encodeURIComponent(urls[a]));
+  }
+  var ri = 0;
+  function tryNext() {
+    if (ri >= raw.length) { cb('falhou'); return; }
+    var u = raw[ri++];
+    var r = new XMLHttpRequest();
+    r.open('GET', u, true);
+    try { r.timeout = 12000; } catch(e){}
+    r.onreadystatechange = function() {
+      if (r.readyState !== 4) return;
+      if (r.status === 200 && r.responseText && (r.responseText.indexOf('#EXTM3U') !== -1 || r.responseText.indexOf('#EXTINF') !== -1)) {
+        cb(null, r.responseText);
+      } else { tryNext(); }
+    };
+    r.onerror = tryNext;
+    r.ontimeout = tryNext;
+    try { r.send(); } catch(e) { tryNext(); }
+  }
+  tryNext();
+}
+
+// ── Parse M3U ──────────────────────────────────────────────────
+function parseM3u(txt) {
+  var result = [], cur = null;
+  var lines = txt.split('\n');
+  for (var i = 0; i < lines.length; i++) {
+    var l = lines[i].trim();
+    if (l.indexOf('#EXTINF') === 0) {
+      var nm = l.match(/,(.+)$/);
+      var gt = l.match(/group-title="([^"]*)"/i);
+      var cats = [];
+      if (gt && gt[1]) {
+        var parts = gt[1].toLowerCase().split(/[;,/|]/);
+        for (var p = 0; p < parts.length; p++) {
+          var s = parts[p].trim();
+          if (s) cats.push(s);
+        }
+      }
+      cur = { nome: nm ? nm[1].trim() : 'Canal', cats: cats };
+    } else if (l && l.indexOf('#') !== 0 && cur) {
+      if (l.indexOf('http') === 0) { cur.url = l; result.push(cur); }
+      cur = null;
+    }
+  }
+  return result;
+}
+
+// ── Numeracao persistente por URL ──────────────────────────────
+var LS_NUM_LANG    = 'k10_num_lang';
+var LS_NUM_OUTROS  = 'k10_num_outros';
+var LS_NEXT_LANG   = 'k10_next_lang';
+var LS_NEXT_OUTROS = 'k10_next_outros';
+
+function urlId(url) {
+  var s = String(url);
+  var h1 = 0x811c9dc5 >>> 0;
+  var h2 = 5381 >>> 0;
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charCodeAt(i);
+    h1 = ((h1 ^ c) * 0x01000193) >>> 0;
+    h2 = (((h2 << 5) + h2) + c) >>> 0;
+  }
+  var a = h1.toString(36);
+  var b = h2.toString(36);
+  while (a.length < 7) a = '0' + a;
+  while (b.length < 7) b = '0' + b;
+  return (a + b).slice(0, 10);
+}
+
+function _loadMap(k){ try{ return JSON.parse(localStorage.getItem(k) || '{}'); }catch(e){ return {}; } }
+function _saveMap(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+function _loadNext(k){ var n = parseInt(localStorage.getItem(k) || '1', 10); return isNaN(n) ? 1 : n; }
+function _saveNext(k,v){ try{ localStorage.setItem(k, String(v)); }catch(e){} }
+
+function _migrarMapaParaId(mapa) {
+  var migrou = false;
+  var novo = {};
+  for (var k in mapa) {
+    if (!mapa.hasOwnProperty(k)) continue;
+    if (k.indexOf('http') === 0) {
+      var id = urlId(k);
+      if (!novo[id] || mapa[k] < novo[id]) novo[id] = mapa[k];
+      migrou = true;
+    } else {
+      novo[k] = mapa[k];
+    }
+  }
+  return migrou ? novo : mapa;
+}
+
+var numLang   = _migrarMapaParaId(_loadMap(LS_NUM_LANG));
+var numOutros = _migrarMapaParaId(_loadMap(LS_NUM_OUTROS));
+var nextLang   = _loadNext(LS_NEXT_LANG);
+var nextOutros = _loadNext(LS_NEXT_OUTROS);
+_saveMap(LS_NUM_LANG, numLang);
+_saveMap(LS_NUM_OUTROS, numOutros);
+
+function atribuirNumero(url, grupo) {
+  var id   = urlId(url);
+  var mapa = (grupo === 'lang') ? numLang : numOutros;
+  if (mapa[id]) return mapa[id];
+  var n;
+  if (grupo === 'lang') { n = nextLang++; numLang[id] = n; _saveMap(LS_NUM_LANG, numLang); _saveNext(LS_NEXT_LANG, nextLang); }
+  else                  { n = nextOutros++; numOutros[id] = n; _saveMap(LS_NUM_OUTROS, numOutros); _saveNext(LS_NEXT_OUTROS, nextOutros); }
+  return n;
+}
+
+// ── Adicionar sem duplicatas ───────────────────────────────────
+var canaisLang       = [];
+var canaisLangMaster = [];
+var canaisExtraLangs = [];
+var canaisOutros = [];
+var tuneTargetLang = rawLang;
+
+// ── Persistência da sintonização ───────────────────────────────
+var LS_SINT_EXTRAS = 'k10_sint_extras_v2';
+var LS_SINT_MASTER = 'k10_sint_master_v2';
+
+function _salvarSintoniaExtras(){
+  try{
+    var slim = canaisExtraLangs.map(function(g){
+      return { iso:g.iso, nome:g.nome,
+        canais: g.canais.map(function(c){return {nome:c.nome,url:c.url,cats:c.cats||[],_num:c._num};}),
+        master: g.master.map(function(c){return {nome:c.nome,url:c.url,cats:c.cats||[],_num:c._num};})
+      };
+    });
+    localStorage.setItem(LS_SINT_EXTRAS, JSON.stringify(slim));
+    var m = canaisLangMaster.map(function(c){return {nome:c.nome,url:c.url,cats:c.cats||[],_num:c._num};});
+    localStorage.setItem(LS_SINT_MASTER, JSON.stringify(m));
+  }catch(e){
+    console.error('[K60] Falha ao salvar sintonia (quota?):', e);
+  }
+}
+
+function _restaurarSintoniaExtras(){
+  try{
+    var raw = localStorage.getItem(LS_SINT_EXTRAS);
+    if (raw){
+      var arr = JSON.parse(raw);
+      if (arr && arr.length){
+        canaisExtraLangs = arr.map(function(g){
+          return { iso:g.iso, nome:g.nome,
+            canais:(g.canais||[]).slice(), master:(g.master||g.canais||[]).slice() };
+        });
+        for (var ei=0; ei<canaisExtraLangs.length; ei++){
+          var ec = canaisExtraLangs[ei].canais;
+          for (var i=0;i<ec.length;i++) seenUrls[ec[i].url] = true;
+        }
+      }
+    }
+    var rawM = localStorage.getItem(LS_SINT_MASTER);
+    if (rawM){
+      var m = JSON.parse(rawM);
+      if (m && m.length){
+        canaisLangMaster = m.slice();
+        canaisLang = m.slice();
+        for (var j=0;j<m.length;j++) seenUrls[m[j].url] = true;
+        // ── CORREÇÃO: sinaliza que a sintonia foi restaurada ──────────
+        // Impede que carregar() sobrescreva canaisLang com o M3U bruto.
+        _sintoniaRestaurada = true;
+        console.log('[K60] Sintonia restaurada: ' + m.length + ' canal(is).');
+      }
+    }
+  }catch(e){}
+}
+
+// ── Detecção de dispositivo ────────────────────────────────────
+var _ua = (navigator.userAgent || '').toLowerCase();
+var IS_TV = /smart-?tv|smarttv|tizen|web0s|webos|hbbtv|netcast|viera|bravia|aquos|inettvbrowser|crkey|googletv|appletv|aoc|philips|samsung.*tv|lg.*tv|tv.*browser/.test(_ua);
+try { if (localStorage.getItem('k10_tv') === '1') IS_TV = true; } catch(e) {}
+var CHUNK_SIZE  = IS_TV ? 25  : 120;
+var CHUNK_PAUSE = IS_TV ? 120 : 30;
+var CHUNK_SIZE_LANG = IS_TV ? 40 : 200;
+
+function _processarLoteCanais(lista, alvo, grupo, idx, tamLote, pausa) {
+  var fim = Math.min(idx + tamLote, lista.length);
+  var mudou = false;
+  for (var i = idx; i < fim; i++) {
+    var c = lista[i];
+    if (c && c.url && !seenUrls[c.url]) {
+      seenUrls[c.url] = true;
+      c._num = atribuirNumero(c.url, grupo);
+      alvo.push(c);
+      // Só adiciona ao master se a sintonia NÃO foi restaurada (carga inicial)
+      // Evita contaminar o master salvo com canais não testados após reiniciar.
+      if (grupo === 'lang' && !_sintoniaRestaurada) canaisLangMaster.push(c);
+      mudou = true;
+    }
+  }
+  if (mudou) {
+    alvo.sort(function(a, b){ return a._num - b._num; });
+    aplicarFiltro();
+    if (typeof atualizarTela === 'function') {
+      try { atualizarTela(); } catch(e) {}
+    }
+  }
+  if (fim < lista.length) {
+    setTimeout(function(){
+      _processarLoteCanais(lista, alvo, grupo, fim, tamLote, pausa);
+    }, pausa);
+  }
+}
+
+function addCanais(lista, grupo) {
+  if (!lista || !lista.length) return;
+  var alvo = (grupo === 'lang') ? canaisLang : canaisOutros;
+  var tam  = (grupo === 'lang') ? CHUNK_SIZE_LANG : CHUNK_SIZE;
+  _processarLoteCanais(lista, alvo, grupo, 0, tam, CHUNK_PAUSE);
+}
+
+// ── Marca URLs do M3U como vistos SEM adicionar à lista ───────
+// Usado quando a sintonia está restaurada: impede que o M3U bruto
+// do idioma reapareça em canaisOutros via lista mundial.
+function _marcarM3uComoVisto(txt) {
+  try {
+    var parsed = parseM3u(txt);
+    for (var i = 0; i < parsed.length; i++) {
+      if (parsed[i] && parsed[i].url) seenUrls[parsed[i].url] = true;
+    }
+  } catch(e) {}
+}
+
+// ── Filtro por categoria ───────────────────────────────────────
+var catFiltro = null;
+function _matchCat(c, cat) {
+  if (!cat) return true;
+  var arr = c.cats || [];
+  for (var i = 0; i < arr.length; i++) {
+    var v = String(arr[i]).toLowerCase();
+    if (v === cat || v.indexOf(cat) !== -1) return true;
+  }
+  return false;
+}
+function aplicarFiltro() {
+  var urlAtual = (curCh >= 0 && canais[curCh]) ? canais[curCh].url : null;
+  function _mc(c) { return _matchCat(c, catFiltro); }
+  var L = catFiltro ? canaisLang.filter(_mc) : canaisLang.slice();
+  var extrasFlat = [];
+  var extrasInfo = [];
+  for (var ei = 0; ei < canaisExtraLangs.length; ei++) {
+    var ec = catFiltro ? canaisExtraLangs[ei].canais.filter(_mc) : canaisExtraLangs[ei].canais.slice();
+    extrasInfo.push({ nome: canaisExtraLangs[ei].nome, count: ec.length });
+    extrasFlat = extrasFlat.concat(ec);
+  }
+  var O = catFiltro ? canaisOutros.filter(_mc) : canaisOutros.slice();
+  var todos = L.concat(extrasFlat).concat(O);
+  var favs = [];
+  try { favs = JSON.parse(localStorage.getItem('k10favs') || '[]'); } catch(e) { favs = []; }
+  if (favs && favs.length) {
+    var favOrder = {};
+    for (var i = 0; i < favs.length; i++) favOrder[favs[i].url] = i;
+    var favCh = [], outros2 = [];
+    for (var j = 0; j < todos.length; j++) {
+      if (favOrder.hasOwnProperty(todos[j].url)) favCh.push(todos[j]);
+      else outros2.push(todos[j]);
+    }
+    favCh.sort(function(a, b){ return favOrder[a.url] - favOrder[b.url]; });
+    canais = favCh.concat(outros2);
+  } else {
+    canais = todos;
+  }
+  langFim = L.length;
+  window._extraLangInfo = extrasInfo;
+  if (urlAtual) {
+    var novoIdx = canais.findIndex(function(c){ return c.url === urlAtual; });
+    if (novoIdx !== -1) curCh = novoIdx;
+  }
+}
+
+var LS_CAT = 'k10_cat_filtro';
+try { catFiltro = localStorage.getItem(LS_CAT) || null; } catch(e) {}
+
+function setFiltroCategoria(cat) {
+  catFiltro = cat || null;
+  try { catFiltro ? localStorage.setItem(LS_CAT, catFiltro) : localStorage.removeItem(LS_CAT); } catch(e) {}
+  aplicarFiltro();
+  atualizarTela();
+}
+
+// ── i18n da interface ──────────────────────────────────────────
+var UI_EN = {
+  subtitle: 'Live TV - access by number',
+  all_cats: 'All categories',
+  instruction: 'Type the channel number and press ENTER',
+  enter: 'ENTER',
+  channel: 'Channel',
+  connecting: 'Connecting...',
+  connecting_channel: 'Connecting to channel...',
+  prev_channel: 'Previous channel',
+  next_channel: 'Next channel',
+  back: 'Back',
+  fav_channel: 'Favorite channel',
+  unavailable: 'Channel unavailable',
+  returning: 'Returning to home screen...',
+  total_pre: 'Total: ',
+  total_mid: ' channels  |  Type 1 to ',
+  your_lang: '(your language): channels',
+  to: 'to',
+  other_langs: 'Other languages',
+  all_channels: 'All channels',
+  loading_in: 'Loading channels in',
+  loading_brazil: 'Loading Brazil channels...',
+  loading_freetv: 'Loading Free-TV...',
+  loading_world: 'Loading world list...',
+  loading_api: 'Loading API (news, sports, movies...)...',
+  ch: 'Channel',
+  not_exist: 'does not exist. Type 1 to'
+};
+var UI = UI_EN;
+function t(k) { return (UI && UI[k]) || UI_EN[k] || k; }
+
+function aplicarUI() {
+  var els = document.querySelectorAll('[data-i18n]');
+  for (var i = 0; i < els.length; i++) {
+    var k = els[i].getAttribute('data-i18n');
+    els[i].textContent = t(k);
+  }
+  var ets = document.querySelectorAll('[data-i18n-title]');
+  for (var j = 0; j < ets.length; j++) {
+    var k2 = ets[j].getAttribute('data-i18n-title');
+    ets[j].setAttribute('title', t(k2));
+  }
+}
+
+function carregarUIIdioma() {
+  var idioma = (typeof detectarIdioma === 'function') ? detectarIdioma() : 'en';
+  if (idioma === 'en') { aplicarUI(); return; }
+  var cacheKey = 'k10_ui_' + idioma;
+  try {
+    var cached = localStorage.getItem(cacheKey);
+    if (cached) { UI = JSON.parse(cached); aplicarUI(); return; }
+  } catch(e) {}
+  var keys = Object.keys(UI_EN);
+  var out = {};
+  var i = 0;
+  function next() {
+    if (i >= keys.length) {
+      try { localStorage.setItem(cacheKey, JSON.stringify(out)); } catch(e) {}
+      UI = out;
+      aplicarUI();
+      return;
+    }
+    var k = keys[i++];
+    traduzirTexto(UI_EN[k], idioma, function(tr) {
+      out[k] = tr;
+      setTimeout(next, 120);
+    });
+  }
+  next();
+}
+
+// ── i18n de categorias ─────────────────────────────────────────
+var LABELS_PT = {
+  news:'Notícias', business:'Negócios', weather:'Clima', documentary:'Documentário',
+  entertainment:'Entretenimento', comedy:'Comédia', general:'Geral', sports:'Esportes',
+  music:'Música', movies:'Filmes', series:'Séries', animation:'Animação',
+  classic:'Clássico', kids:'Infantil', family:'Família', education:'Educação',
+  culture:'Cultura', science:'Ciência', cooking:'Culinária', travel:'Viagem',
+  lifestyle:'Estilo de vida', outdoor:'Aventura', religious:'Religioso',
+  auto:'Automotivo', shop:'Compras', legislative:'Legislativo',
+  _all:'Todas as categorias'
+};
+var LABELS_EN = {
+  news:'News', business:'Business', weather:'Weather', documentary:'Documentary',
+  entertainment:'Entertainment', comedy:'Comedy', general:'General', sports:'Sports',
+  music:'Music', movies:'Movies', series:'Series', animation:'Animation',
+  classic:'Classic', kids:'Kids', family:'Family', education:'Education',
+  culture:'Culture', science:'Science', cooking:'Cooking', travel:'Travel',
+  lifestyle:'Lifestyle', outdoor:'Outdoor', religious:'Religious',
+  auto:'Auto', shop:'Shopping', legislative:'Legislative',
+  _all:'All categories'
+};
+
+function detectarIdioma() {
+  try { var s = localStorage.getItem(LS_LANG); if (s && LANG_MAP[s]) return s; } catch(e) {}
+  var l = (navigator.language || navigator.userLanguage || 'en').toLowerCase();
+  return l.split('-')[0];
+}
+
+function traduzirTexto(texto, destino, cb) {
+  var url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(texto) + '&langpair=en|' + encodeURIComponent(destino);
+  var x = new XMLHttpRequest();
+  x.open('GET', url, true);
+  x.timeout = 8000;
+  x.onload = function() {
+    try {
+      var d = JSON.parse(x.responseText);
+      var tr = (d && d.responseData && d.responseData.translatedText) ? d.responseData.translatedText : texto;
+      cb(tr);
+    } catch(e) { cb(texto); }
+  };
+  x.onerror = x.ontimeout = function() { cb(texto); };
+  x.send();
+}
+
+function obterLabels(cb) {
+  var idioma = detectarIdioma();
+  if (idioma === 'pt') return cb(LABELS_PT);
+  if (idioma === 'en') return cb(LABELS_EN);
+  var cacheKey = 'k10_cat_labels_' + idioma;
+  try {
+    var cached = localStorage.getItem(cacheKey);
+    if (cached) return cb(JSON.parse(cached));
+  } catch(e) {}
+  var keys = Object.keys(LABELS_EN);
+  var out = {};
+  var i = 0;
+  function next() {
+    if (i >= keys.length) {
+      try { localStorage.setItem(cacheKey, JSON.stringify(out)); } catch(e) {}
+      cb(out);
+      return;
+    }
+    var k = keys[i++];
+    traduzirTexto(LABELS_EN[k], idioma, function(tr) {
+      out[k] = tr;
+      setTimeout(next, 120);
+    });
+  }
+  cb(LABELS_EN, true);
+  next();
+}
+
+function _renderSelectCategorias(labels) {
+  var sel = document.getElementById('sel-cat');
+  if (!sel) return;
+  var optTodas = document.getElementById('opt-todas');
+  if (optTodas) optTodas.textContent = '\u2600 ' + (labels._all || 'All categories');
+  for (var j = sel.options.length - 1; j >= 0; j--) {
+    if (sel.options[j].value !== '') sel.remove(j);
+  }
+  var lista = (typeof CATS !== 'undefined' && CATS) ? CATS : [];
+  var arr = lista.slice().sort(function(a,b){
+    return (labels[a]||a).localeCompare(labels[b]||b);
+  });
+  for (var i = 0; i < arr.length; i++) {
+    var o = document.createElement('option');
+    o.value = arr[i];
+    o.textContent = labels[arr[i]] || arr[i];
+    sel.appendChild(o);
+  }
+  if (catFiltro) sel.value = catFiltro;
+}
+
+function popularSelectCategorias() {
+  var sel = document.getElementById('sel-cat');
+  if (!sel) return;
+  obterLabels(function(labels, parcial) {
+    _renderSelectCategorias(labels);
+    sel.dataset.populado = '1';
+  });
+}
+
+// ── Status e faixas ────────────────────────────────────────────
+function setStatus(txt) { document.getElementById('status-line').innerHTML = txt; }
+
+function atualizarTela() {
+  if (canais.length === 0) return;
+  pronto = true;
+  var total = canais.length;
+  var digitos = String(total).length;
+  if (digitos < 3) digitos = 3;
+  MAX_DIGITOS = digitos;
+  setStatus(t('total_pre') + '<span>' + total + '</span>' + t('total_mid') + total);
+  var html = '';
+  var cursor = 0;
+  if (langFim > 0) {
+    html += '<div class="dest">&#9733; ' + LANG_NOME + ': 1 ' + t('to') + ' ' + langFim + '</div>';
+    cursor = langFim;
+  }
+  var extras = window._extraLangInfo || [];
+  for (var ei = 0; ei < extras.length; ei++) {
+    if (extras[ei].count > 0) {
+      html += '<div><b>' + extras[ei].nome + ':</b> ' + (cursor + 1) + ' ' + t('to') + ' ' + (cursor + extras[ei].count) + '</div>';
+      cursor += extras[ei].count;
+    }
+  }
+  if (canais.length > cursor) {
+    if (cursor === 0) {
+      html += '<div><b>' + t('all_channels') + ':</b> 1 ' + t('to') + ' ' + canais.length + '</div>';
+    } else {
+      html += '<div><b>' + t('other_langs') + ':</b> ' + (cursor + 1) + ' ' + t('to') + ' ' + canais.length + '</div>';
+    }
+  }
+  document.getElementById('faixas').innerHTML = html;
+}
+
+// ── API iptv-org ───────────────────────────────────────────────
+var apiCache = null;
+function fetchApi(cb) {
+  if (apiCache) { cb(null, apiCache); return; }
+  var ai = 0;
+  function tryBase() {
+    if (ai >= API_BASES.length) { cb('falhou'); return; }
+    var base = API_BASES[ai++], chs, strs, done = 0, errou = false;
+    function check() {
+      done++;
+      if (done < 2) return;
+      if (errou || !chs || !strs) { tryBase(); return; }
+      apiCache = { chs: chs, strs: strs };
+      cb(null, apiCache);
+    }
+    xhr(base + '/channels.json', function(e, t) {
+      if (e) { errou = true; check(); return; }
+      try { chs = JSON.parse(t); } catch(x) { errou = true; } check();
+    });
+    xhr(base + '/streams.json', function(e, t) {
+      if (e) { errou = true; check(); return; }
+      try { strs = JSON.parse(t); } catch(x) { errou = true; } check();
+    });
+  }
+  tryBase();
+}
+
+function buildApi(data, cats) {
+  var sm = {};
+  for (var i = 0; i < data.strs.length; i++) {
+    if (!sm[data.strs[i].channel]) sm[data.strs[i].channel] = data.strs[i].url;
+  }
+  var out = [];
+  for (var j = 0; j < data.chs.length; j++) {
+    var ch = data.chs[j];
+    if (!sm[ch.id]) continue;
+    if (cats) {
+      var ok = false;
+      for (var k = 0; k < (ch.categories || []).length; k++) {
+        if (cats.indexOf(ch.categories[k]) !== -1) { ok = true; break; }
+      }
+      if (!ok) continue;
+    }
+    out.push({ nome: ch.name, url: sm[ch.id], cats: (ch.categories || []).slice() });
+  }
+  return out;
+}
+
+function buildApiByLang(data, langIso) {
+  var sm = {};
+  for (var i = 0; i < data.strs.length; i++) {
+    if (!sm[data.strs[i].channel]) sm[data.strs[i].channel] = data.strs[i].url;
+  }
+  var out = [];
+  for (var j = 0; j < data.chs.length; j++) {
+    var ch = data.chs[j];
+    if (!sm[ch.id]) continue;
+    var langs = ch.languages || [];
+    var ok = false;
+    for (var k = 0; k < langs.length; k++) {
+      var lcode = (langs[k] && typeof langs[k] === 'object')
+        ? String(langs[k].code || langs[k].name || '').toLowerCase()
+        : String(langs[k]).toLowerCase();
+      if (lcode === langIso) { ok = true; break; }
+    }
+    if (!ok) continue;
+    out.push({ nome: ch.name, url: sm[ch.id], cats: (ch.categories || []).slice() });
+  }
+  return out;
+}
+
+// ── Carregar todas as fontes ───────────────────────────────────
+var MAX_DIGITOS = 3;
+var CATS = ['news','business','weather','documentary','entertainment','comedy',
+  'general','sports','music','movies','series','animation','classic',
+  'kids','family','education','culture','science','cooking','travel',
+  'lifestyle','outdoor','religious','auto','shop','legislative'];
+
+function carregar() {
+  setStatus(t('loading_in') + ' ' + LANG_NOME + '...');
+
+  // Pré-marca defeituosos como vistos para não entrarem na lista
+  var _def = getDefeitos();
+  for (var _u in _def) { if (_def.hasOwnProperty(_u)) seenUrls[_u] = true; }
+
+  // ── CORREÇÃO: se a sintonia foi restaurada, NÃO recarrega o M3U bruto ──
+  // Captura o valor da flag agora (antes de qualquer callback assíncrono)
+  var _sintOk = _sintoniaRestaurada;
+
+  // 1. Idioma do usuario
+  fetchM3u([
+    'https://cdn.jsdelivr.net/gh/iptv-org/iptv@gh-pages/languages/' + LANG_ISO + '.m3u',
+    'https://iptv-org.github.io/iptv/languages/' + LANG_ISO + '.m3u',
+    'https://raw.githubusercontent.com/iptv-org/iptv/gh-pages/languages/' + LANG_ISO + '.m3u'
+  ], function(e, txt) {
+    if (!e) {
+      if (_sintOk) {
+        // Sintonia já restaurada: só marca as URLs como vistas.
+        // Isso evita que a lista mundial reinsira esses canais em canaisOutros.
+        _marcarM3uComoVisto(txt);
+      } else {
+        // Carga inicial (sem sintonia): adiciona normalmente
+        addCanais(parseM3u(txt), 'lang');
+      }
+    }
+    atualizarTela();
+
+    // Na TV: carrega APENAS o idioma do usuario
+    if (IS_TV) {
+      // Só tenta fallback API se não há sintonia e o M3U falhou ou veio vazio
+      var precisaFallback = !_sintOk && (e || canaisLang.length === 0);
+      if (precisaFallback) {
+        setStatus(t('loading_api') + ' (' + LANG_NOME + ')...');
+        fetchApi(function(eA, data) {
+          if (!eA) {
+            try { addCanais(buildApiByLang(data, LANG_ISO), 'lang'); } catch(x) {}
+          }
+          atualizarTela();
+          if (canaisLang.length === 0) {
+            setStatus('');
+            var prog = document.getElementById('sint-progresso');
+            if (prog) prog.innerHTML = '<span class="err">Nenhum canal do idioma ' + LANG_NOME + ' pode ser carregado. Verifique a conexao ou troque o idioma.</span>';
+          } else {
+            setStatus('');
+            setTimeout(function(){ detectarNovosCanais(canais); }, 2000);
+          }
+        });
+        return;
+      }
+      setStatus('');
+      setTimeout(function(){ detectarNovosCanais(canais); }, 2000);
+      return;
+    }
+
+    // 2. Brasil
+    setStatus(t('loading_brazil'));
+    fetchM3u([
+      'https://iptv-org.github.io/iptv/countries/br.m3u',
+      'https://raw.githubusercontent.com/rjpontes/iptv-brasil/main/lista.m3u'
+    ], function(e2, txt2) {
+      if (!e2) addCanais(parseM3u(txt2), 'outros');
+      atualizarTela();
+
+      // 3. Free-TV
+      setStatus(t('loading_freetv'));
+      fetchM3u([
+        'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u8',
+        'https://raw.githubusercontent.com/Free-TV/IPTV/master/playlist.m3u'
+      ], function(e3, txt3) {
+        if (!e3) addCanais(parseM3u(txt3), 'outros');
+        atualizarTela();
+
+        // 4. Lista mundial
+        setStatus(t('loading_world'));
+        fetchM3u([
+          'https://iptv-org.github.io/iptv/index.m3u',
+          'https://raw.githubusercontent.com/iptv-org/iptv/gh-pages/index.m3u'
+        ], function(e4, txt4) {
+          if (!e4) addCanais(parseM3u(txt4), 'outros');
+          atualizarTela();
+
+          // 5. API
+          setStatus(t('loading_api'));
+          fetchApi(function(eA, data) {
+            if (!eA) {
+              addCanais(buildApi(data, CATS), 'outros');
+              addCanais(buildApi(data, null), 'outros');
+            }
+            atualizarTela();
+            detectarNovosCanais(canais);
+            setTimeout(revalidarDefeitos, 10000);
+          });
+        });
+      });
+    });
+  });
+}
+
+// ── Display numero ─────────────────────────────────────────────
+function atualizarDisplay() {
+  var el = document.getElementById('digitos');
+  var box = document.getElementById('display-canal');
+  if (buf === '') { el.textContent = '_'; el.className = 'vazio'; box.className = ''; }
+  else { el.textContent = buf; el.className = ''; box.className = 'ativo'; }
+}
+
+function irCanal() {
+  if (!pronto || !buf) return;
+  var n = parseInt(buf, 10);
+  buf = ''; atualizarDisplay();
+  if (n >= 1 && n <= canais.length) { tocar(n - 1); }
+  else {
+    setStatus(t('ch') + ' ' + n + ' ' + t('not_exist') + ' <span>' + canais.length + '</span>');
+    setTimeout(function() { atualizarTela(); }, 2500);
+  }
+}
+
+// ── Player ─────────────────────────────────────────────────────
+function pararHls() { if (hlsObj) { try { hlsObj.destroy(); } catch(e) {} hlsObj = null; } }
+
+function pararVideo() {
+  pararHls();
+  var vid = document.getElementById('vid');
+  vid.onerror = null; vid.oncanplay = null; vid.onloadedmetadata = null; vid.onplaying = null;
+  clearTimeout(failTmr);
+  try { vid.pause(); } catch(e) {}
+  try { vid.src = ''; } catch(e) {}
+  try { vid.removeAttribute('src'); } catch(e) {}
+  try { vid.load(); } catch(e) {}
+  // Sempre reseta mudo ao trocar de canal
+  try { vid.muted = false; vid.volume = 1; } catch(e) {}
+}
+
+function tocar(idx) {
+  var ch = canais[idx]; if (!ch) return;
+  curCh = idx;
+  pararVideo();
+  var vid = document.getElementById('vid');
+  document.getElementById('osd-num').textContent = String(idx + 1);
+  document.getElementById('osd-nome').textContent = ch.nome;
+  document.getElementById('osd-estado').textContent = 'Conectando...';
+  // Sincroniza slider de volume com estado atual
+  setTimeout(sincVolSlider, 100);
+  document.getElementById('carregando').style.display = 'block';
+  document.getElementById('tela-home').style.display = 'none';
+  document.getElementById('tela-player').style.display = 'block';
+  mostrarOSD();
+  atualizarBtnFav();
+  failTmr = setTimeout(mostrarErro, IS_TV ? 30000 : 15000);
+  var okJa = false;
+  function onOk() {
+    if (okJa) return; okJa = true;
+    clearTimeout(failTmr);
+    skipCount = 0;
+    document.getElementById('carregando').style.display = 'none';
+    document.getElementById('osd-estado').textContent = 'Ao vivo';
+    // Garante que o áudio está ativado quando o vídeo começa
+    try { if (vid.muted) { vid.muted = false; vid.volume = 1; } } catch(e) {}
+  }
+  vid.oncanplay  = onOk;
+  vid.onplaying  = onOk;
+  vid.onloadedmetadata = function() { try { vid.play(); } catch(e) {} };
+  var url = ch.url;
+  var ehHls   = /\.m3u8?($|\?)/i.test(url);
+  var nativeHls = !!(vid.canPlayType && (
+    vid.canPlayType('application/vnd.apple.mpegurl') !== '' ||
+    vid.canPlayType('application/x-mpegURL') !== ''
+  ));
+  var temMSE = !IS_TV &&
+               typeof window.MediaSource !== 'undefined' &&
+               typeof Hls !== 'undefined' && Hls.isSupported();
+  function onErroNativo() {
+    vid.onerror = null;
+    var code = 0;
+    try { if (vid.error) code = vid.error.code; } catch(e) {}
+    window.__ultimoMotivoErro = (code === 3 || code === 4) ? 'app' : 'canal';
+    if (ehHls && temMSE) { tentarHlsJs(); return; }
+    clearTimeout(failTmr); mostrarErro();
+  }
+  vid.onerror = onErroNativo;
+  function tentarHlsJs() {
+    try {
+      hlsObj = new Hls({
+        enableWorker: false, lowLatencyMode: false, backBufferLength: 20,
+        maxBufferLength: 20, maxMaxBufferLength: 40,
+        maxBufferSize: 40 * 1000 * 1000, capLevelToPlayerSize: true
+      });
+      hlsObj.loadSource(url);
+      hlsObj.attachMedia(vid);
+      hlsObj.on(Hls.Events.MANIFEST_PARSED, function() { try { vid.play(); } catch(e) {} });
+      hlsObj.on(Hls.Events.ERROR, function(ev, d) {
+        if (!d || !d.fatal) return;
+        window.__ultimoMotivoErro = (d.type === Hls.ErrorTypes.NETWORK_ERROR) ? 'canal' : 'app';
+        clearTimeout(failTmr); mostrarErro();
+      });
+    } catch(e) { window.__ultimoMotivoErro = 'app'; mostrarErro(); }
+  }
+  if (ehHls && temMSE && !nativeHls) {
+    tentarHlsJs();
+  } else {
+    try {
+      vid.src = url;
+      vid.load();
+      var p = vid.play();
+      if (p && p.catch) p.catch(function() {
+        // Tenta mudo apenas para contornar política de autoplay do navegador,
+        // depois desmuta assim que o usuário interagir ou o vídeo começar
+        try {
+          vid.muted = true;
+          var p2 = vid.play();
+          if (p2 && p2.then) p2.then(function() {
+            // Desmuta após 800ms (tempo para o stream iniciar)
+            setTimeout(function() {
+              try { vid.muted = false; vid.volume = 1; } catch(e) {}
+            }, 800);
+          }).catch(function(){});
+        } catch(e) {}
+      });
+    } catch(e) {
+      window.__ultimoMotivoErro = 'app';
+      clearTimeout(failTmr); mostrarErro();
+    }
+  }
+}
+
+function voltarHome() {
+  pararVideo(); clearTimeout(osdTmr); clearTimeout(errTmr);
+  skipCount = 0;
+  document.getElementById('toast').style.display = 'none';
+  document.getElementById('tela-player').style.display = 'none';
+  document.getElementById('tela-home').style.display = '';
+  buf = ''; atualizarDisplay();
+}
+
+function mostrarErro() {
+  clearTimeout(failTmr); clearTimeout(errTmr);
+  var motivo = window.__ultimoMotivoErro || 'canal';
+  window.__ultimoMotivoErro = null;
+  window.__errCanal = window.__errCanal || 0;
+  window.__errApp   = window.__errApp   || 0;
+  if (motivo === 'app') window.__errApp++; else window.__errCanal++;
+  if (curCh >= 0 && canais[curCh]) {
+    registrarDefeito(curCh);
+    if (canais.length === 0) { voltarHome(); return; }
+    curCh = curCh % canais.length;
+  }
+  skipCount++;
+  var totalErr = window.__errApp + window.__errCanal;
+  var appIncompat = (totalErr >= 5 && window.__errApp / totalErr >= 0.7);
+  // Erro de incompatibilidade do app: mostra aviso e volta para home
+  if (appIncompat) {
+    skipCount = 0;
+    document.getElementById('carregando').style.display = 'none';
+    var tst = document.getElementById('toast');
+    tst.querySelector('p').innerHTML = '⚠ APLICATIVO DE REPRODUÇÃO COM ERRO';
+    tst.querySelector('small').textContent = 'O navegador desta TV não suporta o formato de vídeo (HLS/MSE). Tente em outro dispositivo.';
+    tst.style.display = 'block';
+    errTmr = setTimeout(function() { tst.style.display = 'none'; voltarHome(); }, 6000);
+    return;
+  }
+  // Todos os canais falharam: reinicia skipCount e continua tentando (não volta para home)
+  if (skipCount >= canais.length) {
+    skipCount = 1;
+  }
+  // Sempre pula para o próximo canal
+  document.getElementById('carregando').style.display = 'none';
+  var msg = (motivo === 'app')
+    ? '⚠ Reprodutor não suporta este canal — pulando...'
+    : 'Sem sinal (canal fora do ar) — pulando...';
+  document.getElementById('osd-estado').textContent = msg;
+  document.getElementById('osd').style.display = 'block';
+  errTmr = setTimeout(function() {
+    curCh = (curCh + 1) % canais.length;
+    tocar(curCh);
+  }, IS_TV ? 1800 : 900);
+}
+
+function mostrarOSD() {
+  document.getElementById('osd').style.display = 'block'; clearTimeout(osdTmr);
+  osdTmr = setTimeout(function() { document.getElementById('osd').style.display = 'none'; }, 5000);
+}
+
+function digitarNoPlayer(n) {
+  if (pBuf.length >= MAX_DIGITOS) return;
+  pBuf += String(n);
+  document.getElementById('p-canal-val').textContent = pBuf + '_';
+  document.getElementById('p-canal').style.display = 'block';
+  clearTimeout(pBufTmr);
+  pBufTmr = setTimeout(function() {
+    var idx = parseInt(pBuf, 10) - 1; pBuf = '';
+    document.getElementById('p-canal-val').textContent = '_';
+    document.getElementById('p-canal').style.display = 'none';
+    if (idx >= 0 && idx < canais.length) tocar(idx);
+  }, pBuf.length >= MAX_DIGITOS ? 600 : 2000);
+}
+
+function canalCima()  { if (canais.length) { skipCount = 0; curCh = (curCh + 1) % canais.length; tocar(curCh); } }
+function canalBaixo() { if (canais.length) { skipCount = 0; curCh = ((curCh - 1) + canais.length) % canais.length; tocar(curCh); } }
+
+// ── Controle de Volume ─────────────────────────────────────────
+var volTmr = null;
+var volVisivel = false;
+
+function atualizarIconeMute() {
+  var vid = document.getElementById('vid');
+  var btn = document.getElementById('btn-mute');
+  var mudo = vid.muted || vid.volume === 0;
+  btn.innerHTML = mudo ? '&#128264;' : (vid.volume < 0.4 ? '&#128265;' : '&#128266;');
+}
+
+function mostrarVolume() {
+  var ctrl = document.getElementById('volume-ctrl');
+  ctrl.classList.remove('oculto');
+  volVisivel = true;
+  clearTimeout(volTmr);
+  volTmr = setTimeout(function() {
+    ctrl.classList.add('oculto');
+    volVisivel = false;
+  }, 3500);
+}
+
+function ocultarVolume() {
+  clearTimeout(volTmr);
+  document.getElementById('volume-ctrl').classList.add('oculto');
+  volVisivel = false;
+}
+
+function sincVolSlider() {
+  var vid = document.getElementById('vid');
+  var v = vid.muted ? 0 : Math.round(vid.volume * 100);
+  document.getElementById('vol-slider').value = v;
+  document.getElementById('vol-label').textContent = v + '%';
+  atualizarIconeMute();
+}
+
+document.getElementById('btn-mute').onclick = function() {
+  var vid = document.getElementById('vid');
+  vid.muted = !vid.muted;
+  if (!vid.muted && vid.volume === 0) vid.volume = 0.5;
+  sincVolSlider();
+  mostrarVolume();
+};
+
+document.getElementById('vol-slider').oninput = function() {
+  var vid = document.getElementById('vid');
+  var v = parseInt(this.value, 10) / 100;
+  vid.volume = v;
+  vid.muted = (v === 0);
+  document.getElementById('vol-label').textContent = this.value + '%';
+  atualizarIconeMute();
+  mostrarVolume();
+};
+
+// Teclado: + / - para volume no player
+(function() {
+  var _orig = document.onkeydown;
+  document.onkeydown = function(e) {
+    var k = e.keyCode || e.which;
+    var naHome = document.getElementById('tela-home').style.display !== 'none';
+    if (!naHome) {
+      var vid = document.getElementById('vid');
+      // + ou seta direita = volume +10
+      if (k === 107 || k === 187 || k === 39) {
+        var nv = Math.min(1, (vid.muted ? 0 : vid.volume) + 0.1);
+        vid.volume = nv; vid.muted = false;
+        sincVolSlider(); mostrarVolume();
+        e.preventDefault(); return;
+      }
+      // - ou seta esquerda = volume -10
+      if (k === 109 || k === 189 || k === 37) {
+        var nv2 = Math.max(0, (vid.muted ? 0 : vid.volume) - 0.1);
+        vid.volume = nv2; vid.muted = (nv2 === 0);
+        sincVolSlider(); mostrarVolume();
+        e.preventDefault(); return;
+      }
+      // M = mute toggle
+      if (k === 77) {
+        vid.muted = !vid.muted;
+        if (!vid.muted && vid.volume === 0) vid.volume = 0.5;
+        sincVolSlider(); mostrarVolume();
+        e.preventDefault(); return;
+      }
+    }
+    if (_orig) return _orig.call(document, e);
+  };
+})();
+
+// ── Teclado ────────────────────────────────────────────────────
+document.onkeydown = function(e) {
+  var k = e.keyCode || e.which;
+  var naHome = document.getElementById('tela-home').style.display !== 'none';
+  var eNum = (k >= 48 && k <= 57) || (k >= 96 && k <= 105);
+  var num = k >= 96 ? k - 96 : k - 48;
+  var ok = k === 13 || k === 32;
+  var del = k === 8;
+  var voltar = k === 8 || k === 27 || k === 36 || k === 88 || k === 166 || k === 461;
+  var cima = k === 33 || k === 38 || k === 427;
+  var baixo = k === 34 || k === 40 || k === 428;
+  if (e.preventDefault && (eNum || ok || del || voltar || cima || baixo)) e.preventDefault();
+  if (naHome) {
+    if (eNum && pronto) {
+      if (buf.length >= MAX_DIGITOS + 1) return;
+      buf += String(num); atualizarDisplay(); clearTimeout(bufTmr);
+      if (buf.length > MAX_DIGITOS) irCanal();
+      else bufTmr = setTimeout(irCanal, 2500);
+    } else if (del && buf.length > 0) {
+      buf = buf.slice(0, -1); atualizarDisplay(); clearTimeout(bufTmr);
+    } else if (ok) { clearTimeout(bufTmr); irCanal(); }
+  } else {
+    mostrarOSD();
+    if (voltar && !eNum) voltarHome();
+    else if (cima) canalCima();
+    else if (baixo) canalBaixo();
+    else if (eNum) digitarNoPlayer(num);
+  }
+};
+
+// ── Favoritos ──────────────────────────────────────────────────
+function getFavs() { try { return JSON.parse(localStorage.getItem('k10favs') || '[]'); } catch(e) { return []; } }
+function saveFavs(f) { localStorage.setItem('k10favs', JSON.stringify(f)); }
+function isFav(url) { return getFavs().some(function(f){ return f.url === url; }); }
+
+function toggleFav() {
+  if (curCh < 0) return;
+  var ch = canais[curCh];
+  var favs = getFavs();
+  var idx = favs.findIndex(function(f){ return f.url === ch.url; });
+  if (idx === -1) favs.push({ nome: ch.nome, url: ch.url });
+  else favs.splice(idx, 1);
+  saveFavs(favs);
+  aplicarFiltro();
+  // Reconecta curCh ao canal atual após reordenação
+  curCh = canais.findIndex(function(c){ return c.url === ch.url; });
+  // Atualiza o número exibido no OSD sem interromper a reprodução
+  if (curCh >= 0) {
+    document.getElementById('osd-num').textContent = String(curCh + 1);
+  }
+  atualizarBtnFav();
+  renderFavs();
+}
+
+function atualizarBtnFav() {
+  var btn = document.getElementById('btn-fav');
+  if (curCh >= 0 && isFav(canais[curCh].url)) btn.classList.add('favoritado');
+  else btn.classList.remove('favoritado');
+}
+
+function renderFavs() {
+  var favs = getFavs();
+  var el = document.getElementById('favs');
+  if (favs.length === 0) { el.innerHTML = ''; return; }
+  var html = '<div id="favs-titulo">&#9733; Favoritos</div>';
+  favs.forEach(function(f, i) {
+    html += '<div class="fav-item">'
+      + '<span class="fav-nome" onclick="tocarFav(' + i + ')">' + f.nome + '</span>'
+      + '<button class="fav-del" onclick="deletarFav(' + i + ')" title="Remove">&#10005;</button>'
+      + '</div>';
+  });
+  el.innerHTML = html;
+}
+
+function tocarFav(i) {
+  var f = getFavs()[i];
+  var idx = canais.findIndex(function(c){ return c.url === f.url; });
+  if (idx !== -1) { tocar(idx); }
+  else {
+    curCh = -1;
+    addCanais([f], 'outros');
+    var novoIdx = canais.findIndex(function(c){ return c.url === f.url; });
+    if (novoIdx !== -1) tocar(novoIdx);
+  }
+}
+
+function deletarFav(i) {
+  var urlAtual = (curCh >= 0 && canais[curCh]) ? canais[curCh].url : null;
+  var favs = getFavs();
+  favs.splice(i, 1);
+  saveFavs(favs);
+  aplicarFiltro();
+  // Reconecta curCh ao canal atual após reordenação
+  if (urlAtual) {
+    curCh = canais.findIndex(function(c){ return c.url === urlAtual; });
+    if (curCh >= 0) {
+      document.getElementById('osd-num').textContent = String(curCh + 1);
+    }
+  }
+  renderFavs();
+  atualizarBtnFav();
+}
+
+document.getElementById('btn-fav').onclick = toggleFav;
+
+// ── Canais defeituosos ─────────────────────────────────────────
+var LS_DEFEITOS = 'k10_canais_defeituosos';
+
+function getDefeitos() {
+  try { return JSON.parse(localStorage.getItem(LS_DEFEITOS) || '{}'); } catch(e) { return {}; }
+}
+function saveDefeitos(d) {
+  try { localStorage.setItem(LS_DEFEITOS, JSON.stringify(d)); } catch(e) {}
+}
+
+function registrarDefeito(idx) {
+  var ch = canais[idx];
+  if (!ch) return;
+  var d = getDefeitos();
+  var agora = new Date().toISOString();
+  if (d[ch.url]) {
+    d[ch.url].tentativas = (d[ch.url].tentativas || 1) + 1;
+    d[ch.url].ultimaVez = agora;
+  } else {
+    d[ch.url] = { nome: ch.nome, url: ch.url, primeiroDef: agora, ultimaVez: agora, tentativas: 1 };
+  }
+  saveDefeitos(d);
+  removerCanalPorUrl(ch.url);
+  if (curCh >= canais.length) curCh = canais.length - 1;
+  console.log('[K60] Canal removido da lista por defeito: ' + ch.nome);
+}
+
+function _spliceUrl(arr, url){ for(var i=arr.length-1;i>=0;i--){ if(arr[i] && arr[i].url===url) arr.splice(i,1); } }
+function _extrairCanalPorUrl(arr, url){
+  for (var i = arr.length - 1; i >= 0; i--) {
+    if (arr[i] && arr[i].url === url) return arr.splice(i, 1)[0];
+  }
+  return null;
+}
+function removerCanalPorUrl(url) {
+  _spliceUrl(canaisLang, url);
+  _spliceUrl(canaisLangMaster, url);
+  _spliceUrl(canaisOutros, url);
+  for (var ei = 0; ei < canaisExtraLangs.length; ei++) {
+    if (canaisExtraLangs[ei]) {
+      _spliceUrl(canaisExtraLangs[ei].canais, url);
+      _spliceUrl(canaisExtraLangs[ei].master, url);
+    }
+  }
+  _salvarSintoniaExtras();
+  aplicarFiltro();
+}
+
+// ── Revalidação de defeituosos ─────────────────────────────────
+var LS_REVAL_FILA    = 'k10_reval_fila';
+var LS_REVAL_DATA    = 'k10_reval_data';
+var REVAL_LOTE       = 5;
+var REVAL_INTERVALO  = 7 * 24 * 60 * 60 * 1000;
+var REVAL_ESPERA     = 8000;
+
+function revalidarDefeitos() {
+  var d    = getDefeitos();
+  var urls = Object.keys(d);
+  if (urls.length === 0) return;
+  var agora        = Date.now();
+  var ultimaRodada = parseInt(localStorage.getItem(LS_REVAL_DATA) || '0', 10);
+  if (agora - ultimaRodada < REVAL_INTERVALO) {
+    var dias = Math.ceil((REVAL_INTERVALO - (agora - ultimaRodada)) / 86400000);
+    console.log('[K60] Proxima revalidacao em ' + dias + ' dia(s).');
+    return;
+  }
+  var fila = [];
+  try { fila = JSON.parse(localStorage.getItem(LS_REVAL_FILA) || '[]'); } catch(e) {}
+  fila = fila.filter(function(u){ return !!d[u]; });
+  if (fila.length === 0) {
+    fila = urls.slice();
+    for (var s = fila.length - 1; s > 0; s--) {
+      var r = Math.floor(Math.random() * (s + 1));
+      var tmp = fila[s]; fila[s] = fila[r]; fila[r] = tmp;
+    }
+  }
+  var lote = fila.splice(0, REVAL_LOTE);
+  try { localStorage.setItem(LS_REVAL_FILA, JSON.stringify(fila)); } catch(e) {}
+  try { localStorage.setItem(LS_REVAL_DATA, String(agora)); } catch(e) {}
+  var i = 0;
+  function testarProximo() {
+    if (i >= lote.length) return;
+    var url = lote[i++];
+    var ch  = d[url];
+    if (!ch) { testarProximo(); return; }
+    var resolvido = false;
+    function onFalha() { if (resolvido) return; resolvido = true; setTimeout(testarProximo, 2000); }
+    function onOk()    { if (resolvido) return; resolvido = true; voltarDaDefeituosa(url, ch); setTimeout(testarProximo, 2000); }
+    var vid = document.createElement('video');
+    var tmr = setTimeout(function() {
+      vid.src = ''; vid.onerror = null; vid.oncanplay = null;
+      if (typeof Hls !== 'undefined' && Hls.isSupported() && url.indexOf('.m3u') !== -1) {
+        var h = new Hls({ enableWorker: false });
+        var v2 = document.createElement('video');
+        h.loadSource(url); h.attachMedia(v2);
+        h.on(Hls.Events.MANIFEST_PARSED, function() { h.destroy(); onOk(); });
+        h.on(Hls.Events.ERROR, function(ev, data) { if (data.fatal) { h.destroy(); onFalha(); } });
+      } else { onFalha(); }
+    }, REVAL_ESPERA);
+    vid.oncanplay = function() { clearTimeout(tmr); vid.src = ''; onOk(); };
+    vid.onerror   = function() { clearTimeout(tmr); onFalha(); };
+    vid.src = url;
+    try { vid.load(); } catch(e) {}
+  }
+  testarProximo();
+}
+
+function voltarDaDefeituosa(url, ch) {
+  var d = getDefeitos();
+  if (!d[url]) return;
+  delete d[url];
+  saveDefeitos(d);
+  var jaEsta = canais.some(function(c){ return c.url === url; });
+  if (!jaEsta) {
+    addCanais([{ nome: ch.nome, url: url }], 'outros');
+    atualizarTela();
+  }
+}
+
+function filtrarDefeituososDaLista() {
+  var d = getDefeitos();
+  var urls = Object.keys(d);
+  if (urls.length === 0) return;
+  var antes = canais.length;
+  canaisLang   = canaisLang.filter(function(c){ return !d[c.url]; });
+  canaisOutros = canaisOutros.filter(function(c){ return !d[c.url]; });
+  for (var ei = 0; ei < canaisExtraLangs.length; ei++) {
+    canaisExtraLangs[ei].canais = canaisExtraLangs[ei].canais.filter(function(c){ return !d[c.url]; });
+  }
+  aplicarFiltro();
+  seenUrls = {};
+  for (var i = 0; i < canais.length; i++) seenUrls[canais[i].url] = true;
+  var removidos = antes - canais.length;
+  if (removidos > 0) console.log('[K60] ' + removidos + ' canal(is) defeituoso(s) removido(s) da lista.');
+}
+
+// ── Canais novos ───────────────────────────────────────────────
+var LS_CANAIS_VISTOS = 'k10_canais_vistos';
+
+function getCanaisVistos() {
+  try { return JSON.parse(localStorage.getItem(LS_CANAIS_VISTOS) || '[]'); } catch(e) { return []; }
+}
+
+function detectarNovosCanais(listaAtual) {
+  var vistos = getCanaisVistos();
+  var vistosSet = {};
+  for (var i = 0; i < vistos.length; i++) vistosSet[vistos[i]] = true;
+  var precisaMigrar = vistos.some(function(v){ return typeof v === 'string' && v.indexOf('http') === 0; });
+  if (precisaMigrar) {
+    vistosSet = {};
+    for (var m = 0; m < vistos.length; m++) {
+      var v = vistos[m];
+      vistosSet[v.indexOf('http') === 0 ? urlId(v) : v] = true;
+    }
+  }
+  var novos = listaAtual.filter(function(c){ return !vistosSet[urlId(c.url)]; });
+  if (novos.length > 0) {
+    var agora = new Date().toISOString();
+    var LS_NOVOS = 'k10_canais_novos';
+    var jaReg = []; try { jaReg = JSON.parse(localStorage.getItem(LS_NOVOS) || '[]'); } catch(e) {}
+    var entrada = novos.map(function(c){ return { nome: c.nome, url: c.url, detectadoEm: agora }; });
+    var todos = jaReg.concat(entrada);
+    if (todos.length > 500) todos = todos.slice(todos.length - 500);
+    try { localStorage.setItem(LS_NOVOS, JSON.stringify(todos)); } catch(e) {}
+  }
+  try { localStorage.setItem(LS_CANAIS_VISTOS, JSON.stringify(listaAtual.map(function(c){ return urlId(c.url); }))); } catch(e) {}
+}
+
+// ── Comandos de console ────────────────────────────────────────
+window.verDefeitos      = function(){ var d=getDefeitos(); console.table(Object.values(d)); return Object.values(d); };
+window.limparDefeitos   = function(){ localStorage.removeItem(LS_DEFEITOS); console.log('[K60] Defeitos limpos.'); };
+window.verCanaisNovos   = function(){ try{ var l=JSON.parse(localStorage.getItem('k10_canais_novos')||'[]'); console.table(l); return l; }catch(e){ return []; } };
+window.limparCanaisNovos= function(){ localStorage.removeItem('k10_canais_novos'); localStorage.removeItem(LS_CANAIS_VISTOS); console.log('[K60] Canais novos limpos.'); };
+// Diagnóstico: mostra se a sintonia está salva
+window.verSintonia = function(){
+  var m = []; try { m = JSON.parse(localStorage.getItem(LS_SINT_MASTER)||'[]'); } catch(e){}
+  console.log('[K60] canaisLangMaster salvo: ' + m.length + ' canal(is). _sintoniaRestaurada=' + _sintoniaRestaurada);
+  return m;
+};
+
+// ── Sintonizar canais do idioma ────────────────────────────────
+var sintRodando = false;
+var sintAbortar = false;
+
+function sintonizarIdioma() {
+  var btn  = document.getElementById('btn-sintonizar');
+  var prog = document.getElementById('sint-progresso');
+
+  if (sintRodando) {
+    sintAbortar = true;
+    prog.innerHTML = 'Cancelando...';
+    return;
+  }
+
+  var targetRaw  = tuneTargetLang || rawLang;
+  var targetIso  = LANG_MAP[targetRaw] || LANG_ISO;
+  var targetNome = (LANG_NAMES[targetRaw] || targetRaw).toUpperCase();
+  var isPrimary  = (targetIso === LANG_ISO);
+
+  sintRodando = true; sintAbortar = false;
+  btn.innerHTML = '&#9209; Cancelar sintonia';
+  prog.innerHTML = '&#9851; Baixando lista de ' + targetNome + '...';
+
+  saveDefeitos({});
+
+  if (isPrimary) {
+    canaisLang = []; canaisLangMaster = [];
+    // ── CORREÇÃO: reseta a flag ao iniciar nova sintonia do idioma principal ──
+    _sintoniaRestaurada = false;
+    seenUrls = {};
+    for (var si = 0; si < canaisOutros.length; si++) seenUrls[canaisOutros[si].url] = true;
+    for (var ei = 0; ei < canaisExtraLangs.length; ei++) {
+      var _ec = canaisExtraLangs[ei].canais;
+      for (var _i = 0; _i < _ec.length; _i++) seenUrls[_ec[_i].url] = true;
+    }
+  } else {
+    var entryIdx = -1;
+    for (var xi = 0; xi < canaisExtraLangs.length; xi++) {
+      if (canaisExtraLangs[xi].iso === targetIso) { entryIdx = xi; break; }
+    }
+    if (entryIdx === -1) {
+      canaisExtraLangs.push({ iso: targetIso, nome: targetNome, canais: [], master: [] });
+      entryIdx = canaisExtraLangs.length - 1;
+    }
+    var _entry = canaisExtraLangs[entryIdx];
+    for (var ri = 0; ri < _entry.master.length; ri++) delete seenUrls[_entry.master[ri].url];
+    _entry.canais = []; _entry.master = [];
+  }
+  aplicarFiltro();
+  atualizarTela();
+
+  fetchM3u([
+    'https://cdn.jsdelivr.net/gh/iptv-org/iptv@gh-pages/languages/' + targetIso + '.m3u',
+    'https://iptv-org.github.io/iptv/languages/' + targetIso + '.m3u',
+    'https://raw.githubusercontent.com/iptv-org/iptv/gh-pages/languages/' + targetIso + '.m3u'
+  ], function(errM3u, txt) {
+    if (sintAbortar) { _fimSint('Sintonia cancelada.', 0, 0); return; }
+    var novos = (!errM3u && txt) ? parseM3u(txt) : [];
+    if (novos.length === 0) {
+      prog.innerHTML = '&#9851; M3U indisponível — tentando API...';
+      fetchApi(function(errApi, data) {
+        if (sintAbortar) { _fimSint('Sintonia cancelada.', 0, 0); return; }
+        _popularETestar((!errApi && data) ? buildApiByLang(data, targetIso) : []);
+      });
+    } else {
+      _popularETestar(novos);
+    }
+  });
+
+  function _popularETestar(novosCanais) {
+    if (sintAbortar) { _fimSint('Sintonia cancelada.', 0, 0); return; }
+
+    if (!isPrimary) {
+      entryIdx = -1;
+      for (var _xi = 0; _xi < canaisExtraLangs.length; _xi++) {
+        if (canaisExtraLangs[_xi] && canaisExtraLangs[_xi].iso === targetIso) { entryIdx = _xi; break; }
+      }
+      if (entryIdx === -1) {
+        canaisExtraLangs.push({ iso: targetIso, nome: targetNome, canais: [], master: [] });
+        entryIdx = canaisExtraLangs.length - 1;
+      }
+    }
+    var _entryRef   = isPrimary ? null : canaisExtraLangs[entryIdx];
+    var targetMaster = isPrimary ? canaisLangMaster : _entryRef.master;
+    var targetAtivo  = isPrimary ? canaisLang       : _entryRef.canais;
+
+    var jaAprovadosMap = {};
+    for (var ja = 0; ja < targetAtivo.length; ja++) jaAprovadosMap[targetAtivo[ja].url] = true;
+
+    var realmNovos = [];
+    for (var i = 0; i < novosCanais.length; i++) {
+      var c = novosCanais[i];
+      if (!c || !c.url) continue;
+      if (jaAprovadosMap[c.url]) continue;
+      if (seenUrls[c.url]) {
+        var reaproveitado = _extrairCanalPorUrl(canaisOutros, c.url);
+        if (!reaproveitado) continue;
+        if ((!reaproveitado.nome || reaproveitado.nome === 'Canal') && c.nome) reaproveitado.nome = c.nome;
+        if ((!reaproveitado.cats || !reaproveitado.cats.length) && c.cats && c.cats.length) reaproveitado.cats = c.cats.slice();
+        reaproveitado._num = atribuirNumero(reaproveitado.url, 'lang');
+        targetAtivo.push(reaproveitado);
+        targetMaster.push(reaproveitado);
+        realmNovos.push(reaproveitado);
+        continue;
+      }
+      seenUrls[c.url] = true;
+      c._num = atribuirNumero(c.url, 'lang');
+      targetAtivo.push(c);
+      targetMaster.push(c);
+      realmNovos.push(c);
+    }
+    targetAtivo.sort(function(a, b) { return a._num - b._num; });
+    targetMaster.sort(function(a, b) { return a._num - b._num; });
+    if (isPrimary) { canaisLang = targetAtivo; canaisLangMaster = targetMaster; }
+    aplicarFiltro();
+    atualizarTela();
+
+    var jaAprovados = targetAtivo.length - realmNovos.length;
+    var lista = realmNovos.slice();
+    var total = lista.length;
+
+    if (total === 0) {
+      sintRodando = false;
+      _btnLabel();
+      if (jaAprovados > 0) {
+        prog.innerHTML = '<span class="ok">&#10003; ' + jaAprovados + ' canal(is) já sintonizado(s) mantidos. Nenhum canal novo para ' + targetNome + '.</span>';
+      } else {
+        prog.innerHTML = '<span class="err">Nenhum canal encontrado para ' + targetNome + '.</span>';
+      }
+      return;
+    }
+
+    var idx = 0, ok = 0, fail = 0, ativos = 0;
+    var PARALELO = IS_TV ? 2 : 3;
+    var TIMEOUT  = IS_TV ? 5000 : 4000;
+
+    prog.innerHTML = 'Testando ' + total + ' novo(s) canal(is) [' + targetNome + ']'
+      + (jaAprovados > 0 ? ' &nbsp;<span class="ok">+ ' + jaAprovados + ' já ok</span>' : '') + '...';
+
+    function atualizar(nome) {
+      prog.innerHTML = 'Testando ' + Math.min(idx, total) + '/' + total
+        + ' [' + targetNome + ']'
+        + (jaAprovados > 0 ? ' <span class="ok">+ ' + jaAprovados + ' já ok</span>' : '')
+        + ' &nbsp;<span class="ok">&#10003; ' + ok + '</span>'
+        + ' &nbsp;<span class="err">&#10005; ' + fail + '</span>'
+        + (nome ? '<br><small>' + nome + '</small>' : '');
+    }
+
+    function testarCanal(ch, cb) {
+      var url = ch.url;
+      var tentativas = [url];
+      for (var pi = 0; pi < PROXIES.length; pi++) tentativas.push(PROXIES[pi] + encodeURIComponent(url));
+      var ti = 0, resolvido = false;
+      var tmr = setTimeout(function() { resolver(false); }, TIMEOUT + 2000);
+      function resolver(s) { if (resolvido) return; resolvido = true; clearTimeout(tmr); try { cb(s); } catch(e) {} }
+      function next() {
+        if (ti >= tentativas.length) { resolver(false); return; }
+        var u = tentativas[ti++];
+        try {
+          var r = new XMLHttpRequest();
+          r.open('HEAD', u, true);
+          try { r.timeout = Math.floor(TIMEOUT * 0.55); } catch(e) {}
+          r.onreadystatechange = function() {
+            if (r.readyState !== 4) return;
+            if (r.status >= 200 && r.status < 400) { resolver(true); }
+            else if (r.status === 405) {
+              try {
+                var r2 = new XMLHttpRequest();
+                r2.open('GET', u, true);
+                try { r2.timeout = Math.floor(TIMEOUT * 0.45); } catch(e) {}
+                r2.onreadystatechange = function() {
+                  if (r2.readyState >= 2) { try { r2.abort(); } catch(e) {} if (r2.status >= 200 && r2.status < 400) resolver(true); else next(); }
+                };
+                r2.onerror = r2.ontimeout = function() { try { next(); } catch(e) { resolver(false); } };
+                r2.send();
+              } catch(e2) { next(); }
+            } else { next(); }
+          };
+          r.onerror = r.ontimeout = function() { try { next(); } catch(e) { resolver(false); } };
+          r.send();
+        } catch(e) { next(); }
+      }
+      next();
+    }
+
+    function lancar() {
+      if (sintAbortar) { if (ativos === 0) _fimSint('Sintonia cancelada.', ok, fail); return; }
+      if (idx >= total) { if (ativos === 0) _fimSint('Sintonia concluída.', ok, fail); return; }
+      while (ativos < PARALELO && idx < total) {
+        (function(ch) {
+          ativos++;
+          atualizar(ch.nome);
+          testarCanal(ch, function(sucesso) {
+            if (sucesso) {
+              ok++;
+            } else {
+              fail++;
+              var d = getDefeitos(), agora = new Date().toISOString();
+              if (d[ch.url]) { d[ch.url].tentativas = (d[ch.url].tentativas || 1) + 1; d[ch.url].ultimaVez = agora; }
+              else { d[ch.url] = { nome: ch.nome, url: ch.url, primeiroDef: agora, ultimaVez: agora, tentativas: 1 }; }
+              saveDefeitos(d);
+              removerCanalPorUrl(ch.url);
+            }
+            ativos--;
+            atualizar('');
+            lancar();
+          });
+        })(lista[idx++]);
+      }
+    }
+
+    setTimeout(lancar, 200);
+  }
+
+  function _btnLabel() {
+    var selVal = document.getElementById('sel-lang') ? document.getElementById('sel-lang').value : rawLang;
+    var _iso = LANG_MAP[selVal] || LANG_ISO;
+    if (_iso === LANG_ISO) {
+      btn.innerHTML = '&#128225; <span data-i18n="tune">Sintonizar canais do meu idioma</span>';
+    } else {
+      btn.innerHTML = '&#128225; Sintonizar ' + (LANG_NAMES[selVal] || selVal).toUpperCase();
+    }
+  }
+
+  function _fimSint(msg, ok, fail) {
+    sintRodando = false;
+    // ── CORREÇÃO: marca a sintonia como válida ao concluir ──
+    if (isPrimary && msg.indexOf('concluída') !== -1) _sintoniaRestaurada = true;
+    try { _salvarSintoniaExtras(); } catch(e) {}
+    _btnLabel();
+    var extra = (typeof jaAprovados !== 'undefined' && jaAprovados > 0)
+      ? ' <span class="ok">+ ' + jaAprovados + ' mantidos</span>' : '';
+    prog.innerHTML = msg
+      + (ok || fail ? ' <span class="ok">&#10003; ' + ok + '</span> <span class="err">&#10005; ' + fail + '</span>' : '')
+      + extra;
+    atualizarTela();
+  }
+}
+
+// ── Auto-ocultar controles ─────────────────────────────────────
+var hideTmr;
+function mostrarControles() {
+  document.getElementById('controles').classList.remove('oculto');
+  clearTimeout(hideTmr);
+  hideTmr = setTimeout(function(){ document.getElementById('controles').classList.add('oculto'); }, 3000);
+}
+['mousemove','mousedown','touchstart','keydown'].forEach(function(ev){
+  document.addEventListener(ev, mostrarControles);
+});
+
+// ── Detecção mobile e teclado numérico ────────────────────────
+var ehMobile = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+if (ehMobile) {
+  document.getElementById('teclado-num').classList.add('visivel');
+  document.getElementById('btn-enter').style.display = 'none';
+  var instrEl = document.getElementById('instrucao');
+  if (instrEl) instrEl.setAttribute('data-i18n-override', 'Type the channel number below');
+  document.getElementById('swipe-hint').style.display = 'block';
+}
+
+function tkDigito(d) {
+  buf += d;
+  if (buf.length > MAX_DIGITOS) buf = buf.slice(1);
+  atualizarDisplay();
+  clearTimeout(bufTmr);
+}
+function tkApagar() {
+  buf = buf.slice(0, -1);
+  atualizarDisplay();
+}
+
+var tkpBuf = '';
+var tkpTmr = null;
+function tkpDigito(d) {
+  mostrarControles();
+  tkpBuf += d;
+  document.getElementById('p-canal-val').textContent = tkpBuf;
+  document.getElementById('p-canal').style.display = 'block';
+  clearTimeout(tkpTmr);
+  tkpTmr = setTimeout(tkpConfirmar, 2500);
+}
+function tkpApagar() {
+  tkpBuf = tkpBuf.slice(0, -1);
+  if (tkpBuf) {
+    document.getElementById('p-canal-val').textContent = tkpBuf;
+  } else {
+    document.getElementById('p-canal').style.display = 'none';
+  }
+  clearTimeout(tkpTmr);
+}
+function tkpConfirmar() {
+  clearTimeout(tkpTmr);
+  var n = parseInt(tkpBuf, 10);
+  tkpBuf = '';
+  document.getElementById('p-canal').style.display = 'none';
+  if (!isNaN(n) && n >= 1 && n <= canais.length) tocarCanal(n - 1);
+}
+
+// Duplo toque no player: toggle teclado numérico
+var lastTap = 0;
+document.getElementById('tela-player').addEventListener('touchend', function(e) {
+  if (e.target.closest && e.target.closest('#controles,#volume-ctrl,#teclado-player,#osd,#btn-fav')) return;
+  var now = Date.now();
+  if (now - lastTap < 300) {
+    document.getElementById('teclado-player').classList.toggle('visivel');
+    lastTap = 0;
+  } else {
+    lastTap = now;
+    mostrarControles();
+    mostrarVolume();
+  }
+}, { passive: true });
+
+// Swipe vertical para trocar canal
+var swipeStartX = 0, swipeStartY = 0, swipeStartT = 0;
+document.getElementById('tela-player').addEventListener('touchstart', function(e) {
+  if (e.target.closest && e.target.closest('#controles,#volume-ctrl,#teclado-player,#vol-slider')) return;
+  swipeStartX = e.touches[0].clientX;
+  swipeStartY = e.touches[0].clientY;
+  swipeStartT = Date.now();
+}, { passive: true });
+document.getElementById('tela-player').addEventListener('touchend', function(e) {
+  if (e.target.closest && e.target.closest('#controles,#volume-ctrl,#teclado-player,#vol-slider')) return;
+  if (Date.now() - swipeStartT > 600) return;
+  var dy = e.changedTouches[0].clientY - swipeStartY;
+  var dx = e.changedTouches[0].clientX - swipeStartX;
+  if (Math.abs(dy) > Math.abs(dx) && Math.abs(dy) > 60) {
+    if (dy < 0) canalCima(); else canalBaixo();
+  }
+}, { passive: true });
+
+renderFavs();
+
+document.getElementById('btn-voltar').onclick = function() { voltarHome(); };
+document.getElementById('btn-ch-cima').onclick = function() { canalCima(); };
+document.getElementById('btn-ch-baixo').onclick = function() { canalBaixo(); };
+popularSelectCategorias();
+carregarUIIdioma();
+(function(){
+  var sel = document.getElementById('sel-lang');
+  if (sel) {
+    var keys = []; for (var k in LANG_MAP) keys.push(k);
+    keys.sort(function(a,b){ return (LANG_NAMES[a]||a).localeCompare(LANG_NAMES[b]||b); });
+    var html = '';
+    for (var i=0;i<keys.length;i++) {
+      var k = keys[i];
+      html += '<option value="'+k+'"'+(k===rawLang?' selected':'')+'>'+(LANG_NAMES[k]||k)+'</option>';
+    }
+    sel.innerHTML = html;
+  }
+})();
+_restaurarSintoniaExtras();
+aplicarFiltro();
+atualizarTela();
+carregar();
+</script>
+</body>
+</html>
